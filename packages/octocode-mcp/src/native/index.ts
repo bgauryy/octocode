@@ -22,11 +22,9 @@ import {
   deferredDispatcherDefinition,
   publishedInputSchema,
   type GrammarCapability,
-  type PublishedView,
 } from '@octocodeai/config/mcp';
 import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 import packageJson from '../../package.json';
-import { formatIssues, type RawIssue } from './validationMessages.js';
 
 /**
  * A tool as reported by the native runtime catalog: runtime truth only —
@@ -49,26 +47,27 @@ export interface NativeCatalog {
   /** Language labels whose LSP server resolves on this machine. */
   lspServers?: string[];
   /**
-   * MCP presentation switches resolved by native from config `mcp.*`:
-   * tools/list input view, instructions variant, and the available tools
-   * served only through the deferred-tool dispatcher.
+   * MCP presentation switches resolved by native from config `mcp.*`: the
+   * available tools served only through the deferred-tool dispatcher.
    */
   presentation?: {
-    publishedView?: PublishedView;
-    instructions?: 'default' | 'guide';
     deferred?: string[];
   };
 }
 
+/** Native startup check of the clasify provider (`probeClassification`). */
+export interface ClassificationProbe {
+  probed: boolean;
+  available: boolean;
+  code?: string;
+  message?: string;
+}
+
 export interface NativeRuntime {
   readonly abiVersion: number;
+  /** Disables clasify in `catalog()` when its provider cannot answer. */
+  probeClassification(): Promise<ClassificationProbe>;
   catalog(): NativeCatalog;
-  /**
-   * Native pre-validation normalization (bare-query wrapping, JSON-encoded
-   * `queries`/list values, bare scalars for lists, lossless integer/boolean
-   * strings). Never validates or applies defaults.
-   */
-  normalizeInput(tool: string, input: unknown): unknown;
   executeMcp(requestId: string, tool: string, input: unknown): Promise<unknown>;
   cancel(requestId: string): boolean;
   close(): Promise<void>;
@@ -153,112 +152,52 @@ type RegisterTool = (
     title?: string;
     description?: string;
     inputSchema?: unknown;
+    annotations?: ToolDefinition['annotations'];
   },
   callback: (args: unknown, context?: ToolCallContext) => Promise<unknown>
 ) => void;
 
-type StandardResult =
-  { value: unknown; issues?: undefined } | { issues: readonly unknown[] };
 type StandardSchema = {
   '~standard': {
     version: 1;
     vendor: string;
-    validate: (value: unknown) => StandardResult | Promise<StandardResult>;
-    jsonSchema?: unknown;
+    validate: (value: unknown) => { value: unknown };
+    jsonSchema: {
+      input: () => Record<string, unknown>;
+      output: () => Record<string, unknown>;
+    };
   };
 };
-
-/**
- * Preserve the schema's presentation, but let a batch whose
- * envelope is valid and that has at least one valid row reach the native
- * runtime, which executes the valid rows and returns indexed invalidInput
- * rows for the rest (CLI parity). Every other failure keeps the SDK issues.
- * Expects an already-normalized `{ queries: [...] }` envelope.
- */
-export function rowIsolatingSchema(
-  inputSchema: StandardSchema,
-  querySchema: { safeParse(value: unknown): { success: boolean } },
-  envelopeSchema: { safeParse(value: unknown): { success: boolean } }
-): StandardSchema {
-  const standard = inputSchema['~standard'];
-  if (!standard.jsonSchema) return inputSchema;
-  return {
-    '~standard': {
-      version: standard.version,
-      vendor: standard.vendor,
-      jsonSchema: standard.jsonSchema,
-      validate: async value => {
-        const result = await standard.validate(value);
-        if (!result.issues) return result;
-        if (!value || typeof value !== 'object' || Array.isArray(value))
-          return result;
-        const rows = (value as { queries?: unknown }).queries;
-        if (!Array.isArray(rows) || rows.length < 2) return result;
-        const valid = rows.filter(row => querySchema.safeParse(row).success);
-        if (valid.length === 0 || valid.length === rows.length) return result;
-        return envelopeSchema.safeParse({ ...value, queries: valid }).success
-          ? { value }
-          : result;
-      },
-    },
-  };
-}
 
 type ToolDefinition = ReturnType<
   typeof getDirectToolDefinitionsWithAddons
 >[number];
 
 /**
- * Run `normalize` on the input before `inputSchema` validates it, so every
- * later step (row isolation, the value passed to native) sees one shape.
+ * A Standard Schema that advertises `jsonSchema` in tools/list and passes
+ * every input through: native normalizes and validates once, isolates invalid
+ * rows, and returns the actionable repair message for a rejected call.
  */
-export function normalizingSchema(
-  inputSchema: StandardSchema,
-  normalize: (value: unknown) => unknown
+function passThroughSchema(
+  advertised: Record<string, unknown>
 ): StandardSchema {
-  const standard = inputSchema['~standard'];
   return {
     '~standard': {
-      ...standard,
-      validate: value => standard.validate(normalize(value)),
+      version: 1,
+      vendor: 'octocode',
+      jsonSchema: { input: () => advertised, output: () => advertised },
+      validate: value => ({ value }),
     },
   };
 }
 
-/**
- * The Standard Schema registered for a tool: `normalize` (the native
- * runtime's `normalizeInput`, so MCP and CLI repair the same input slips)
- * runs first, then partially invalid batches reach native row isolation.
- * Validation uses the canonical contract; agents see core's slim published
- * view of it (a superset, sized for hosts that resend tools/list every
- * request). Row isolation needs a plain `{ queries: [...] }` envelope; a
- * union root (clasify's matrix-or-queries input) validates as one value.
- */
+/** A tool's registered schema: core's slim published view of the canonical input. */
 export function toolInputSchema(
-  definition: Pick<ToolDefinition, 'name' | 'schema' | 'inputSchema'>,
-  normalize: (value: unknown) => unknown,
-  view: PublishedView = 'queries'
+  definition: Pick<ToolDefinition, 'name' | 'inputSchema'>
 ): StandardSchema {
-  const canonical = canonicalInputSchema(definition);
-  const advertised = publishedInputSchema(definition.name, canonical, view);
-  const properties = canonical.properties;
-  const queriesEnvelope =
-    !!properties &&
-    typeof properties === 'object' &&
-    Object.hasOwn(properties, 'queries');
-  const inputSchema = definition.inputSchema as unknown as StandardSchema;
-  const schema = !queriesEnvelope
-    ? inputSchema
-    : rowIsolatingSchema(
-        inputSchema,
-        definition.schema,
-        definition.inputSchema
-      );
-  return actionableIssuesSchema(normalizingSchema(schema, normalize), {
-    normalize,
-    jsonSchema: () => canonical,
-    advertised,
-  });
+  return passThroughSchema(
+    publishedInputSchema(definition.name, canonicalInputSchema(definition))
+  );
 }
 
 function canonicalInputSchema(
@@ -270,87 +209,13 @@ function canonicalInputSchema(
   }) as Record<string, unknown>;
 }
 
-/** The SDK's rejection text, so agents and harnesses see one shape. */
-function invalidArguments(tool: string, issues: readonly unknown[]) {
-  const text = (issues as { message?: string; path?: unknown[] }[])
-    .map(issue => {
-      const path = (issue.path ?? [])
-        .map(part =>
-          String(
-            part && typeof part === 'object' && 'key' in part
-              ? (part as { key: unknown }).key
-              : part
-          )
-        )
-        .join('.');
-      return path ? `${path}: ${issue.message}` : String(issue.message);
-    })
-    .join(', ');
-  return {
-    content: [
-      {
-        type: 'text',
-        text: `Input validation error: Invalid arguments for tool ${tool}: ${text}`,
-      },
-    ],
-    isError: true,
-  };
-}
-
-/** The `run` dispatcher's input: a `{tool, query}` lead, extra keys ignored. */
-const DispatchInputSchema = z
-  .object({ tool: z.string(), query: z.record(z.string(), z.unknown()) })
-  .passthrough();
-
-/**
- * Keep the schema's accept/reject decisions, but rewrite rejection issues
- * into the CLI's actionable wording (allowed enum values, nearest field,
- * missing field, valid field list) from the canonical `jsonSchema`. When
- * `advertised` is set, tools/list shows it instead of the canonical input.
- */
-export function actionableIssuesSchema(
-  inputSchema: StandardSchema,
-  options: {
-    normalize: (value: unknown) => unknown;
-    jsonSchema: () => Record<string, unknown> | undefined;
-    advertised?: Record<string, unknown>;
-  }
-): StandardSchema {
-  const standard = inputSchema['~standard'];
-  if (!standard.jsonSchema) return inputSchema;
-  const advertised = options.advertised;
-  return {
-    '~standard': {
-      version: standard.version,
-      vendor: standard.vendor,
-      jsonSchema: advertised
-        ? { ...(standard.jsonSchema as object), input: () => advertised }
-        : standard.jsonSchema,
-      validate: async value => {
-        const result = await standard.validate(value);
-        if (!result.issues?.length) return result;
-        try {
-          const issues = formatIssues(result.issues as readonly RawIssue[], {
-            value: options.normalize(value),
-            jsonSchema: options.jsonSchema,
-          });
-          return issues.length ? { issues } : result;
-        } catch {
-          // Message shaping must never mask the underlying rejection.
-          return result;
-        }
-      },
-    },
-  };
-}
-
 /**
  * MCP clients that read only `content` must still see the result. When the
  * native envelope carries structuredContent but no text block (clasify
  * receipts are not text-rendered), serialize structuredContent as the text
  * block, as the MCP spec recommends for structured results.
  */
-export function ensureTextContent(result: unknown): unknown {
+function ensureTextContent(result: unknown): unknown {
   if (!result || typeof result !== 'object' || Array.isArray(result)) {
     return result;
   }
@@ -370,10 +235,10 @@ export function ensureTextContent(result: unknown): unknown {
   };
 }
 
-export function createNativeMcp({
+export async function createNativeMcp({
   env = process.env,
   binding,
-}: NativeMcpOptions = {}): NativeMcp {
+}: NativeMcpOptions = {}): Promise<NativeMcp> {
   const { NativeRuntime } = binding ?? loadNativeBinding(env);
   const runtimeEnv = Object.fromEntries(
     Object.entries(env).filter(
@@ -393,6 +258,14 @@ export function createNativeMcp({
     throw new Error(
       `Native addon ABI ${actual} does not match expected ${NATIVE_ABI_VERSION}; ` +
         'rebuild or reinstall @octocodeai/octocode-native'
+    );
+  }
+  // An enabled clasify whose provider cannot answer (bad key, quota, host
+  // down) leaves the catalog before tools/list, so agents never call it.
+  const probe = await runtime.probeClassification();
+  if (probe.probed && !probe.available) {
+    process.stderr.write(
+      `[octocode-mcp] clasify disabled: provider check failed (${probe.code}): ${probe.message}\n`
     );
   }
   const catalog = runtime.catalog();
@@ -445,8 +318,6 @@ export function createNativeMcp({
   // Presentation switches (config `mcp.*`, resolved by native). Deferred
   // tools stay available but leave tools/list; `run` executes them.
   const presentation = catalog.presentation ?? {};
-  const view: PublishedView =
-    presentation.publishedView === 'flat' ? 'flat' : 'queries';
   const availableNames = availableTools.map(tool => tool.name);
   const deferred = availableNames.filter(name =>
     presentation.deferred?.includes(name)
@@ -460,11 +331,7 @@ export function createNativeMcp({
     // with `octocode scheme` rather than being appended here.
     instructions: buildMcpInstructions(
       listed.map(tool => tool.name),
-      {
-        view,
-        deferred,
-        ...(presentation.instructions === 'guide' && { variant: 'guide' }),
-      }
+      { deferred }
     ),
   });
   const registerTool = server.registerTool.bind(server) as RegisterTool;
@@ -513,27 +380,21 @@ export function createNativeMcp({
     }
   };
 
-  const schemas = new Map<string, StandardSchema>();
   for (const tool of availableTools) {
     const definition = definitions.get(tool.name);
     if (!definition) {
       void runtime.close();
       throw new Error(`Native catalog tool has no contract: ${tool.name}`);
     }
-    const inputSchema = toolInputSchema(
-      definition,
-      value =>
-        value === undefined ? value : runtime.normalizeInput(tool.name, value),
-      view
-    );
-    schemas.set(tool.name, inputSchema);
     if (deferred.includes(tool.name)) continue;
     registerTool(
       tool.name,
       {
         title: definition.title,
         description: definition.description,
-        inputSchema,
+        inputSchema: toolInputSchema(definition),
+        // Core-authored MCP hints (readOnlyHint), passed through as-is.
+        ...(definition.annotations && { annotations: definition.annotations }),
       },
       (args, context = {}) => execute(tool.name, args, context)
     );
@@ -541,8 +402,8 @@ export function createNativeMcp({
 
   if (deferred.length) {
     // Every next/hints lead is `{tool, query}`, so a lead naming a deferred
-    // tool runs here verbatim; its query validates against that tool's
-    // canonical schema exactly as a direct call would.
+    // tool runs here verbatim; native validates its query exactly as a
+    // direct call.
     const dispatcher = deferredDispatcherDefinition(
       deferred.map(name => ({
         name,
@@ -554,29 +415,26 @@ export function createNativeMcp({
       {
         title: dispatcher.title,
         description: dispatcher.description,
-        inputSchema: actionableIssuesSchema(
-          DispatchInputSchema as unknown as StandardSchema,
-          {
-            normalize: value => value,
-            jsonSchema: () => dispatcher.inputSchema,
-            advertised: dispatcher.inputSchema,
-          }
-        ),
+        inputSchema: passThroughSchema(dispatcher.inputSchema),
       },
       async (args, context = {}) => {
-        const { tool, query } = args as { tool: string; query: unknown };
-        const schema = schemas.get(tool);
-        if (!schema) {
-          return invalidArguments(DEFERRED_TOOL_DISPATCHER, [
-            {
-              path: ['tool'],
-              message: `${tool} is not available; use one of ${[...schemas.keys()].join(', ')}`,
-            },
-          ]);
+        const { tool, query } = (args ?? {}) as {
+          tool?: unknown;
+          query?: unknown;
+        };
+        if (typeof tool !== 'string' || !availableNames.includes(tool)) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Input validation error: Invalid arguments for tool ${DEFERRED_TOOL_DISPATCHER}: tool: ${String(tool)} is not available; use one of ${availableNames.join(', ')}`,
+              },
+            ],
+            isError: true,
+          };
         }
-        const result = await schema['~standard'].validate(query);
-        if (result.issues) return invalidArguments(tool, result.issues);
-        return execute(tool, (result as { value: unknown }).value, context);
+        // Verbatim: native runs a bare row as a one-row `queries`.
+        return execute(tool, query, context);
       }
     );
   }
@@ -593,7 +451,7 @@ export function createNativeMcp({
 export async function startNativeMcp(
   options?: NativeMcpOptions
 ): Promise<NativeMcp> {
-  const instance = createNativeMcp(options);
+  const instance = await createNativeMcp(options);
   // Shutdown = cancel + bounded wait. `runtime.close()` (native `begin_close`)
   // cancels every in-flight request immediately and then waits for the active
   // requests to unwind; it does NOT let them finish. A request in flight when

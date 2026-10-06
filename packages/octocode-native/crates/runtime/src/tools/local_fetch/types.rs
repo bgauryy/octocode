@@ -1,8 +1,11 @@
+use crate::tools::num::{usize_of, usize_of_signed};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub use crate::contracts::tool_types::{ChunkType, LocalFetchQuery, MatchString, MinifyMode};
+pub use crate::contracts::tool_types::{
+    LocalFetchQuery, MatchString, MinifyMode, ReadCaseMode, ReadRegex, WindowUnit,
+};
 
 /// A single literal `matchString` (tests and continuations build one).
 impl std::str::FromStr for MatchString {
@@ -29,23 +32,44 @@ impl MatchString {
 /// The engine works in `usize`; the wire contract (generated from the core
 /// Zod schema) owns the field set and its JSON integer types.
 impl LocalFetchQuery {
+    /// The one requested line span, when `ranges` holds exactly one.
+    fn single_range(&self) -> Option<LineRange> {
+        match self.line_ranges().as_slice() {
+            [one] => Some(one.clone()),
+            _ => None,
+        }
+    }
     pub fn start_line(&self) -> Option<usize> {
-        self.start_line.map(|n| usize_of(n.get()))
+        self.single_range().map(|range| range.start)
     }
     pub fn end_line(&self) -> Option<usize> {
-        self.end_line.map(|n| usize_of(n.get()))
+        self.single_range().map(|range| range.end)
     }
-    /// Context lines per match, clamped to [`MAX_CONTEXT_LINES`]: a larger
-    /// request reads the maximum instead of failing the call.
+    /// Sets the read to the one line span `start..=end`.
+    pub fn set_line_span(&mut self, start: usize, end: usize) {
+        self.ranges = format!("{start}-{end}").parse().ok().into_iter().collect();
+    }
+    /// `regex:"rust"` or `"pcre2"`: `matchString` is a regular expression.
+    pub fn is_regex(&self) -> bool {
+        matches!(self.regex, Some(ReadRegex::Rust | ReadRegex::Pcre2))
+    }
+    /// `regex:"pcre2"`: lookaround and backreferences, under a deadline.
+    pub fn is_pcre2(&self) -> bool {
+        self.regex == Some(ReadRegex::Pcre2)
+    }
+    /// Whether `pattern` matches case-sensitively. Omitted means smart, as
+    /// in localSearch: sensitive only when the pattern has an uppercase
+    /// letter.
+    pub fn case_sensitive_for(&self, pattern: &str) -> bool {
+        match self.case_mode {
+            Some(ReadCaseMode::Sensitive) => true,
+            Some(ReadCaseMode::Smart) | None => pattern.chars().any(char::is_uppercase),
+            Some(ReadCaseMode::Insensitive) => false,
+        }
+    }
+    /// Context lines per match; the contract bounds the request.
     pub fn context_lines(&self) -> Option<usize> {
-        self.context_lines
-            .map(|n| usize_of_signed(n).min(MAX_CONTEXT_LINES))
-    }
-    /// The requested context when it exceeded the maximum.
-    pub fn context_lines_clamped_from(&self) -> Option<usize> {
-        self.context_lines
-            .map(usize_of_signed)
-            .filter(|n| *n > MAX_CONTEXT_LINES)
+        self.context_lines.map(usize_of_signed)
     }
     pub fn context_bytes(&self) -> Option<usize> {
         self.context_bytes.map(usize_of_signed)
@@ -53,8 +77,8 @@ impl LocalFetchQuery {
     pub fn offset(&self) -> Option<usize> {
         self.offset.map(usize_of_signed)
     }
-    pub fn chunk_size(&self) -> Option<usize> {
-        self.chunk_size.map(|n| usize_of(n.get()))
+    pub fn window_length(&self) -> Option<usize> {
+        self.length.map(|n| usize_of(n.get()))
     }
     /// Every `matchString` entry (a list matches any of them).
     pub fn match_strings(&self) -> Vec<&str> {
@@ -71,11 +95,8 @@ impl LocalFetchQuery {
         self.ranges
             .iter()
             .filter_map(|range| {
-                let (start, end) = range.split_once('-')?;
-                Some(LineRange {
-                    start: start.parse().ok()?,
-                    end: end.parse().ok()?,
-                })
+                let (start, end) = crate::tools::line_spans::parse_span(range)?;
+                Some(LineRange { start, end })
             })
             .collect()
     }
@@ -98,17 +119,6 @@ impl LocalFetchQuery {
         self.minify.unwrap_or(MinifyMode::None)
     }
 }
-
-fn usize_of(value: u64) -> usize {
-    usize::try_from(value).unwrap_or(usize::MAX)
-}
-
-fn usize_of_signed(value: i64) -> usize {
-    usize::try_from(value).unwrap_or(0)
-}
-
-/// Largest `contextLines` applied around a match.
-pub const MAX_CONTEXT_LINES: usize = 100;
 
 /// Default line-page request. The 16 KiB page budget, not a line count,
 /// bounds each page, so short-line files are not split into many tiny calls.
@@ -140,25 +150,41 @@ pub struct LineRange {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Pagination {
-    pub chunk_type: ChunkType,
+    pub unit: WindowUnit,
     pub offset: usize,
     pub length: usize,
-    pub chunk_size: usize,
+    /// The requested window, in `unit`; never sent (the caller set it).
+    pub window: usize,
     pub total_lines: usize,
     pub total_bytes: usize,
     pub has_more: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_offset: Option<usize>,
+    /// A byte page that finished an oversized line: the 0-based line the
+    /// next page resumes line paging at, so only that line is byte-chunked.
+    #[serde(skip)]
+    pub resume_line: Option<usize>,
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// A typed localFetch follow-up; it serializes through the one shared
+/// continuation builder ([`crate::tools::result::Continuation`]).
+#[derive(Clone, Debug, PartialEq)]
 pub struct Continuation {
-    pub tool: String,
     pub query: LocalFetchQuery,
-    pub confidence: String,
-    #[serde(rename = "why", skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
 }
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+impl Serialize for Continuation {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::Error;
+        let row = serde_json::to_value(&self.query).map_err(S::Error::custom)?;
+        let mut call =
+            crate::tools::result::Continuation::new(crate::tools::id::ToolId::LocalFetch, row);
+        if let Some(why) = &self.reason {
+            call = call.why(why.clone());
+        }
+        call.build().serialize(serializer)
+    }
+}
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct NextCalls {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub r#continue: Option<Continuation>,
@@ -184,13 +210,6 @@ pub struct NextCalls {
     /// The whole declarations a `block` match kept only a context window of.
     #[serde(rename = "readBlock", skip_serializing_if = "Option::is_none", default)]
     pub read_block: Option<Continuation>,
-    /// The context lines a clamped `contextLines` left out.
-    #[serde(
-        rename = "readContext",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub read_context: Option<Continuation>,
 }
 
 impl NextCalls {
@@ -203,7 +222,6 @@ impl NextCalls {
             whole_lines,
             continue_block,
             read_block,
-            read_context,
         } = other;
         for (mine, theirs) in [
             (&mut self.r#continue, r#continue),
@@ -212,7 +230,6 @@ impl NextCalls {
             (&mut self.whole_lines, whole_lines),
             (&mut self.continue_block, continue_block),
             (&mut self.read_block, read_block),
-            (&mut self.read_context, read_context),
         ] {
             if mine.is_none() {
                 *mine = theirs;
@@ -223,42 +240,60 @@ impl NextCalls {
     pub fn is_empty(&self) -> bool {
         *self == NextCalls::default()
     }
+
+    /// Whether a continuation reads more of this result (a page), as opposed
+    /// to an optional lead such as `readBlock`; only a page makes the row
+    /// partial.
+    pub fn leaves_more(&self) -> bool {
+        serde_json::to_value(self)
+            .ok()
+            .and_then(|value| {
+                value.as_object().map(|calls| {
+                    calls.keys().any(|name| {
+                        crate::tools::id::is_remaining(crate::tools::id::ToolId::LocalFetch, name)
+                    })
+                })
+            })
+            .unwrap_or(false)
+    }
 }
 
 /// A source-line read of `ranges` derived from `q`: the extraction selectors,
 /// paging cursor, and `block` are cleared so the read returns exactly those
-/// lines. One range reads as `startLine`/`endLine`; more than `ranges` holds
-/// read as one span from the first start to the last end.
+/// lines, spelled as the published `ranges`. More ranges than one read
+/// holds read as one span from the first start to the last end.
 pub fn line_read(q: &LocalFetchQuery, ranges: &[LineRange]) -> Option<LocalFetchQuery> {
     let (first, last) = (ranges.first()?, ranges.last()?);
     let mut query = q.clone();
     query.clear_block_selectors();
     query.match_string = None;
-    query.match_string_is_regex = None;
-    query.match_string_case_sensitive = None;
+    query.regex = None;
+    query.case_mode = None;
     query.context_lines = None;
     query.context_bytes = None;
     query.full_content = None;
     query.offset = None;
-    query.chunk_type = None;
-    query.chunk_size = None;
+    query.unit = None;
+    query.length = None;
     query.snapshot = None;
-    query.start_line = None;
-    query.end_line = None;
-    if ranges.len() == 1 || ranges.len() > MAX_READ_RANGES {
-        query.start_line = wire_positive(first.start);
-        query.end_line = wire_positive(last.end);
+    let span = [LineRange {
+        start: first.start,
+        end: last.end,
+    }];
+    let ranges = if ranges.len() > MAX_READ_RANGES {
+        &span[..]
     } else {
-        query.ranges = ranges
-            .iter()
-            .filter_map(|range| format!("{}-{}", range.start, range.end).parse().ok())
-            .collect();
-    }
+        ranges
+    };
+    query.ranges = ranges
+        .iter()
+        .filter_map(|range| format!("{}-{}", range.start, range.end).parse().ok())
+        .collect();
     Some(query)
 }
 
-/// Most `ranges` one localFetch read accepts.
-pub const MAX_READ_RANGES: usize = 10;
+/// Most `ranges` one localFetch read accepts: the contract's `maxItems`.
+pub const MAX_READ_RANGES: usize = crate::tools::id::query_limits::local_fetch::RANGES_MAX_ITEMS;
 
 /// `wanted` minus every line in `shown`: the sorted, disjoint ranges of
 /// `wanted` lines a view did not return.
@@ -331,8 +366,6 @@ pub struct LocalFetchResult {
     pub error_code: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resolved_path: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub warnings: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
@@ -377,22 +410,22 @@ pub struct LocalFetchResult {
     /// `pagination.outOfRange`.
     #[serde(default)]
     pub out_of_range: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", skip_deserializing)]
     pub next: Option<NextCalls>,
 }
 impl LocalFetchResult {
-    pub fn error(_path: String, code: &str, message: String) -> Self {
+    /// A result with `status` and every other field empty.
+    pub fn blank(status: &str) -> Self {
         Self {
             path: String::new(),
-            status: "error".into(),
+            status: status.into(),
             resource_missing: false,
             source_sha256: None,
             content: None,
             content_view: None,
             minify_fallback: None,
-            error_code: Some(code.into()),
-            error: Some(message),
-            resolved_path: None,
+            error_code: None,
+            error: None,
             warnings: vec![],
             hints: vec![],
             total_lines: None,
@@ -417,6 +450,14 @@ impl LocalFetchResult {
             next: None,
         }
     }
+
+    pub fn error(_path: String, code: &str, message: String) -> Self {
+        Self {
+            error_code: Some(code.into()),
+            error: Some(message),
+            ..Self::blank("error")
+        }
+    }
 }
 
 impl LocalFetchResult {
@@ -432,9 +473,32 @@ impl LocalFetchResult {
             _ => false,
         }
     }
-    fn match_ranges_are_redundant(&self) -> bool {
-        self.match_ranges == self.source_line_ranges
-            || match (self.start_line, self.end_line, self.match_ranges.as_slice()) {
+    /// The matched line ranges this page shows: each clipped to the page's
+    /// source lines, so a later page never restates hits an earlier one sent.
+    /// Without source lines (a byte page) only the first page carries them.
+    fn page_match_ranges(&self) -> Vec<LineRange> {
+        if self.source_line_ranges.is_empty() {
+            let first_page = self.pagination.as_ref().is_none_or(|page| page.offset == 0);
+            return if first_page {
+                self.match_ranges.clone()
+            } else {
+                Vec::new()
+            };
+        }
+        self.match_ranges
+            .iter()
+            .flat_map(|hit| {
+                self.source_line_ranges.iter().filter_map(move |shown| {
+                    let start = hit.start.max(shown.start);
+                    let end = hit.end.min(shown.end);
+                    (start <= end).then_some(LineRange { start, end })
+                })
+            })
+            .collect()
+    }
+    fn match_ranges_are_redundant(&self, ranges: &[LineRange]) -> bool {
+        ranges == self.source_line_ranges.as_slice()
+            || match (self.start_line, self.end_line, ranges) {
                 (Some(start), Some(end), [range]) => range.start == start && range.end == end,
                 _ => false,
             }
@@ -448,21 +512,10 @@ impl LocalFetchResult {
                 .as_ref()
                 .is_none_or(|page| page.offset == 0 && !page.has_more)
     }
-    fn returned_lines_are_derivable(&self) -> bool {
-        !self.source_line_ranges.is_empty()
-            && self.returned_lines
-                == Some(
-                    self.source_line_ranges
-                        .iter()
-                        .map(|range| range.end + 1 - range.start)
-                        .sum(),
-                )
-    }
 }
 
-/// Wire view of [`Pagination`]: `length` only when it differs from
-/// `chunkSize`, and only the view total in `chunkType` units when it differs
-/// from the source total already emitted at the top level.
+/// Wire view of [`Pagination`]: the view total in `unit` only when it
+/// differs from the source total already emitted at the top level.
 struct PaginationWire<'a> {
     page: &'a Pagination,
     source_lines: Option<usize>,
@@ -474,17 +527,14 @@ impl Serialize for PaginationWire<'_> {
         use serde::ser::SerializeMap;
         let page = self.page;
         let mut map = serializer.serialize_map(None)?;
-        map.serialize_entry("chunkType", &page.chunk_type)?;
+        map.serialize_entry("unit", &page.unit)?;
         map.serialize_entry("offset", &page.offset)?;
-        if page.length != page.chunk_size {
-            map.serialize_entry("length", &page.length)?;
-        }
-        map.serialize_entry("chunkSize", &page.chunk_size)?;
-        match page.chunk_type {
-            ChunkType::Lines if self.source_lines != Some(page.total_lines) => {
+        map.serialize_entry("length", &page.length)?;
+        match page.unit {
+            WindowUnit::Lines if self.source_lines != Some(page.total_lines) => {
                 map.serialize_entry("totalLines", &page.total_lines)?
             }
-            ChunkType::Bytes if self.source_bytes != Some(page.total_bytes) => {
+            WindowUnit::Bytes if self.source_bytes != Some(page.total_bytes) => {
                 map.serialize_entry("totalBytes", &page.total_bytes)?
             }
             _ => {}
@@ -500,65 +550,83 @@ impl Serialize for PaginationWire<'_> {
     }
 }
 
+fn opt<M: serde::ser::SerializeMap, T: Serialize>(
+    map: &mut M,
+    key: &'static str,
+    value: &Option<T>,
+) -> Result<(), M::Error> {
+    match value {
+        Some(value) => map.serialize_entry(key, value),
+        None => Ok(()),
+    }
+}
+
+fn list<M: serde::ser::SerializeMap, T: Serialize>(
+    map: &mut M,
+    key: &'static str,
+    values: &[T],
+) -> Result<(), M::Error> {
+    if values.is_empty() {
+        Ok(())
+    } else {
+        map.serialize_entry(key, values)
+    }
+}
+
+impl LocalFetchResult {
+    /// Where the returned text sits in the source: totals, the line span,
+    /// and the hits on this page, each only when not derivable from another.
+    fn serialize_anchors<M: serde::ser::SerializeMap>(&self, map: &mut M) -> Result<(), M::Error> {
+        opt(map, "totalLines", &self.total_lines)?;
+        if !self.window_is_source_range() {
+            opt(map, "startLine", &self.start_line)?;
+            opt(map, "endLine", &self.end_line)?;
+        }
+        list(map, "sourceLineRanges", &self.source_line_ranges)?;
+        let match_ranges = self.page_match_ranges();
+        if !self.match_ranges_are_redundant(&match_ranges) {
+            list(map, "matchRanges", &match_ranges)?;
+        }
+        list(map, "matchedLines", &self.matched_lines)?;
+        if self.selected_match_count != Some(self.matched_lines.len()) {
+            opt(map, "selectedMatchCount", &self.selected_match_count)?;
+        }
+        Ok(())
+    }
+
+    /// Explanation counters: the contract classes them verbose, so the
+    /// response keeps them only under `debug: true`.
+    fn serialize_counters<M: serde::ser::SerializeMap>(&self, map: &mut M) -> Result<(), M::Error> {
+        opt(map, "modified", &self.modified)?;
+        opt(map, "sourceChars", &self.source_chars)?;
+        opt(map, "sourceBytes", &self.source_bytes)?;
+        opt(map, "returnedChars", &self.returned_chars)?;
+        opt(map, "returnedBytes", &self.returned_bytes)?;
+        opt(map, "returnedLines", &self.returned_lines)
+    }
+}
+
 impl Serialize for LocalFetchResult {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
         let mut map = serializer.serialize_map(None)?;
-        macro_rules! opt {
-            ($key:literal, $value:expr) => {
-                if let Some(value) = &$value {
-                    map.serialize_entry($key, value)?;
-                }
-            };
-        }
-        macro_rules! list {
-            ($key:literal, $value:expr) => {
-                if !$value.is_empty() {
-                    map.serialize_entry($key, &$value)?;
-                }
-            };
-        }
         if !self.path.is_empty() {
             map.serialize_entry("path", &self.path)?;
         }
-        opt!("content", self.content);
+        opt(&mut map, "content", &self.content)?;
         // `none` is the default view; only a transformed view is news.
-        if let Some(view) = self.content_view.filter(|view| *view != MinifyMode::None) {
-            map.serialize_entry("contentView", &view)?;
-        }
-        opt!("minifyFallback", self.minify_fallback);
-        opt!("errorCode", self.error_code);
-        opt!("error", self.error);
-        opt!("resolvedPath", self.resolved_path);
-        list!("warnings", self.warnings);
-        list!("hints", self.hints);
-        opt!("totalLines", self.total_lines);
-        if !self.window_is_source_range() {
-            opt!("startLine", self.start_line);
-            opt!("endLine", self.end_line);
-        }
-        list!("sourceLineRanges", self.source_line_ranges);
-        if !self.match_ranges_are_redundant() {
-            list!("matchRanges", self.match_ranges);
-        }
-        list!("matchedLines", self.matched_lines);
-        if self.selected_match_count != Some(self.matched_lines.len()) {
-            opt!("selectedMatchCount", self.selected_match_count);
-        }
-        opt!("modified", self.modified);
-        // UTF-16 char counts only when they differ from the UTF-8 byte counts
-        // (non-ASCII text); bytes are the unit offsets and chunks use.
-        if self.source_chars != self.source_bytes {
-            opt!("sourceChars", self.source_chars);
-        }
-        opt!("sourceBytes", self.source_bytes);
-        if self.returned_chars != self.returned_bytes {
-            opt!("returnedChars", self.returned_chars);
-        }
-        opt!("returnedBytes", self.returned_bytes);
-        if !self.returned_lines_are_derivable() {
-            opt!("returnedLines", self.returned_lines);
-        }
+        opt(
+            &mut map,
+            "contentView",
+            &self.content_view.filter(|view| *view != MinifyMode::None),
+        )?;
+        opt(&mut map, "minifyFallback", &self.minify_fallback)?;
+        opt(&mut map, "errorCode", &self.error_code)?;
+        opt(&mut map, "error", &self.error)?;
+        list(&mut map, "warnings", &self.warnings)?;
+        list(&mut map, "hints", &self.hints)?;
+        self.serialize_anchors(&mut map)?;
+        self.serialize_counters(&mut map)?;
         if !self.pagination_is_redundant()
             && let Some(page) = &self.pagination
         {
@@ -572,13 +640,23 @@ impl Serialize for LocalFetchResult {
                 },
             )?;
         }
-        opt!("isPartial", self.is_partial);
-        list!("partialReasons", self.partial_reasons);
-        opt!("terminalLimit", self.terminal_limit);
-        list!("metadataUnavailable", self.metadata_unavailable);
-        opt!("next", self.next);
+        opt(&mut map, "isPartial", &self.is_partial)?;
+        list(&mut map, "partialReasons", &self.partial_reasons)?;
+        opt(&mut map, "terminalLimit", &self.terminal_limit)?;
+        list(&mut map, "metadataUnavailable", &self.metadata_unavailable)?;
+        opt(&mut map, "next", &self.next)?;
         map.end()
     }
+}
+
+/// What the caller knows about a read besides its bytes.
+#[derive(Clone, Debug, Default)]
+pub struct SourceFacts {
+    /// The file's modification time (ISO 8601), when the caller has one.
+    pub modified: Option<String>,
+    /// The configured response window: a whole-file view larger than it
+    /// returns its first page and `next.continue`.
+    pub window: Option<usize>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -673,7 +751,7 @@ impl PathAccess for crate::policy::path::PathPolicy {
 }
 
 /// Whether `path` lies in a git worktree with sparse checkout enabled (as a
-/// `ghCloneRepo` clone with `sparsePath` is).
+/// `ghCloneRepo` clone with `path` is).
 fn in_sparse_checkout(path: &Path) -> bool {
     path.ancestors()
         .skip(1)
@@ -699,5 +777,47 @@ impl LocalFetchQuery {
             serde_json::json!({"path": "_", "mainGoal": "test", "reasoning": "test"}),
         )
         .expect("minimal localFetch query")
+    }
+}
+
+#[cfg(test)]
+mod line_read_tests {
+    use super::{LineRange, LocalFetchQuery, MAX_READ_RANGES, line_read};
+
+    /// Every lead `line_read` builds (readBlock, continueBlock,
+    /// readBoundedLines) spells lines with the published `ranges`, never
+    /// startLine/endLine, and clears a span the caller sent.
+    #[test]
+    fn line_reads_spell_published_ranges() {
+        let mut q = LocalFetchQuery::test_default();
+        q.set_line_span(1, 9);
+        let wire = |query: LocalFetchQuery| serde_json::to_value(query).expect("query");
+        let one = wire(line_read(&q, &[LineRange { start: 57, end: 69 }]).expect("read"));
+        assert_eq!(one["ranges"], serde_json::json!(["57-69"]), "{one}");
+        assert!(
+            one.get("startLine").is_none() && one.get("endLine").is_none(),
+            "{one}"
+        );
+        let many = (0..=MAX_READ_RANGES)
+            .map(|i| LineRange {
+                start: 10 * i + 1,
+                end: 10 * i + 2,
+            })
+            .collect::<Vec<_>>();
+        let span = wire(line_read(&q, &many).expect("read"));
+        assert_eq!(span["ranges"], serde_json::json!(["1-102"]), "{span}");
+        assert!(span.get("startLine").is_none(), "{span}");
+    }
+
+    #[test]
+    fn read_range_cap_comes_from_the_contract() {
+        let declared = crate::contracts::query_schema_number(
+            crate::tools::id::ToolId::LocalFetch,
+            None,
+            "ranges",
+            "maxItems",
+        )
+        .expect("localFetch ranges declares maxItems");
+        assert_eq!(MAX_READ_RANGES as u64, declared);
     }
 }

@@ -40,9 +40,9 @@ try {
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) + '\n');
     const catalog = await rpc('tools/list', {});
     if (!catalog.result?.tools?.some(t => t.name === 'structureSearch')) throw new Error('native MCP catalog missing');
-    const result = await rpc('tools/call', { name: 'structureSearch', arguments: { queries: [{ path: corpus[0], operation: 'files', limit: 2, goal: 'Verify isolated native MCP', reasoning: 'Smoke probe' }] } });
+    const result = await rpc('tools/call', { name: 'structureSearch', arguments: { queries: [{ path: corpus[0], operation: 'files', maxEntries: 2, mainGoal: 'Verify isolated native MCP', reasoning: 'Smoke probe' }] } });
     if (result.error || result.result?.isError || !result.result?.structuredContent) throw new Error('native MCP tool probe failed');
-    const mixed = await rpc('tools/call', { name: 'structureSearch', arguments: { queries: [{ path: corpus[0], operation: 'files', limit: 1, goal: 'Verify row accounting', reasoning: 'Smoke probe' }, { path: path.join(corpus[0], '__nonexistent_smoke__'), operation: 'files', goal: 'Verify row accounting', reasoning: 'Intentional missing path' }] } });
+    const mixed = await rpc('tools/call', { name: 'structureSearch', arguments: { queries: [{ path: corpus[0], operation: 'files', maxEntries: 1, mainGoal: 'Verify row accounting', reasoning: 'Smoke probe' }, { path: path.join(corpus[0], '__nonexistent_smoke__'), operation: 'files', mainGoal: 'Verify row accounting', reasoning: 'Intentional missing path' }] } });
     if (!mixed.result?.structuredContent || !boundary.nativeCalls().some(c => c.tool === 'structureSearch' && c.rowErrors.length > 0)) throw new Error('native mixed-row error telemetry failed');
     console.log(JSON.stringify({ nativeBridge: 'passed', tools: catalog.result.tools.length, structured: true, nativeRowErrorsVerified: true }));
   } finally { child.kill(); }

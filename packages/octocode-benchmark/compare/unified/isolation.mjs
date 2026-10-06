@@ -92,7 +92,7 @@ const WRITE_TOOLS = ['astRewrite', 'ghCloneRepo'];
 
 /**
  * The upstream native MCP environment: evaluator env, then the profile
- * server's `env` (catalog-shape switches such as OCTOCODE_PUBLISHED_VIEW),
+ * server's `env` (catalog-shape switches such as OCTOCODE_DEFER_TOOLS),
  * then the evaluator-owned isolation keys, which a profile cannot override.
  * A profile DISABLE_TOOLS adds to the write tools; it never re-enables one.
  */

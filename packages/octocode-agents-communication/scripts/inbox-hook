@@ -1,0 +1,12 @@
+#!/bin/sh
+# Host must insert stdout into agent context. Empty stdout means no new messages.
+set -eu
+set -- hook "$@"
+# Sourcing keeps one shell hop; the launcher resolves paths from this $0.
+hook=$0
+case $hook in */*) ;; *) hook=./$hook ;; esac
+while [ -L "$hook" ]; do
+  target=$(readlink "$hook")
+  case $target in /*) hook=$target ;; *) hook=${hook%/*}/$target ;; esac
+done
+. "${hook%/*}/agents-communication"

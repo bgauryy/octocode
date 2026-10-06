@@ -1,3 +1,4 @@
+use crate::tools::num::u32_of;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -44,10 +45,6 @@ macro_rules! every_analysis {
     };
 }
 
-fn u32_of(value: std::num::NonZeroU64) -> u32 {
-    u32::try_from(value.get()).unwrap_or(u32::MAX)
-}
-
 /// Analysis-independent views over the generated wire query, in the graph
 /// engine's `u32` units.
 impl AstTopologyQuery {
@@ -83,11 +80,12 @@ impl AstTopologyQuery {
             | Self::Reachability { path, .. } => *path = Some(root),
         }
     }
-    pub fn file(&self) -> Option<&str> {
+    /// The traversal start file.
+    pub fn source(&self) -> Option<&str> {
         match self {
-            Self::Dependencies { file, .. }
-            | Self::Dependents { file, .. }
-            | Self::Path { file, .. } => Some(file),
+            Self::Dependencies { source, .. }
+            | Self::Dependents { source, .. }
+            | Self::Path { source, .. } => Some(source),
             _ => None,
         }
     }
@@ -131,8 +129,8 @@ impl AstTopologyQuery {
         use crate::policy::prune::DefaultsFlag;
         every_analysis!(self, default_excludes => default_excludes.defaults())
     }
-    pub fn exclude_dir(&self) -> Option<&[String]> {
-        every_analysis!(self, exclude_dir => (!exclude_dir.is_empty()).then_some(exclude_dir.as_slice()))
+    pub fn exclude(&self) -> Option<&[String]> {
+        every_analysis!(self, exclude => (!exclude.is_empty()).then_some(exclude.as_slice()))
     }
     /// Language globs in a deterministic (sorted) order.
     pub fn language_globs(&self) -> Option<BTreeMap<String, Vec<String>>> {
@@ -146,9 +144,6 @@ impl AstTopologyQuery {
     pub fn max_files(&self) -> Option<u32> {
         every_analysis!(self, max_files => max_files.map(u32_of))
     }
-    pub fn limit(&self) -> Option<u32> {
-        every_analysis!(self, limit => limit.map(u32_of))
-    }
     pub fn page(&self) -> u32 {
         every_analysis!(self, page => u32_of(*page))
     }
@@ -159,7 +154,7 @@ impl AstTopologyQuery {
         every_analysis!(self, diagnostic_page => diagnostic_page.map_or(1, u32_of))
     }
     /// Coverage diagnostic rows are returned only when the caller asks for a
-    /// diagnostic page (`next.nextDiagnostics`); the default carries counts.
+    /// diagnostic page (`next.nextDiagnosticPage`); the default carries counts.
     pub fn diagnostic_rows_requested(&self) -> bool {
         every_analysis!(self, diagnostic_page => diagnostic_page.is_some())
     }
@@ -268,7 +263,7 @@ pub(crate) struct FileFacts {
     /// JS/TS symbols) or `syntax-references` (identifier tokens by name).
     pub reference_basis: &'static str,
     pub language: String,
-    /// Source content digest (`octocode_engine::index::content_digest`).
+    /// Source content digest (`octocode_engine::digest::sha256`).
     pub digest: String,
 }
 pub(crate) type Node = octocode_engine::graph::FileGraphNode;

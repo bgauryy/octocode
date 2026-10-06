@@ -204,7 +204,6 @@ fn node_server_starts_under_the_default_address_space_cap() {
 fn nested_definition_failure_keeps_location_with_partial_provenance() {
     use super::ops::Operation;
     use super::source::{SourceCache, snippet_policy};
-    use crate::policy::path::{PathPolicy, PathPolicyConfig};
     use crate::tools::cancel::NeverCancel;
     use serde_json::json;
     assert!(
@@ -232,16 +231,12 @@ fn nested_definition_failure_keeps_location_with_partial_provenance() {
     }}"#),
             );
         std::fs::write(&script, server).expect("definition fixture server");
-        let paths = PathPolicy::new(PathPolicyConfig {
-            workspace_root: Some(root.clone()),
-            ..Default::default()
-        })
-        .expect("path policy");
+        let paths = crate::tools::test_support::workspace_policy(&root);
         let path = root.join("a.ts").to_string_lossy().into_owned();
         let uri = octocode_engine::lsp::uri::path_to_uri(&path).expect("uri");
         let query = serde_json::from_value(json!({
             "operation":"definition", "mainGoal":"test", "reasoning":"test",
-            "uri":uri, "position":{"line":0,"character":6}
+            "path":uri, "position":{"line":0,"character":6}
         }))
         .expect("query");
         tokio::runtime::Runtime::new().expect("rt").block_on(async {

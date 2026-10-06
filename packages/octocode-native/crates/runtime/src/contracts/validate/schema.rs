@@ -130,16 +130,19 @@ fn validate_object(
     value: &mut Value,
     path: &mut Vec<String>,
 ) -> Result<(), ContractValidationError> {
-    let received = value.clone();
-    let object = value.as_object_mut().ok_or_else(|| {
-        schema_issue(
-            "schema.type",
-            path.clone(),
-            "Expected object",
-            schema,
-            &received,
-        )
-    })?;
+    // The received value is quoted only in an error: no copy on success.
+    let object = match value {
+        Value::Object(object) => object,
+        received => {
+            return Err(schema_issue(
+                "schema.type",
+                path.clone(),
+                "Expected object",
+                schema,
+                received,
+            ));
+        }
+    };
     let properties = schema.get("properties").and_then(Value::as_object);
     let mut issues = Vec::new();
     if let Err(error) = check_size(schema, object.len(), path) {
@@ -248,22 +251,31 @@ fn validate_array(
     value: &mut Value,
     path: &mut Vec<String>,
 ) -> Result<(), ContractValidationError> {
-    let received = value.clone();
-    let array = value.as_array_mut().ok_or_else(|| {
-        // Lossless repair already turned JSON-encoded lists and scalars the
-        // items accept into arrays; name the fix for what is left, and never
-        // suggest wrapping an encoded list or an item the list rejects.
-        let message = match &received {
-            Value::String(text) if coerce::looks_like_json_array(text) => {
-                "Expected array; send a JSON array, not a JSON-encoded string".to_owned()
-            }
-            Value::String(_) if coerce::items_accept(root, schema, &received) => {
-                format!("Expected array; wrap the value: [{received}]")
-            }
-            _ => "Expected array".to_owned(),
-        };
-        schema_issue("schema.type", path.clone(), &message, schema, &received)
-    })?;
+    let array = match value {
+        Value::Array(array) => array,
+        received => {
+            // Lossless repair already turned JSON-encoded lists and scalars
+            // the items accept into arrays; name the fix for what is left,
+            // and never suggest wrapping an encoded list or an item the list
+            // rejects.
+            let message = match &*received {
+                Value::String(text) if coerce::looks_like_json_array(text) => {
+                    "Expected array; send a JSON array, not a JSON-encoded string".to_owned()
+                }
+                Value::String(_) if coerce::items_accept(root, schema, received) => {
+                    format!("Expected array; wrap the value: [{received}]")
+                }
+                _ => "Expected array".to_owned(),
+            };
+            return Err(schema_issue(
+                "schema.type",
+                path.clone(),
+                &message,
+                schema,
+                received,
+            ));
+        }
+    };
     let mut issues = Vec::new();
     if let Err(error) = check_size(schema, array.len(), path) {
         issues.extend(error.issues);

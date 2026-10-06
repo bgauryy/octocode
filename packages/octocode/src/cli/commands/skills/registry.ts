@@ -170,11 +170,6 @@ function findBundledSkillsDir(): string {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/** Absolute path to the bundled skills directory. */
-export function getBundledSkillsDir(): string {
-  return findBundledSkillsDir();
-}
-
 let _skillsCache: SkillInfo[] | null = null;
 
 /**

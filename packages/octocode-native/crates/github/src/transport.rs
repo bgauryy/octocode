@@ -20,10 +20,10 @@ use super::{
     CredentialRequest, CredentialResolver, GitHubEndpoint, ProviderError, ProviderErrorKind,
     RateLimit,
     budget::{
-        GitHubBudget, GitHubResource, Group, LimiterKey, count_call, count_failure,
-        count_rate_limit, full_jitter, is_primary_rate_limit, is_secondary_rate_limit, now_ms,
-        pause, rate_limited_error,
+        GitHubBudget, GitHubResource, Group, LimiterKey, is_primary_rate_limit,
+        is_secondary_rate_limit, now_ms, pause, rate_limited_error,
     },
+    retry::{full_jitter, header_u64},
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -164,10 +164,10 @@ pub struct GitHubTransport<R> {
     budget: Arc<GitHubBudget>,
     state_dir: Option<PathBuf>,
     pub graphql_enabled: bool,
-    /// Complete code-search pages by credential partition, request URL, and
-    /// accept mode for 60 s: a repeated search (re-page, follow-up) spends
-    /// none of the 10/min budget. Clones share it.
-    pub(crate) search_results: moka::sync::Cache<String, Arc<super::search::CodeSearchPage>>,
+    /// Response cache for reads made on the transport (code-search pages):
+    /// a repeated search, even from a new CLI process, spends none of the
+    /// 10/min budget. Clones share it.
+    pub cache: Arc<dyn super::ConditionalCache>,
 }
 impl<R> Clone for GitHubTransport<R> {
     fn clone(&self) -> Self {
@@ -179,7 +179,7 @@ impl<R> Clone for GitHubTransport<R> {
             budget: self.budget.clone(),
             state_dir: self.state_dir.clone(),
             graphql_enabled: self.graphql_enabled,
-            search_results: self.search_results.clone(),
+            cache: self.cache.clone(),
         }
     }
 }
@@ -235,10 +235,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             budget,
             state_dir: None,
             graphql_enabled: true,
-            search_results: moka::sync::Cache::builder()
-                .max_capacity(256)
-                .time_to_live(std::time::Duration::from_secs(60))
-                .build(),
+            cache: Arc::new(super::NoCache),
         })
     }
 
@@ -327,7 +324,6 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             })?;
             if parsed.errors.iter().any(GraphQlError::is_rate_limited) {
                 // GraphQL primary limit arrives as HTTP 200 + errors[].type.
-                count_rate_limit();
                 let credential = self.credential(context).await?;
                 let state = self.key_state(credential.as_ref());
                 let reset = header_u64(&page.headers, "x-ratelimit-reset")
@@ -358,9 +354,8 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             }
             if parsed.errors.iter().any(GraphQlError::is_transient) {
                 // Octokit plugin-retry treats this GraphQL failure as a 500.
-                count_failure();
                 if attempt + 1 < self.retry.max_attempts {
-                    let delay = full_jitter(self.retry.base_delay, attempt, MAX_BACKOFF);
+                    let delay = full_jitter(self.retry.base_delay, u32::from(attempt), MAX_BACKOFF);
                     if pause(delay, context.deadline, &context.cancellation)
                         .await
                         .is_ok()
@@ -456,17 +451,16 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             if let Some(body) = &spec.body {
                 request = request.json(body);
             }
-            count_call();
             let response = tokio::select! { _ = context.cancellation.cancelled() => return Err(ProviderError::new(ProviderErrorKind::Cancelled, "GitHub request cancelled")), value = tokio::time::timeout(context.deadline.saturating_duration_since(Instant::now()), request.send()) => value.map_err(|_| ProviderError::new(ProviderErrorKind::Timeout, "GitHub request deadline exceeded"))? };
             let response = match response {
                 Ok(response) => response,
                 Err(_) => {
                     // Release permits before backing off.
                     drop(admission);
-                    count_failure();
                     state.record_circuit_failure(config);
                     if attempt + 1 < self.retry.max_attempts {
-                        let delay = full_jitter(self.retry.base_delay, attempt, MAX_BACKOFF);
+                        let delay =
+                            full_jitter(self.retry.base_delay, u32::from(attempt), MAX_BACKOFF);
                         pause(delay, context.deadline, &context.cancellation).await?;
                         attempt += 1;
                         continue;
@@ -548,7 +542,6 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             }
             let retry_wait = match failure {
                 Failure::Primary { reset, wait } => {
-                    count_rate_limit();
                     let bucket = headers
                         .get("x-ratelimit-resource")
                         .and_then(|value| value.to_str().ok())
@@ -570,7 +563,6 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                     Some((wait, Duration::ZERO))
                 }
                 Failure::Secondary { wait } => {
-                    count_rate_limit();
                     state.record_circuit_failure(config);
                     state.cool_down(now_ms().saturating_add(wait.as_millis() as u64));
                     error.kind = ProviderErrorKind::RateLimited;
@@ -591,19 +583,15 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                     Some((wait, Duration::ZERO))
                 }
                 Failure::Server => {
-                    count_failure();
                     state.record_circuit_failure(config);
                     let delay = header_u64(&headers, RETRY_AFTER.as_str())
                         .map(Duration::from_secs)
                         .unwrap_or_else(|| {
-                            full_jitter(self.retry.base_delay, attempt, MAX_BACKOFF)
+                            full_jitter(self.retry.base_delay, u32::from(attempt), MAX_BACKOFF)
                         });
                     Some((delay, delay))
                 }
-                Failure::Final => {
-                    count_failure();
-                    None
-                }
+                Failure::Final => None,
             };
             let Some((wait, sleep)) = retry_wait else {
                 return Err(error);
@@ -831,9 +819,6 @@ fn response_error(status: StatusCode, headers: &HeaderMap, body: Bytes) -> Provi
         retryable: status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS,
         reason: None,
     }
-}
-fn header_u64(headers: &HeaderMap, name: &str) -> Option<u64> {
-    headers.get(name)?.to_str().ok()?.parse().ok()
 }
 
 #[cfg(test)]

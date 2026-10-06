@@ -1,5 +1,6 @@
 pub mod discovery;
 pub mod gitignore;
+pub mod include;
 pub mod path;
 pub mod prune;
 
@@ -44,30 +45,35 @@ impl PolicyError {
         self
     }
 
-    /// The path resolves outside the allowed roots (directly or through a
-    /// symlink): a sandbox refusal about where the process runs, not the query.
-    pub fn is_sandbox_refusal(&self) -> bool {
-        matches!(
-            self.code,
-            PolicyErrorCode::OutsideAllowedRoots | PolicyErrorCode::SymlinkEscape
-        )
+    /// Public `errorCode` for a local tool's path-policy failure: the shared
+    /// flat code ([`Self::shared_code`]), otherwise the tool's own access code.
+    pub fn local_error_code(&self, access_code: &'static str) -> &'static str {
+        self.shared_code().unwrap_or(access_code)
     }
 
-    /// Public `errorCode` for a local tool's path-policy failure: the dedicated
-    /// sandbox code for a refusal, otherwise the tool's own access code.
-    pub fn local_error_code(&self, access_code: &'static str) -> &'static str {
-        if self.is_sandbox_refusal() {
-            PATH_OUTSIDE_ALLOWED_ROOTS
-        } else {
-            access_code
-        }
+    /// The flat `errorCode` every local tool shares for this failure.
+    /// `None` for a tool-specific failure (the tool's own access code).
+    pub fn shared_code(&self) -> Option<&'static str> {
+        Some(match self.code {
+            PolicyErrorCode::OutsideAllowedRoots => "outsideAllowedRoots",
+            PolicyErrorCode::SymlinkEscape => "symlinkEscape",
+            PolicyErrorCode::PermissionDenied => "permissionDenied",
+            PolicyErrorCode::NotFound => PATH_NOT_FOUND,
+            PolicyErrorCode::InvalidInput => "invalidInput",
+            PolicyErrorCode::InputTooLarge => "fileTooLarge",
+            PolicyErrorCode::IgnoredPath => PATH_POLICY_DENIED,
+            _ => return None,
+        })
     }
 }
 
-/// `errorCode` every local tool (localSearch, localFetch, lspSearch,
-/// astRewrite) emits when the path policy refuses a path outside the allowed
-/// roots. Recovery hints key on this code, never on message text.
-pub const PATH_OUTSIDE_ALLOWED_ROOTS: &str = "pathOutsideAllowedRoots";
+/// `errorCode` every local tool emits for a path the security path policy
+/// withholds (credential stores, `secrets/`, `.env` files): a denial no
+/// flag or config setting lifts, never a missing or misspelled path.
+pub const PATH_POLICY_DENIED: &str = "pathPolicyDenied";
+
+/// `errorCode` every local tool emits for a path that does not exist.
+pub const PATH_NOT_FOUND: &str = "pathNotFound";
 
 impl Display for PolicyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {

@@ -17,16 +17,18 @@ pub(super) use rule::{RawRule, parse_rule};
 #[cfg(test)]
 pub(super) use matching::INTERRUPT_NEXT_COMPILE_PARSE;
 
+use super::macro_bodies::MacroBodies;
+use super::query::Prefilter;
 use crate::text::utf8_offsets::LineIndex;
 use line_index_support::{to_structural_match, to_structural_match_with_index};
 use matching::{
-    CaptureEnv, MatchWithKind, collect_kind_matches, visit_named, visit_named_with_ancestors,
+    CandidateVisitor, CaptureEnv, MatchWithKind, collect_kind_matches, visit_named_expanding_macros,
 };
 use pattern::CompiledPattern;
 use rule::{CompiledRule, Document};
 
 #[cfg(test)]
-use matching::{SECONDARY_CAPTURE, parse_tree};
+use matching::{SECONDARY_CAPTURE, parse_tree, visit_named};
 #[cfg(test)]
 use rule::RULE_PARSE_COUNT;
 
@@ -54,6 +56,12 @@ fn compile_matcher_inner(
     query: &StructuralQuery<'_>,
 ) -> Result<OctoCompiledMatcher, String> {
     let language = lang.tree_sitter_language();
+    let anchors = match query.prefilter() {
+        Prefilter::None => None,
+        Prefilter::Single(anchor) => Some(vec![anchor]),
+        Prefilter::Union(anchors) => Some(anchors),
+    };
+    let macros = MacroBodies::for_language(&language, anchors);
     match query.parts() {
         (Some(pattern), None) if is_document_probe(pattern) => Ok(Box::new(move |content| {
             let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
@@ -76,7 +84,7 @@ fn compile_matcher_inner(
                 let tree = parse_tree_with_deadline(compiled.language(), content, deadline)?;
                 let line_index = LineIndex::new(content);
                 let mut matches = Vec::new();
-                visit_named(tree.root_node(), deadline, &mut |candidate| {
+                let visit: &mut CandidateVisitor<'_> = &mut |candidate, _, _| {
                     if !compiled.matches_candidate(candidate) {
                         return Ok(());
                     }
@@ -95,7 +103,15 @@ fn compile_matcher_inner(
                         ));
                     }
                     Ok(())
-                })?;
+                };
+                visit_named_expanding_macros(
+                    tree.root_node(),
+                    content,
+                    compiled.language(),
+                    macros.as_ref(),
+                    deadline,
+                    visit,
+                )?;
                 Ok(matches)
             }))
         }
@@ -106,26 +122,36 @@ fn compile_matcher_inner(
                 return Ok(Box::new(move |content| {
                     let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
                     let tree = parse_tree_with_deadline(&language, content, deadline)?;
-                    collect_kind_matches(tree.root_node(), &kind, content, deadline)
+                    collect_kind_matches(
+                        tree.root_node(),
+                        &kind,
+                        content,
+                        &language,
+                        macros.as_ref(),
+                        deadline,
+                    )
                 }));
             }
             Ok(Box::new(move |content| {
                 let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
                 let tree = parse_tree_with_deadline(&language, content, deadline)?;
-                let document = Document {
-                    content,
-                    deadline,
-                    root: tree.root_node(),
-                };
                 let line_index = LineIndex::new(content);
                 let mut matches = Vec::new();
-                visit_named_with_ancestors(
+                visit_named_expanding_macros(
                     tree.root_node(),
+                    content,
+                    &language,
+                    macros.as_ref(),
                     deadline,
-                    &mut |candidate, ancestors| {
+                    &mut |candidate, ancestors, root| {
                         if !compiled.matches_candidate(candidate) {
                             return Ok(());
                         }
+                        let document = Document {
+                            content,
+                            deadline,
+                            root,
+                        };
                         let mut captures = CaptureEnv::default();
                         if compiled.matches(candidate, Some(ancestors), &document, &mut captures)? {
                             let (values, ranges) = captures.into_maps();

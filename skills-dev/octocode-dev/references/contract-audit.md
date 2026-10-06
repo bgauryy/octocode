@@ -6,7 +6,7 @@ Load when judging a tool's input schema, descriptions, MCP/CLI instructions, con
 - Every field has one job. Flag two fields with the same intent (`limit` vs `pageSize`, `maxResults` vs `maxFiles`), aliases kept after a rename, and booleans that should be one enum.
 - Defaults live once: schema `default` and native `defaults`/rules agree. Flag a default re-applied in Rust.
 - Every `maximum`/`maxItems` maps to a runtime or provider limit. A bound the runtime never hits is noise; a runtime cap with no schema bound is a silent clamp.
-- Discriminators (`operation`, `analysis`, `type`, …) reject cross-variant fields. A field valid in one branch must not appear in the shared shape.
+- Discriminators (`operation`, `type`, …) reject cross-variant fields. A field valid in one branch must not appear in the shared shape.
 - Required vs optional matches what execution needs; anything the runtime infers stays optional.
 - Names match the domain and sibling tools (`path`, `pageSize`, `page`, `matchPage`). Flag one-off spellings.
 

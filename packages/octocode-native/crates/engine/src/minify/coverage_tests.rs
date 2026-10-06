@@ -4,17 +4,11 @@
 use super::apply::apply_content_view_minification_inner;
 use super::comment_remover::rules_for;
 use super::config::{FileTypeConfig, indentation_sensitive_names, minify_config};
-use super::minifier::{get_file_config, minify_content_result_inner};
+use super::minifier::get_file_config;
 
 const MARKER: &str = "octocodeKeepMarker";
 const LITERAL: &str = "https://example.com/a//literal";
 const COMMENT: &str = "octocode removable comment";
-
-fn full_minification(content: &str, file_path: &str) -> String {
-    let result = minify_content_result_inner(content, file_path);
-    assert!(!result.failed, "{file_path}: full minification failed");
-    result.content
-}
 
 #[test]
 fn research_views_preserve_multiline_literal_payloads() {
@@ -24,15 +18,12 @@ fn research_views_preserve_multiline_literal_payloads() {
         ("rs", format!("pub const VALUE: &str = r#\"{payload}\"#;\n")),
         ("go", format!("var value = `{payload}`\n")),
     ] {
-        for output in [
-            apply_content_view_minification_inner(&source, &format!("literal.{extension}")),
-            full_minification(&source, &format!("literal.{extension}")),
-        ] {
-            assert!(
-                output.contains(payload),
-                "{extension}: changed literal: {output:?}"
-            );
-        }
+        let output =
+            apply_content_view_minification_inner(&source, &format!("literal.{extension}"));
+        assert!(
+            output.contains(payload),
+            "{extension}: changed literal: {output:?}"
+        );
     }
 }
 
@@ -79,7 +70,7 @@ fn fixture(extension: &str, config: &FileTypeConfig, group: Option<&str>) -> Str
             panic!("no comment fixture for group: {group}")
         }
     });
-    let body = if crate::text::file_extension::is_js_ts_extension(extension) {
+    let body = if crate::text::file_extension::JS_TS_EXTENSIONS.contains(&extension) {
         format!("export function {MARKER}() {{\n  return \"{LITERAL}\";\n}}\n")
     } else if matches!(extension, "css" | "scss" | "less" | "sass") {
         format!(".{MARKER} {{\n  content: \"{LITERAL}\";\n}}\n")
@@ -161,41 +152,27 @@ fn every_configured_extension_preserves_evidence_and_removes_its_comments() {
         for group in groups {
             let source = fixture(extension, cfg, group);
             let path = format!("fixture.{extension}");
-            for (mode, output) in [
-                (
-                    "standard",
-                    apply_content_view_minification_inner(&source, &path),
-                ),
-                ("full", full_minification(&source, &path)),
-            ] {
-                assert_eq!(
-                    output.matches(MARKER).count(),
-                    source.matches(MARKER).count(),
-                    "{extension}/{group:?}/{mode}: marker lost or duplicated: {output}"
-                );
-                assert_eq!(
-                    output.matches(LITERAL).count(),
-                    source.matches(LITERAL).count(),
-                    "{extension}/{group:?}/{mode}: string literal changed or duplicated: {output}"
-                );
-                assert!(
-                    !output.contains(COMMENT),
-                    "{extension}/{group:?}/{mode}: comment retained: {output}"
-                );
-                assert!(
-                    output.len() <= source.len(),
-                    "{extension}/{mode}: output grew"
-                );
-                let repeat = if mode == "standard" {
-                    apply_content_view_minification_inner(&source, &path)
-                } else {
-                    full_minification(&source, &path)
-                };
-                assert_eq!(
-                    output, repeat,
-                    "{extension}/{mode}: nondeterministic output"
-                );
-            }
+            let output = apply_content_view_minification_inner(&source, &path);
+            assert_eq!(
+                output.matches(MARKER).count(),
+                source.matches(MARKER).count(),
+                "{extension}/{group:?}: marker lost or duplicated: {output}"
+            );
+            assert_eq!(
+                output.matches(LITERAL).count(),
+                source.matches(LITERAL).count(),
+                "{extension}/{group:?}: string literal changed or duplicated: {output}"
+            );
+            assert!(
+                !output.contains(COMMENT),
+                "{extension}/{group:?}: comment retained: {output}"
+            );
+            assert!(output.len() <= source.len(), "{extension}: output grew");
+            assert_eq!(
+                output,
+                apply_content_view_minification_inner(&source, &path),
+                "{extension}: nondeterministic output"
+            );
         }
     }
 }
@@ -212,23 +189,19 @@ fn every_basename_override_preserves_recipe_indentation_and_literals() {
             format!("nested/{name}"),
         ] {
             assert_eq!(get_file_config(&path).unwrap().strategy, "conservative");
-            for output in [
-                apply_content_view_minification_inner(source, &path),
-                full_minification(source, &path),
-            ] {
-                assert!(
-                    output.contains("\techo"),
-                    "{path}: recipe tab lost: {output}"
-                );
-                assert!(
-                    output.contains(LITERAL),
-                    "{path}: literal changed: {output}"
-                );
-                assert!(
-                    !output.contains(COMMENT),
-                    "{path}: comment retained: {output}"
-                );
-            }
+            let output = apply_content_view_minification_inner(source, &path);
+            assert!(
+                output.contains("\techo"),
+                "{path}: recipe tab lost: {output}"
+            );
+            assert!(
+                output.contains(LITERAL),
+                "{path}: literal changed: {output}"
+            );
+            assert!(
+                !output.contains(COMMENT),
+                "{path}: comment retained: {output}"
+            );
         }
     }
 }

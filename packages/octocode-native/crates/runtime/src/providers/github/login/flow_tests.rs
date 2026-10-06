@@ -96,6 +96,16 @@ fn token() -> serde_json::Value {
         "token_type":"bearer", "expires_in":3600, "refresh_token_expires_in":7200, "scope":"repo, read:org"})
 }
 
+/// The token poll succeeds on its one expected request.
+async fn grant_token_once(server: &MockServer) {
+    Mock::given(method("POST"))
+        .and(path("/login/oauth/access_token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(token()))
+        .expect(1)
+        .mount(server)
+        .await;
+}
+
 #[test]
 fn token_refresh_debug_does_not_expose_the_access_token() {
     let result = TokenWithRefreshResult {
@@ -110,11 +120,7 @@ fn token_refresh_debug_does_not_expose_the_access_token() {
 #[tokio::test]
 async fn missing_enterprise_client_id_never_posts_a_refresh() {
     let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .respond_with(ResponseTemplate::new(500))
-        .expect(0)
-        .mount(&server)
-        .await;
+    tests::forbid_posts(&server).await;
     let dir = tempfile::tempdir().unwrap();
     let store = CredentialStore::new(dir.path());
     let mut old = tests::stored(Some("2000-01-01T00:00:00Z"), Some("refresh"));
@@ -187,12 +193,7 @@ async fn device_login_reports_failed_save_instead_of_success() {
     let server = MockServer::start().await;
     device(&server, 15).await;
     user(&server).await;
-    Mock::given(method("POST"))
-        .and(path("/login/oauth/access_token"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(token()))
-        .expect(1)
-        .mount(&server)
-        .await;
+    grant_token_once(&server).await;
     let save = |_: &StoredCredentials| {
         Err(ProviderError::new(
             ProviderErrorKind::CredentialStoreUnavailable,
@@ -306,11 +307,7 @@ async fn refresh_persists_rotated_tokens_and_propagates_save_failure() {
 #[tokio::test]
 async fn missing_or_expired_refresh_token_never_calls_provider_or_saves() {
     let server = MockServer::start().await;
-    Mock::given(method("POST"))
-        .respond_with(ResponseTemplate::new(500))
-        .expect(0)
-        .mount(&server)
-        .await;
+    tests::forbid_posts(&server).await;
     for refresh in [None, Some(""), Some("expired-refresh")] {
         let mut stored = tests::stored(Some("2000-01-01T00:00:00Z"), refresh);
         stored.token.refresh_token_expires_at = Some("2000-01-01T00:00:00Z".into());
@@ -332,12 +329,7 @@ async fn device_login_persists_into_home_and_a_new_store_reads_it() {
     let server = MockServer::start().await;
     device(&server, 15).await;
     user(&server).await;
-    Mock::given(method("POST"))
-        .and(path("/login/oauth/access_token"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(token()))
-        .expect(1)
-        .mount(&server)
-        .await;
+    grant_token_once(&server).await;
     login_device_flow_in_store(
         &endpoints(&server),
         "client",

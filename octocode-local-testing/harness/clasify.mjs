@@ -23,8 +23,8 @@ function groundTruth(dir, file, regex) {
   return index < 0 ? null : { file: full, line: index + 1 };
 }
 
-/** A locate row in one shape: compact `{lines, exists, p}` or the debug row. */
-const row = r => r && (r.lines ? { ...r, startLine: r.lines[0], endLine: r.lines[1], probability: r.p } : r);
+/** A locate row with its window as `startLine`/`endLine` (the row carries `lines`). */
+const row = r => r && (r.lines ? { ...r, startLine: r.lines[0], endLine: r.lines[1] } : r);
 /** Ranked locate rows of one question in a query result (server order). */
 const bestRows = (q, id) => (q?.best?.[id] ?? []).map(row);
 /** A page's answer to question `id`: compact bare value or the debug object. */
@@ -32,14 +32,14 @@ const pageExists = (p, id) => (typeof p.answers?.[id] === 'number' ? p.answers[i
 /** Resource-level or single-page answer of a judged supplied value. */
 const answerOf = (resource, id) => {
   const answer = resource?.answers?.[id] ?? resource?.pages?.[0]?.answers?.[id];
-  return typeof answer === 'object' && answer !== null ? answer.noul ?? answer : answer;
+  return typeof answer === 'object' && answer !== null ? answer.yesno ?? answer : answer;
 };
 /** The server's ranking: exists first, then window probability. */
 const rankOrder = rows => [...rows].sort((a, b) => b.exists - a.exists || b.probability - a.probability);
 
 /** Run a matrix, following next.clasify; returns every page and total bytes. */
 async function locateAll(matrix, stopWhen) {
-  let request = matrix;
+  let request = { queries: [matrix] };
   const pages = [];
   const bests = [];
   let bytes = 0;
@@ -47,10 +47,10 @@ async function locateAll(matrix, stopWhen) {
   let last, final;
   while (request && calls < MAX_CALLS) {
     calls += 1;
-    last = await raw('clasify', { queries: [request] });
+    last = await raw('clasify', request);
     bytes += last.bytes;
     const q = last.sc?.queries?.[0] ?? last.sc?.results?.[0]?.data?.queries?.[0];
-    for (const resource of q?.resources ?? []) for (const page of resource.pages ?? []) pages.push({ resource: resource.resourceId, path: page.path ?? page.source?.path ?? resource.path, ...page });
+    for (const resource of q?.resources ?? []) for (const page of resource.pages ?? []) pages.push({ resource: resource.id, path: page.path ?? page.source?.path ?? resource.path, ...page });
     if (q?.best) bests.push(q.best);
     final = q;
     if (last.isError || !q) break;
@@ -111,7 +111,7 @@ for (const t of LOCATE) {
   while (docStart > 1 && /^\s*(\/\*\*?|\*|\/\/|#|;|@)/.test(srcLines[docStart - 2])) docStart -= 1;
   for (const [rank, candidate] of ranked.slice(0, 3).entries()) {
     const m = candidate.answer.matches[0];
-    const read = await call('localFetch', { path: truth.file, startLine: Math.max(1, m.startLine - 2), endLine: m.endLine + 2 });
+    const read = await call('localFetch', { path: truth.file, ranges: [`${Math.max(1, m.startLine - 2)}-${m.endLine + 2}`] });
     verifyBytes += read.bytes;
     // A window inside the target's own leading doc block is the right place;
     // the agent widens to the declaration below it (counted, labelled "doc").
@@ -158,7 +158,7 @@ let prefilterQuality;
     return !!window && lines.slice(window.startLine - 1, window.endLine).some(l => /function isTypeAssignableTo\(/.test(l));
   };
   while (!containsDeclaration(current) && current?.next?.clasify && calls < MAX_CALLS && !last.isError) {
-    last = await raw('clasify', { queries: [current.next.clasify] });
+    last = await raw('clasify', current.next.clasify);
     workflowBytes += last.bytes; calls += 1;
     current = last.sc?.queries?.[0];
   }
@@ -166,7 +166,7 @@ let prefilterQuality;
   const read = current?.hints?.read ?? current?.best?.t?.[0]?.hints?.read;
   let verified = false;
   if (containsDeclaration(current) && read?.tool === 'localFetch') {
-    const verification = await raw(read.tool, { queries: [read.query] });
+    const verification = await raw(read.tool, read.query);
     workflowBytes += verification.bytes;
     verified = !verification.isError && collect(verification.sc, o => typeof o.content === 'string').some(o => /function isTypeAssignableTo\(/.test(o.content));
   }
@@ -178,10 +178,10 @@ let prefilterQuality;
 // Carried best: across a multi-call walk, the final call's best is file-wide.
 {
   const truth = groundTruth('c', 'src/server.c', '^int serverCron\\(');
-  let request = { mainGoal: GOAL, reasoning: 'carry', resources: [{ id: 'f', context: { tool: 'localFetch', query: { reasoning: 'unread', path: truth.file, fullContent: true } } }],
-    questions: [{ id: 't', questionType: 'locate', target: 'The periodic timer function that runs background housekeeping tasks many times per second.' }] };
+  let request = { queries: [{ mainGoal: GOAL, reasoning: 'carry', resources: [{ id: 'f', tool: 'localFetch', query: { reasoning: 'unread', path: truth.file, fullContent: true } }],
+    questions: [{ id: 't', type: 'locate', ask: 'The periodic timer function that runs background housekeeping tasks many times per second.' }] }] };
   let last, calls = 0;
-  while (request && calls < 20) { calls++; const out = await raw('clasify', { queries: [request] }); last = out.sc?.queries?.[0]; request = last?.next?.clasify; }
+  while (request && calls < 20) { calls++; const out = await raw('clasify', request); last = out.sc?.queries?.[0]; request = last?.next?.clasify; }
   const top = bestRows(last, 't')[0];
   check('carry: the final call\'s best[0] is the file-wide answer', calls > 1 && !!top && top.startLine <= truth.line && truth.line <= top.endLine, `calls=${calls} top=${JSON.stringify(top)} truth=${truth.line}`);
 }
@@ -200,11 +200,11 @@ let prefilterQuality;
     return JSON.stringify(rankOrder(shown)) === JSON.stringify(shown);
   });
   check('best: multi-page calls rank windows by exists, then probability', ordered, JSON.stringify(run.bests[0]?.t?.slice(0, 3)));
-  const hinted = await raw('clasify', { queries: [{ mainGoal: GOAL, reasoning: 'hint', resources: [{ context: { tool: 'localFetch', query: { reasoning: 'x', path: truth.file, startLine: 1, endLine: 40 } } }], questions: [{ id: 'h', questionType: 'locate', target: 'Where is serverCron defined?' }] }] });
+  const hinted = await raw('clasify', { queries: [{ mainGoal: GOAL, reasoning: 'hint', resources: [{ tool: 'localFetch', query: { reasoning: 'x', path: truth.file, ranges: ['1-40'] } }], questions: [{ id: 'h', type: 'locate', ask: 'Where is serverCron defined?' }] }] });
   const q = hinted.sc?.queries?.[0];
   check('hint: an identifier target suggests localSearch', (q?.hints?.text ?? []).some(h => h.includes('serverCron') && h.includes('localSearch')), JSON.stringify(q?.hints));
-  const plain = await raw('clasify', { queries: [{ mainGoal: GOAL, reasoning: 'hint', resources: [{ context: { tool: 'localFetch', query: { reasoning: 'x', path: truth.file, startLine: 1, endLine: 40 } } }], questions: [{ id: 'h', questionType: 'locate', target: 'The license header of this file.' }] }] });
-  check('hint: a described target gets no routing hint', !plain.sc?.queries?.[0]?.hints?.text && !plain.sc?.queries?.[0]?.hints?.localSearch && !plain.isError, JSON.stringify(plain.sc?.queries?.[0]?.hints ?? plain.isError));
+  const plain = await raw('clasify', { queries: [{ mainGoal: GOAL, reasoning: 'hint', resources: [{ tool: 'localFetch', query: { reasoning: 'x', path: truth.file, ranges: ['1-40'] } }], questions: [{ id: 'h', type: 'locate', ask: 'The license header of this file.' }] }] });
+  check('hint: a described target gets no routing hint', !plain.sc?.queries?.[0]?.hints?.text && !plain.sc?.queries?.[0]?.hints?.textSearch && !plain.isError, JSON.stringify(plain.sc?.queries?.[0]?.hints ?? plain.isError));
 }
 
 // Huge single file (3MB, 54k lines): narrow first, as the skill prescribes.
@@ -212,11 +212,11 @@ let prefilterQuality;
 // become bounded resources in one matrix; the top windows are then read.
 {
   const truth = groundTruth('typescript', 'tsc/testdata/fixtures/compiler/checker.ts', 'function isTypeAssignableTo\\(');
-  const search = await call('localSearch', { path: truth.file, searchText: 'assignable', caseMode: 'insensitive', maxMatchesPerFile: 100, matchContentLength: 20 });
+  const search = await call('localSearch', { path: truth.file, matchString: 'assignable', caseMode: 'insensitive', matchPageSize: 100, matchContentLength: 20 });
   const lines = collect(rowData(search), o => typeof o.line === 'number' && typeof o.value === 'string').map(m => m.line);
   const buckets = new Map();
   for (const line of lines) buckets.set(Math.floor(line / 600), (buckets.get(Math.floor(line / 600)) ?? 0) + 1);
-  const clusters = [...buckets].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([b]) => ({ startLine: b * 600 + 1, endLine: b * 600 + 600 }));
+  const clusters = [...buckets].sort((a, b) => b[1] - a[1]).slice(0, 3).map(([b]) => ({ ranges: [`${b * 600 + 1}-${b * 600 + 600}`] }));
   const run = await locateAll({
     mainGoal: GOAL, reasoning: 'Locate within the densest candidate regions of a huge file.',
     resources: clusters.map((c, i) => ({ id: `r${i}`, tool: 'localFetch', query: { path: truth.file, ...c } })),
@@ -268,12 +268,12 @@ let prefilterQuality;
   if (fs.existsSync(root)) {
     const out = await raw('clasify', { queries: [{
       mainGoal: GOAL, reasoning: 'Choose the file to read among search hits.',
-      resources: [{ id: 'hits', tool: 'localSearch', query: { path: root, searchText: 'func (sched *Scheduler)', regex: 'literal', resultView: 'files', pageSize: 20 } }],
+      resources: [{ id: 'hits', tool: 'localSearch', query: { path: root, matchString: 'func (sched *Scheduler)', regex: 'literal', resultView: 'files', pageSize: 20 } }],
       questions: [{ id: 'core', type: 'yesno', ask: 'Is this file the implementation of scheduling one pod (the main per-pod scheduling cycle)?' }],
     }] });
     const q = out.sc?.queries?.[0];
     const hits = q?.resources?.[0];
-    const ranked = (hits?.pages ?? []).map(p => ({ path: p.path ?? p.source?.path ?? hits?.path ?? '', p: p.answers?.core?.noul ?? p.answers?.core })).sort((a, b) => b.p - a.p);
+    const ranked = (hits?.pages ?? []).map(p => ({ path: p.path ?? p.source?.path ?? hits?.path ?? '', p: p.answers?.core?.yesno ?? p.answers?.core })).sort((a, b) => b.p - a.p);
     check('scout: schedule_one.go ranks first among search hits', ranked[0]?.path.endsWith('schedule_one.go'), ranked.slice(0, 3).map(r => `${path.basename(r.path)}=${r.p}`).join(', '));
   }
 }
@@ -294,7 +294,7 @@ let prefilterQuality;
   const resources = out.sc?.queries?.[0]?.resources ?? [];
   let correct = 0;
   cases.forEach((c, i) => {
-    const p = answerOf(resources.find(r => r.resourceId === `c${i}`), `q${i}`);
+    const p = answerOf(resources.find(r => r.id === `c${i}`), `q${i}`);
     if (typeof p === 'number' && (c.yes ? p >= 0.8 : p <= 0.2)) correct += 1;
   });
   check(`judge: ${correct}/${cases.length} held snippets answered decisively and correctly`, correct === cases.length, out.text.slice(0, 200));
@@ -302,7 +302,7 @@ let prefilterQuality;
 
 // Errors: missing and binary files stay unresolved, never "no".
 {
-  const missing = await raw('clasify', { queries: [{ mainGoal: GOAL, reasoning: 'missing', resources: [{ context: { tool: 'localFetch', query: { reasoning: 'x', path: path.join(REPOS, 'c/nope.c'), fullContent: true } } }], questions: [{ id: 't', questionType: 'locate', target: 'anything' }] }] });
+  const missing = await raw('clasify', { queries: [{ mainGoal: GOAL, reasoning: 'missing', resources: [{ tool: 'localFetch', query: { reasoning: 'x', path: path.join(REPOS, 'c/nope.c'), fullContent: true } }], questions: [{ id: 't', type: 'locate', ask: 'anything' }] }] });
   check('error: missing file is reported, not judged', /error|not found|File not found/i.test(missing.text) && !/"exists":0\./.test(missing.text), missing.text.slice(0, 160));
 }
 

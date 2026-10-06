@@ -393,9 +393,11 @@ pub(crate) fn is_generated_path(relative: &str) -> bool {
 /// its first lines.
 pub(crate) fn has_generated_header(prefix: &[u8]) -> bool {
     let head = String::from_utf8_lossy(prefix).to_ascii_lowercase();
-    head.lines()
-        .take(5)
-        .any(|line| GENERATED_HEADER_MARKERS.iter().any(|marker| line.contains(marker)))
+    head.lines().take(5).any(|line| {
+        GENERATED_HEADER_MARKERS
+            .iter()
+            .any(|marker| line.contains(marker))
+    })
 }
 
 /// Whether a root-relative path is a test, fixture, generated, bundled, or
@@ -558,10 +560,20 @@ mod tests {
 
     #[test]
     fn generated_files_are_named_by_path_or_header() {
-        for path in ["src/generated/api.rs", "api.generated.ts", "a/b_pb2.py", "x.pb.go"] {
+        for path in [
+            "src/generated/api.rs",
+            "api.generated.ts",
+            "a/b_pb2.py",
+            "x.pb.go",
+        ] {
             assert!(is_generated_path(path), "{path}");
         }
-        for path in ["dist/index.js", "app.min.js", "tests/a.rs", "src/generator.rs"] {
+        for path in [
+            "dist/index.js",
+            "app.min.js",
+            "tests/a.rs",
+            "src/generator.rs",
+        ] {
             assert!(!is_generated_path(path), "{path}");
         }
         for head in [

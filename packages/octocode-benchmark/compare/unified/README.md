@@ -7,7 +7,7 @@ Two AI workers answer the same code-research questions, and a blind judge grades
 | `octocode` | Octocode MCP tools (latest local build, clasify included); no shell | [workers/octocode/WORKER.md](workers/octocode/WORKER.md) |
 | `octocode-npm` | Published `octocode-mcp@19.1.0` via `npx -y` (exact pin; 9 tools, no clasify/structure/AST tools); no shell | Same doc as `octocode`: [workers/octocode-npm/WORKER.md](workers/octocode-npm/WORKER.md) |
 | `rg-gh` | A shell: `rg`, `gh` and any Linux command; no Octocode | [workers/rg-gh/WORKER.md](workers/rg-gh/WORKER.md) |
-| `octocode-minus-clasify`, `octocode-flat`, `octocode-defer`, `octocode-family`, `octocode-guide` | Catalog-shape arms (RFC S13): the `octocode` worker with one server switch each: `DISABLE_TOOLS=clasify`, `OCTOCODE_PUBLISHED_VIEW=flat`, `OCTOCODE_DEFER_TOOLS` (tools behind the `run` dispatcher), `OCTOCODE_INSTRUCTIONS=guide`, or `familySelector: "checkout"` (`OCTOCODE_TOOL_FAMILY` per session) | Same doc as `octocode` |
+| `octocode-minus-clasify`, `octocode-defer`, `octocode-family` | Catalog-shape arms (RFC S13): the `octocode` worker with one server switch each: `DISABLE_TOOLS=clasify`, `OCTOCODE_DEFER_TOOLS` (tools behind the `run` dispatcher), or `familySelector: "checkout"` (`OCTOCODE_TOOL_FAMILY` per session) | Same doc as `octocode` |
 
 Both workers use the same model (Sonnet 5.5) and the same goal paragraph. Neither doc teaches solution steps. The judge is Opus 5.5.
 

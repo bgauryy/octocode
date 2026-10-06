@@ -18,7 +18,7 @@
 //! | artifactSearch | artifactSearch | memory-mode disables in-process cache |
 //! | local tools | localSearch/localFetch | never sets `cache:1` |
 
-mod support;
+use crate::support;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
@@ -76,7 +76,7 @@ async fn ghgetfilecontent_second_call_sets_cache_flag() {
 
     let workspace = Workspace::new();
     let settings = [("GITHUB_API_URL", format!("{}/api/v3", server.uri()))];
-    let query = json!({"owner":"o","repo":"r","path":"file.rs","branch":sha});
+    let query = json!({"owner":"o","repo":"r","path":"file.rs","ref":sha});
 
     let runtime = workspace.runtime(&settings);
 
@@ -99,7 +99,7 @@ async fn ghgetfilecontent_second_call_sets_cache_flag() {
         1,
         "second call must be served from cache (cache:1)"
     );
-    assert_eq!(row_data(&second)["files"][0]["content"], "1\thello cache\n");
+    assert_eq!(row_data(&second)["content"], "1\thello cache\n");
     runtime.close().await;
 }
 
@@ -134,7 +134,7 @@ async fn ghgetfilecontent_force_refresh_bypasses_populated_cache() {
     let first = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"o","repo":"r","path":"fresh.rs","branch":sha}),
+        json!({"owner":"o","repo":"r","path":"fresh.rs","ref":sha}),
     )
     .await
     .unwrap();
@@ -144,7 +144,7 @@ async fn ghgetfilecontent_force_refresh_bypasses_populated_cache() {
     let second = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"o","repo":"r","path":"fresh.rs","branch":sha,"forceRefresh":true}),
+        json!({"owner":"o","repo":"r","path":"fresh.rs","ref":sha,"forceRefresh":true}),
     )
     .await
     .unwrap();
@@ -193,7 +193,7 @@ async fn ghsearch_tree_second_call_hits_cache_and_skips_http() {
     let query = json!({
         "owner": "o",
         "repo": "r",
-        "branch": sha,
+        "ref": sha,
         "maxDepth": 2,   // > 1 activates the ConditionalCache path in traverse()
     });
 
@@ -248,10 +248,11 @@ async fn ghsearchhistory_never_sets_cache_flag() {
 
 // ─── ghGetHistoryItem ────────────────────────────────────────────────────────
 
-/// `ghGetHistoryItem` bypasses `ConditionalCache` intentionally.  Two calls to
-/// the same PR must never result in `cache:1` — the item may have changed.
+/// `ghGetHistoryItem` revalidates every read: the second read of the same PR
+/// sends the stored ETag, a 304 serves the same item without a body, and the
+/// row never claims `cache:1` (the item was checked, not assumed).
 #[tokio::test]
-async fn ghgethistoryitem_never_sets_cache_flag() {
+async fn ghgethistoryitem_revalidates_with_a_conditional_read() {
     let server = MockServer::start().await;
     // Disable GraphQL so the tool falls back to the REST PR endpoint.
     let pr_body = json!({
@@ -278,7 +279,18 @@ async fn ghgethistoryitem_never_sets_cache_flag() {
     });
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/o/r/pulls/1"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(pr_body))
+        .and(wiremock::matchers::header("if-none-match", "\"v1\""))
+        .respond_with(ResponseTemplate::new(304).insert_header("etag", "\"v1\""))
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/pulls/1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("etag", "\"v1\"")
+                .set_body_json(pr_body),
+        )
         .mount(&server)
         .await;
 
@@ -290,16 +302,27 @@ async fn ghgethistoryitem_never_sets_cache_flag() {
     let runtime = workspace.runtime(&settings);
 
     let query = json!({"operation":"pullRequest","owner":"o","repo":"r","number":1});
+    let mut rows = Vec::new();
     for _ in 0..2 {
         let outcome = call(&runtime, "ghGetHistoryItem", query.clone())
             .await
             .unwrap();
+        rows.push(row_data(&outcome).clone());
         assert_eq!(
             row_cache_flag(&outcome),
             0,
             "ghGetHistoryItem must never set cache:1 — items are mutable"
         );
     }
+    assert_eq!(rows[0], rows[1], "a 304 serves the same item");
+    let conditional = server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|request| request.headers.contains_key("if-none-match"))
+        .count();
+    assert_eq!(conditional, 1, "the second read revalidates");
     runtime.close().await;
 }
 
@@ -377,7 +400,7 @@ async fn local_tools_never_set_cache_flag() {
         let search = call(
             &runtime,
             "localSearch",
-            json!({"path": target.parent().unwrap(), "searchText": "greet"}),
+            json!({"path": target.parent().unwrap(), "matchString": "greet"}),
         )
         .await
         .unwrap();

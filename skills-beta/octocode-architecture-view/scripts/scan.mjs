@@ -293,7 +293,7 @@ for (const [k, e] of edgeMap) if (e.kind === 'type-import' && edgeMap.has(`${e.s
 const findings = []; let topology = null;
 if (args.includes('--octocode')) {
   try {
-    const q = { queries: [{ reasoning: 'architecture-view: runtime import cycles for the scanned root', operation: 'topology', analysis: 'cycles', path: ROOT, pageSize: 100, maxFiles: Math.min(MAX_FILES, 50000), excludeDir: [...IGNORE_DIRS] }] };
+    const q = { queries: [{ reasoning: 'architecture-view: runtime import cycles for the scanned root', operation: 'cycles', path: ROOT, pageSize: 100, maxFiles: Math.min(MAX_FILES, 50000), excludeDir: [...IGNORE_DIRS] }] };
     let out;
     try { out = execFileSync('octocode', ['astTopology', JSON.stringify(q)], { env: { ...process.env, OCTOCODE_BETA: 'true' }, maxBuffer: 64 << 20, stdio: ['ignore', 'pipe', 'pipe'], timeout: 180_000 }); }
     catch (err) { if (err.status !== 6 || !err.stdout?.length) throw err; out = err.stdout; } // 6 = partial result, still usable
@@ -305,7 +305,7 @@ if (args.includes('--octocode')) {
       findings.push({ id: `octocode-cycle-${findings.length + 1}`, severity: 'warn', source: 'octocode astTopology', title: `Runtime import cycle across ${files.length} files`,
         detail: `Strongly connected runtime imports (type-only edges excluded) spanning ${cs.join(', ')}. Break the cycle at its weakest edge.`, nodes: cs,
         evidence: (r.runtimeCycleEdges || r.cycleEdges || []).slice(0, 5).map((e) => ({ path: base + e.from, note: `→ ${base + e.to}` })) }); }
-    topology = { tool: 'octocode astTopology cycles', filesScanned: data.filesScanned, components: data.pagination?.totalEntries, runtimeCycles: findings.length, completeness: data.completeness };
+    topology = { tool: 'octocode astTopology cycles', filesScanned: data.filesScanned, components: data.pagination?.totalItems, runtimeCycles: findings.length, completeness: data.completeness };
     console.error(`scan: octocode astTopology cycles ok (${findings.length} runtime cycle groups)`);
   } catch (err) { console.error(`scan: --octocode skipped (${String(err.message || err).split('\n')[0]}). Install octocode and set OCTOCODE_BETA=true.`); }
 }

@@ -57,24 +57,29 @@ pub(crate) fn parse_with_deadline(
         parser
             .set_language(language)
             .map_err(|err| ParseFailure::Language(err.to_string()))?;
-        let bytes = content.as_bytes();
-        let mut read = |offset: usize, _| bytes.get(offset..).unwrap_or(b"");
-        let mut progress = |_: &tree_sitter::ParseState| {
-            if Instant::now() >= deadline {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
-            }
-        };
-        let tree = parser.parse_with_options(
-            &mut read,
-            None,
-            Some(ParseOptions::new().progress_callback(&mut progress)),
-        );
+        let tree = parse_until(parser, content, deadline);
         parser.reset();
         tree.filter(|_| Instant::now() < deadline)
             .ok_or(ParseFailure::Interrupted)
     })
+}
+
+/// One parse of `content` that the progress callback stops at `deadline`.
+fn parse_until(parser: &mut tree_sitter::Parser, content: &str, deadline: Instant) -> Option<Tree> {
+    let bytes = content.as_bytes();
+    let mut read = |offset: usize, _| bytes.get(offset..).unwrap_or(b"");
+    let mut progress = |_: &tree_sitter::ParseState| {
+        if Instant::now() >= deadline {
+            ControlFlow::Break(())
+        } else {
+            ControlFlow::Continue(())
+        }
+    };
+    parser.parse_with_options(
+        &mut read,
+        None,
+        Some(ParseOptions::new().progress_callback(&mut progress)),
+    )
 }
 
 /// Parse only `ranges` of `content` (tree-sitter included ranges): node
@@ -93,20 +98,7 @@ pub(crate) fn parse_ranges_before(
         parser.reset();
         parser.set_language(language).ok()?;
         parser.set_included_ranges(ranges).ok()?;
-        let bytes = content.as_bytes();
-        let mut read = |offset: usize, _| bytes.get(offset..).unwrap_or(b"");
-        let mut progress = |_: &tree_sitter::ParseState| {
-            if Instant::now() >= deadline {
-                ControlFlow::Break(())
-            } else {
-                ControlFlow::Continue(())
-            }
-        };
-        let tree = parser.parse_with_options(
-            &mut read,
-            None,
-            Some(ParseOptions::new().progress_callback(&mut progress)),
-        );
+        let tree = parse_until(parser, content, deadline);
         let _ = parser.set_included_ranges(&[]);
         parser.reset();
         tree.filter(|_| Instant::now() < deadline)

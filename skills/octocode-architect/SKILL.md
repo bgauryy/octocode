@@ -1,11 +1,11 @@
 ---
 name: octocode-architect
-description: "Use when an architecture decision or refactor needs evidence about boundaries, contracts, data/control flow, coupling, blast radius, cycles, reachability, performance, or maintainability. Not for evidence collection without a decision → octocode-research; behavior-preserving cleanup → octocode-clean-agentic-code."
+description: "Use when an architecture decision or refactor needs evidence about boundaries, contracts, data/control flow, coupling, blast radius, cycles, reachability, performance, or maintainability. Not for evidence collection without a decision → octocode-research; a written proposal that needs review and sign-off → octocode-rfc-generator; behavior-preserving cleanup → octocode-clean-agentic-code."
 ---
 
 # Octocode Architect
 
-tools: `octocode-mcp` / `npx octocode` — topology via beta `astTopology` (`OCTOCODE_BETA=true`) or the `octocode graph` CLI
+tools: `octocode-mcp` / `npx octocode` — topology via the CLI-only beta `octocode astTopology` (`OCTOCODE_BETA=true`) or the `octocode graph` CLI
 related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 
@@ -53,6 +53,6 @@ Scale rigor to consequence. Do not invent layers, abstractions, findings, or ope
 - Preserve concurrent work. Inspect the working tree, coordinate overlapping paths, and never stash, reset, overwrite, or discard another contributor's changes.
 
 ## Output
-Chat-only output stays in chat. Requested source edits stay in their named repo; create planning artifacts only when asked. Write findings in STE-80 (owner: `octocode-documentation`). A Mermaid diagram of evidenced edges can replace a dense wiring paragraph. HTML explainers are for people on request, never agent context (`references/output-contracts.md`).
+Chat-only output stays in chat. Requested source edits stay in their named repo; create planning artifacts only when asked. The decision record in `references/output-contracts.md` is the analysis; a decision that needs a saved proposal, review, and sign-off goes to `octocode-rfc-generator`, which takes this record as evidence. Write findings in STE-80 (owner: `octocode-documentation`). A Mermaid diagram of evidenced edges can replace a dense wiring paragraph. HTML explainers are for people on request, never agent context (`references/output-contracts.md`).
 
 Skill maintenance: run `node scripts/eval-architect.mjs --self-test` and `node scripts/eval-architect.mjs --json` after editing rules or `evals/cases.json`, then the `octocode-skills` review; `README.md` § Sources lists where these rules come from.

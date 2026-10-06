@@ -1,6 +1,6 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-mod support;
+use crate::support;
 
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
@@ -61,19 +61,20 @@ async fn assert_candidate_walk(total: usize, page: u64, page_size: u64, expected
     let search = json!({
         "mainGoal":"How does the retry policy stop repeated failed attempts?",
         "reasoning":"Select the deciding source among candidates and preserve exceptions.",
-        "path":root.parent().unwrap(), "searchText":"retry delay",
+        "path":root.parent().unwrap(), "matchString":"retry delay",
         "sort":"path", "page":page, "pageSize":page_size, "contextLines":1
     });
     let outcome = runtime
         .execute(
             "search-handoff".into(),
             "localSearch".into(),
-            search.clone(),
+            json!({"queries":[search.clone()]}),
         )
         .await
         .expect("search");
-    let mut matrix =
-        outcome.structured_content["results"][0]["data"]["hints"]["clasify"]["query"].clone();
+    let mut matrix = outcome.structured_content["results"][0]["data"]["hints"]["clasify"]["query"]
+        ["queries"][0]
+        .clone();
     assert_eq!(matrix["reasoning"], search["reasoning"]);
     assert_eq!(matrix["resources"][0]["tool"], "localSearch");
     assert_eq!(matrix["resources"][0]["candidateEvidence"], "fileChunks");
@@ -84,7 +85,11 @@ async fn assert_candidate_walk(total: usize, page: u64, page_size: u64, expected
     // Every call screens at least one candidate.
     for _ in 0..expected {
         let outcome = runtime
-            .execute("classify-handoff".into(), "clasify".into(), matrix)
+            .execute(
+                "classify-handoff".into(),
+                "clasify".into(),
+                json!({"queries":[matrix]}),
+            )
             .await
             .expect("emitted matrix replays");
         octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
@@ -110,7 +115,7 @@ async fn assert_candidate_walk(total: usize, page: u64, page_size: u64, expected
                 deciding_read = Some(page["hints"]["read"].clone());
             }
         }
-        let Some(next) = query.pointer("/next/clasify") else {
+        let Some(next) = query.pointer("/next/clasify/queries/0") else {
             assert!(query["resources"][0].get("coverage").is_none(), "{query}");
             complete = true;
             break;
@@ -166,7 +171,11 @@ async fn large_paged_local_read_offers_clasify_locate() {
         let runtime = &runtime;
         async move {
             runtime
-                .execute("read".into(), "localFetch".into(), query)
+                .execute(
+                    "read".into(),
+                    "localFetch".into(),
+                    json!({"queries":[query]}),
+                )
                 .await
                 .expect("read")
                 .structured_content["results"][0]["data"]
@@ -184,7 +193,7 @@ async fn large_paged_local_read_offers_clasify_locate() {
     let paged = read(brief(json!({}))).await;
     let offer = &paged["hints"]["clasify"];
     assert_eq!(offer["tool"], "clasify", "{paged}");
-    let matrix = &offer["query"];
+    let matrix = &offer["query"]["queries"][0];
     assert_eq!(matrix["resources"][0]["tool"], "localFetch");
     assert_eq!(
         matrix["questions"][0],
@@ -192,13 +201,13 @@ async fn large_paged_local_read_offers_clasify_locate() {
     );
     octocode_native::contracts::prepare_many_and_validate(
         "clasify",
-        matrix.clone(),
+        json!({"queries":[matrix.clone()]}),
         octocode_native::contracts::PrepareOptions::default(),
     )
     .expect("the offered matrix validates");
     for targeted in [
         read(brief(json!({"matchString":"detail 2400"}))).await,
-        read(brief(json!({"startLine":1,"endLine":40}))).await,
+        read(brief(json!({"ranges":["1-40"]}))).await,
         read(json!({"mainGoal":"g","reasoning":"r","path":small})).await,
     ] {
         assert!(targeted["hints"].get("clasify").is_none(), "{targeted}");

@@ -21,73 +21,7 @@ pub(crate) async fn pypi(
         )
         .with_hint("Use type:pypi with packageName for exact Python package lookup."));
     };
-    let project = |suffix: &str| {
-        parse_url(&format!(
-            "https://pypi.org/pypi/{}/{suffix}json",
-            super::util::encode_component(package_name)
-        ))
-    };
-    // A bare release number is exact; operators make a PEP 440 specifier.
-    let requested = query.version().filter(|value| *value != "latest");
-    let exact = requested.filter(|value| {
-        !value.contains(['<', '>', '=', '!', '~', ',', '*'])
-            && !matches!(VersionSpec::parse(value), VersionSpec::Tag(_))
-    });
-    let response = match (requested, exact) {
-        (None, _) => {
-            client
-                .json(ArtifactType::Pypi, project("")?, true, None)
-                .await?
-        }
-        (Some(_), Some(version)) => {
-            let found = client
-                .json(
-                    ArtifactType::Pypi,
-                    project(&format!("{}/", super::util::encode_component(version)))?,
-                    true,
-                    None,
-                )
-                .await?;
-            if found.is_none()
-                && let Some(project) = client
-                    .json(ArtifactType::Pypi, project("")?, true, None)
-                    .await?
-            {
-                return Err(super::npm::version_not_found(
-                    package_name,
-                    version,
-                    &pypi_releases(&project, true),
-                ));
-            }
-            found
-        }
-        (Some(specifier), None) => {
-            let Some(project_json) = client
-                .json(ArtifactType::Pypi, project("")?, true, None)
-                .await?
-            else {
-                return Ok(ArtifactProviderPage::empty(Some(0)));
-            };
-            let releases = pypi_releases(&project_json, false);
-            let Some(resolved) = pypi_resolve(specifier, releases.iter().map(String::as_str))
-            else {
-                return Err(super::npm::version_not_found(
-                    package_name,
-                    specifier,
-                    &pypi_releases(&project_json, true),
-                ));
-            };
-            client
-                .json(
-                    ArtifactType::Pypi,
-                    project(&format!("{}/", super::util::encode_component(&resolved)))?,
-                    true,
-                    None,
-                )
-                .await?
-        }
-    };
-    let Some(response) = response else {
+    let Some(response) = pypi_release_json(package_name, query.version(), client).await? else {
         return Ok(ArtifactProviderPage::empty(Some(0)));
     };
     let body = object_for(&response, ArtifactType::Pypi)?;
@@ -129,17 +63,100 @@ pub(crate) async fn pypi(
         .and_then(|file| date_prefix(file.get("upload_time_iso_8601")));
     artifact.yanked = (info.get("yanked") == Some(&Value::Bool(true))).then_some(true);
     artifact.requires_python = string(info.get("requires_python"));
-    artifact.dependencies = Some(info.get("requires_dist").and_then(Value::as_array).map_or(
-        0,
-        |requirements| {
-            requirements
-                .iter()
-                .filter_map(Value::as_str)
-                .filter(|requirement| !requirement.contains("extra =="))
-                .count()
-        },
-    ));
+    artifact.dependency_list = info
+        .get("requires_dist")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|requirement| !requirement.contains("extra =="))
+        .map(str::to_owned)
+        .collect();
+    artifact.dependencies = Some(artifact.dependency_list.len());
+    // PyPI names no commit; an upstream tag for this release pins the lead.
+    if let (Some(repository), Some(version)) = (&artifact.repository, &artifact.version) {
+        artifact.source_ref =
+            super::release_ref::github_release_tag(repository, version, client).await;
+        artifact.source_tag = artifact.source_ref.is_some();
+    }
     Ok(single(artifact))
+}
+
+/// The PyPI release document for `version` (none: the latest release; a
+/// bare number is exact; operators make a PEP 440 specifier), or `None`
+/// when the project or the resolved release is unknown.
+async fn pypi_release_json(
+    package_name: &str,
+    version: Option<&str>,
+    client: &RegistryClient<'_>,
+) -> Result<Option<Value>, ArtifactError> {
+    let project = |suffix: &str| {
+        parse_url(&format!(
+            "https://pypi.org/pypi/{}/{suffix}json",
+            super::util::encode_component(package_name)
+        ))
+    };
+    // A bare release number is exact; operators make a PEP 440 specifier.
+    let requested = version.filter(|value| *value != "latest");
+    let exact = requested.filter(|value| {
+        !value.contains(['<', '>', '=', '!', '~', ',', '*'])
+            && !matches!(VersionSpec::parse(value), VersionSpec::Tag(_))
+    });
+    let response = match (requested, exact) {
+        (None, _) => {
+            client
+                .json(ArtifactType::Pypi, project("")?, true, None)
+                .await?
+        }
+        (Some(_), Some(version)) => {
+            let found = client
+                .json(
+                    ArtifactType::Pypi,
+                    project(&format!("{}/", super::util::encode_component(version)))?,
+                    true,
+                    None,
+                )
+                .await?;
+            if found.is_none()
+                && let Some(project) = client
+                    .json(ArtifactType::Pypi, project("")?, true, None)
+                    .await?
+            {
+                return Err(super::npm::version_not_found(
+                    package_name,
+                    version,
+                    &pypi_releases(&project, true),
+                ));
+            }
+            found
+        }
+        (Some(specifier), None) => {
+            let Some(project_json) = client
+                .json(ArtifactType::Pypi, project("")?, true, None)
+                .await?
+            else {
+                return Ok(None);
+            };
+            let releases = pypi_releases(&project_json, false);
+            let Some(resolved) = pypi_resolve(specifier, releases.iter().map(String::as_str))
+            else {
+                return Err(super::npm::version_not_found(
+                    package_name,
+                    specifier,
+                    &pypi_releases(&project_json, true),
+                ));
+            };
+            client
+                .json(
+                    ArtifactType::Pypi,
+                    project(&format!("{}/", super::util::encode_component(&resolved)))?,
+                    true,
+                    None,
+                )
+                .await?
+        }
+    };
+    Ok(response)
 }
 
 /// Release numbers of a PyPI project; `include_yanked` false drops releases
@@ -236,6 +253,82 @@ async fn crate_release(
     Ok(Some(artifact))
 }
 
+/// The commit a GitHub-hosted crate version was packaged from (cargo's VCS
+/// info, with the crate's directory in the repository), else its upstream
+/// release tag.
+async fn crate_source_ref(artifact: &mut ArtifactItem, client: &RegistryClient<'_>) {
+    let (Some(repository), Some(version)) = (artifact.repository.clone(), artifact.version.clone())
+    else {
+        return;
+    };
+    if !repository.contains("github.com") {
+        return;
+    }
+    if let Some((sha, directory)) =
+        super::release_ref::crate_vcs(&artifact.name, &version, client).await
+    {
+        artifact.source_ref = Some(sha);
+        artifact.repository_directory = directory.filter(|directory| !directory.is_empty());
+        return;
+    }
+    artifact.source_ref =
+        super::release_ref::github_release_tag(&repository, &version, client).await;
+    artifact.source_tag = artifact.source_ref.is_some();
+}
+
+/// The runtime dependency count of a crate version: normal, non-optional
+/// dependencies (optional ones are features, like PyPI extras). A failed
+/// read leaves the count unset; it never fails the lookup.
+async fn crate_dependencies(
+    name: &str,
+    version: &str,
+    client: &RegistryClient<'_>,
+) -> Option<Vec<String>> {
+    let url = parse_url(&format!(
+        "https://crates.io/api/v1/crates/{}/{}/dependencies",
+        super::util::encode_component(name),
+        super::util::encode_component(version)
+    ))
+    .ok()?;
+    let listing = client
+        .json(ArtifactType::Crates, url, true, None)
+        .await
+        .ok()??;
+    Some(
+        listing
+            .get("dependencies")?
+            .as_array()?
+            .iter()
+            .filter(|dependency| {
+                dependency.get("kind").and_then(Value::as_str) == Some("normal")
+                    && dependency.get("optional") != Some(&Value::Bool(true))
+            })
+            .filter_map(|dependency| {
+                let name = dependency.get("crate_id").and_then(Value::as_str)?;
+                Some(match dependency.get("req").and_then(Value::as_str) {
+                    Some(req) => format!("{name} {req}"),
+                    None => name.to_owned(),
+                })
+            })
+            .collect(),
+    )
+}
+
+/// Release facts of a resolved crate version that need their own reads:
+/// the source ref and the dependency count, read concurrently.
+async fn crate_release_facts(artifact: &mut ArtifactItem, client: &RegistryClient<'_>) {
+    let Some(version) = artifact.version.clone() else {
+        return;
+    };
+    let name = artifact.name.clone();
+    let (dependencies, ()) = tokio::join!(
+        crate_dependencies(&name, &version, client),
+        crate_source_ref(artifact, client)
+    );
+    artifact.dependencies = dependencies.as_ref().map(Vec::len);
+    artifact.dependency_list = dependencies.unwrap_or_default();
+}
+
 pub(crate) async fn crates(
     query: &ArtifactSearchQuery,
     state: &ArtifactProviderState,
@@ -243,8 +336,9 @@ pub(crate) async fn crates(
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     if let Some(name) = query.bare_package_name() {
         if let Some(VersionSpec::Exact(version)) = query.version().map(VersionSpec::parse)
-            && let Some(artifact) = crate_release(name, &version, client).await?
+            && let Some(mut artifact) = crate_release(name, &version, client).await?
         {
+            crate_release_facts(&mut artifact, client).await;
             return Ok(single(artifact));
         }
         let url = parse_url(&format!(
@@ -303,36 +397,126 @@ pub(crate) async fn crates(
         }) {
             apply_crate_version(&mut artifact, entry);
         }
+        crate_release_facts(&mut artifact, client).await;
         return Ok(single(artifact));
     }
     let page = state.page.unwrap_or(1);
     let size = query.page_size().unwrap_or(10);
-    let url = endpoint(
-        "https://crates.io/api/v1/crates",
-        &[
-            ("q", Some(terms(query))),
-            ("page", Some(page.to_string())),
-            ("per_page", Some(size.to_string())),
-        ],
-    )?;
-    let response = client
-        .json(ArtifactType::Crates, url, false, None)
-        .await?
-        .ok_or_else(|| super::util::invalid(ArtifactType::Crates))?;
-    let data = object_for(&response, ArtifactType::Crates)?;
-    let artifacts = rows(
-        data.get("crates")
-            .ok_or_else(|| super::util::invalid(ArtifactType::Crates))?,
-        ArtifactType::Crates,
-    )?
-    .iter()
-    .map(|row| crate_item(object_for(row, ArtifactType::Crates)?))
-    .collect::<Result<Vec<_>, _>>()?;
+    let url = keyword_url("https://crates.io/api/v1/crates", query, page, size)?;
+    let (data, artifacts) =
+        keyword_rows(client, ArtifactType::Crates, url, "crates", crate_item).await?;
     let count = data
         .get("meta")
         .and_then(Value::as_object)
         .and_then(|meta| total(meta.get("total")));
     paged(artifacts, count, page, size, ArtifactType::Crates)
+}
+
+/// An exact Go module or package lookup on pkg.go.dev, pinned to
+/// `query.version()` when one is given.
+async fn go_exact(
+    name: &str,
+    query: &ArtifactSearchQuery,
+    client: &RegistryClient<'_>,
+) -> Result<ArtifactProviderPage, ArtifactError> {
+    let path = coordinate_path(name);
+    let version = go_version(query.version())?;
+    let lookup = |kind: &str| {
+        endpoint(
+            &format!("https://pkg.go.dev/v1/{kind}/{path}"),
+            &[("version", version.clone())],
+        )
+    };
+    let mut response = client
+        .json(ArtifactType::Go, lookup("module")?, true, None)
+        .await?;
+    let mut is_package = false;
+    if response.is_none() {
+        response = client
+            .json(ArtifactType::Go, lookup("package")?, true, None)
+            .await?;
+        is_package = true;
+    }
+    // A pinned lookup answers with that version or not at all.
+    let response = response.filter(|row| {
+        version
+            .as_deref()
+            .is_none_or(|version| row.get("version").and_then(Value::as_str) == Some(version))
+    });
+    let Some(response) = response else {
+        // A pinned version the module does not publish is not an
+        // unknown module: name the nearest published versions.
+        if let Some(version) = version.as_deref() {
+            let versions_url = parse_url(&format!("https://pkg.go.dev/v1/versions/{path}"))?;
+            if let Some(listing) = client
+                .json(ArtifactType::Go, versions_url, true, None)
+                .await?
+            {
+                let published = listing
+                    .get("items")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|item| string(item.get("version")))
+                    .map(|published| published.trim_start_matches('v').to_owned())
+                    .collect::<Vec<_>>();
+                if !published.is_empty() {
+                    return Err(super::npm::version_not_found(
+                        name,
+                        version.trim_start_matches('v'),
+                        &published,
+                    ));
+                }
+            }
+        }
+        return Ok(ArtifactProviderPage::empty(Some(0)));
+    };
+    let row = object_for(&response, ArtifactType::Go)?;
+    let returned = required(row.get("path"), ArtifactType::Go)?;
+    let mut artifact = ArtifactItem::new(
+        ArtifactType::Go,
+        returned.clone(),
+        format!("https://pkg.go.dev/{}", coordinate_path(&returned)),
+    );
+    artifact.version = string(row.get("version"));
+    artifact.description = string(row.get("synopsis"));
+    artifact.repository = safe_url(row.get("repoUrl"));
+    artifact.module_path = if is_package {
+        string(row.get("modulePath"))
+    } else {
+        Some(returned.clone())
+    };
+    artifact.package_path = is_package.then_some(returned);
+    artifact.source_ref = go_source_ref(&artifact);
+    // A vanity module path (`go.opentelemetry.io/otel`) does not name its
+    // repository directory or tag; the module proxy records the commit
+    // the version was built from, and the directory inside the repo.
+    if artifact.source_ref.is_none()
+        && let (Some(module), Some(version)) =
+            (artifact.module_path.clone(), artifact.version.clone())
+    {
+        let info = parse_url(&format!(
+            "https://proxy.golang.org/{}/@v/{}.info",
+            go_proxy_escape(&module),
+            super::util::encode_component(&version)
+        ))?;
+        // The proxy is a lead source only: its failure leaves the lookup.
+        if let Some(origin) = client
+            .json(ArtifactType::Go, info, true, None)
+            .await
+            .ok()
+            .flatten()
+            .as_ref()
+            .and_then(|info| info.get("Origin"))
+        {
+            artifact.source_ref = commit_sha(origin.get("Hash"));
+            if artifact.repository_directory.is_none() {
+                artifact.repository_directory =
+                    string(origin.get("Subdir")).filter(|dir| !dir.is_empty());
+            }
+        }
+    }
+    Ok(single(artifact))
 }
 
 pub(crate) async fn go(
@@ -341,118 +525,36 @@ pub(crate) async fn go(
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     if let Some(name) = query.package_name() {
-        let path = coordinate_path(name);
-        let version = go_version(query.version())?;
-        let lookup = |kind: &str| {
-            endpoint(
-                &format!("https://pkg.go.dev/v1/{kind}/{path}"),
-                &[("version", version.clone())],
-            )
-        };
-        let mut response = client
-            .json(ArtifactType::Go, lookup("module")?, true, None)
-            .await?;
-        let mut is_package = false;
-        if response.is_none() {
-            response = client
-                .json(ArtifactType::Go, lookup("package")?, true, None)
-                .await?;
-            is_package = true;
-        }
-        // A pinned lookup answers with that version or not at all.
-        let response = response.filter(|row| {
-            version
-                .as_deref()
-                .is_none_or(|version| row.get("version").and_then(Value::as_str) == Some(version))
-        });
-        let Some(response) = response else {
-            // A pinned version the module does not publish is not an
-            // unknown module: name the nearest published versions.
-            if let Some(version) = version.as_deref() {
-                let versions_url = parse_url(&format!("https://pkg.go.dev/v1/versions/{path}"))?;
-                if let Some(listing) = client
-                    .json(ArtifactType::Go, versions_url, true, None)
-                    .await?
-                {
-                    let published = listing
-                        .get("items")
-                        .and_then(Value::as_array)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|item| string(item.get("version")))
-                        .map(|published| published.trim_start_matches('v').to_owned())
-                        .collect::<Vec<_>>();
-                    if !published.is_empty() {
-                        return Err(super::npm::version_not_found(
-                            name,
-                            version.trim_start_matches('v'),
-                            &published,
-                        ));
-                    }
-                }
-            }
-            return Ok(ArtifactProviderPage::empty(Some(0)));
-        };
-        let row = object_for(&response, ArtifactType::Go)?;
-        let returned = required(row.get("path"), ArtifactType::Go)?;
-        let mut artifact = ArtifactItem::new(
-            ArtifactType::Go,
-            returned.clone(),
-            format!("https://pkg.go.dev/{}", coordinate_path(&returned)),
-        );
-        artifact.version = string(row.get("version"));
-        artifact.description = string(row.get("synopsis"));
-        artifact.repository = safe_url(row.get("repoUrl"));
-        artifact.module_path = if is_package {
-            string(row.get("modulePath"))
-        } else {
-            Some(returned.clone())
-        };
-        artifact.package_path = is_package.then_some(returned);
-        artifact.source_ref = go_source_ref(&artifact);
-        // A vanity module path (`go.opentelemetry.io/otel`) does not name its
-        // repository directory or tag; the module proxy records the commit
-        // the version was built from, and the directory inside the repo.
-        if artifact.source_ref.is_none()
-            && let (Some(module), Some(version)) =
-                (artifact.module_path.clone(), artifact.version.clone())
-        {
-            let info = parse_url(&format!(
-                "https://proxy.golang.org/{}/@v/{}.info",
-                go_proxy_escape(&module),
-                super::util::encode_component(&version)
-            ))?;
-            // The proxy is a lead source only: its failure leaves the lookup.
-            if let Some(origin) = client
-                .json(ArtifactType::Go, info, true, None)
-                .await
-                .ok()
-                .flatten()
-                .as_ref()
-                .and_then(|info| info.get("Origin"))
-            {
-                artifact.source_ref = commit_sha(origin.get("Hash"));
-                if artifact.repository_directory.is_none() {
-                    artifact.repository_directory =
-                        string(origin.get("Subdir")).filter(|dir| !dir.is_empty());
-                }
-            }
-        }
-        return Ok(single(artifact));
+        return go_exact(name, query, client).await;
     }
-    let url = endpoint(
-        "https://pkg.go.dev/v1/search",
-        &[
-            ("q", Some(terms(query))),
-            ("limit", Some(query.page_size().unwrap_or(10).to_string())),
-            ("token", state.token.clone()),
-        ],
-    )?;
-    let response = client
-        .json(ArtifactType::Go, url, false, None)
-        .await?
-        .ok_or_else(|| super::util::invalid(ArtifactType::Go))?;
-    let data = object_for(&response, ArtifactType::Go)?;
+    // pkg.go.dev pages by opaque token only: page N follows the tokens of
+    // the N-1 pages before it, each the same size, so pages tile the list.
+    let mut token: Option<String> = None;
+    let mut hop = 1;
+    let data = loop {
+        let url = endpoint(
+            "https://pkg.go.dev/v1/search",
+            &[
+                ("q", Some(terms(query))),
+                ("limit", Some(query.page_size().unwrap_or(10).to_string())),
+                ("token", token.clone()),
+            ],
+        )?;
+        let response = client
+            .json(ArtifactType::Go, url, false, None)
+            .await?
+            .ok_or_else(|| super::util::invalid(ArtifactType::Go))?;
+        let data = object_for(&response, ArtifactType::Go)?.clone();
+        if hop >= state.page.unwrap_or(1) {
+            break data;
+        }
+        let Some(next) = string(data.get("nextPageToken")) else {
+            return Ok(ArtifactProviderPage::empty(total(data.get("total"))));
+        };
+        token = Some(next);
+        hop += 1;
+    };
+    let data = &data;
     let artifacts = rows(
         data.get("items")
             .ok_or_else(|| super::util::invalid(ArtifactType::Go))?,
@@ -476,8 +578,8 @@ pub(crate) async fn go(
     .collect::<Result<Vec<_>, ArtifactError>>()?;
     Ok(ArtifactProviderPage {
         artifacts,
-        next_state: string(data.get("nextPageToken")).map(|token| ArtifactProviderState {
-            token: Some(token),
+        next_state: string(data.get("nextPageToken")).map(|_| ArtifactProviderState {
+            page: Some(state.page.unwrap_or(1) + 1),
             ..Default::default()
         }),
         total: total(data.get("total")),
@@ -614,27 +716,9 @@ pub(crate) async fn packagist(
     }
     let page = state.page.unwrap_or(1);
     let size = query.page_size().unwrap_or(10);
-    let url = endpoint(
-        "https://packagist.org/search.json",
-        &[
-            ("q", Some(terms(query))),
-            ("page", Some(page.to_string())),
-            ("per_page", Some(size.to_string())),
-        ],
-    )?;
-    let response = client
-        .json(ArtifactType::Packagist, url, false, None)
-        .await?
-        .ok_or_else(|| super::util::invalid(ArtifactType::Packagist))?;
-    let data = object_for(&response, ArtifactType::Packagist)?;
-    let artifacts = rows(
-        data.get("results")
-            .ok_or_else(|| super::util::invalid(ArtifactType::Packagist))?,
-        ArtifactType::Packagist,
-    )?
-    .iter()
-    .map(|row| composer(object_for(row, ArtifactType::Packagist)?))
-    .collect::<Result<Vec<_>, _>>()?;
+    let url = keyword_url("https://packagist.org/search.json", query, page, size)?;
+    let (data, artifacts) =
+        keyword_rows(client, ArtifactType::Packagist, url, "results", composer).await?;
     Ok(ArtifactProviderPage {
         next_state: string(data.get("next")).map(|_| ArtifactProviderState {
             page: Some(page + 1),
@@ -702,45 +786,52 @@ pub(crate) async fn rubygems(
         };
         return Ok(single(gem(object_for(&response, ArtifactType::Rubygems)?)?));
     }
-    let page = state.page.unwrap_or(1);
-    let url = endpoint(
-        "https://rubygems.org/api/v1/search.json",
-        &[
-            ("query", Some(terms(query))),
-            ("page", Some(page.to_string())),
-        ],
-    )?;
-    let response = client
-        .json(ArtifactType::Rubygems, url, false, None)
-        .await?
-        .ok_or_else(|| super::util::invalid(ArtifactType::Rubygems))?;
-    let fetched = rows(&response, ArtifactType::Rubygems)?;
-    // rubygems.org ignores per-page sizing (fixed ~30 rows per API page), so
-    // honor pageSize by windowing within the fetched page via the cursor
-    // offset and advancing to the next API page once it is drained.
-    let skip = state.offset.unwrap_or(0) as usize;
+    // rubygems.org ignores per-page sizing (a fixed number of rows per API
+    // page), so the item offset picks the API page and the rows within it,
+    // and a page that crosses an API page boundary reads the next one.
     let size = query.page_size().unwrap_or(10);
-    let artifacts = fetched
-        .iter()
-        .skip(skip)
-        .take(size)
-        .map(|row| gem(object_for(row, ArtifactType::Rubygems)?))
-        .collect::<Result<Vec<_>, _>>()?;
-    let consumed = skip + artifacts.len();
-    let next_state = if artifacts.is_empty() {
-        None
-    } else if consumed < fetched.len() {
-        Some(ArtifactProviderState {
-            page: Some(page),
-            offset: Some(consumed as u64),
-            ..Default::default()
-        })
-    } else {
-        Some(ArtifactProviderState {
-            page: Some(page + 1),
-            ..Default::default()
-        })
-    };
+    let offset = state.offset.unwrap_or(0) as usize;
+    let mut api_page = 1;
+    let mut skip = offset;
+    let mut artifacts = Vec::new();
+    let mut more = false;
+    loop {
+        let url = endpoint(
+            "https://rubygems.org/api/v1/search.json",
+            &[
+                ("query", Some(terms(query))),
+                ("page", Some(api_page.to_string())),
+            ],
+        )?;
+        let response = client
+            .json(ArtifactType::Rubygems, url, false, None)
+            .await?
+            .ok_or_else(|| super::util::invalid(ArtifactType::Rubygems))?;
+        let fetched = rows(&response, ArtifactType::Rubygems)?;
+        if fetched.is_empty() {
+            break;
+        }
+        if skip >= fetched.len() {
+            skip -= fetched.len();
+            api_page += 1;
+            continue;
+        }
+        let wanted = size - artifacts.len();
+        for row in fetched.iter().skip(skip).take(wanted) {
+            artifacts.push(gem(object_for(row, ArtifactType::Rubygems)?)?);
+        }
+        skip = 0;
+        if artifacts.len() == size {
+            // A full page may have more after it; a later empty page ends.
+            more = true;
+            break;
+        }
+        api_page += 1;
+    }
+    let next_state = (more && !artifacts.is_empty()).then(|| ArtifactProviderState {
+        offset: Some((offset + artifacts.len()) as u64),
+        ..Default::default()
+    });
     Ok(ArtifactProviderPage {
         next_state,
         artifacts,
@@ -748,6 +839,43 @@ pub(crate) async fn rubygems(
         terminal_limit: None,
         registry: None,
     })
+}
+
+/// A `q`/`page`/`per_page` keyword search URL on `base`.
+fn keyword_url(
+    base: &str,
+    query: &ArtifactSearchQuery,
+    page: u64,
+    size: usize,
+) -> Result<url::Url, ArtifactError> {
+    endpoint(
+        base,
+        &[
+            ("q", Some(terms(query))),
+            ("page", Some(page.to_string())),
+            ("per_page", Some(size.to_string())),
+        ],
+    )
+}
+
+/// A keyword search response object and its rows under `key`, each mapped
+/// by `item`.
+async fn keyword_rows(
+    client: &RegistryClient<'_>,
+    artifact_type: ArtifactType,
+    url: url::Url,
+    key: &str,
+    item: fn(&serde_json::Map<String, Value>) -> Result<ArtifactItem, ArtifactError>,
+) -> Result<(serde_json::Map<String, Value>, Vec<ArtifactItem>), ArtifactError> {
+    let invalid = || super::util::invalid(artifact_type);
+    let Some(Value::Object(data)) = client.json(artifact_type, url, false, None).await? else {
+        return Err(invalid());
+    };
+    let artifacts = rows(data.get(key).ok_or_else(invalid)?, artifact_type)?
+        .iter()
+        .map(|row| item(object_for(row, artifact_type)?))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok((data, artifacts))
 }
 
 fn single(artifact: ArtifactItem) -> ArtifactProviderPage {
@@ -798,44 +926,13 @@ fn paged(
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::artifact_query;
+    use super::super::types::{StaticHttp, artifact_query, test_budget};
     use super::*;
     use crate::providers::RequestBudget;
     use crate::providers::artifact::http::{
         ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse,
     };
     use serde_json::json;
-    use std::time::Duration;
-
-    struct MockHttp {
-        status: u16,
-        body: Vec<u8>,
-    }
-
-    impl MockHttp {
-        fn ok(body: serde_json::Value) -> Self {
-            Self {
-                status: 200,
-                body: serde_json::to_vec(&body).expect("registry test data should serialize"),
-            }
-        }
-    }
-
-    impl ArtifactHttp for MockHttp {
-        fn get<'a>(
-            &'a self,
-            _req: ArtifactHttpRequest,
-            _budget: &'a RequestBudget,
-        ) -> ArtifactHttpFuture<'a> {
-            let body = self.body.clone();
-            let status = self.status;
-            Box::pin(async move { Ok(ArtifactHttpResponse { status, body }) })
-        }
-    }
-
-    fn budget() -> RequestBudget {
-        RequestBudget::with_timeout(Duration::from_secs(10), 10_000_000)
-    }
 
     /// Answers by URL path (exact match); anything else is a 404. Records
     /// every requested path.
@@ -886,6 +983,38 @@ mod tests {
         }
     }
 
+    /// Upstream tags that exist (`owner/repo@tag`); records every check.
+    struct FakeTags {
+        known: Vec<&'static str>,
+        seen: std::sync::Mutex<Vec<String>>,
+    }
+
+    impl FakeTags {
+        fn new(known: Vec<&'static str>) -> Self {
+            Self {
+                known,
+                seen: std::sync::Mutex::new(vec![]),
+            }
+        }
+        fn seen(&self) -> Vec<String> {
+            self.seen.lock().expect("seen").clone()
+        }
+    }
+
+    impl super::super::ReleaseTags for FakeTags {
+        fn exists<'a>(
+            &'a self,
+            owner: &'a str,
+            repo: &'a str,
+            tag: &'a str,
+        ) -> super::super::TagFuture<'a> {
+            let name = format!("{owner}/{repo}@{tag}");
+            let found = self.known.contains(&name.as_str());
+            self.seen.lock().expect("seen").push(name);
+            Box::pin(async move { Some(found) })
+        }
+    }
+
     fn versioned(artifact_type: ArtifactType, name: &str, version: &str) -> ArtifactSearchQuery {
         artifact_query(
             json!({"type": artifact_type, "packageName": name, "version": version}),
@@ -919,12 +1048,13 @@ mod tests {
             ("/pypi/requests/2.31.0/json", pypi_release("2.31.0")),
             ("/pypi/requests/2.32.3/json", pypi_release("2.32.3")),
         ]);
-        let b = budget();
+        let tags = FakeTags::new(vec!["psf/requests@v2.31.0"]);
+        let b = test_budget();
         let client = RegistryClient {
             http: &http,
             budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
+            cache: None,
+            tags: Some(&tags),
         };
         let exact = pypi(
             &versioned(ArtifactType::Pypi, "requests", "2.31.0"),
@@ -937,7 +1067,10 @@ mod tests {
         assert_eq!(item.published_at.as_deref(), Some("2023-05-22"));
         assert_eq!(item.requires_python.as_deref(), Some(">=3.7"));
         assert_eq!(item.dependencies, Some(2), "extras are not dependencies");
+        assert_eq!(item.dependency_list.len(), 2, "{:?}", item.dependency_list);
         assert_eq!(item.yanked, None);
+        // The upstream release tag pins the source lead.
+        assert_eq!(item.source_ref.as_deref(), Some("v2.31.0"));
         let coordinate = pypi(
             &exact_query(ArtifactType::Pypi, "requests==2.31.0"),
             &client,
@@ -952,6 +1085,8 @@ mod tests {
         .await
         .expect("specifier");
         assert_eq!(range.artifacts[0].version.as_deref(), Some("2.32.3"));
+        // Neither `v2.32.3` nor `2.32.3` exists upstream: no release ref.
+        assert_eq!(range.artifacts[0].source_ref, None);
         let missing = pypi(
             &versioned(ArtifactType::Pypi, "requests", "2.31.9"),
             &client,
@@ -960,11 +1095,22 @@ mod tests {
         .expect_err("missing version");
         assert_eq!(missing.code, "versionNotFound");
         assert!(missing.hints[0].contains("2.31.0"), "{missing:?}");
+        let registry: Vec<String> = http
+            .seen()
+            .into_iter()
+            .filter(|path| path.starts_with("/pypi/"))
+            .collect();
         assert_eq!(
-            http.seen()[..2],
+            registry[..2],
             ["/pypi/requests/2.31.0/json", "/pypi/requests/2.31.0/json"],
-            "exact versions are one request"
+            "exact versions are one registry request"
         );
+        assert_eq!(
+            tags.seen()[0],
+            "psf/requests@v2.31.0",
+            "the `v` tag is checked first and ends the check"
+        );
+        assert_eq!(tags.seen()[1], "psf/requests@v2.31.0");
     }
 
     fn serde_crate_document() -> Value {
@@ -981,16 +1127,136 @@ mod tests {
         })
     }
 
+    /// Serves one `.crate` archive by path; everything else goes to routes.
+    struct ArchiveHttp {
+        archive_path: &'static str,
+        archive: Vec<u8>,
+        routes: RouteHttp,
+    }
+
+    impl ArtifactHttp for ArchiveHttp {
+        fn get<'a>(
+            &'a self,
+            req: ArtifactHttpRequest,
+            budget: &'a RequestBudget,
+        ) -> ArtifactHttpFuture<'a> {
+            if req.url.path() == self.archive_path {
+                let body = self.archive.clone();
+                return Box::pin(async move { Ok(ArtifactHttpResponse { status: 200, body }) });
+            }
+            self.routes.get(req, budget)
+        }
+    }
+
+    /// A crate version's source ref is the commit cargo packaged it from,
+    /// with its directory in the repository; without VCS info it is the
+    /// upstream release tag, when one exists.
     #[tokio::test]
-    async fn crates_versions_resolve_from_the_crate_response() {
-        let http = RouteHttp::new(vec![("/api/v1/crates/serde", serde_crate_document())]);
-        let b = budget();
+    async fn crates_exact_versions_carry_the_packaging_commit_or_release_tag() {
+        let info =
+            br#"{"git":{"sha1":"b6a77c4413f902523646be0d7f5520631df53ff6"},"path_in_vcs":"serde"}"#;
+        let http = ArchiveHttp {
+            archive_path: "/crates/serde/serde-1.0.100.crate",
+            archive: super::super::release_ref::test_archive(&[
+                ("serde-1.0.100/Cargo.toml", b"[package]", b'0'),
+                ("serde-1.0.100/.cargo_vcs_info.json", info, b'0'),
+            ]),
+            routes: RouteHttp::new(vec![("/api/v1/crates/serde", serde_crate_document())]),
+        };
+        let tags = FakeTags::new(vec!["serde-rs/serde@v1.0.228"]);
+        let b = test_budget();
         let client = RegistryClient {
             http: &http,
             budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
+            cache: None,
+            tags: Some(&tags),
         };
+        let state = ArtifactProviderState::default();
+        let pinned = crates(
+            &versioned(ArtifactType::Crates, "serde", "1.0.100"),
+            &state,
+            &client,
+        )
+        .await
+        .expect("pinned")
+        .artifacts
+        .remove(0);
+        assert_eq!(
+            pinned.source_ref.as_deref(),
+            Some("b6a77c4413f902523646be0d7f5520631df53ff6")
+        );
+        assert_eq!(pinned.repository_directory.as_deref(), Some("serde"));
+        let latest = crates(&exact_query(ArtifactType::Crates, "serde"), &state, &client)
+            .await
+            .expect("latest")
+            .artifacts
+            .remove(0);
+        assert_eq!(latest.source_ref.as_deref(), Some("v1.0.228"));
+        assert!(latest.source_tag, "an upstream tag is checked to exist");
+        assert!(!pinned.source_tag, "cargo VCS info is not a tag");
+        assert_eq!(latest.repository_directory, None);
+    }
+
+    /// A crate row counts its runtime dependencies like the other
+    /// ecosystems: normal and non-optional, on both exact-version paths.
+    #[tokio::test]
+    async fn crates_rows_count_runtime_dependencies() {
+        let dependencies = json!({"dependencies": [
+            {"crate_id": "a", "kind": "normal", "optional": false, "req": "^1.0"},
+            {"crate_id": "b", "kind": "normal", "optional": true},
+            {"crate_id": "c", "kind": "dev", "optional": false},
+            {"crate_id": "d", "kind": "build", "optional": false},
+            {"crate_id": "e", "kind": "normal", "optional": false}
+        ]});
+        let document = serde_crate_document();
+        let mut metadata = json!({"crate": document["crate"].clone(), "versions": null});
+        metadata["crate"]["max_stable_version"] = Value::Null;
+        let record = json!({"version": document["versions"][2].clone()});
+        let small = RouteHttp::new(vec![
+            ("/api/v1/crates/serde?include=", metadata),
+            ("/api/v1/crates/serde/1.0.100", record),
+            (
+                "/api/v1/crates/serde/1.0.100/dependencies",
+                dependencies.clone(),
+            ),
+        ]);
+        let whole = RouteHttp::new(vec![
+            ("/api/v1/crates/serde", document),
+            ("/api/v1/crates/serde/1.0.228/dependencies", dependencies),
+        ]);
+        let b = test_budget();
+        let pinned = crate_lookup(
+            &small,
+            &b,
+            &versioned(ArtifactType::Crates, "serde", "1.0.100"),
+        )
+        .await
+        .expect("pinned")
+        .artifacts
+        .remove(0);
+        assert_eq!(pinned.dependencies, Some(2));
+        let latest = crate_lookup(&whole, &b, &exact_query(ArtifactType::Crates, "serde"))
+            .await
+            .expect("latest")
+            .artifacts
+            .remove(0);
+        assert_eq!(latest.dependencies, Some(2));
+        assert_eq!(
+            serde_json::to_value(&latest).expect("row")["dependencies"],
+            2
+        );
+        // E19: the names ride the row, not only their count.
+        assert_eq!(
+            serde_json::to_value(&latest).expect("row")["dependencyList"],
+            json!(["a ^1.0", "e"])
+        );
+    }
+
+    #[tokio::test]
+    async fn crates_versions_resolve_from_the_crate_response() {
+        let http = RouteHttp::new(vec![("/api/v1/crates/serde", serde_crate_document())]);
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let state = ArtifactProviderState::default();
         let lookup = |query: ArtifactSearchQuery| {
             let client = &client;
@@ -1013,10 +1279,13 @@ mod tests {
             Some("1.0.100"),
             "yanked 1.0.200 is skipped"
         );
+        // The crate document resolves every version; only the resolved
+        // version's dependency count is a second read.
         assert!(
             http.seen()
                 .iter()
-                .all(|path| path == "/api/v1/crates/serde")
+                .filter(|path| path.starts_with("/api/"))
+                .all(|path| path == "/api/v1/crates/serde" || path.ends_with("/dependencies"))
         );
         // A version the registry does not know reads the crate document for
         // its nearest versions.
@@ -1032,12 +1301,7 @@ mod tests {
         budget: &RequestBudget,
         query: &ArtifactSearchQuery,
     ) -> Result<ArtifactProviderPage, ArtifactError> {
-        let client = RegistryClient {
-            http,
-            budget,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let client = RegistryClient::uncached(http, budget);
         crates(query, &ArtifactProviderState::default(), &client).await
     }
 
@@ -1061,7 +1325,7 @@ mod tests {
             ("/api/v1/crates/serde/1.0.200", record("1.0.200")),
         ]);
         let whole = RouteHttp::new(vec![("/api/v1/crates/serde", document.clone())]);
-        let b = budget();
+        let b = test_budget();
         for (query, version) in [
             (
                 versioned(ArtifactType::Crates, "serde", "1.0.100"),
@@ -1093,7 +1357,13 @@ mod tests {
                 "{version}"
             );
         }
-        let mut seen = small.seen();
+        // Registry reads only (dependency counts aside); the release-ref
+        // reads are lead sources.
+        let mut seen: Vec<String> = small
+            .seen()
+            .into_iter()
+            .filter(|path| path.starts_with("/api/") && !path.ends_with("/dependencies"))
+            .collect();
         seen.sort();
         seen.dedup();
         assert_eq!(
@@ -1159,7 +1429,7 @@ mod tests {
 
     #[tokio::test]
     async fn pypi_parses_exact_lookup() {
-        let http = MockHttp::ok(json!({
+        let http = StaticHttp::json(json!({
             "info": {
                 "name": "requests",
                 "version": "2.31.0",
@@ -1169,13 +1439,8 @@ mod tests {
                 "project_urls": {"Source": "https://github.com/psf/requests"}
             }
         }));
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let q = exact_query(ArtifactType::Pypi, "requests");
         let page = pypi(&q, &client).await.expect("pypi");
         assert_eq!(page.artifacts.len(), 1);
@@ -1191,7 +1456,7 @@ mod tests {
 
     #[tokio::test]
     async fn crates_parses_exact_lookup() {
-        let http = MockHttp::ok(json!({
+        let http = StaticHttp::json(json!({
             "crate": {
                 "id": "serde",
                 "name": "serde",
@@ -1201,13 +1466,8 @@ mod tests {
                 "repository": "https://github.com/serde-rs/serde"
             }
         }));
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let q = exact_query(ArtifactType::Crates, "serde");
         let page = crates(&q, &ArtifactProviderState::default(), &client)
             .await
@@ -1225,18 +1485,13 @@ mod tests {
 
     #[tokio::test]
     async fn go_parses_exact_module_lookup() {
-        let http = MockHttp::ok(json!({
+        let http = StaticHttp::json(json!({
             "path": "github.com/gin-gonic/gin",
             "version": "v1.9.1",
             "synopsis": "HTTP web framework for Go"
         }));
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let q = exact_query(ArtifactType::Go, "github.com/gin-gonic/gin");
         let page = go(&q, &ArtifactProviderState::default(), &client)
             .await
@@ -1274,13 +1529,8 @@ mod tests {
                 json!({"items":[{"version":"v0.72.0"},{"version":"v0.71.0"},{"version":"v0.70.0"}]}),
             ),
         ]);
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let lookup = |version: Option<&str>| {
             let mut fields =
                 json!({"type":"go","packageName":"github.com/open-telemetry/opentelemetry-go"});
@@ -1330,13 +1580,8 @@ mod tests {
                     "Hash":"ed4fc757583a88b4da51b1fe1c3f0703ac27a487","Ref":"refs/tags/sdk/v1.30.0"}}),
             ),
         ]);
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let query = artifact_query(
             json!({"type":"go","packageName":"go.opentelemetry.io/otel/sdk","version":"v1.30.0"}),
             None,
@@ -1359,7 +1604,7 @@ mod tests {
     #[tokio::test]
     async fn packagist_parses_exact_lookup() {
         // p2/{name}.json response with entries for the tagged URL
-        let http = MockHttp::ok(json!({
+        let http = StaticHttp::json(json!({
             "packages": {
                 "laravel/framework": [
                     {
@@ -1371,13 +1616,8 @@ mod tests {
                 ]
             }
         }));
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let q = exact_query(ArtifactType::Packagist, "laravel/framework");
         let page = packagist(&q, &ArtifactProviderState::default(), &client)
             .await
@@ -1395,20 +1635,15 @@ mod tests {
 
     #[tokio::test]
     async fn rubygems_parses_exact_lookup() {
-        let http = MockHttp::ok(json!({
+        let http = StaticHttp::json(json!({
             "name": "rails",
             "version": "7.0.6",
             "info": "Full-stack web application framework.",
             "homepage_uri": "https://rubyonrails.org",
             "source_code_uri": "https://github.com/rails/rails"
         }));
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let q = exact_query(ArtifactType::Rubygems, "rails");
         let page = rubygems(&q, &ArtifactProviderState::default(), &client)
             .await

@@ -108,11 +108,13 @@ describe('CLI Parser', () => {
     it('should treat a tool query as positional under a tool command', () => {
       const result = parseArgs([
         'localSearch',
-        '{"path":".","searchText":"runCLI"}',
+        '{"queries":[{"path":".","matchString":"runCLI"}]}',
         '--pretty',
       ]);
       expect(result.command).toBe('localSearch');
-      expect(result.args).toEqual(['{"path":".","searchText":"runCLI"}']);
+      expect(result.args).toEqual([
+        '{"queries":[{"path":".","matchString":"runCLI"}]}',
+      ]);
       expect(result.options).toEqual({ pretty: true });
     });
 

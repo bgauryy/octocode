@@ -10,39 +10,39 @@ import {
 describe.each([
   ['files', StructureFilesQuerySchema],
   ['tree', StructureTreeQuerySchema],
-] as const)('structureSearch %s limit bounds', (operation, schema) => {
+] as const)('structureSearch %s maxEntries bounds', (operation, schema) => {
   it.each([-5, LOCAL_MAX_LIMIT + 1])(
-    'rejects out-of-range limit %s without clamping',
-    limit => {
+    'rejects out-of-range maxEntries %s without clamping',
+    maxEntries => {
       expect(
         schema.safeParse({
           mainGoal: 'test goal',
-          reasoning: 'exercise limit bounds',
+          reasoning: 'exercise scan-cap bounds',
           operation,
           path: '.',
-          limit,
+          maxEntries,
         }).success
       ).toBe(false);
     }
   );
 
-  it('accepts limit at the maximum', () => {
+  it('accepts maxEntries at the maximum', () => {
     const result = schema.safeParse({
       mainGoal: 'test goal',
-      reasoning: 'exercise limit bounds',
+      reasoning: 'exercise scan-cap bounds',
       operation,
       path: '.',
-      limit: LOCAL_MAX_LIMIT,
+      maxEntries: LOCAL_MAX_LIMIT,
     });
     expect(result.success).toBe(true);
-    if (result.success) expect(result.data.limit).toBe(LOCAL_MAX_LIMIT);
+    if (result.success) expect(result.data.maxEntries).toBe(LOCAL_MAX_LIMIT);
   });
 
-  it('accepts an omitted limit', () => {
+  it('accepts an omitted maxEntries', () => {
     expect(
       schema.safeParse({
         mainGoal: 'test goal',
-        reasoning: 'exercise limit bounds',
+        reasoning: 'exercise scan-cap bounds',
         operation,
         path: '.',
       }).success
@@ -51,7 +51,7 @@ describe.each([
 });
 
 describe('structureSearch tree depth bounds', () => {
-  it.each([-1, LOCAL_MAX_DEPTH + 1])(
+  it.each([0, LOCAL_MAX_DEPTH + 1])(
     'rejects out-of-range depth %s without clamping',
     maxDepth => {
       expect(
@@ -66,7 +66,7 @@ describe('structureSearch tree depth bounds', () => {
     }
   );
 
-  it.each([0, LOCAL_MAX_DEPTH])(
+  it.each([1, LOCAL_MAX_DEPTH])(
     'accepts depth at the boundary %s',
     maxDepth => {
       const result = StructureTreeQuerySchema.safeParse({
@@ -86,7 +86,7 @@ describe('LspSearchQuerySchema depth bound', () => {
   const base = {
     mainGoal: 'test goal',
     reasoning: 'exercise depth bounds',
-    uri: '/tmp/x.ts',
+    path: '/tmp/x.ts',
     operation: 'callers',
     symbolName: 'x',
     lineHint: 1,

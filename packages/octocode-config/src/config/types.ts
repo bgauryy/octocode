@@ -6,8 +6,6 @@ import type {
 export type {
   ClassificationConfigOptions,
   ClassificationVendor,
-  ExtensionConfigOptions,
-  ExtensionStorageConfigOptions,
   GitHubConfigOptions,
   LocalConfigOptions,
   LspConfigOptions,
@@ -17,8 +15,6 @@ export type {
   OutputFormat,
   OutputPaginationConfigOptions,
   RequiredClassificationConfig,
-  RequiredExtensionConfig,
-  RequiredExtensionStorageConfig,
   RequiredGitHubConfig,
   RequiredLocalConfig,
   RequiredLspConfig,

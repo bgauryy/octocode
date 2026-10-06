@@ -44,7 +44,7 @@ The Rust implementation is the only production scanner. `patterns.rs` is its sou
 - the question text;
 - a `read` descriptor naming the tool and its query (search text, paths, repositories).
 
-The `read` query passes the input security policy before it is sent: a query the policy rejects is dropped, and secrets in it are redacted. Paging tokens (`snapshot`, `cursor`) are removed. Treat everything in a clasify matrix as disclosed to that provider.
+The `read` query passes the input security policy before it is sent: a query the policy rejects is dropped, and secrets in it are redacted. Paging tokens (`snapshot`) are removed. Treat everything in a clasify matrix as disclosed to that provider.
 
 ## Filesystem policy
 
@@ -52,17 +52,17 @@ Every local operation resolves through `packages/octocode-native/crates/runtime/
 
 - Allowed roots are the workspace root (`WORKSPACE_ROOT` / `local.workspaceRoot`, else the process cwd), `ALLOWED_PATHS` / `local.allowedPaths`, and `OCTOCODE_HOME`. The OS home directory is **not** allowed unless one of these covers it (`runtime/src/runtime/engine.rs`).
 - Relative paths resolve against the process working directory, not `WORKSPACE_ROOT`; pass absolute paths.
-- Relative traversal and paths outside allowed roots are denied (`pathOutsideAllowedRoots`; `structure.policy.outsideAllowedRoots` from structureSearch).
+- Relative traversal and paths outside allowed roots are denied (`outsideAllowedRoots` from every local tool).
 - System directories such as `/etc` stay denied even when listed in `ALLOWED_PATHS`.
 - Sensitive names and directories are pruned during discovery and denied again before reads.
 - Symlinks are revalidated against their canonical targets; escaped descendants are rejected.
 - File type, size, mutation, and snapshot checks happen before evidence is returned.
 
-Sensitive classes include environment files, private keys and certificates, credential stores, cloud configuration, shell history, browser login stores, infrastructure state, wallets, and application secret files. Denial messages name the path as requested or relative to `~`, and outside-root denials list the allowed roots; the row's `resolvedPath` carries the resolved path, which can be absolute.
+Sensitive classes include environment files, private keys and certificates, credential stores, cloud configuration, shell history, browser login stores, infrastructure state, wallets, and application secret files. Denial messages name the path as requested or relative to `~`, and outside-root denials list the allowed roots; with `debug: true`, a `localFetch` row's `resolvedPath` carries the resolved path, which can be absolute.
 
 Set `ENABLE_LOCAL=false` to disable local tools. `OCTOCODE_BETA=true` (or `local.beta:true`, shell or
-home config only), default off, gates `astTopology` and `astRewrite`. `astRewrite` is
-CLI-only (MCP never exposes it); the gate permits both preview and its hash-guarded mutation path.
+home config only), default off, gates `astTopology` and `astRewrite`. Both are
+CLI-only (MCP never exposes them); for `astRewrite` the gate permits both preview and its hash-guarded mutation path.
 
 ## Structural rewrite safety
 

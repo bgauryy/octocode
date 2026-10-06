@@ -1,10 +1,7 @@
 //! Home credentials are primary; the platform store preserves existing native logins.
 use super::super::{ProviderError, ProviderErrorKind};
 use super::{CredentialSource, StoredCredentials, home_store::HomeStore, normalize_host, storage};
-use std::{
-    collections::BTreeMap,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
 pub struct CredentialStore {
@@ -15,14 +12,6 @@ impl CredentialStore {
         Self {
             home: home.as_ref().into(),
         }
-    }
-    pub fn from_process() -> Result<Self, ProviderError> {
-        let env: BTreeMap<_, _> = std::env::vars().collect();
-        let cwd = std::env::current_dir().map_err(|_| unavailable())?;
-        let os_home = std::env::home_dir().ok_or_else(unavailable)?;
-        Ok(Self::new(crate::config::octocode_home(
-            &env, &cwd, &os_home,
-        )))
     }
     pub fn home(&self) -> &Path {
         &self.home

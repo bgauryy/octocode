@@ -1,6 +1,35 @@
 use super::*;
 use serde_json::Value;
 
+/// JS/TS document symbols as a JSON `DocumentSymbol[]`; `None` for oversized
+/// input, a hard parse failure, or a file with no top-level symbols.
+fn extract_js_symbols(content: &str, file_path: &str) -> Option<String> {
+    on_oxc_worker(content, file_path, |content, file_path| {
+        with_js_program::<false, _>(content, file_path, |_, parser_ret| {
+            let line_index = LineIndex::new(content);
+            let mut symbols = Vec::new();
+            collect_program(&parser_ret.program, &line_index, &mut symbols);
+            if symbols.is_empty() || job_cancelled() {
+                return None;
+            }
+            serde_json::to_string(&symbols).ok()
+        })
+    })
+}
+
+pub(in crate::signatures) fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
+    extract_graph_facts_with_metadata(content, file_path)
+        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
+}
+
+pub(super) fn extract_graph_facts_inner<const COMMON_JS: bool>(
+    content: &str,
+    file_path: &str,
+) -> Option<String> {
+    extract_graph_facts_with_metadata_inner::<COMMON_JS>(content, file_path)
+        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
+}
+
 fn symbols(content: &str, path: &str) -> Value {
     let json = extract_js_symbols(content, path).expect("symbols expected");
     serde_json::from_str(&json).expect("valid json")
@@ -383,6 +412,38 @@ fn arrow_const_is_a_function_const_value_is_constant() {
 }
 
 #[test]
+fn wrapped_arrow_consts_and_arrow_class_fields_are_callables() {
+    let src = "type F = (x: number) => number;\nconst a = (() => 1);\nconst b = (async (x: number) => x) satisfies unknown;\nconst c = ((x) => x) as F;\nconst d = wrap(() => 1);\nclass K { m = () => 1; n = function () {}; v = 1; }\n";
+    let v = symbols(src, "w.ts");
+    let arr = v.as_array().unwrap();
+    let kind = |name: &str| {
+        arr.iter()
+            .find(|s| s["name"] == name)
+            .map(|s| s["kind"].clone())
+    };
+    for name in ["a", "b", "c"] {
+        assert_eq!(kind(name), Some(12.into()), "{name}: {v}");
+    }
+    assert_eq!(
+        kind("d"),
+        Some(14.into()),
+        "a call result stays a constant: {v}"
+    );
+    let class = arr.iter().find(|s| s["name"] == "K").unwrap();
+    let member = |name: &str| {
+        class["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["name"] == name)
+            .map(|s| s["kind"].clone())
+    };
+    assert_eq!(member("m"), Some(6.into()), "arrow field → method: {v}");
+    assert_eq!(member("n"), Some(6.into()), "function field → method: {v}");
+    assert_eq!(member("v"), Some(7.into()), "value field → property: {v}");
+}
+
+#[test]
 fn ranges_are_zero_based() {
     let src = "function first() {}\nfunction second() {}\n";
     let v = symbols(src, "a.ts");
@@ -412,45 +473,6 @@ fn empty_or_dataless_returns_none() {
     let _ = extract_js_symbols("const x = 1 +;", "broken.ts");
 }
 
-fn refs(content: &str, path: &str, line: u32, character: u32) -> Value {
-    let json =
-        find_in_file_references(content, path, line, character).expect("references expected");
-    serde_json::from_str(&json).expect("valid json")
-}
-
-#[test]
-fn finds_in_file_references_from_declaration() {
-    // `count` declared on line 0; used on lines 1 and 2.
-    let src = "const count = 1;\nconst a = count + 1;\nconsole.log(count);\n";
-    // Cursor on the declaration identifier `count` (line 0, char 6).
-    let v = refs(src, "m.ts", 0, 6);
-    let arr = v.as_array().unwrap();
-    assert_eq!(arr.len(), 3, "declaration + 2 uses: {arr:?}");
-    // First range is the declaration (line 0).
-    assert_eq!(arr[0]["start"]["line"], 0);
-    let lines: Vec<i64> = arr
-        .iter()
-        .map(|r| r["start"]["line"].as_i64().unwrap())
-        .collect();
-    assert!(lines.contains(&1) && lines.contains(&2), "uses: {lines:?}");
-}
-
-#[test]
-fn finds_references_from_a_use_site() {
-    let src = "function greet(name) {\n  return name + name;\n}\n";
-    // Cursor on a `name` use inside the body (line 1).
-    let v = refs(src, "m.js", 1, 9);
-    let arr = v.as_array().unwrap();
-    assert!(arr.len() >= 2, "param + uses: {arr:?}");
-}
-
-#[test]
-fn references_none_off_symbol() {
-    let src = "const x = 1;\n";
-    // Cursor in whitespace / on a keyword, not a binding.
-    assert!(find_in_file_references(src, "m.ts", 0, 0).is_none());
-}
-
 #[test]
 fn never_aborts_on_adversarial_input() {
     for src in [
@@ -478,7 +500,6 @@ fn deeply_nested_parens_do_not_crash_symbol_extraction() {
     );
     let _ = extract_js_symbols(&src, "deep.js");
     let _ = extract_graph_facts(&src, "deep.js");
-    let _ = find_in_file_references(&src, "deep.js", 0, 9);
 }
 
 #[test]
@@ -846,7 +867,7 @@ fn declarations_only_matches_full_graph_facts_declarations() {
             import.as_object_mut().expect("import").remove("usedIn");
         }
         let light: Value =
-            serde_json::from_str(&extract_declarations(source, path).expect("declarations"))
+            serde_json::to_value(extract_declarations(source, path).expect("declarations"))
                 .expect("json");
         assert_eq!(light["declarations"], full["declarations"], "{path}");
         assert_eq!(light["imports"], full["imports"], "{path}");
@@ -987,7 +1008,7 @@ fn class_and_interface_heritage_are_edges() {
 fn nested_function_declarations_carry_their_parent() {
     let src = "export function outer() {\n  function innerA() { return 1; }\n  const innerB = () => 2;\n  const local = 3;\n  if (local) { function guarded() {} }\n  return innerA() + innerB();\n}\nexport class K {\n  method() { function deep() {} return deep; }\n}\nexport const run = () => [1].map(function callback() { function inCallback() {} });\n";
     let facts: Value =
-        serde_json::from_str(&extract_declarations(src, "n.ts").expect("declarations"))
+        serde_json::to_value(extract_declarations(src, "n.ts").expect("declarations"))
             .expect("json");
     let declarations = facts["declarations"].as_array().expect("declarations");
     let parent_of = |name: &str| {
@@ -1029,7 +1050,7 @@ fn nested_function_declarations_carry_their_parent() {
 fn member_assigned_functions_are_declarations() {
     let src = "'use strict';\nvar res = module.exports = {};\n\nres.redirect = function redirect(url) {\n  var status = 302;\n  return status;\n};\n\nexports.handler = (req) => {\n  return req;\n};\n\nWidget.prototype.render = Other.render = function () {\n  return 1;\n};\n\nres.count = 1;\nres.once = function () { return 0; };\n";
     let facts: Value =
-        serde_json::from_str(&extract_declarations(src, "lib/response.js").expect("declarations"))
+        serde_json::to_value(extract_declarations(src, "lib/response.js").expect("declarations"))
             .expect("json");
     let declarations = facts["declarations"].as_array().expect("declarations");
     let span = |name: &str| {

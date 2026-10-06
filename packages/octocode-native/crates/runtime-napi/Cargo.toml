@@ -18,7 +18,6 @@ napi-test = ["napi/noop"]
 
 [dependencies]
 octocode-native = { path = "../runtime" }
-octocode-engine = { path = "../engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }
 napi = { workspace = true }
 napi-derive = { workspace = true }
 serde_json = { workspace = true }

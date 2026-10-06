@@ -3,58 +3,66 @@
     "id": "clasify.curated-1",
     "tool": "clasify",
     "input": {
-      "id": "docs-location",
-      "mainGoal": "Files that state the retry condition and when retry must stop.",
-      "reasoning": "Find the deciding source span before the host reads this documentation file.",
-      "resources": [
+      "queries": [
         {
-          "id": "guide",
-          "tool": "localFetch",
-          "query": {
-            "path": "/ABS/repo/docs/guide.md"
-          },
-          "prefilter": [
-            "retry"
+          "id": "docs-location",
+          "mainGoal": "Files that state the retry condition and when retry must stop.",
+          "reasoning": "Find the deciding source span before the host reads this documentation file.",
+          "resources": [
+            {
+              "id": "guide",
+              "tool": "localFetch",
+              "query": {
+                "path": "/ABS/repo/docs/guide.md"
+              },
+              "prefilter": [
+                "retry"
+              ]
+            }
+          ],
+          "questions": [
+            {
+              "type": "locate",
+              "ask": "What condition requires a retry?"
+            },
+            {
+              "type": "locate",
+              "ask": "When must retry stop?"
+            }
           ]
-        }
-      ],
-      "questions": [
-        {
-          "type": "locate",
-          "ask": "What condition requires a retry?"
-        },
-        {
-          "type": "locate",
-          "ask": "When must retry stop?"
         }
       ]
     },
     "accepted": true,
     "normalized": {
-      "id": "docs-location",
-      "reasoning": "Find the deciding source span before the host reads this documentation file.",
-      "mainGoal": "Files that state the retry condition and when retry must stop.",
-      "resources": [
+      "queries": [
         {
-          "id": "guide",
-          "tool": "localFetch",
-          "query": {
-            "path": "/ABS/repo/docs/guide.md"
-          },
-          "maxChars": 80000,
-          "prefilter": [
-            "retry"
+          "id": "docs-location",
+          "reasoning": "Find the deciding source span before the host reads this documentation file.",
+          "mainGoal": "Files that state the retry condition and when retry must stop.",
+          "resources": [
+            {
+              "id": "guide",
+              "tool": "localFetch",
+              "query": {
+                "path": "/ABS/repo/docs/guide.md"
+              },
+              "maxChars": 80000,
+              "prefilter": [
+                "retry"
+              ]
+            }
+          ],
+          "questions": [
+            {
+              "type": "locate",
+              "ask": "What condition requires a retry?"
+            },
+            {
+              "type": "locate",
+              "ask": "When must retry stop?"
+            }
           ]
-        }
-      ],
-      "questions": [
-        {
-          "type": "locate",
-          "ask": "What condition requires a retry?"
-        },
-        {
-          "type": "locate",
-          "ask": "When must retry stop?"
         }
       ]
     }
@@ -63,58 +71,66 @@
     "id": "clasify.curated-2",
     "tool": "clasify",
     "input": {
-      "id": "interceptor-candidate",
-      "mainGoal": "Files that decide request interceptor order.",
-      "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
-      "resources": [
+      "queries": [
         {
-          "id": "axios-core",
-          "tool": "ghGetFileContent",
-          "query": {
-            "owner": "axios",
-            "repo": "axios",
-            "path": "lib/core/Axios.js",
-            "fullContent": true
-          }
-        }
-      ],
-      "questions": [
-        {
-          "type": "relevant",
-          "ask": "What is the request interceptor execution order?"
-        },
-        {
-          "type": "sufficient",
-          "ask": "What is the request interceptor execution order?"
+          "id": "interceptor-candidate",
+          "mainGoal": "Files that decide request interceptor order.",
+          "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
+          "resources": [
+            {
+              "id": "axios-core",
+              "tool": "ghGetFileContent",
+              "query": {
+                "owner": "axios",
+                "repo": "axios",
+                "path": "lib/core/Axios.js",
+                "fullContent": true
+              }
+            }
+          ],
+          "questions": [
+            {
+              "type": "relevant",
+              "ask": "What is the request interceptor execution order?"
+            },
+            {
+              "type": "sufficient",
+              "ask": "What is the request interceptor execution order?"
+            }
+          ]
         }
       ]
     },
     "accepted": true,
     "normalized": {
-      "id": "interceptor-candidate",
-      "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
-      "mainGoal": "Files that decide request interceptor order.",
-      "resources": [
+      "queries": [
         {
-          "id": "axios-core",
-          "tool": "ghGetFileContent",
-          "query": {
-            "owner": "axios",
-            "repo": "axios",
-            "path": "lib/core/Axios.js",
-            "fullContent": true
-          },
-          "maxChars": 80000
-        }
-      ],
-      "questions": [
-        {
-          "type": "relevant",
-          "ask": "What is the request interceptor execution order?"
-        },
-        {
-          "type": "sufficient",
-          "ask": "What is the request interceptor execution order?"
+          "id": "interceptor-candidate",
+          "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
+          "mainGoal": "Files that decide request interceptor order.",
+          "resources": [
+            {
+              "id": "axios-core",
+              "tool": "ghGetFileContent",
+              "query": {
+                "owner": "axios",
+                "repo": "axios",
+                "path": "lib/core/Axios.js",
+                "fullContent": true
+              },
+              "maxChars": 80000
+            }
+          ],
+          "questions": [
+            {
+              "type": "relevant",
+              "ask": "What is the request interceptor execution order?"
+            },
+            {
+              "type": "sufficient",
+              "ask": "What is the request interceptor execution order?"
+            }
+          ]
         }
       ]
     }
@@ -123,56 +139,64 @@
     "id": "clasify.curated-3",
     "tool": "clasify",
     "input": {
-      "id": "local-candidates",
-      "mainGoal": "Files that implement handler registration.",
-      "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
-      "resources": [
+      "queries": [
         {
-          "id": "search-results",
-          "tool": "localSearch",
-          "query": {
-            "path": "/ABS/repo/src",
-            "searchText": "registerHandler",
-            "pageSize": 5
-          }
-        }
-      ],
-      "questions": [
-        {
-          "type": "locate",
-          "ask": "Where is handler registration implemented?"
-        },
-        {
-          "type": "yesno",
-          "ask": "Is this chunk test code or a test fixture rather than the production implementation?"
+          "id": "local-candidates",
+          "mainGoal": "Files that implement handler registration.",
+          "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
+          "resources": [
+            {
+              "id": "search-results",
+              "tool": "localSearch",
+              "query": {
+                "path": "/ABS/repo/src",
+                "matchString": "registerHandler",
+                "pageSize": 5
+              }
+            }
+          ],
+          "questions": [
+            {
+              "type": "locate",
+              "ask": "Where is handler registration implemented?"
+            },
+            {
+              "type": "yesno",
+              "ask": "Is this chunk test code or a test fixture rather than the production implementation?"
+            }
+          ]
         }
       ]
     },
     "accepted": true,
     "normalized": {
-      "id": "local-candidates",
-      "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
-      "mainGoal": "Files that implement handler registration.",
-      "resources": [
+      "queries": [
         {
-          "id": "search-results",
-          "tool": "localSearch",
-          "query": {
-            "path": "/ABS/repo/src",
-            "searchText": "registerHandler",
-            "pageSize": 5
-          },
-          "maxChars": 80000
-        }
-      ],
-      "questions": [
-        {
-          "type": "locate",
-          "ask": "Where is handler registration implemented?"
-        },
-        {
-          "type": "yesno",
-          "ask": "Is this chunk test code or a test fixture rather than the production implementation?"
+          "id": "local-candidates",
+          "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
+          "mainGoal": "Files that implement handler registration.",
+          "resources": [
+            {
+              "id": "search-results",
+              "tool": "localSearch",
+              "query": {
+                "path": "/ABS/repo/src",
+                "matchString": "registerHandler",
+                "pageSize": 5
+              },
+              "maxChars": 80000
+            }
+          ],
+          "questions": [
+            {
+              "type": "locate",
+              "ask": "Where is handler registration implemented?"
+            },
+            {
+              "type": "yesno",
+              "ask": "Is this chunk test code or a test fixture rather than the production implementation?"
+            }
+          ]
         }
       ]
     }
@@ -181,67 +205,75 @@
     "id": "clasify.curated-4",
     "tool": "clasify",
     "input": {
-      "id": "draft-evidence-review",
-      "mainGoal": "Evidence that decides whether the guarantee holds.",
-      "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
-      "resources": [
+      "queries": [
         {
-          "id": "draft",
-          "value": {
-            "draft": {
-              "claim": "An abort signal guarantees that a queued task will never start."
-            },
-            "evidence": [
-              "API section: an abort signal can remove a task while it is waiting.",
-              "API section: a task that has already started continues after abort."
-            ],
-            "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
-          }
-        }
-      ],
-      "questions": [
-        {
-          "type": "choice",
-          "ask": "Classify how the supplied evidence bears on this exact claim.",
-          "labels": {
-            "supported": "Evidence covers the complete claim.",
-            "contradicted": "Evidence conflicts with the claim.",
-            "conflicting": "Evidence supports and conflicts with the claim.",
-            "insufficient": "A deciding branch or check is missing."
-          }
+          "id": "draft-evidence-review",
+          "mainGoal": "Evidence that decides whether the guarantee holds.",
+          "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
+          "resources": [
+            {
+              "id": "draft",
+              "value": {
+                "draft": {
+                  "claim": "An abort signal guarantees that a queued task will never start."
+                },
+                "evidence": [
+                  "API section: an abort signal can remove a task while it is waiting.",
+                  "API section: a task that has already started continues after abort."
+                ],
+                "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
+              }
+            }
+          ],
+          "questions": [
+            {
+              "type": "choice",
+              "ask": "Classify how the supplied evidence bears on this exact claim.",
+              "labels": {
+                "supported": "Evidence covers the complete claim.",
+                "contradicted": "Evidence conflicts with the claim.",
+                "conflicting": "Evidence supports and conflicts with the claim.",
+                "insufficient": "A deciding branch or check is missing."
+              }
+            }
+          ]
         }
       ]
     },
     "accepted": true,
     "normalized": {
-      "id": "draft-evidence-review",
-      "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
-      "mainGoal": "Evidence that decides whether the guarantee holds.",
-      "resources": [
+      "queries": [
         {
-          "id": "draft",
-          "value": {
-            "draft": {
-              "claim": "An abort signal guarantees that a queued task will never start."
-            },
-            "evidence": [
-              "API section: an abort signal can remove a task while it is waiting.",
-              "API section: a task that has already started continues after abort."
-            ],
-            "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
-          }
-        }
-      ],
-      "questions": [
-        {
-          "type": "choice",
-          "ask": "Classify how the supplied evidence bears on this exact claim.",
-          "labels": {
-            "supported": "Evidence covers the complete claim.",
-            "contradicted": "Evidence conflicts with the claim.",
-            "conflicting": "Evidence supports and conflicts with the claim.",
-            "insufficient": "A deciding branch or check is missing."
-          }
+          "id": "draft-evidence-review",
+          "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
+          "mainGoal": "Evidence that decides whether the guarantee holds.",
+          "resources": [
+            {
+              "id": "draft",
+              "value": {
+                "draft": {
+                  "claim": "An abort signal guarantees that a queued task will never start."
+                },
+                "evidence": [
+                  "API section: an abort signal can remove a task while it is waiting.",
+                  "API section: a task that has already started continues after abort."
+                ],
+                "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
+              }
+            }
+          ],
+          "questions": [
+            {
+              "type": "choice",
+              "ask": "Classify how the supplied evidence bears on this exact claim.",
+              "labels": {
+                "supported": "Evidence covers the complete claim.",
+                "contradicted": "Evidence conflicts with the claim.",
+                "conflicting": "Evidence supports and conflicts with the claim.",
+                "insufficient": "A deciding branch or check is missing."
+              }
+            }
+          ]
         }
       ]
     }
@@ -250,58 +282,66 @@
     "id": "clasify.curated-5",
     "tool": "clasify",
     "input": {
-      "id": "docs-location",
-      "mainGoal": "Files that state the retry condition and when retry must stop.",
-      "reasoning": "Find the deciding source span before the host reads this documentation file.",
-      "resources": [
+      "queries": [
         {
-          "id": "guide",
-          "tool": "localFetch",
-          "query": {
-            "path": "/ABS/repo/docs/guide.md"
-          },
-          "prefilter": [
-            "retry"
+          "id": "docs-location",
+          "mainGoal": "Files that state the retry condition and when retry must stop.",
+          "reasoning": "Find the deciding source span before the host reads this documentation file.",
+          "resources": [
+            {
+              "id": "guide",
+              "tool": "localFetch",
+              "query": {
+                "path": "/ABS/repo/docs/guide.md"
+              },
+              "prefilter": [
+                "retry"
+              ]
+            }
+          ],
+          "questions": [
+            {
+              "type": "locate",
+              "ask": "What condition requires a retry?"
+            },
+            {
+              "type": "locate",
+              "ask": "When must retry stop?"
+            }
           ]
-        }
-      ],
-      "questions": [
-        {
-          "type": "locate",
-          "ask": "What condition requires a retry?"
-        },
-        {
-          "type": "locate",
-          "ask": "When must retry stop?"
         }
       ]
     },
     "accepted": true,
     "normalized": {
-      "id": "docs-location",
-      "reasoning": "Find the deciding source span before the host reads this documentation file.",
-      "mainGoal": "Files that state the retry condition and when retry must stop.",
-      "resources": [
+      "queries": [
         {
-          "id": "guide",
-          "tool": "localFetch",
-          "query": {
-            "path": "/ABS/repo/docs/guide.md"
-          },
-          "maxChars": 80000,
-          "prefilter": [
-            "retry"
+          "id": "docs-location",
+          "reasoning": "Find the deciding source span before the host reads this documentation file.",
+          "mainGoal": "Files that state the retry condition and when retry must stop.",
+          "resources": [
+            {
+              "id": "guide",
+              "tool": "localFetch",
+              "query": {
+                "path": "/ABS/repo/docs/guide.md"
+              },
+              "maxChars": 80000,
+              "prefilter": [
+                "retry"
+              ]
+            }
+          ],
+          "questions": [
+            {
+              "type": "locate",
+              "ask": "What condition requires a retry?"
+            },
+            {
+              "type": "locate",
+              "ask": "When must retry stop?"
+            }
           ]
-        }
-      ],
-      "questions": [
-        {
-          "type": "locate",
-          "ask": "What condition requires a retry?"
-        },
-        {
-          "type": "locate",
-          "ask": "When must retry stop?"
         }
       ]
     }
@@ -310,58 +350,66 @@
     "id": "clasify.curated-6",
     "tool": "clasify",
     "input": {
-      "id": "interceptor-candidate",
-      "mainGoal": "Files that decide request interceptor order.",
-      "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
-      "resources": [
+      "queries": [
         {
-          "id": "axios-core",
-          "tool": "ghGetFileContent",
-          "query": {
-            "owner": "axios",
-            "repo": "axios",
-            "path": "lib/core/Axios.js",
-            "fullContent": true
-          }
-        }
-      ],
-      "questions": [
-        {
-          "type": "relevant",
-          "ask": "What is the request interceptor execution order?"
-        },
-        {
-          "type": "sufficient",
-          "ask": "What is the request interceptor execution order?"
+          "id": "interceptor-candidate",
+          "mainGoal": "Files that decide request interceptor order.",
+          "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
+          "resources": [
+            {
+              "id": "axios-core",
+              "tool": "ghGetFileContent",
+              "query": {
+                "owner": "axios",
+                "repo": "axios",
+                "path": "lib/core/Axios.js",
+                "fullContent": true
+              }
+            }
+          ],
+          "questions": [
+            {
+              "type": "relevant",
+              "ask": "What is the request interceptor execution order?"
+            },
+            {
+              "type": "sufficient",
+              "ask": "What is the request interceptor execution order?"
+            }
+          ]
         }
       ]
     },
     "accepted": true,
     "normalized": {
-      "id": "interceptor-candidate",
-      "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
-      "mainGoal": "Files that decide request interceptor order.",
-      "resources": [
+      "queries": [
         {
-          "id": "axios-core",
-          "tool": "ghGetFileContent",
-          "query": {
-            "owner": "axios",
-            "repo": "axios",
-            "path": "lib/core/Axios.js",
-            "fullContent": true
-          },
-          "maxChars": 80000
-        }
-      ],
-      "questions": [
-        {
-          "type": "relevant",
-          "ask": "What is the request interceptor execution order?"
-        },
-        {
-          "type": "sufficient",
-          "ask": "What is the request interceptor execution order?"
+          "id": "interceptor-candidate",
+          "reasoning": "The path is a candidate but no snippet establishes whether it contributes ordering evidence; the verdict changes what to read.",
+          "mainGoal": "Files that decide request interceptor order.",
+          "resources": [
+            {
+              "id": "axios-core",
+              "tool": "ghGetFileContent",
+              "query": {
+                "owner": "axios",
+                "repo": "axios",
+                "path": "lib/core/Axios.js",
+                "fullContent": true
+              },
+              "maxChars": 80000
+            }
+          ],
+          "questions": [
+            {
+              "type": "relevant",
+              "ask": "What is the request interceptor execution order?"
+            },
+            {
+              "type": "sufficient",
+              "ask": "What is the request interceptor execution order?"
+            }
+          ]
         }
       ]
     }
@@ -370,56 +418,64 @@
     "id": "clasify.curated-7",
     "tool": "clasify",
     "input": {
-      "id": "local-candidates",
-      "mainGoal": "Files that implement handler registration.",
-      "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
-      "resources": [
+      "queries": [
         {
-          "id": "search-results",
-          "tool": "localSearch",
-          "query": {
-            "path": "/ABS/repo/src",
-            "searchText": "registerHandler",
-            "pageSize": 5
-          }
-        }
-      ],
-      "questions": [
-        {
-          "type": "locate",
-          "ask": "Where is handler registration implemented?"
-        },
-        {
-          "type": "yesno",
-          "ask": "Is this chunk test code or a test fixture rather than the production implementation?"
+          "id": "local-candidates",
+          "mainGoal": "Files that implement handler registration.",
+          "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
+          "resources": [
+            {
+              "id": "search-results",
+              "tool": "localSearch",
+              "query": {
+                "path": "/ABS/repo/src",
+                "matchString": "registerHandler",
+                "pageSize": 5
+              }
+            }
+          ],
+          "questions": [
+            {
+              "type": "locate",
+              "ask": "Where is handler registration implemented?"
+            },
+            {
+              "type": "yesno",
+              "ask": "Is this chunk test code or a test fixture rather than the production implementation?"
+            }
+          ]
         }
       ]
     },
     "accepted": true,
     "normalized": {
-      "id": "local-candidates",
-      "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
-      "mainGoal": "Files that implement handler registration.",
-      "resources": [
+      "queries": [
         {
-          "id": "search-results",
-          "tool": "localSearch",
-          "query": {
-            "path": "/ABS/repo/src",
-            "searchText": "registerHandler",
-            "pageSize": 5
-          },
-          "maxChars": 80000
-        }
-      ],
-      "questions": [
-        {
-          "type": "locate",
-          "ask": "Where is handler registration implemented?"
-        },
-        {
-          "type": "yesno",
-          "ask": "Is this chunk test code or a test fixture rather than the production implementation?"
+          "id": "local-candidates",
+          "reasoning": "Judge bounded source chunks before choosing an exact verification read.",
+          "mainGoal": "Files that implement handler registration.",
+          "resources": [
+            {
+              "id": "search-results",
+              "tool": "localSearch",
+              "query": {
+                "path": "/ABS/repo/src",
+                "matchString": "registerHandler",
+                "pageSize": 5
+              },
+              "maxChars": 80000
+            }
+          ],
+          "questions": [
+            {
+              "type": "locate",
+              "ask": "Where is handler registration implemented?"
+            },
+            {
+              "type": "yesno",
+              "ask": "Is this chunk test code or a test fixture rather than the production implementation?"
+            }
+          ]
         }
       ]
     }
@@ -428,67 +484,75 @@
     "id": "clasify.curated-8",
     "tool": "clasify",
     "input": {
-      "id": "draft-evidence-review",
-      "mainGoal": "Evidence that decides whether the guarantee holds.",
-      "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
-      "resources": [
+      "queries": [
         {
-          "id": "draft",
-          "value": {
-            "draft": {
-              "claim": "An abort signal guarantees that a queued task will never start."
-            },
-            "evidence": [
-              "API section: an abort signal can remove a task while it is waiting.",
-              "API section: a task that has already started continues after abort."
-            ],
-            "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
-          }
-        }
-      ],
-      "questions": [
-        {
-          "type": "choice",
-          "ask": "Classify how the supplied evidence bears on this exact claim.",
-          "labels": {
-            "supported": "Evidence covers the complete claim.",
-            "contradicted": "Evidence conflicts with the claim.",
-            "conflicting": "Evidence supports and conflicts with the claim.",
-            "insufficient": "A deciding branch or check is missing."
-          }
+          "id": "draft-evidence-review",
+          "mainGoal": "Evidence that decides whether the guarantee holds.",
+          "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
+          "resources": [
+            {
+              "id": "draft",
+              "value": {
+                "draft": {
+                  "claim": "An abort signal guarantees that a queued task will never start."
+                },
+                "evidence": [
+                  "API section: an abort signal can remove a task while it is waiting.",
+                  "API section: a task that has already started continues after abort."
+                ],
+                "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
+              }
+            }
+          ],
+          "questions": [
+            {
+              "type": "choice",
+              "ask": "Classify how the supplied evidence bears on this exact claim.",
+              "labels": {
+                "supported": "Evidence covers the complete claim.",
+                "contradicted": "Evidence conflicts with the claim.",
+                "conflicting": "Evidence supports and conflicts with the claim.",
+                "insufficient": "A deciding branch or check is missing."
+              }
+            }
+          ]
         }
       ]
     },
     "accepted": true,
     "normalized": {
-      "id": "draft-evidence-review",
-      "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
-      "mainGoal": "Evidence that decides whether the guarantee holds.",
-      "resources": [
+      "queries": [
         {
-          "id": "draft",
-          "value": {
-            "draft": {
-              "claim": "An abort signal guarantees that a queued task will never start."
-            },
-            "evidence": [
-              "API section: an abort signal can remove a task while it is waiting.",
-              "API section: a task that has already started continues after abort."
-            ],
-            "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
-          }
-        }
-      ],
-      "questions": [
-        {
-          "type": "choice",
-          "ask": "Classify how the supplied evidence bears on this exact claim.",
-          "labels": {
-            "supported": "Evidence covers the complete claim.",
-            "contradicted": "Evidence conflicts with the claim.",
-            "conflicting": "Evidence supports and conflicts with the claim.",
-            "insufficient": "A deciding branch or check is missing."
-          }
+          "id": "draft-evidence-review",
+          "reasoning": "Interpret whether the held evidence supports the guarantee claim; the answer determines whether to keep or narrow the wording.",
+          "mainGoal": "Evidence that decides whether the guarantee holds.",
+          "resources": [
+            {
+              "id": "draft",
+              "value": {
+                "draft": {
+                  "claim": "An abort signal guarantees that a queued task will never start."
+                },
+                "evidence": [
+                  "API section: an abort signal can remove a task while it is waiting.",
+                  "API section: a task that has already started continues after abort."
+                ],
+                "constraint": "The claim uses guarantees and includes the boundary between waiting and starting."
+              }
+            }
+          ],
+          "questions": [
+            {
+              "type": "choice",
+              "ask": "Classify how the supplied evidence bears on this exact claim.",
+              "labels": {
+                "supported": "Evidence covers the complete claim.",
+                "contradicted": "Evidence conflicts with the claim.",
+                "conflicting": "Evidence supports and conflicts with the claim.",
+                "insufficient": "A deciding branch or check is missing."
+              }
+            }
+          ]
         }
       ]
     }
@@ -497,11 +561,15 @@
     "id": "ghSearchRepo.curated-1",
     "tool": "ghSearchRepo",
     "input": {
-      "keywords": [
-        "code research"
-      ],
-      "language": "TypeScript",
-      "pageSize": 5
+      "queries": [
+        {
+          "keywords": [
+            "code research"
+          ],
+          "language": "TypeScript",
+          "pageSize": 5
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -523,8 +591,12 @@
     "id": "ghSearchRepo.curated-2",
     "tool": "ghSearchRepo",
     "input": {
-      "owner": "octocat",
-      "pageSize": 5
+      "queries": [
+        {
+          "owner": "octocat",
+          "pageSize": 5
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -543,9 +615,13 @@
     "id": "ghSearchRepo.curated-3",
     "tool": "ghSearchRepo",
     "input": {
-      "owner": "octocat",
-      "archived": true,
-      "pageSize": 5
+      "queries": [
+        {
+          "owner": "octocat",
+          "archived": true,
+          "pageSize": 5
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -565,12 +641,16 @@
     "id": "ghSearchCode.curated-1",
     "tool": "ghSearchCode",
     "input": {
-      "keywords": [
-        "localSearch"
-      ],
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "pageSize": 5
+      "queries": [
+        {
+          "keywords": [
+            "localSearch"
+          ],
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "pageSize": 5
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -593,11 +673,15 @@
     "id": "ghSearchCode.curated-2",
     "tool": "ghSearchCode",
     "input": {
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "filename": "package.json",
-      "match": "path",
-      "pageSize": 5
+      "queries": [
+        {
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "filename": "package.json",
+          "match": "path",
+          "pageSize": 5
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -618,10 +702,14 @@
     "id": "ghStructure.curated-1",
     "tool": "ghStructure",
     "input": {
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "path": "packages",
-      "maxDepth": 2
+      "queries": [
+        {
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "path": "packages",
+          "maxDepth": 2
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -633,7 +721,6 @@
           "path": "packages",
           "maxDepth": 2,
           "page": 1,
-          "metadataPage": 1,
           "pageSize": 300
         }
       ]
@@ -643,11 +730,15 @@
     "id": "ghGetFileContent.curated-1",
     "tool": "ghGetFileContent",
     "input": {
-      "owner": "facebook",
-      "repo": "react",
-      "path": "packages/react/src/ReactHooks.js",
-      "matchString": "export function useState",
-      "contextLines": 5
+      "queries": [
+        {
+          "owner": "facebook",
+          "repo": "react",
+          "path": "packages/react/src/ReactHooks.js",
+          "matchString": "export function useState",
+          "contextLines": 5
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -667,10 +758,14 @@
     "id": "ghGetFileContent.curated-2",
     "tool": "ghGetFileContent",
     "input": {
-      "owner": "facebook",
-      "repo": "react",
-      "path": "packages/react/src/ReactHooks.js",
-      "minify": "symbols"
+      "queries": [
+        {
+          "owner": "facebook",
+          "repo": "react",
+          "path": "packages/react/src/ReactHooks.js",
+          "minify": "symbols"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -689,10 +784,14 @@
     "id": "ghGetFileContent.curated-3",
     "tool": "ghGetFileContent",
     "input": {
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "path": "README.md",
-      "minify": "symbols"
+      "queries": [
+        {
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "path": "README.md",
+          "minify": "symbols"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -711,10 +810,14 @@
     "id": "ghGetFileContent.curated-4",
     "tool": "ghGetFileContent",
     "input": {
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "path": "README.md",
-      "fullContent": true
+      "queries": [
+        {
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "path": "README.md",
+          "fullContent": true
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -733,14 +836,18 @@
     "id": "ghSearchHistory.curated-1",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "pullRequest",
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "keywords": [
-        "localSearch"
-      ],
-      "concise": true,
-      "pageSize": 5
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "keywords": [
+            "localSearch"
+          ],
+          "concise": true,
+          "pageSize": 5
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -764,14 +871,18 @@
     "id": "ghSearchHistory.curated-2",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "issue",
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "keywords": [
-        "schema"
-      ],
-      "state": "open",
-      "pageSize": 5
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "keywords": [
+            "schema"
+          ],
+          "state": "open",
+          "pageSize": 5
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -795,12 +906,16 @@
     "id": "ghSearchHistory.curated-3",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "commit",
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "path": "packages/octocode-native/crates",
-      "since": "6m",
-      "pageSize": 10
+      "queries": [
+        {
+          "operation": "commit",
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "path": "packages/octocode-native/crates",
+          "since": "6m",
+          "pageSize": 10
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -822,13 +937,17 @@
     "id": "ghSearchHistory.curated-4",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "commit",
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "keywords": [
-        "schema"
-      ],
-      "pageSize": 5
+      "queries": [
+        {
+          "operation": "commit",
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "keywords": [
+            "schema"
+          ],
+          "pageSize": 5
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -851,9 +970,13 @@
     "id": "ghSearchHistory.curated-5",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "pullRequest",
-      "keywords": [
-        "schema"
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "keywords": [
+            "schema"
+          ]
+        }
       ]
     },
     "accepted": true,
@@ -875,9 +998,13 @@
     "id": "ghSearchHistory.curated-6",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "issue",
-      "owner": "o",
-      "repo": "r"
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o",
+          "repo": "r"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -897,9 +1024,13 @@
     "id": "ghSearchHistory.curated-7",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "commit",
-      "owner": "o",
-      "repo": "r"
+      "queries": [
+        {
+          "operation": "commit",
+          "owner": "o",
+          "repo": "r"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -919,10 +1050,14 @@
     "id": "ghGetHistoryItem.curated-1",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "pullRequest",
-      "owner": "microsoft",
-      "repo": "TypeScript",
-      "number": 51387
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "microsoft",
+          "repo": "TypeScript",
+          "number": 51387
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -942,17 +1077,19 @@
     "id": "ghGetHistoryItem.curated-2",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "pullRequest",
-      "owner": "microsoft",
-      "repo": "TypeScript",
-      "number": 51387,
-      "content": {
-        "patches": {
-          "mode": "all"
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "microsoft",
+          "repo": "TypeScript",
+          "number": 51387,
+          "sections": [
+            "patches"
+          ],
+          "matchString": "esbuild",
+          "contextLines": 0
         }
-      },
-      "matchString": "esbuild",
-      "matchContext": 0
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -961,16 +1098,14 @@
           "debug": false,
           "owner": "microsoft",
           "repo": "TypeScript",
-          "content": {
-            "patches": {
-              "mode": "all"
-            }
-          },
           "matchString": "esbuild",
           "minify": "standard",
           "operation": "pullRequest",
           "number": 51387,
-          "matchContext": 0
+          "sections": [
+            "patches"
+          ],
+          "contextLines": 0
         }
       ]
     }
@@ -979,18 +1114,20 @@
     "id": "ghGetHistoryItem.curated-3",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "pullRequest",
-      "owner": "rust-lang",
-      "repo": "rust",
-      "number": 157558,
-      "content": {
-        "changedFiles": true
-      },
-      "fileFilter": {
-        "status": [
-          "renamed"
-        ]
-      }
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "rust-lang",
+          "repo": "rust",
+          "number": 157558,
+          "sections": [
+            "files"
+          ],
+          "status": [
+            "renamed"
+          ]
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -999,17 +1136,15 @@
           "debug": false,
           "owner": "rust-lang",
           "repo": "rust",
-          "content": {
-            "changedFiles": true
-          },
           "minify": "standard",
           "operation": "pullRequest",
           "number": 157558,
-          "fileFilter": {
-            "status": [
-              "renamed"
-            ]
-          }
+          "sections": [
+            "files"
+          ],
+          "status": [
+            "renamed"
+          ]
         }
       ]
     }
@@ -1018,19 +1153,21 @@
     "id": "ghGetHistoryItem.curated-4",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "pullRequest",
-      "owner": "microsoft",
-      "repo": "TypeScript",
-      "number": 51387,
-      "content": {
-        "patches": {
-          "mode": "selected",
-          "files": [
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "microsoft",
+          "repo": "TypeScript",
+          "number": 51387,
+          "sections": [
+            "patches"
+          ],
+          "include": [
             "src/compiler/transformers/utilities.ts"
-          ]
+          ],
+          "minify": "none"
         }
-      },
-      "minify": "none"
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1039,17 +1176,15 @@
           "debug": false,
           "owner": "microsoft",
           "repo": "TypeScript",
-          "content": {
-            "patches": {
-              "mode": "selected",
-              "files": [
-                "src/compiler/transformers/utilities.ts"
-              ]
-            }
-          },
           "minify": "none",
           "operation": "pullRequest",
-          "number": 51387
+          "number": 51387,
+          "sections": [
+            "patches"
+          ],
+          "include": [
+            "src/compiler/transformers/utilities.ts"
+          ]
         }
       ]
     }
@@ -1058,16 +1193,18 @@
     "id": "ghGetHistoryItem.curated-5",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "issue",
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "number": 1,
-      "content": {
-        "body": true,
-        "comments": {
-          "discussion": true
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "number": 1,
+          "sections": [
+            "body",
+            "comments"
+          ]
         }
-      }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1077,14 +1214,12 @@
           "owner": "bgauryy",
           "repo": "octocode",
           "pageSize": 30,
-          "content": {
-            "body": true,
-            "comments": {
-              "discussion": true
-            }
-          },
           "operation": "issue",
-          "number": 1
+          "number": 1,
+          "sections": [
+            "body",
+            "comments"
+          ]
         }
       ]
     }
@@ -1093,10 +1228,14 @@
     "id": "ghGetHistoryItem.curated-6",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "commit",
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "ref": "main"
+      "queries": [
+        {
+          "operation": "commit",
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "ref": "main"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1106,7 +1245,6 @@
           "owner": "bgauryy",
           "repo": "octocode",
           "pageSize": 30,
-          "includeDiff": false,
           "filePage": 1,
           "operation": "commit",
           "ref": "main"
@@ -1118,11 +1256,15 @@
     "id": "ghGetHistoryItem.curated-7",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "compare",
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "base": "main",
-      "head": "update-tools"
+      "queries": [
+        {
+          "operation": "compare",
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "base": "main",
+          "head": "update-tools"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1134,7 +1276,6 @@
           "base": "main",
           "head": "update-tools",
           "pageSize": 30,
-          "includeDiff": false,
           "page": 1,
           "filePage": 1,
           "operation": "compare"
@@ -1146,10 +1287,14 @@
     "id": "ghGetHistoryItem.curated-8",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "pullRequest",
-      "owner": "o",
-      "repo": "r",
-      "number": 1
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r",
+          "number": 1
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1169,10 +1314,14 @@
     "id": "ghGetHistoryItem.curated-9",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "issue",
-      "owner": "o",
-      "repo": "r",
-      "number": 1
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o",
+          "repo": "r",
+          "number": 1
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1192,10 +1341,14 @@
     "id": "ghGetHistoryItem.curated-10",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "commit",
-      "owner": "o",
-      "repo": "r",
-      "ref": "main"
+      "queries": [
+        {
+          "operation": "commit",
+          "owner": "o",
+          "repo": "r",
+          "ref": "main"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1205,7 +1358,6 @@
           "owner": "o",
           "repo": "r",
           "pageSize": 30,
-          "includeDiff": false,
           "filePage": 1,
           "operation": "commit",
           "ref": "main"
@@ -1217,11 +1369,15 @@
     "id": "ghGetHistoryItem.curated-11",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "compare",
-      "owner": "o",
-      "repo": "r",
-      "base": "main",
-      "head": "next"
+      "queries": [
+        {
+          "operation": "compare",
+          "owner": "o",
+          "repo": "r",
+          "base": "main",
+          "head": "next"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1233,7 +1389,6 @@
           "base": "main",
           "head": "next",
           "pageSize": 30,
-          "includeDiff": false,
           "page": 1,
           "filePage": 1,
           "operation": "compare"
@@ -1245,8 +1400,12 @@
     "id": "artifactSearch.curated-1",
     "tool": "artifactSearch",
     "input": {
-      "type": "npm",
-      "packageName": "zod"
+      "queries": [
+        {
+          "type": "npm",
+          "packageName": "zod"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1263,10 +1422,14 @@
     "id": "artifactSearch.curated-2",
     "tool": "artifactSearch",
     "input": {
-      "type": "npm",
-      "keywords": [
-        "schema",
-        "validation"
+      "queries": [
+        {
+          "type": "npm",
+          "keywords": [
+            "schema",
+            "validation"
+          ]
+        }
       ]
     },
     "accepted": true,
@@ -1288,8 +1451,12 @@
     "id": "artifactSearch.curated-3",
     "tool": "artifactSearch",
     "input": {
-      "type": "pypi",
-      "packageName": "requests"
+      "queries": [
+        {
+          "type": "pypi",
+          "packageName": "requests"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1306,8 +1473,12 @@
     "id": "artifactSearch.curated-4",
     "tool": "artifactSearch",
     "input": {
-      "type": "maven",
-      "packageName": "com.google.guava:guava"
+      "queries": [
+        {
+          "type": "maven",
+          "packageName": "com.google.guava:guava"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1324,8 +1495,12 @@
     "id": "artifactSearch.curated-5",
     "tool": "artifactSearch",
     "input": {
-      "type": "go",
-      "packageName": "github.com/gin-gonic/gin"
+      "queries": [
+        {
+          "type": "go",
+          "packageName": "github.com/gin-gonic/gin"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1342,8 +1517,12 @@
     "id": "ghCloneRepo.curated-1",
     "tool": "ghCloneRepo",
     "input": {
-      "owner": "bgauryy",
-      "repo": "octocode"
+      "queries": [
+        {
+          "owner": "bgauryy",
+          "repo": "octocode"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1360,9 +1539,13 @@
     "id": "ghCloneRepo.curated-2",
     "tool": "ghCloneRepo",
     "input": {
-      "owner": "bgauryy",
-      "repo": "octocode",
-      "sparsePath": "packages/octocode-native"
+      "queries": [
+        {
+          "owner": "bgauryy",
+          "repo": "octocode",
+          "path": "packages/octocode-native"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1371,7 +1554,7 @@
           "debug": false,
           "owner": "bgauryy",
           "repo": "octocode",
-          "sparsePath": "packages/octocode-native"
+          "path": "packages/octocode-native"
         }
       ]
     }
@@ -1380,17 +1563,21 @@
     "id": "localSearch.curated-1",
     "tool": "localSearch",
     "input": {
-      "path": "/ABS/repo/src",
-      "searchText": "buildDirectToolCommandPatterns",
-      "regex": "literal",
-      "pageSize": 20
+      "queries": [
+        {
+          "path": "/ABS/repo/src",
+          "matchString": "buildDirectToolCommandPatterns",
+          "regex": "literal",
+          "pageSize": 20
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "searchText": "buildDirectToolCommandPatterns",
+          "matchString": "buildDirectToolCommandPatterns",
           "path": "/ABS/repo/src",
           "caseMode": "smart",
           "multiline": "off",
@@ -1409,17 +1596,21 @@
     "id": "localSearch.curated-2",
     "tool": "localSearch",
     "input": {
-      "path": "/ABS/repo/src",
-      "searchText": "handler.call($value)",
-      "regex": "literal",
-      "pageSize": 5
+      "queries": [
+        {
+          "path": "/ABS/repo/src",
+          "matchString": "handler.call($value)",
+          "regex": "literal",
+          "pageSize": 5
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "searchText": "handler.call($value)",
+          "matchString": "handler.call($value)",
           "path": "/ABS/repo/src",
           "caseMode": "smart",
           "multiline": "off",
@@ -1438,22 +1629,25 @@
     "id": "localSearch.curated-3",
     "tool": "localSearch",
     "input": {
-      "path": ".",
-      "searchText": "toolSchemas"
+      "queries": [
+        {
+          "path": ".",
+          "matchString": "toolSchemas"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "searchText": "toolSchemas",
+          "matchString": "toolSchemas",
           "path": ".",
           "caseMode": "smart",
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
           "page": 1,
-          "regex": "rust",
           "unique": "off",
           "resultView": "paginated"
         }
@@ -1464,9 +1658,13 @@
     "id": "structureSearch.curated-1",
     "tool": "structureSearch",
     "input": {
-      "operation": "tree",
-      "path": "/ABS/repo",
-      "maxDepth": 1
+      "queries": [
+        {
+          "operation": "tree",
+          "path": "/ABS/repo",
+          "maxDepth": 2
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1475,7 +1673,7 @@
           "debug": false,
           "operation": "tree",
           "path": "/ABS/repo",
-          "maxDepth": 1,
+          "maxDepth": 2,
           "page": 1
         }
       ]
@@ -1485,10 +1683,14 @@
     "id": "structureSearch.curated-2",
     "tool": "structureSearch",
     "input": {
-      "operation": "files",
-      "path": "/ABS/repo",
-      "names": [
-        "package.json"
+      "queries": [
+        {
+          "operation": "files",
+          "path": "/ABS/repo",
+          "include": [
+            "package.json"
+          ]
+        }
       ]
     },
     "accepted": true,
@@ -1498,7 +1700,7 @@
           "debug": false,
           "operation": "files",
           "path": "/ABS/repo",
-          "names": [
+          "include": [
             "package.json"
           ],
           "detail": "basic",
@@ -1512,11 +1714,15 @@
     "id": "structureSearch.curated-3",
     "tool": "structureSearch",
     "input": {
-      "operation": "tree",
-      "path": "/ABS/repo",
-      "maxDepth": 1,
-      "noIgnore": true,
-      "hidden": true
+      "queries": [
+        {
+          "operation": "tree",
+          "path": "/ABS/repo",
+          "maxDepth": 2,
+          "noIgnore": true,
+          "hidden": true
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1525,7 +1731,7 @@
           "debug": false,
           "operation": "tree",
           "path": "/ABS/repo",
-          "maxDepth": 1,
+          "maxDepth": 2,
           "hidden": true,
           "noIgnore": true,
           "page": 1
@@ -1537,9 +1743,13 @@
     "id": "structureSearch.curated-4",
     "tool": "structureSearch",
     "input": {
-      "operation": "tree",
-      "path": ".",
-      "maxDepth": 1
+      "queries": [
+        {
+          "operation": "tree",
+          "path": ".",
+          "maxDepth": 2
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1548,7 +1758,7 @@
           "debug": false,
           "operation": "tree",
           "path": ".",
-          "maxDepth": 1,
+          "maxDepth": 2,
           "page": 1
         }
       ]
@@ -1558,10 +1768,14 @@
     "id": "structureSearch.curated-5",
     "tool": "structureSearch",
     "input": {
-      "operation": "files",
-      "path": ".",
-      "names": [
-        "*.ts"
+      "queries": [
+        {
+          "operation": "files",
+          "path": ".",
+          "include": [
+            "*.ts"
+          ]
+        }
       ]
     },
     "accepted": true,
@@ -1571,7 +1785,7 @@
           "debug": false,
           "operation": "files",
           "path": ".",
-          "names": [
+          "include": [
             "*.ts"
           ],
           "detail": "basic",
@@ -1585,9 +1799,13 @@
     "id": "astSearch.curated-1",
     "tool": "astSearch",
     "input": {
-      "operation": "symbols",
-      "path": "/ABS/repo/src",
-      "name": "buildDirectToolCommandPatterns"
+      "queries": [
+        {
+          "operation": "symbols",
+          "path": "/ABS/repo/src",
+          "symbolName": "buildDirectToolCommandPatterns"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1596,7 +1814,7 @@
           "debug": false,
           "operation": "symbols",
           "path": "/ABS/repo/src",
-          "name": "buildDirectToolCommandPatterns",
+          "symbolName": "buildDirectToolCommandPatterns",
           "maxFiles": 2000,
           "page": 1,
           "pageSize": 500
@@ -1608,10 +1826,14 @@
     "id": "astSearch.curated-2",
     "tool": "astSearch",
     "input": {
-      "operation": "match",
-      "path": "/ABS/repo/src",
-      "langType": "typescript",
-      "pattern": "eval($X)"
+      "queries": [
+        {
+          "operation": "match",
+          "path": "/ABS/repo/src",
+          "language": "typescript",
+          "pattern": "eval($X)"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1620,12 +1842,12 @@
           "debug": false,
           "path": "/ABS/repo/src",
           "matchContentLength": 500,
-          "langType": "typescript",
+          "language": "typescript",
           "matchPage": 1,
           "page": 1,
           "operation": "match",
           "sort": "path",
-          "maxMatchesPerFile": 100,
+          "matchPageSize": 100,
           "maxFiles": 2000,
           "resultView": "content",
           "pageSize": 20,
@@ -1638,8 +1860,12 @@
     "id": "astSearch.curated-3",
     "tool": "astSearch",
     "input": {
-      "operation": "symbols",
-      "path": "/ABS/repo/src/index.ts"
+      "queries": [
+        {
+          "operation": "symbols",
+          "path": "/ABS/repo/src/index.ts"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1659,10 +1885,14 @@
     "id": "astSearch.curated-4",
     "tool": "astSearch",
     "input": {
-      "operation": "match",
-      "path": "/ABS/repo/src",
-      "langType": "typescript",
-      "rule": "pattern: console.log($VALUE)"
+      "queries": [
+        {
+          "operation": "match",
+          "path": "/ABS/repo/src",
+          "language": "typescript",
+          "rule": "pattern: console.log($VALUE)"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1671,12 +1901,12 @@
           "debug": false,
           "path": "/ABS/repo/src",
           "matchContentLength": 500,
-          "langType": "typescript",
+          "language": "typescript",
           "matchPage": 1,
           "page": 1,
           "operation": "match",
           "sort": "path",
-          "maxMatchesPerFile": 100,
+          "matchPageSize": 100,
           "maxFiles": 2000,
           "resultView": "content",
           "pageSize": 20,
@@ -1689,10 +1919,14 @@
     "id": "astSearch.curated-5",
     "tool": "astSearch",
     "input": {
-      "operation": "match",
-      "path": ".",
-      "pattern": "console.log($A)",
-      "langType": "typescript"
+      "queries": [
+        {
+          "operation": "match",
+          "path": ".",
+          "pattern": "console.log($A)",
+          "language": "typescript"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1701,12 +1935,12 @@
           "debug": false,
           "path": ".",
           "matchContentLength": 500,
-          "langType": "typescript",
+          "language": "typescript",
           "matchPage": 1,
           "page": 1,
           "operation": "match",
           "sort": "path",
-          "maxMatchesPerFile": 100,
+          "matchPageSize": 100,
           "maxFiles": 2000,
           "resultView": "content",
           "pageSize": 20,
@@ -1719,9 +1953,13 @@
     "id": "astSearch.curated-6",
     "tool": "astSearch",
     "input": {
-      "operation": "syntaxTree",
-      "path": "/repo/src/index.ts",
-      "nodeLimit": 100
+      "queries": [
+        {
+          "operation": "syntaxTree",
+          "path": "/repo/src/index.ts",
+          "pageSize": 100
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1731,8 +1969,8 @@
           "operation": "syntaxTree",
           "path": "/repo/src/index.ts",
           "namedOnly": true,
-          "nodeOffset": 0,
-          "nodeLimit": 100
+          "page": 1,
+          "pageSize": 100
         }
       ]
     }
@@ -1741,8 +1979,12 @@
     "id": "astSearch.curated-7",
     "tool": "astSearch",
     "input": {
-      "path": ".",
-      "operation": "symbols"
+      "queries": [
+        {
+          "path": ".",
+          "operation": "symbols"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1762,9 +2004,13 @@
     "id": "astTopology.curated-1",
     "tool": "astTopology",
     "input": {
-      "analysis": "deadCode",
-      "path": "/ABS/repo",
-      "limit": 20
+      "queries": [
+        {
+          "operation": "deadCode",
+          "path": "/ABS/repo",
+          "pageSize": 20
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1772,12 +2018,11 @@
         {
           "debug": false,
           "path": "/ABS/repo",
-          "limit": 20,
           "page": 1,
-          "pageSize": 50,
+          "pageSize": 20,
           "diagnosticPageSize": 25,
           "includeTests": true,
-          "analysis": "deadCode"
+          "operation": "deadCode"
         }
       ]
     }
@@ -1786,9 +2031,13 @@
     "id": "astTopology.curated-2",
     "tool": "astTopology",
     "input": {
-      "analysis": "cycles",
-      "path": "/ABS/repo",
-      "limit": 20
+      "queries": [
+        {
+          "operation": "cycles",
+          "path": "/ABS/repo",
+          "pageSize": 20
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1796,11 +2045,10 @@
         {
           "debug": false,
           "path": "/ABS/repo",
-          "limit": 20,
           "page": 1,
-          "pageSize": 50,
+          "pageSize": 20,
           "diagnosticPageSize": 25,
-          "analysis": "cycles"
+          "operation": "cycles"
         }
       ]
     }
@@ -1809,10 +2057,14 @@
     "id": "astTopology.curated-3",
     "tool": "astTopology",
     "input": {
-      "analysis": "dependencies",
-      "path": "/ABS/repo",
-      "file": "src/index.ts",
-      "depth": 2
+      "queries": [
+        {
+          "operation": "dependencies",
+          "path": "/ABS/repo",
+          "source": "src/index.ts",
+          "depth": 2
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1823,9 +2075,9 @@
           "page": 1,
           "pageSize": 50,
           "diagnosticPageSize": 25,
-          "file": "src/index.ts",
+          "source": "src/index.ts",
           "depth": 2,
-          "analysis": "dependencies"
+          "operation": "dependencies"
         }
       ]
     }
@@ -1834,10 +2086,14 @@
     "id": "astTopology.curated-4",
     "tool": "astTopology",
     "input": {
-      "analysis": "dependents",
-      "path": "/ABS/repo",
-      "file": "src/index.ts",
-      "depth": 2
+      "queries": [
+        {
+          "operation": "dependents",
+          "path": "/ABS/repo",
+          "source": "src/index.ts",
+          "depth": 2
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1848,9 +2104,9 @@
           "page": 1,
           "pageSize": 50,
           "diagnosticPageSize": 25,
-          "file": "src/index.ts",
+          "source": "src/index.ts",
           "depth": 2,
-          "analysis": "dependents"
+          "operation": "dependents"
         }
       ]
     }
@@ -1859,10 +2115,14 @@
     "id": "astTopology.curated-5",
     "tool": "astTopology",
     "input": {
-      "analysis": "path",
-      "path": "/ABS/repo",
-      "file": "src/index.ts",
-      "target": "src/responses.ts"
+      "queries": [
+        {
+          "operation": "path",
+          "path": "/ABS/repo",
+          "source": "src/index.ts",
+          "target": "src/responses.ts"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1873,9 +2133,9 @@
           "page": 1,
           "pageSize": 50,
           "diagnosticPageSize": 25,
-          "file": "src/index.ts",
+          "source": "src/index.ts",
           "target": "src/responses.ts",
-          "analysis": "path"
+          "operation": "path"
         }
       ]
     }
@@ -1884,9 +2144,13 @@
     "id": "astTopology.curated-6",
     "tool": "astTopology",
     "input": {
-      "analysis": "reachability",
-      "path": "/ABS/repo",
-      "limit": 20
+      "queries": [
+        {
+          "operation": "reachability",
+          "path": "/ABS/repo",
+          "pageSize": 20
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1894,12 +2158,11 @@
         {
           "debug": false,
           "path": "/ABS/repo",
-          "limit": 20,
           "page": 1,
-          "pageSize": 50,
+          "pageSize": 20,
           "diagnosticPageSize": 25,
           "includeTests": true,
-          "analysis": "reachability"
+          "operation": "reachability"
         }
       ]
     }
@@ -1908,9 +2171,13 @@
     "id": "astTopology.curated-7",
     "tool": "astTopology",
     "input": {
-      "path": ".",
-      "analysis": "dependencies",
-      "file": "src/index.ts"
+      "queries": [
+        {
+          "path": ".",
+          "operation": "dependencies",
+          "source": "src/index.ts"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1921,9 +2188,9 @@
           "page": 1,
           "pageSize": 50,
           "diagnosticPageSize": 25,
-          "file": "src/index.ts",
+          "source": "src/index.ts",
           "depth": 1,
-          "analysis": "dependencies"
+          "operation": "dependencies"
         }
       ]
     }
@@ -1932,9 +2199,13 @@
     "id": "astTopology.curated-8",
     "tool": "astTopology",
     "input": {
-      "path": ".",
-      "analysis": "dependents",
-      "file": "src/index.ts"
+      "queries": [
+        {
+          "path": ".",
+          "operation": "dependents",
+          "source": "src/index.ts"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1945,9 +2216,9 @@
           "page": 1,
           "pageSize": 50,
           "diagnosticPageSize": 25,
-          "file": "src/index.ts",
+          "source": "src/index.ts",
           "depth": 1,
-          "analysis": "dependents"
+          "operation": "dependents"
         }
       ]
     }
@@ -1956,10 +2227,14 @@
     "id": "astTopology.curated-9",
     "tool": "astTopology",
     "input": {
-      "path": ".",
-      "analysis": "path",
-      "file": "src/index.ts",
-      "target": "src/utils.ts"
+      "queries": [
+        {
+          "path": ".",
+          "operation": "path",
+          "source": "src/index.ts",
+          "target": "src/utils.ts"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1970,9 +2245,9 @@
           "page": 1,
           "pageSize": 50,
           "diagnosticPageSize": 25,
-          "file": "src/index.ts",
+          "source": "src/index.ts",
           "target": "src/utils.ts",
-          "analysis": "path"
+          "operation": "path"
         }
       ]
     }
@@ -1981,8 +2256,12 @@
     "id": "astTopology.curated-10",
     "tool": "astTopology",
     "input": {
-      "path": ".",
-      "analysis": "cycles"
+      "queries": [
+        {
+          "path": ".",
+          "operation": "cycles"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -1993,7 +2272,7 @@
           "page": 1,
           "pageSize": 50,
           "diagnosticPageSize": 25,
-          "analysis": "cycles"
+          "operation": "cycles"
         }
       ]
     }
@@ -2002,8 +2281,12 @@
     "id": "astTopology.curated-11",
     "tool": "astTopology",
     "input": {
-      "path": ".",
-      "analysis": "reachability"
+      "queries": [
+        {
+          "path": ".",
+          "operation": "reachability"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2015,7 +2298,7 @@
           "pageSize": 50,
           "diagnosticPageSize": 25,
           "includeTests": true,
-          "analysis": "reachability"
+          "operation": "reachability"
         }
       ]
     }
@@ -2024,8 +2307,12 @@
     "id": "astTopology.curated-12",
     "tool": "astTopology",
     "input": {
-      "path": ".",
-      "analysis": "deadCode"
+      "queries": [
+        {
+          "path": ".",
+          "operation": "deadCode"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2037,7 +2324,7 @@
           "pageSize": 50,
           "diagnosticPageSize": 25,
           "includeTests": true,
-          "analysis": "deadCode"
+          "operation": "deadCode"
         }
       ]
     }
@@ -2046,9 +2333,13 @@
     "id": "astTopology.curated-13",
     "tool": "astTopology",
     "input": {
-      "path": ".",
-      "analysis": "drift",
-      "baseline": "../baseline"
+      "queries": [
+        {
+          "path": ".",
+          "operation": "drift",
+          "baseline": "../baseline"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2060,7 +2351,7 @@
           "pageSize": 50,
           "diagnosticPageSize": 25,
           "baseline": "../baseline",
-          "analysis": "drift"
+          "operation": "drift"
         }
       ]
     }
@@ -2069,11 +2360,14 @@
     "id": "astRewrite.curated-1",
     "tool": "astRewrite",
     "input": {
-      "path": "/ABS/repo/src",
-      "langType": "typescript",
-      "ruleKind": "pattern",
-      "pattern": "console.log($A)",
-      "rewrite": "logger.info($A)"
+      "queries": [
+        {
+          "path": "/ABS/repo/src",
+          "language": "typescript",
+          "pattern": "console.log($A)",
+          "rewrite": "logger.info($A)"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2081,13 +2375,12 @@
         {
           "debug": false,
           "path": "/ABS/repo/src",
-          "langType": "typescript",
+          "language": "typescript",
           "apply": false,
           "maxFiles": 2000,
           "maxMatches": 10000,
           "page": 1,
           "pageSize": 100,
-          "ruleKind": "pattern",
           "pattern": "console.log($A)",
           "rewrite": "logger.info($A)"
         }
@@ -2098,16 +2391,19 @@
     "id": "astRewrite.curated-2",
     "tool": "astRewrite",
     "input": {
-      "path": "/ABS/repo/src",
-      "langType": "typescript",
-      "ruleKind": "pattern",
-      "pattern": "console.log($A)",
-      "rewrite": "logger.info($A)",
-      "apply": true,
-      "snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "expectedHashes": {
-        "/ABS/repo/src/example.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-      }
+      "queries": [
+        {
+          "path": "/ABS/repo/src",
+          "language": "typescript",
+          "pattern": "console.log($A)",
+          "rewrite": "logger.info($A)",
+          "apply": true,
+          "snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "expectedHashes": {
+            "/ABS/repo/src/example.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2115,7 +2411,7 @@
         {
           "debug": false,
           "path": "/ABS/repo/src",
-          "langType": "typescript",
+          "language": "typescript",
           "apply": true,
           "expectedHashes": {
             "/ABS/repo/src/example.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -2125,7 +2421,6 @@
           "page": 1,
           "pageSize": 100,
           "snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "ruleKind": "pattern",
           "pattern": "console.log($A)",
           "rewrite": "logger.info($A)"
         }
@@ -2136,11 +2431,14 @@
     "id": "astRewrite.curated-3",
     "tool": "astRewrite",
     "input": {
-      "path": ".",
-      "langType": "typescript",
-      "ruleKind": "pattern",
-      "pattern": "console.log($A)",
-      "rewrite": "logger.info($A)"
+      "queries": [
+        {
+          "path": ".",
+          "language": "typescript",
+          "pattern": "console.log($A)",
+          "rewrite": "logger.info($A)"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2148,13 +2446,12 @@
         {
           "debug": false,
           "path": ".",
-          "langType": "typescript",
+          "language": "typescript",
           "apply": false,
           "maxFiles": 2000,
           "maxMatches": 10000,
           "page": 1,
           "pageSize": 100,
-          "ruleKind": "pattern",
           "pattern": "console.log($A)",
           "rewrite": "logger.info($A)"
         }
@@ -2165,16 +2462,19 @@
     "id": "astRewrite.curated-4",
     "tool": "astRewrite",
     "input": {
-      "path": ".",
-      "langType": "typescript",
-      "ruleKind": "pattern",
-      "pattern": "console.log($A)",
-      "rewrite": "logger.info($A)",
-      "apply": true,
-      "snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "expectedHashes": {
-        "/repo/src/a.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-      }
+      "queries": [
+        {
+          "path": ".",
+          "language": "typescript",
+          "pattern": "console.log($A)",
+          "rewrite": "logger.info($A)",
+          "apply": true,
+          "snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "expectedHashes": {
+            "/repo/src/a.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2182,7 +2482,7 @@
         {
           "debug": false,
           "path": ".",
-          "langType": "typescript",
+          "language": "typescript",
           "apply": true,
           "expectedHashes": {
             "/repo/src/a.ts": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -2192,7 +2492,6 @@
           "page": 1,
           "pageSize": 100,
           "snapshot": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "ruleKind": "pattern",
           "pattern": "console.log($A)",
           "rewrite": "logger.info($A)"
         }
@@ -2203,10 +2502,15 @@
     "id": "localFetch.curated-1",
     "tool": "localFetch",
     "input": {
-      "path": "/ABS/repo/packages/octocode-native/Cargo.toml",
-      "startLine": 1,
-      "endLine": 30,
-      "minify": "none"
+      "queries": [
+        {
+          "path": "/ABS/repo/packages/octocode-native/Cargo.toml",
+          "ranges": [
+            "1-30"
+          ],
+          "minify": "none"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2214,8 +2518,9 @@
         {
           "debug": false,
           "path": "/ABS/repo/packages/octocode-native/Cargo.toml",
-          "startLine": 1,
-          "endLine": 30,
+          "ranges": [
+            "1-30"
+          ],
           "minify": "none"
         }
       ]
@@ -2225,10 +2530,14 @@
     "id": "localFetch.curated-2",
     "tool": "localFetch",
     "input": {
-      "path": "/ABS/repo/src/index.ts",
-      "matchString": "export",
-      "contextLines": 5,
-      "minify": "none"
+      "queries": [
+        {
+          "path": "/ABS/repo/src/index.ts",
+          "matchString": "export",
+          "contextLines": 5,
+          "minify": "none"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2247,8 +2556,12 @@
     "id": "localFetch.curated-3",
     "tool": "localFetch",
     "input": {
-      "path": "/ABS/repo/README.md",
-      "minify": "symbols"
+      "queries": [
+        {
+          "path": "/ABS/repo/README.md",
+          "minify": "symbols"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2265,8 +2578,12 @@
     "id": "localFetch.curated-4",
     "tool": "localFetch",
     "input": {
-      "path": "/ABS/repo/README.md",
-      "fullContent": true
+      "queries": [
+        {
+          "path": "/ABS/repo/README.md",
+          "fullContent": true
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2283,17 +2600,21 @@
     "id": "lspSearch.curated-1",
     "tool": "lspSearch",
     "input": {
-      "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
-      "operation": "definition",
-      "symbolName": "ToolRuntime",
-      "lineHint": 58
+      "queries": [
+        {
+          "path": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
+          "operation": "definition",
+          "symbolName": "ToolRuntime",
+          "lineHint": 58
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
+          "path": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
           "operation": "definition",
           "symbolName": "ToolRuntime",
           "lineHint": 58,
@@ -2308,18 +2629,22 @@
     "id": "lspSearch.curated-2",
     "tool": "lspSearch",
     "input": {
-      "uri": "/ABS/repo/src/index.ts",
-      "operation": "references",
-      "symbolName": "run",
-      "lineHint": 10,
-      "includeDeclaration": false
+      "queries": [
+        {
+          "path": "/ABS/repo/src/index.ts",
+          "operation": "references",
+          "symbolName": "run",
+          "lineHint": 10,
+          "includeDeclaration": false
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "uri": "/ABS/repo/src/index.ts",
+          "path": "/ABS/repo/src/index.ts",
           "operation": "references",
           "symbolName": "run",
           "lineHint": 10,
@@ -2335,15 +2660,19 @@
     "id": "lspSearch.curated-3",
     "tool": "lspSearch",
     "input": {
-      "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
-      "operation": "documentSymbols"
+      "queries": [
+        {
+          "path": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
+          "operation": "documentSymbols"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "uri": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
+          "path": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
           "operation": "documentSymbols",
           "page": 1,
           "pageSize": 40
@@ -2355,15 +2684,19 @@
     "id": "lspSearch.curated-4",
     "tool": "lspSearch",
     "input": {
-      "uri": "/ABS/repo/src/index.ts",
-      "operation": "diagnostic"
+      "queries": [
+        {
+          "path": "/ABS/repo/src/index.ts",
+          "operation": "diagnostic"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "uri": "/ABS/repo/src/index.ts",
+          "path": "/ABS/repo/src/index.ts",
           "operation": "diagnostic",
           "page": 1,
           "pageSize": 40
@@ -2375,17 +2708,21 @@
     "id": "lspSearch.curated-5",
     "tool": "lspSearch",
     "input": {
-      "uri": "src/index.ts",
-      "operation": "definition",
-      "symbolName": "main",
-      "lineHint": 1
+      "queries": [
+        {
+          "path": "src/index.ts",
+          "operation": "definition",
+          "symbolName": "main",
+          "lineHint": 1
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "uri": "src/index.ts",
+          "path": "src/index.ts",
           "operation": "definition",
           "symbolName": "main",
           "lineHint": 1,
@@ -2400,19 +2737,23 @@
     "id": "lspSearch.curated-6",
     "tool": "lspSearch",
     "input": {
-      "uri": "src/index.ts",
-      "operation": "definition",
-      "position": {
-        "line": 0,
-        "character": 0
-      }
+      "queries": [
+        {
+          "path": "src/index.ts",
+          "operation": "definition",
+          "position": {
+            "line": 0,
+            "character": 0
+          }
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "uri": "src/index.ts",
+          "path": "src/index.ts",
           "operation": "definition",
           "position": {
             "line": 0,
@@ -2428,15 +2769,19 @@
     "id": "lspSearch.curated-7",
     "tool": "lspSearch",
     "input": {
-      "uri": "src/index.ts",
-      "operation": "documentSymbols"
+      "queries": [
+        {
+          "path": "src/index.ts",
+          "operation": "documentSymbols"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "uri": "src/index.ts",
+          "path": "src/index.ts",
           "operation": "documentSymbols",
           "page": 1,
           "pageSize": 40
@@ -2448,16 +2793,20 @@
     "id": "lspSearch.curated-8",
     "tool": "lspSearch",
     "input": {
-      "uri": "src/index.ts",
-      "operation": "workspaceSymbol",
-      "symbolName": "Schema"
+      "queries": [
+        {
+          "path": "src/index.ts",
+          "operation": "workspaceSymbol",
+          "symbolName": "Schema"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "uri": "src/index.ts",
+          "path": "src/index.ts",
           "operation": "workspaceSymbol",
           "symbolName": "Schema",
           "page": 1,
@@ -2470,9 +2819,13 @@
     "id": "lspSearch.curated-9",
     "tool": "lspSearch",
     "input": {
-      "workspaceRoot": ".",
-      "operation": "workspaceSymbol",
-      "symbolName": "Schema"
+      "queries": [
+        {
+          "workspaceRoot": ".",
+          "operation": "workspaceSymbol",
+          "symbolName": "Schema"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2492,7 +2845,11 @@
     "id": "local-fetch.default",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts"
+      "queries": [
+        {
+          "path": "/fixture/a.ts"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2508,32 +2865,18 @@
     "id": "local-fetch.blank-meta",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "mainGoal": " ",
-      "reasoning": ""
-    },
-    "accepted": true,
-    "normalized": {
       "queries": [
         {
-          "debug": false,
-          "path": "/fixture/a.ts"
+          "path": "/fixture/a.ts",
+          "mainGoal": " ",
+          "reasoning": ""
         }
       ]
-    }
-  },
-  {
-    "id": "local-fetch.legacy-goal",
-    "tool": "localFetch",
-    "input": {
-      "path": "/fixture/a.ts",
-      "goal": " Read the fixture. "
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
-          "mainGoal": "Read the fixture.",
           "debug": false,
           "path": "/fixture/a.ts"
         }
@@ -2544,10 +2887,15 @@
     "id": "local-fetch.reject-low",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "startLine": -4,
-      "endLine": 0,
-      "contextLines": -2
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "ranges": [
+            "0-0"
+          ],
+          "contextLines": -2
+        }
+      ]
     },
     "accepted": false
   },
@@ -2555,10 +2903,13 @@
     "id": "local-fetch.reject-high",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "startLine": 2000000000,
-      "endLine": 2000000001,
-      "contextLines": 101
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "matchString": "x",
+          "contextLines": 101
+        }
+      ]
     },
     "accepted": false
   },
@@ -2566,8 +2917,12 @@
     "id": "local-fetch.full",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "fullContent": true
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "fullContent": true
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2584,10 +2939,14 @@
     "id": "local-fetch.match",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "matchString": "needle",
-      "contextBytes": 10,
-      "chunkType": "bytes"
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "matchString": "needle",
+          "contextBytes": 10,
+          "unit": "bytes"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2597,7 +2956,7 @@
           "path": "/fixture/a.ts",
           "matchString": "needle",
           "contextBytes": 10,
-          "chunkType": "bytes"
+          "unit": "bytes"
         }
       ]
     }
@@ -2606,18 +2965,14 @@
     "id": "local-fetch.range-order",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "startLine": 3,
-      "endLine": 2
-    },
-    "accepted": false
-  },
-  {
-    "id": "local-fetch.range-pair",
-    "tool": "localFetch",
-    "input": {
-      "path": "/fixture/a.ts",
-      "startLine": 3
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "ranges": [
+            "3-2"
+          ]
+        }
+      ]
     },
     "accepted": false
   },
@@ -2625,9 +2980,13 @@
     "id": "local-fetch.full-controls",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "fullContent": true,
-      "chunkSize": 1
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "fullContent": true,
+          "length": 1
+        }
+      ]
     },
     "accepted": false
   },
@@ -2635,8 +2994,12 @@
     "id": "local-fetch.match-controls",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "matchStringIsRegex": true
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "regex": "rust"
+        }
+      ]
     },
     "accepted": false
   },
@@ -2644,10 +3007,14 @@
     "id": "local-fetch.context-unit",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "matchString": "x",
-      "contextBytes": 1,
-      "contextLines": 1
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "matchString": "x",
+          "contextBytes": 1,
+          "contextLines": 1
+        }
+      ]
     },
     "accepted": false
   },
@@ -2655,10 +3022,13 @@
     "id": "local-fetch.symbol-selector",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "minify": "symbols",
-      "startLine": 1,
-      "endLine": 2
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "minify": "symbols",
+          "matchString": "a"
+        }
+      ]
     },
     "accepted": false
   },
@@ -2666,12 +3036,16 @@
     "id": "local-fetch.ranges",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "ranges": [
-        "3-5",
-        "9-12"
-      ],
-      "block": true
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "ranges": [
+            "3-5",
+            "9-12"
+          ],
+          "block": true
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2692,12 +3066,15 @@
     "id": "local-fetch.ranges-exclusive",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "ranges": [
-        "3-5"
-      ],
-      "startLine": 1,
-      "endLine": 2
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "ranges": [
+            "3-5"
+          ],
+          "matchString": "a"
+        }
+      ]
     },
     "accepted": false
   },
@@ -2705,9 +3082,13 @@
     "id": "local-fetch.ranges-order",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "ranges": [
-        "5-3"
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "ranges": [
+            "5-3"
+          ]
+        }
       ]
     },
     "accepted": false
@@ -2716,9 +3097,13 @@
     "id": "local-fetch.ranges-shape",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "ranges": [
-        "3:5"
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "ranges": [
+            "3:5"
+          ]
+        }
       ]
     },
     "accepted": false
@@ -2727,8 +3112,12 @@
     "id": "local-fetch.block-alone",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "block": true
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "block": true
+        }
+      ]
     },
     "accepted": false
   },
@@ -2736,12 +3125,16 @@
     "id": "local-fetch.match-list",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "matchString": [
-        "a",
-        "b"
-      ],
-      "contextLines": 0
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "matchString": [
+            "a",
+            "b"
+          ],
+          "contextLines": 0
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2759,12 +3152,16 @@
     }
   },
   {
-    "id": "local-fetch.context-clamp",
+    "id": "local-fetch.context-max",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "matchString": "a",
-      "contextLines": 120
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "matchString": "a",
+          "contextLines": 100
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2773,7 +3170,7 @@
           "debug": false,
           "path": "/fixture/a.ts",
           "matchString": "a",
-          "contextLines": 120
+          "contextLines": 100
         }
       ]
     }
@@ -2782,10 +3179,14 @@
     "id": "local-fetch.symbol-ranges",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "minify": "symbols",
-      "ranges": [
-        "1-2"
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "minify": "symbols",
+          "ranges": [
+            "1-2"
+          ]
+        }
       ]
     },
     "accepted": false
@@ -2794,8 +3195,12 @@
     "id": "local-fetch.unknown",
     "tool": "localFetch",
     "input": {
-      "path": "/fixture/a.ts",
-      "nope": true
+      "queries": [
+        {
+          "path": "/fixture/a.ts",
+          "nope": true
+        }
+      ]
     },
     "accepted": false
   },
@@ -2803,7 +3208,11 @@
     "id": "local-fetch.empty-path",
     "tool": "localFetch",
     "input": {
-      "path": " "
+      "queries": [
+        {
+          "path": " "
+        }
+      ]
     },
     "accepted": false
   },
@@ -2811,8 +3220,12 @@
     "id": "artifact.exact-trim",
     "tool": "artifactSearch",
     "input": {
-      "type": "npm",
-      "packageName": "  zod "
+      "queries": [
+        {
+          "type": "npm",
+          "packageName": "  zod "
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2829,9 +3242,13 @@
     "id": "artifact.discovery-default",
     "tool": "artifactSearch",
     "input": {
-      "type": "crates",
-      "keywords": [
-        " parser "
+      "queries": [
+        {
+          "type": "crates",
+          "keywords": [
+            " parser "
+          ]
+        }
       ]
     },
     "accepted": true,
@@ -2852,9 +3269,13 @@
     "id": "artifact.npm-registry",
     "tool": "artifactSearch",
     "input": {
-      "type": "npm",
-      "packageName": "x",
-      "registry": "https://registry.example.test/base/"
+      "queries": [
+        {
+          "type": "npm",
+          "packageName": "x",
+          "registry": "https://registry.example.test/base/"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2872,10 +3293,14 @@
     "id": "artifact.exclusive",
     "tool": "artifactSearch",
     "input": {
-      "type": "npm",
-      "packageName": "x",
-      "keywords": [
-        "x"
+      "queries": [
+        {
+          "type": "npm",
+          "packageName": "x",
+          "keywords": [
+            "x"
+          ]
+        }
       ]
     },
     "accepted": false
@@ -2884,7 +3309,11 @@
     "id": "artifact.missing-mode",
     "tool": "artifactSearch",
     "input": {
-      "type": "npm"
+      "queries": [
+        {
+          "type": "npm"
+        }
+      ]
     },
     "accepted": false
   },
@@ -2892,9 +3321,13 @@
     "id": "artifact.exact-pagination",
     "tool": "artifactSearch",
     "input": {
-      "type": "npm",
-      "packageName": "x",
-      "pageSize": 2
+      "queries": [
+        {
+          "type": "npm",
+          "packageName": "x",
+          "pageSize": 2
+        }
+      ]
     },
     "accepted": false
   },
@@ -2902,9 +3335,13 @@
     "id": "artifact.registry-type",
     "tool": "artifactSearch",
     "input": {
-      "type": "pypi",
-      "packageName": "x",
-      "registry": "https://example.test"
+      "queries": [
+        {
+          "type": "pypi",
+          "packageName": "x",
+          "registry": "https://example.test"
+        }
+      ]
     },
     "accepted": false
   },
@@ -2912,9 +3349,13 @@
     "id": "artifact.registry-scheme",
     "tool": "artifactSearch",
     "input": {
-      "type": "npm",
-      "packageName": "x",
-      "registry": "ftp://example.test"
+      "queries": [
+        {
+          "type": "npm",
+          "packageName": "x",
+          "registry": "ftp://example.test"
+        }
+      ]
     },
     "accepted": false
   },
@@ -2922,21 +3363,13 @@
     "id": "artifact.registry-credentials",
     "tool": "artifactSearch",
     "input": {
-      "type": "npm",
-      "packageName": "x",
-      "registry": "https://u:p@example.test"
-    },
-    "accepted": false
-  },
-  {
-    "id": "artifact.blank-cursor",
-    "tool": "artifactSearch",
-    "input": {
-      "type": "npm",
-      "keywords": [
-        "x"
-      ],
-      "cursor": " "
+      "queries": [
+        {
+          "type": "npm",
+          "packageName": "x",
+          "registry": "https://u:p@example.test"
+        }
+      ]
     },
     "accepted": false
   },
@@ -2944,8 +3377,12 @@
     "id": "artifact.blank-package",
     "tool": "artifactSearch",
     "input": {
-      "type": "npm",
-      "packageName": " "
+      "queries": [
+        {
+          "type": "npm",
+          "packageName": " "
+        }
+      ]
     },
     "accepted": false
   },
@@ -2953,9 +3390,13 @@
     "id": "artifact.exact-version",
     "tool": "artifactSearch",
     "input": {
-      "type": "npm",
-      "packageName": "zod",
-      "version": "^3"
+      "queries": [
+        {
+          "type": "npm",
+          "packageName": "zod",
+          "version": "^3"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
@@ -2973,65 +3414,43 @@
     "id": "artifact.discovery-version",
     "tool": "artifactSearch",
     "input": {
-      "type": "crates",
-      "keywords": [
-        "x"
-      ],
-      "version": "1"
-    },
-    "accepted": false
-  },
-  {
-    "id": "local-search.public-match-window",
-    "tool": "localSearch",
-    "input": {
-      "path": "/r",
-      "searchText": "x",
-      "resultView": "matchOnly",
-      "matchWindow": 2
-    },
-    "accepted": true,
-    "normalized": {
       "queries": [
         {
-          "debug": false,
-          "searchText": "x",
-          "path": "/r",
-          "caseMode": "smart",
-          "multiline": "off",
-          "sort": "relevance",
-          "matchPage": 1,
-          "page": 1,
-          "regex": "rust",
-          "unique": "off",
-          "matchWindow": 2,
-          "resultView": "matchOnly"
+          "type": "crates",
+          "keywords": [
+            "x"
+          ],
+          "version": "1"
         }
       ]
-    }
+    },
+    "accepted": false
   },
   {
     "id": "local-search.public-unique-list",
     "tool": "localSearch",
     "input": {
-      "path": "/r",
-      "searchText": "x",
-      "resultView": "matchOnly",
-      "unique": "list"
+      "queries": [
+        {
+          "path": "/r",
+          "matchString": "x",
+          "resultView": "matchOnly",
+          "unique": "list"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "searchText": "x",
+          "matchString": "x",
           "path": "/r",
           "caseMode": "smart",
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
           "page": 1,
-          "regex": "rust",
           "unique": "list",
           "resultView": "matchOnly"
         }
@@ -3042,24 +3461,27 @@
     "id": "local-search.public-unique-count",
     "tool": "localSearch",
     "input": {
-      "path": "/r",
-      "searchText": "x",
-      "resultView": "matchOnly",
-      "unique": "count"
+      "queries": [
+        {
+          "path": "/r",
+          "matchString": "x",
+          "resultView": "matchOnly",
+          "unique": "count"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "searchText": "x",
+          "matchString": "x",
           "path": "/r",
           "caseMode": "smart",
           "multiline": "off",
           "sort": "relevance",
           "matchPage": 1,
           "page": 1,
-          "regex": "rust",
           "unique": "count",
           "resultView": "matchOnly"
         }
@@ -3070,23 +3492,26 @@
     "id": "local-search.public-traversal-sort",
     "tool": "localSearch",
     "input": {
-      "path": "/r",
-      "searchText": "x",
-      "sort": "traversal"
+      "queries": [
+        {
+          "path": "/r",
+          "matchString": "x",
+          "sort": "traversal"
+        }
+      ]
     },
     "accepted": true,
     "normalized": {
       "queries": [
         {
           "debug": false,
-          "searchText": "x",
+          "matchString": "x",
           "path": "/r",
           "caseMode": "smart",
           "multiline": "off",
           "sort": "traversal",
           "matchPage": 1,
           "page": 1,
-          "regex": "rust",
           "unique": "off",
           "resultView": "paginated"
         }
@@ -3097,7 +3522,11 @@
     "id": "gh-search-code.no-constraint",
     "tool": "ghSearchCode",
     "input": {
-      "owner": "o"
+      "queries": [
+        {
+          "owner": "o"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3105,7 +3534,11 @@
     "id": "gh-search-repo.no-constraint",
     "tool": "ghSearchRepo",
     "input": {
-      "page": 2
+      "queries": [
+        {
+          "page": 2
+        }
+      ]
     },
     "accepted": false
   },
@@ -3113,75 +3546,62 @@
     "id": "gh-search-repo.qualifier-scope",
     "tool": "ghSearchRepo",
     "input": {
-      "keywords": [
-        "x"
-      ],
-      "qualifiers": "repo:evil/x"
-    },
-    "accepted": false
-  },
-  {
-    "id": "github-content.range-pair",
-    "tool": "ghGetFileContent",
-    "input": {
-      "owner": "o",
-      "repo": "r",
-      "path": "a",
-      "startLine": 1
-    },
-    "accepted": false
-  },
-  {
-    "id": "gh-search-repo.qualifier-repeats-field",
-    "tool": "ghSearchRepo",
-    "input": {
-      "created": ">2020-01-01",
-      "qualifiers": "created:<2019-01-01"
-    },
-    "accepted": false
-  },
-  {
-    "id": "gh-search-repo.qualifier-repeats-visibility",
-    "tool": "ghSearchRepo",
-    "input": {
-      "keywords": [
-        "x"
-      ],
-      "visibility": "public",
-      "qualifiers": "is:private"
-    },
-    "accepted": false
-  },
-  {
-    "id": "gh-search-repo.qualifier-beside-other-field",
-    "tool": "ghSearchRepo",
-    "input": {
-      "created": ">2020-01-01",
-      "qualifiers": "pushed:>2024-01-01 is:template"
-    },
-    "accepted": true,
-    "normalized": {
       "queries": [
         {
-          "debug": false,
-          "created": ">2020-01-01",
-          "qualifiers": "pushed:>2024-01-01 is:template",
-          "sort": "best-match",
-          "page": 1,
-          "pageSize": 30
+          "keywords": [
+            "x"
+          ],
+          "qualifiers": "repo:evil/x"
         }
       ]
-    }
+    },
+    "accepted": false
+  },
+  {
+    "id": "github-content.range-order",
+    "tool": "ghGetFileContent",
+    "input": {
+      "queries": [
+        {
+          "owner": "o",
+          "repo": "r",
+          "path": "a",
+          "ranges": [
+            "9-1"
+          ]
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "gh-search-repo.qualifiers",
+    "tool": "ghSearchRepo",
+    "input": {
+      "queries": [
+        {
+          "keywords": [
+            "x"
+          ],
+          "qualifiers": "created:>2020-01-01 pushed:>2024-01-01 is:template"
+        }
+      ]
+    },
+    "accepted": false
   },
   {
     "id": "history-search.qualifier-repeats-state",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "pullRequest",
-      "owner": "o",
-      "repo": "r",
-      "state": "open",
-      "qualifiers": "is:closed"
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r",
+          "state": "open",
+          "qualifiers": "is:closed"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3189,17 +3609,67 @@
     "id": "history-search.qualifier-draft-beside-state",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "pullRequest",
-      "owner": "o",
-      "repo": "r",
-      "keywords": [
-        "cache"
-      ],
-      "state": "open",
-      "label": [
-        "bug"
-      ],
-      "qualifiers": "is:draft label:\"good first issue\" -reviewed-by:x"
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r",
+          "keywords": [
+            "cache"
+          ],
+          "state": "open",
+          "qualifiers": "is:draft label:\"good first issue\" -reviewed-by:x"
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
+    "id": "history-search.qualifier-head-key",
+    "tool": "ghSearchHistory",
+    "input": {
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r",
+          "keywords": [
+            "cache"
+          ],
+          "qualifiers": "head:feature base:main"
+        }
+      ]
+    },
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "debug": false,
+          "keywords": [
+            "cache"
+          ],
+          "owner": "o",
+          "repo": "r",
+          "qualifiers": "head:feature base:main",
+          "pageSize": 30,
+          "page": 1,
+          "operation": "pullRequest"
+        }
+      ]
+    }
+  },
+  {
+    "id": "history-search.qualifier-head-on-issue",
+    "tool": "ghSearchHistory",
+    "input": {
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o",
+          "repo": "r",
+          "qualifiers": "head:x"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3207,10 +3677,14 @@
     "id": "history-search.qualifier-pr-key-on-issue",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "issue",
-      "owner": "o",
-      "repo": "r",
-      "qualifiers": "reviewed-by:x"
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o",
+          "repo": "r",
+          "qualifiers": "reviewed-by:x"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3218,8 +3692,12 @@
     "id": "history-search.qualifier-scope",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "pullRequest",
-      "qualifiers": "repo:a/b"
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "qualifiers": "repo:a/b"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3227,9 +3705,13 @@
     "id": "history-search.qualifier-free-text",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "pullRequest",
-      "owner": "o",
-      "qualifiers": "label:bug crash"
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "qualifiers": "label:bug crash"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3237,9 +3719,13 @@
     "id": "history-search.qualifier-too-long",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "pullRequest",
-      "owner": "o",
-      "qualifiers": "label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc"
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "qualifiers": "label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc label:abc"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3247,8 +3733,12 @@
     "id": "history-search.issue-scope",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "issue",
-      "owner": "o"
+      "queries": [
+        {
+          "operation": "issue",
+          "owner": "o"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3256,13 +3746,17 @@
     "id": "history-search.keyword-path",
     "tool": "ghSearchHistory",
     "input": {
-      "operation": "commit",
-      "owner": "o",
-      "repo": "r",
-      "keywords": [
-        "fix"
-      ],
-      "path": "src"
+      "queries": [
+        {
+          "operation": "commit",
+          "owner": "o",
+          "repo": "r",
+          "keywords": [
+            "fix"
+          ],
+          "path": "src"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3270,53 +3764,85 @@
     "id": "history-item.pr-number",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "pullRequest",
-      "owner": "o",
-      "repo": "r"
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r"
+        }
+      ]
     },
     "accepted": false
   },
   {
-    "id": "history-item.selected-patches-empty",
+    "id": "history-item.flat-sections",
     "tool": "ghGetHistoryItem",
     "input": {
-      "operation": "pullRequest",
-      "owner": "o",
-      "repo": "r",
-      "number": 1,
-      "content": {
-        "patches": {
-          "mode": "selected"
+      "queries": [
+        {
+          "operation": "pullRequest",
+          "owner": "o",
+          "repo": "r",
+          "number": 1,
+          "sections": [
+            "patches",
+            "reviewComments"
+          ],
+          "include": [
+            "src/**"
+          ],
+          "patchRanges": [
+            {
+              "file": "src/a.ts",
+              "additions": [
+                3
+              ]
+            }
+          ],
+          "includeBots": true
         }
-      }
+      ]
     },
-    "accepted": false
-  },
-  {
-    "id": "history-item.patch-files-without-selected",
-    "tool": "ghGetHistoryItem",
-    "input": {
-      "operation": "pullRequest",
-      "owner": "o",
-      "repo": "r",
-      "number": 1,
-      "content": {
-        "patches": {
-          "mode": "full",
-          "files": [
-            "a.ts"
-          ]
+    "accepted": true,
+    "normalized": {
+      "queries": [
+        {
+          "debug": false,
+          "owner": "o",
+          "repo": "r",
+          "minify": "standard",
+          "operation": "pullRequest",
+          "number": 1,
+          "sections": [
+            "patches",
+            "reviewComments"
+          ],
+          "include": [
+            "src/**"
+          ],
+          "patchRanges": [
+            {
+              "file": "src/a.ts",
+              "additions": [
+                3
+              ]
+            }
+          ],
+          "includeBots": true
         }
-      }
-    },
-    "accepted": false
+      ]
+    }
   },
   {
     "id": "clone.blank-owner",
     "tool": "ghCloneRepo",
     "input": {
-      "owner": " ",
-      "repo": "r"
+      "queries": [
+        {
+          "owner": " ",
+          "repo": "r"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3324,19 +3850,13 @@
     "id": "local-search.unique-view",
     "tool": "localSearch",
     "input": {
-      "path": "/r",
-      "searchText": "x",
-      "unique": "list"
-    },
-    "accepted": false
-  },
-  {
-    "id": "local-search.match-window-view",
-    "tool": "localSearch",
-    "input": {
-      "path": "/r",
-      "searchText": "x",
-      "matchWindow": 2
+      "queries": [
+        {
+          "path": "/r",
+          "matchString": "x",
+          "unique": "list"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3344,11 +3864,15 @@
     "id": "ast-search.pattern-rule",
     "tool": "astSearch",
     "input": {
-      "operation": "match",
-      "path": "/r",
-      "langType": "ts",
-      "pattern": "$A",
-      "rule": "kind: call"
+      "queries": [
+        {
+          "operation": "match",
+          "path": "/r",
+          "language": "ts",
+          "pattern": "$A",
+          "rule": "kind: call"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3356,12 +3880,15 @@
     "id": "ast-rewrite.apply-guards",
     "tool": "astRewrite",
     "input": {
-      "path": "/r",
-      "langType": "ts",
-      "ruleKind": "pattern",
-      "pattern": "$A",
-      "rewrite": "$A",
-      "apply": true
+      "queries": [
+        {
+          "path": "/r",
+          "language": "ts",
+          "pattern": "$A",
+          "rewrite": "$A",
+          "apply": true
+        }
+      ]
     },
     "accepted": false
   },
@@ -3369,11 +3896,14 @@
     "id": "ast-rewrite.empty-rule",
     "tool": "astRewrite",
     "input": {
-      "path": "/r",
-      "langType": "ts",
-      "ruleKind": "rule",
-      "rule": {},
-      "fix": "x"
+      "queries": [
+        {
+          "path": "/r",
+          "language": "ts",
+          "rule": {},
+          "fix": "x"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3381,8 +3911,12 @@
     "id": "lsp.anchor",
     "tool": "lspSearch",
     "input": {
-      "uri": "/r/a.ts",
-      "operation": "definition"
+      "queries": [
+        {
+          "path": "/r/a.ts",
+          "operation": "definition"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3390,11 +3924,15 @@
     "id": "lsp.hover-depth",
     "tool": "lspSearch",
     "input": {
-      "uri": "/r/a.ts",
-      "operation": "hover",
-      "symbolName": "x",
-      "lineHint": 1,
-      "depth": 2
+      "queries": [
+        {
+          "path": "/r/a.ts",
+          "operation": "hover",
+          "symbolName": "x",
+          "lineHint": 1,
+          "depth": 2
+        }
+      ]
     },
     "accepted": false
   },
@@ -3402,11 +3940,15 @@
     "id": "lsp.definition-declaration",
     "tool": "lspSearch",
     "input": {
-      "uri": "/r/a.ts",
-      "operation": "definition",
-      "symbolName": "x",
-      "lineHint": 1,
-      "includeDeclaration": true
+      "queries": [
+        {
+          "path": "/r/a.ts",
+          "operation": "definition",
+          "symbolName": "x",
+          "lineHint": 1,
+          "includeDeclaration": true
+        }
+      ]
     },
     "accepted": false
   },
@@ -3414,21 +3956,29 @@
     "id": "lsp.hierarchy-context",
     "tool": "lspSearch",
     "input": {
-      "uri": "/r/a.ts",
-      "operation": "callHierarchy",
-      "symbolName": "x",
-      "lineHint": 1,
-      "contextLines": 0
+      "queries": [
+        {
+          "path": "/r/a.ts",
+          "operation": "callHierarchy",
+          "symbolName": "x",
+          "lineHint": 1,
+          "contextLines": 0
+        }
+      ]
     },
     "accepted": false
   },
   {
-    "id": "lsp.rust-uri",
+    "id": "lsp.rust-path",
     "tool": "lspSearch",
     "input": {
-      "uri": "/r/a.ts",
-      "operation": "diagnostic",
-      "rustContext": {}
+      "queries": [
+        {
+          "path": "/r/a.ts",
+          "operation": "diagnostic",
+          "rustContext": {}
+        }
+      ]
     },
     "accepted": false
   },
@@ -3436,11 +3986,15 @@
     "id": "lsp.proc-macros",
     "tool": "lspSearch",
     "input": {
-      "uri": "/r/a.rs",
-      "operation": "diagnostic",
-      "rustContext": {
-        "procMacros": true
-      }
+      "queries": [
+        {
+          "path": "/r/a.rs",
+          "operation": "diagnostic",
+          "rustContext": {
+            "procMacros": true
+          }
+        }
+      ]
     },
     "accepted": false
   },
@@ -3448,8 +4002,12 @@
     "id": "ast-search.topology-root",
     "tool": "astSearch",
     "input": {
-      "operation": "dependencies",
-      "file": "src/a.ts"
+      "queries": [
+        {
+          "operation": "dependencies",
+          "source": "src/a.ts"
+        }
+      ]
     },
     "accepted": false
   },
@@ -3457,71 +4015,63 @@
     "id": "clasify.cell-limit",
     "tool": "clasify",
     "input": {
-      "mainGoal": "Exercise the clasify parity fixture.",
-      "reasoning": "Freeze the rejection wording native repeats.",
-      "resources": [
+      "queries": [
         {
-          "id": "r0",
-          "context": {
-            "value": "v0"
-          }
-        },
-        {
-          "id": "r1",
-          "context": {
-            "value": "v1"
-          }
-        },
-        {
-          "id": "r2",
-          "context": {
-            "value": "v2"
-          }
-        },
-        {
-          "id": "r3",
-          "context": {
-            "value": "v3"
-          }
-        },
-        {
-          "id": "r4",
-          "context": {
-            "value": "v4"
-          }
-        },
-        {
-          "id": "r5",
-          "context": {
-            "value": "v5"
-          }
-        }
-      ],
-      "questions": [
-        {
-          "id": "q0",
-          "type": "noul",
-          "instructions": "Is this relevant?"
-        },
-        {
-          "id": "q1",
-          "type": "noul",
-          "instructions": "Is this relevant?"
-        },
-        {
-          "id": "q2",
-          "type": "noul",
-          "instructions": "Is this relevant?"
-        },
-        {
-          "id": "q3",
-          "type": "noul",
-          "instructions": "Is this relevant?"
-        },
-        {
-          "id": "q4",
-          "type": "noul",
-          "instructions": "Is this relevant?"
+          "mainGoal": "Exercise the clasify parity fixture.",
+          "reasoning": "Freeze the rejection wording native repeats.",
+          "resources": [
+            {
+              "id": "r0",
+              "value": "v0"
+            },
+            {
+              "id": "r1",
+              "value": "v1"
+            },
+            {
+              "id": "r2",
+              "value": "v2"
+            },
+            {
+              "id": "r3",
+              "value": "v3"
+            },
+            {
+              "id": "r4",
+              "value": "v4"
+            },
+            {
+              "id": "r5",
+              "value": "v5"
+            }
+          ],
+          "questions": [
+            {
+              "id": "q0",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q1",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q2",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q3",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q4",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            }
+          ]
         }
       ]
     },
@@ -3534,53 +4084,55 @@
     "id": "clasify.cell-limit-file-chunks",
     "tool": "clasify",
     "input": {
-      "mainGoal": "Exercise the clasify parity fixture.",
-      "reasoning": "Freeze the rejection wording native repeats.",
-      "resources": [
+      "queries": [
         {
-          "id": "hits",
-          "context": {
-            "tool": "localSearch",
-            "query": {
-              "mainGoal": "Find candidates.",
-              "reasoning": "Exercise the fixture.",
-              "path": "/r",
-              "searchText": "x"
+          "mainGoal": "Exercise the clasify parity fixture.",
+          "reasoning": "Freeze the rejection wording native repeats.",
+          "resources": [
+            {
+              "id": "hits",
+              "tool": "localSearch",
+              "query": {
+                "mainGoal": "Find candidates.",
+                "reasoning": "Exercise the fixture.",
+                "path": "/r",
+                "matchString": "x"
+              },
+              "candidateEvidence": "fileChunks"
+            }
+          ],
+          "questions": [
+            {
+              "id": "q0",
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
-            "candidateEvidence": "fileChunks"
-          }
-        }
-      ],
-      "questions": [
-        {
-          "id": "q0",
-          "type": "noul",
-          "instructions": "Is this relevant?"
-        },
-        {
-          "id": "q1",
-          "type": "noul",
-          "instructions": "Is this relevant?"
-        },
-        {
-          "id": "q2",
-          "type": "noul",
-          "instructions": "Is this relevant?"
-        },
-        {
-          "id": "q3",
-          "type": "noul",
-          "instructions": "Is this relevant?"
-        },
-        {
-          "id": "q4",
-          "type": "noul",
-          "instructions": "Is this relevant?"
-        },
-        {
-          "id": "q5",
-          "type": "noul",
-          "instructions": "Is this relevant?"
+            {
+              "id": "q1",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q2",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q3",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q4",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q5",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            }
+          ]
         }
       ]
     },
@@ -3601,60 +4153,50 @@
           "resources": [
             {
               "id": "r0",
-              "context": {
-                "value": "v0"
-              }
+              "value": "v0"
             },
             {
               "id": "r1",
-              "context": {
-                "value": "v1"
-              }
+              "value": "v1"
             },
             {
               "id": "r2",
-              "context": {
-                "value": "v2"
-              }
+              "value": "v2"
             },
             {
               "id": "r3",
-              "context": {
-                "value": "v3"
-              }
+              "value": "v3"
             },
             {
               "id": "r4",
-              "context": {
-                "value": "v4"
-              }
+              "value": "v4"
             }
           ],
           "questions": [
             {
               "id": "q0",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
             {
               "id": "q1",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
             {
               "id": "q2",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
             {
               "id": "q3",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
             {
               "id": "q4",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             }
           ]
         },
@@ -3665,60 +4207,50 @@
           "resources": [
             {
               "id": "r0",
-              "context": {
-                "value": "v0"
-              }
+              "value": "v0"
             },
             {
               "id": "r1",
-              "context": {
-                "value": "v1"
-              }
+              "value": "v1"
             },
             {
               "id": "r2",
-              "context": {
-                "value": "v2"
-              }
+              "value": "v2"
             },
             {
               "id": "r3",
-              "context": {
-                "value": "v3"
-              }
+              "value": "v3"
             },
             {
               "id": "r4",
-              "context": {
-                "value": "v4"
-              }
+              "value": "v4"
             }
           ],
           "questions": [
             {
               "id": "q0",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
             {
               "id": "q1",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
             {
               "id": "q2",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
             {
               "id": "q3",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
             {
               "id": "q4",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             }
           ]
         },
@@ -3729,60 +4261,50 @@
           "resources": [
             {
               "id": "r0",
-              "context": {
-                "value": "v0"
-              }
+              "value": "v0"
             },
             {
               "id": "r1",
-              "context": {
-                "value": "v1"
-              }
+              "value": "v1"
             },
             {
               "id": "r2",
-              "context": {
-                "value": "v2"
-              }
+              "value": "v2"
             },
             {
               "id": "r3",
-              "context": {
-                "value": "v3"
-              }
+              "value": "v3"
             },
             {
               "id": "r4",
-              "context": {
-                "value": "v4"
-              }
+              "value": "v4"
             }
           ],
           "questions": [
             {
               "id": "q0",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
             {
               "id": "q1",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
             {
               "id": "q2",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
             {
               "id": "q3",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             },
             {
               "id": "q4",
-              "type": "noul",
-              "instructions": "Is this relevant?"
+              "type": "yesno",
+              "ask": "Is this relevant?"
             }
           ]
         }
@@ -3797,30 +4319,32 @@
     "id": "clasify.prefilter-tool",
     "tool": "clasify",
     "input": {
-      "mainGoal": "Exercise the clasify parity fixture.",
-      "reasoning": "Freeze the rejection wording native repeats.",
-      "resources": [
+      "queries": [
         {
-          "id": "hits",
-          "context": {
-            "tool": "localSearch",
-            "query": {
-              "mainGoal": "Find candidates.",
-              "reasoning": "Exercise the fixture.",
-              "path": "/r",
-              "searchText": "x"
+          "mainGoal": "Exercise the clasify parity fixture.",
+          "reasoning": "Freeze the rejection wording native repeats.",
+          "resources": [
+            {
+              "id": "hits",
+              "tool": "localSearch",
+              "query": {
+                "mainGoal": "Find candidates.",
+                "reasoning": "Exercise the fixture.",
+                "path": "/r",
+                "matchString": "x"
+              },
+              "prefilter": [
+                "x"
+              ]
             }
-          },
-          "prefilter": [
-            "x"
+          ],
+          "questions": [
+            {
+              "id": "q0",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            }
           ]
-        }
-      ],
-      "questions": [
-        {
-          "id": "q0",
-          "type": "noul",
-          "instructions": "Is this relevant?"
         }
       ]
     },
@@ -3833,27 +4357,29 @@
     "id": "clasify.candidate-evidence-tool",
     "tool": "clasify",
     "input": {
-      "mainGoal": "Exercise the clasify parity fixture.",
-      "reasoning": "Freeze the rejection wording native repeats.",
-      "resources": [
+      "queries": [
         {
-          "id": "file",
-          "context": {
-            "tool": "localFetch",
-            "query": {
-              "mainGoal": "Read the file.",
-              "reasoning": "Exercise the fixture.",
-              "path": "/r/a.ts"
-            },
-            "candidateEvidence": "search"
-          }
-        }
-      ],
-      "questions": [
-        {
-          "id": "q0",
-          "type": "noul",
-          "instructions": "Is this relevant?"
+          "mainGoal": "Exercise the clasify parity fixture.",
+          "reasoning": "Freeze the rejection wording native repeats.",
+          "resources": [
+            {
+              "id": "file",
+              "tool": "localFetch",
+              "query": {
+                "mainGoal": "Read the file.",
+                "reasoning": "Exercise the fixture.",
+                "path": "/r/a.ts"
+              },
+              "candidateEvidence": "search"
+            }
+          ],
+          "questions": [
+            {
+              "id": "q0",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            }
+          ]
         }
       ]
     },

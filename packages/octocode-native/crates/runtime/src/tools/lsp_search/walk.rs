@@ -12,15 +12,16 @@
 //! bound; per-node failures are collected as data.
 
 use super::failure::{LspFailure, continuation, mark_partial, mark_terminal_limit, push_reason};
+use super::importers::{Importers, callers_from_references};
 use super::locations::{items_payload, public_range};
 use super::render::{as_array, decode_uri_path, symbol_kind_name, uri_to_path};
-use super::source::item_uri_is_authorized;
+use super::source::{SourceCache, item_uri_is_authorized};
 use super::{LspSearchQuery, cancellable};
 use crate::policy::path::PathPolicy;
 use crate::tools::cancel::CancellationCheck;
 use futures_util::StreamExt;
 use octocode_engine::error::Error as EngineError;
-use octocode_engine::lsp::client::NativeLspClient;
+use octocode_engine::lsp::client::{NativeLspClient, SnippetReadPolicy};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 
@@ -99,8 +100,9 @@ impl HierarchySource for NativeLspClient {
 }
 
 /// One discovered edge. `node` is the raw hierarchy item the edge leads to,
-/// `parent` the raw item it was expanded from (`None` for a level-1 edge of
-/// the anchor), and `sites` the raw call-site ranges (`fromRanges`).
+/// `parent` the raw item it was expanded from (`None` only for a
+/// reference-derived caller), and `sites` the raw call-site ranges
+/// (`fromRanges`).
 #[derive(Debug)]
 pub(super) struct HierarchyEdge {
     pub(super) node: Value,
@@ -227,14 +229,7 @@ pub(super) async fn walk_hierarchy(
     cancel: &dyn CancellationCheck,
 ) -> Result<HierarchyWalk, LspFailure> {
     let depth = depth.clamp(1, MAX_HIERARCHY_DEPTH);
-    let mut keys = NodeKeys::new(paths);
-    let mut walk = HierarchyWalk::default();
-    let mut seen = roots
-        .iter()
-        .map(|root| keys.key(root))
-        .collect::<HashSet<_>>();
-    let mut edge_index: HashMap<(String, String), usize> = HashMap::new();
-    let mut resumed = HashSet::new();
+    let mut walker = Walker::new(paths, roots, depth);
     let mut frontier = roots.to_vec();
     for level in 1..=depth {
         if frontier.is_empty() {
@@ -253,104 +248,151 @@ pub(super) async fn walk_hierarchy(
         .await?;
         let mut next = Vec::new();
         for (parent, response) in frontier.into_iter().zip(responses) {
-            let results = match response {
-                Ok(results) => as_array(&results),
-                Err(error) => {
-                    walk.failures.push(error);
-                    continue;
+            match response {
+                Ok(results) => {
+                    walker.expand(expansion, level, &parent, as_array(&results), &mut next)
                 }
-            };
-            let parent_key = keys.key(&parent);
-            // The anchor's results are all listed (the row pages them).
-            let fan_out = if level == 1 {
-                usize::MAX
-            } else {
-                MAX_HIERARCHY_FAN_OUT
-            };
-            if results.len() > fan_out {
-                walk.fan_out_capped.push(
-                    parent
-                        .get("name")
-                        .and_then(Value::as_str)
-                        .unwrap_or("?")
-                        .to_owned(),
-                );
-                if resumed.insert(parent_key.clone()) {
-                    walk.resumes.push(Resume {
-                        node: parent.clone(),
-                        depth: depth - level + 1,
-                    });
-                }
-            }
-            for result in results.into_iter().take(fan_out) {
-                let Some(node) = expansion.node_of(&result).cloned() else {
-                    continue;
-                };
-                if is_builtin_lib_declaration(&node) {
-                    walk.builtin_lib += 1;
-                    continue;
-                }
-                if !keys.authorized(&result) {
-                    walk.out_of_policy += 1;
-                    continue;
-                }
-                let node_key = keys.key(&node);
-                let sites = result
-                    .get("fromRanges")
-                    .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default();
-                if let Some(&index) = edge_index.get(&(parent_key.clone(), node_key.clone())) {
-                    let edge = &mut walk.edges[index];
-                    for site in sites {
-                        if !edge.sites.contains(&site) {
-                            edge.sites.push(site);
-                        }
-                    }
-                    continue;
-                }
-                let is_new = !seen.contains(&node_key);
-                let full = seen.len() >= MAX_HIERARCHY_NODES;
-                if is_new && full && level > 1 {
-                    walk.dropped_edges += 1;
-                    if resumed.insert(parent_key.clone()) {
-                        walk.resumes.push(Resume {
-                            node: parent.clone(),
-                            depth: depth - level + 1,
-                        });
-                    }
-                    continue;
-                }
-                edge_index.insert((parent_key.clone(), node_key.clone()), walk.edges.len());
-                walk.edges.push(HierarchyEdge {
-                    node: node.clone(),
-                    parent: (level > 1).then(|| parent.clone()),
-                    level,
-                    sites,
-                });
-                if is_new {
-                    seen.insert(node_key.clone());
-                    if level < depth {
-                        if full {
-                            // An anchor result past the node cap: listed,
-                            // expanded by its own continuation.
-                            walk.unexpanded_nodes += 1;
-                            if resumed.insert(node_key) {
-                                walk.resumes.push(Resume {
-                                    node,
-                                    depth: depth - level,
-                                });
-                            }
-                        } else {
-                            next.push(node);
-                        }
-                    }
-                }
+                Err(error) => walker.walk.failures.push(error),
             }
         }
         frontier = next;
     }
-    Ok(walk)
+    Ok(walker.walk)
+}
+
+/// The state of one walk: discovered edges, seen nodes, and resume points.
+struct Walker<'a> {
+    keys: NodeKeys<'a>,
+    walk: HierarchyWalk,
+    seen: HashSet<String>,
+    edge_index: HashMap<(String, String), usize>,
+    resumed: HashSet<String>,
+    depth: u32,
+}
+
+impl<'a> Walker<'a> {
+    fn new(paths: &'a PathPolicy, roots: &[Value], depth: u32) -> Self {
+        let mut keys = NodeKeys::new(paths);
+        let seen = roots.iter().map(|root| keys.key(root)).collect();
+        Self {
+            keys,
+            walk: HierarchyWalk::default(),
+            seen,
+            edge_index: HashMap::new(),
+            resumed: HashSet::new(),
+            depth,
+        }
+    }
+
+    /// Record `parent` as a resume point, once.
+    fn resume(&mut self, key: String, node: Value, depth: u32) {
+        if self.resumed.insert(key) {
+            self.walk.resumes.push(Resume { node, depth });
+        }
+    }
+
+    /// Record one parent's `results` at `level`; new nodes to expand next go
+    /// to `next`.
+    fn expand(
+        &mut self,
+        expansion: Expansion,
+        level: u32,
+        parent: &Value,
+        results: Vec<Value>,
+        next: &mut Vec<Value>,
+    ) {
+        let parent_key = self.keys.key(parent);
+        // The anchor's results are all listed (the row pages them).
+        let fan_out = if level == 1 {
+            usize::MAX
+        } else {
+            MAX_HIERARCHY_FAN_OUT
+        };
+        if results.len() > fan_out {
+            self.walk.fan_out_capped.push(
+                parent
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?")
+                    .to_owned(),
+            );
+            self.resume(parent_key.clone(), parent.clone(), self.depth - level + 1);
+        }
+        for result in results.into_iter().take(fan_out) {
+            self.record(expansion, level, parent, &parent_key, &result, next);
+        }
+    }
+
+    fn record(
+        &mut self,
+        expansion: Expansion,
+        level: u32,
+        parent: &Value,
+        parent_key: &str,
+        result: &Value,
+        next: &mut Vec<Value>,
+    ) {
+        let Some(node) = expansion.node_of(result).cloned() else {
+            return;
+        };
+        if is_builtin_lib_declaration(&node) {
+            self.walk.builtin_lib += 1;
+            return;
+        }
+        if !self.keys.authorized(result) {
+            self.walk.out_of_policy += 1;
+            return;
+        }
+        let node_key = self.keys.key(&node);
+        let sites = result
+            .get("fromRanges")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        let pair = (parent_key.to_owned(), node_key.clone());
+        if let Some(&index) = self.edge_index.get(&pair) {
+            let edge = &mut self.walk.edges[index];
+            for site in sites {
+                if !edge.sites.contains(&site) {
+                    edge.sites.push(site);
+                }
+            }
+            return;
+        }
+        let is_new = !self.seen.contains(&node_key);
+        let full = self.seen.len() >= MAX_HIERARCHY_NODES;
+        if is_new && full && level > 1 {
+            self.walk.dropped_edges += 1;
+            self.resume(
+                parent_key.to_owned(),
+                parent.clone(),
+                self.depth - level + 1,
+            );
+            return;
+        }
+        self.edge_index.insert(pair, self.walk.edges.len());
+        self.walk.edges.push(HierarchyEdge {
+            node: node.clone(),
+            parent: Some(parent.clone()),
+            level,
+            sites,
+        });
+        if !is_new {
+            return;
+        }
+        self.seen.insert(node_key.clone());
+        if level >= self.depth {
+            return;
+        }
+        if full {
+            // An anchor result past the node cap: listed, expanded by its own
+            // continuation.
+            self.walk.unexpanded_nodes += 1;
+            self.resume(node_key, node, self.depth - level);
+        } else {
+            next.push(node);
+        }
+    }
 }
 
 /// Public hierarchy node (`CallHierarchyItem`/`TypeHierarchyItem`): named
@@ -370,8 +412,8 @@ pub(super) fn public_hierarchy_node(node: &Value) -> Value {
     {
         public.insert("detail".into(), json!(detail));
     }
-    if let Some(uri) = node.get("uri") {
-        public.insert("uri".into(), uri.clone());
+    if let Some(uri) = node.get("uri").and_then(Value::as_str) {
+        public.insert("path".into(), json!(uri_to_path(uri)));
     }
     let anchor = node.get("selectionRange").or_else(|| node.get("range"));
     if let Some(mut display) = anchor.and_then(public_range) {
@@ -395,7 +437,7 @@ fn public_via(node: &Value) -> Value {
     };
     json!({
         "name": node.get("name"),
-        "uri": node.get("uri"),
+        "path": node.get("uri").and_then(Value::as_str).map(uri_to_path),
         "line": point("line"),
         "character": point("character")
     })
@@ -427,118 +469,216 @@ pub(super) fn public_edge(expansion: Expansion, edge: &HierarchyEdge) -> Value {
         // identical public sites are one call.
         ranges.dedup();
         let mut call = serde_json::Map::new();
-        call.insert(key.into(), public_hierarchy_node(&edge.node));
+        let node = (expansion == Expansion::IncomingCalls)
+            .then(|| narrowed_class_caller(&edge.node, &edge.sites))
+            .flatten();
+        call.insert(
+            key.into(),
+            public_hierarchy_node(node.as_ref().unwrap_or(&edge.node)),
+        );
         call.insert("fromRanges".into(), json!(ranges));
+        // An outgoing call site lies in the expanded node's file; the
+        // compact row is filed there.
+        if expansion == Expansion::OutgoingCalls
+            && let Some(uri) = edge
+                .parent
+                .as_ref()
+                .and_then(|parent| parent.get("uri"))
+                .and_then(Value::as_str)
+        {
+            call.insert(CALLER_PATH.into(), json!(uri_to_path(uri)));
+        }
         Value::Object(call)
     } else {
         public_hierarchy_node(&edge.node)
     };
     public["level"] = json!(edge.level);
-    if let Some(parent) = &edge.parent {
+    if edge.level > 1
+        && let Some(parent) = &edge.parent
+    {
         public["via"] = public_via(parent);
     }
     public
 }
 
-/// A page of direct callers (every edge at level 1) as per-file rows
-/// `{path, calls: ["<line>:<col>[,<line>:<col>…] in <kind> <name>[ (<detail>)] <line>-<endLine>"]}`:
-/// the one-based call sites in that file, then the calling declaration and
-/// its range (its start line is the name line, a `lineHint` for the next
-/// hop). Callers recovered from references are listed by label under
-/// `recovered` with their first call line. Deeper walks keep `items`, whose
-/// `via` links each edge to its parent.
-pub(super) fn compact_callers(row: &mut Value) {
-    let Some(items) = row.pointer("/payload/items").and_then(Value::as_array) else {
+/// Largest source read to narrow a class caller.
+const MAX_NARROW_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
+
+/// A caller the server reports as a whole class (tsserver does for calls in
+/// a constructor or a field initializer) shown as the innermost member that
+/// holds every call site, so its range and read lead fit the call. The walk
+/// itself keeps the server's item. `None` when nothing narrower holds them.
+pub(super) fn narrowed_class_caller(node: &Value, sites: &[Value]) -> Option<Value> {
+    if node.get("kind").and_then(Value::as_u64) != Some(5) {
+        return None;
+    }
+    let site_lines = sites
+        .iter()
+        .filter_map(|site| site.pointer("/start/line").and_then(Value::as_u64))
+        .collect::<Vec<_>>();
+    let (first, last) = (*site_lines.iter().min()?, *site_lines.iter().max()?);
+    let path = decode_uri_path(node.get("uri")?.as_str()?).ok()?;
+    if std::fs::metadata(&path).ok()?.len() > MAX_NARROW_SOURCE_BYTES {
+        return None;
+    }
+    let content = std::fs::read_to_string(&path).ok()?;
+    let facts: Value = serde_json::from_str(&octocode_engine::portable::extract_declarations(
+        &content, &path,
+    )?)
+    .ok()?;
+    let line = |value: &Value, pointer: &str| value.pointer(pointer).and_then(Value::as_u64);
+    let class = (
+        line(node, "/range/start/line")?,
+        line(node, "/range/end/line")?,
+    );
+    let member = facts["declarations"]
+        .as_array()?
+        .iter()
+        .filter_map(|declaration| {
+            let kind = match declaration["kind"].as_str()? {
+                "constructor" => 9,
+                "method" => 6,
+                "property" => 7,
+                "function" => 12,
+                _ => return None,
+            };
+            let span = (
+                line(declaration, "/range/start/line")?,
+                line(declaration, "/range/end/line")?,
+            );
+            (span != class
+                && class.0 <= span.0
+                && span.1 <= class.1
+                && span.0 <= first
+                && last <= span.1)
+                .then_some((span.1 - span.0, kind, declaration))
+        })
+        .min_by_key(|(size, _, _)| *size)?;
+    let (_, kind, declaration) = member;
+    Some(json!({
+        "name": declaration["name"],
+        "kind": kind,
+        "detail": node.get("name"),
+        "uri": node.get("uri"),
+        "range": declaration["range"],
+        "selectionRange": declaration.get("selectionRange").unwrap_or(&declaration["range"]),
+    }))
+}
+
+/// Internal key of a compacted outgoing call: the file its sites lie in.
+const CALLER_PATH: &str = "callerPath";
+
+/// The file a hierarchy node or `via` names.
+fn node_path(node: &Value) -> String {
+    node.get("path")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| node.get("uri").and_then(Value::as_str).map(uri_to_path))
+        .unwrap_or_else(|| "unknown".to_owned())
+}
+
+/// `target` relative to the directory of the file `from`.
+fn relative_to_file(from: &str, target: &str) -> String {
+    let dir = std::path::Path::new(from)
+        .parent()
+        .map(|dir| dir.components().collect::<Vec<_>>())
+        .unwrap_or_default();
+    let target_parts = std::path::Path::new(target)
+        .components()
+        .collect::<Vec<_>>();
+    let shared = dir
+        .iter()
+        .zip(&target_parts)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let mut out = std::path::PathBuf::new();
+    for _ in shared..dir.len() {
+        out.push("..");
+    }
+    for part in &target_parts[shared..] {
+        out.push(part);
+    }
+    out.to_string_lossy().into_owned()
+}
+
+/// Declaration words a signature detail may repeat around the name.
+const DETAIL_KEYWORDS: &[&str] = &[
+    "pub", "crate", "super", "async", "unsafe", "const", "extern", "static", "fn", "function",
+    "def", "func", "export", "default",
+];
+
+/// Whether a call-hierarchy `detail` says more than the row already does:
+/// a container name, parameters, or a return type. A detail that is only
+/// the name, its kind, and declaration words (`fn walk()`) adds nothing.
+fn detail_adds(detail: &str, node: &Value) -> bool {
+    let name = node.get("name").and_then(Value::as_str).unwrap_or_default();
+    let kind = node.get("kind").and_then(Value::as_str).unwrap_or_default();
+    detail
+        .split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '$'))
+        .filter(|token| !token.is_empty())
+        .any(|token| token != name && token != kind && !DETAIL_KEYWORDS.contains(&token))
+}
+
+/// A page of call edges (`callers`, `callees`, `callHierarchy`, any depth)
+/// as per-file rows
+/// `{path, matches: ["<line>:<col>[,…] in|to <kind> <name>[ (<detail>)] [<file>:]<line>-<endLine>[ via <name>@<line>]"]}`,
+/// filed under the file the call sites lie in: an `in` row is a caller
+/// declared in that file; a `to` row is a callee called from that file (the
+/// anchor, or the `via` node), with the callee's file, relative to the row's
+/// file, before its range when they differ. Incoming and outgoing rows get
+/// separate entries. The declaration range starts on its name line, a
+/// `lineHint` for the next hop. An edge below level 1 names its parent node
+/// as `via <name>@<line>`; when another listed node shares that name and
+/// line, the parent's file relative to the row's file is added
+/// (`via <name>@<path>:<line>`). Callers recovered from references are
+/// listed by label under `recovered` with their first call line. `all` is
+/// every edge of the walk (not only this page), for that disambiguation.
+pub(super) fn compact_calls(row: &mut Value, all: &[Value]) {
+    let Some(items) = row.pointer("/payload/matches").and_then(Value::as_array) else {
         return;
     };
-    if items.is_empty()
-        || items.iter().any(|item| {
-            item.get("level").and_then(Value::as_u64) != Some(1)
-                || item.get("via").is_some()
-                || !item.get("from").is_some_and(Value::is_object)
-        })
-    {
+    if items.is_empty() || items.iter().any(|item| call_node(item).is_none()) {
         return;
     }
-    let mut files: Vec<(String, serde_json::Map<String, Value>)> = Vec::new();
+    let declared = declaring_files(all.iter().chain(items));
+    let mut files: Vec<(CallGroup, serde_json::Map<String, Value>)> = Vec::new();
     for item in items {
-        let from = &item["from"];
-        let path = from
-            .get("uri")
-            .and_then(Value::as_str)
-            .map(uri_to_path)
-            .unwrap_or_else(|| "unknown".to_owned());
-        let sites = item
-            .get("fromRanges")
-            .and_then(Value::as_array)
-            .map(Vec::as_slice)
-            .unwrap_or_default()
-            .iter()
-            .filter_map(|range| {
-                let line = range.get("startLine")?.as_u64()?;
-                let column = range.get("startCharacter").and_then(Value::as_u64);
-                Some((line, column))
-            })
-            .collect::<Vec<_>>();
-        let mut text = sites
-            .iter()
-            .map(|(line, column)| match column {
-                Some(column) => format!("{line}:{column}"),
-                None => line.to_string(),
-            })
-            .collect::<Vec<_>>()
-            .join(",");
-        if !text.is_empty() {
-            text.push(' ');
-        }
-        text.push_str("in ");
-        text.push_str(from.get("kind").and_then(Value::as_str).unwrap_or("symbol"));
-        text.push(' ');
-        text.push_str(from.get("name").and_then(Value::as_str).unwrap_or_default());
-        if let Some(detail) = from.get("detail").and_then(Value::as_str) {
-            text.push_str(&format!(" ({detail})"));
-        }
-        if let Some(range) = from.get("displayRange")
-            && let Some(start) = range.get("startLine").and_then(Value::as_u64)
-        {
-            match range.get("endLine").and_then(Value::as_u64) {
-                Some(end) if end != start => text.push_str(&format!(" {start}-{end}")),
-                _ => text.push_str(&format!(" {start}")),
-            }
-        }
-        let index = match files.iter().position(|(seen, _)| *seen == path) {
+        let Some((key, node)) = call_node(item) else {
+            continue;
+        };
+        let declared_in = node_path(node);
+        // Call sites lie in the caller: the listed node for incoming calls,
+        // the expanded node for outgoing ones.
+        let path = match key {
+            "to" => item
+                .get(CALLER_PATH)
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| item.get("via").filter(|via| via.is_object()).map(node_path))
+                .unwrap_or_else(|| declared_in.clone()),
+            _ => declared_in.clone(),
+        };
+        let sites = call_sites(item);
+        let text = call_text(key, node, item, &sites, &path, &declared_in, &declared);
+        // One entry per (direction, file): a callHierarchy lists its
+        // incoming rows and its outgoing rows apart.
+        let group = (key, path);
+        let index = match files.iter().position(|(seen, _)| *seen == group) {
             Some(index) => index,
             None => {
                 let mut entry = serde_json::Map::new();
-                entry.insert("path".into(), json!(path));
-                entry.insert("calls".into(), json!([]));
-                files.push((path, entry));
+                entry.insert("path".into(), json!(group.1));
+                entry.insert("matches".into(), json!([]));
+                files.push((group, entry));
                 files.len() - 1
             }
         };
-        let entry = &mut files[index].1;
-        if let Some(calls) = entry.get_mut("calls").and_then(Value::as_array_mut) {
-            calls.push(json!(text));
-        }
-        if let Some(label) = item.get("source").and_then(Value::as_str)
-            && let Some(lines) = entry
-                .entry("recovered")
-                .or_insert_with(|| json!({}))
-                .as_object_mut()
-                .and_then(|recovered| {
-                    recovered
-                        .entry(label)
-                        .or_insert_with(|| json!([]))
-                        .as_array_mut()
-                })
-        {
-            lines.push(json!(sites.first().map_or(0, |site| site.0)));
-        }
+        push_call(&mut files[index].1, text, item, &sites);
     }
     if let Some(payload) = row.get_mut("payload").and_then(Value::as_object_mut) {
-        payload.remove("items");
+        payload.remove("matches");
         payload.insert(
-            "byFile".into(),
+            "files".into(),
             Value::Array(
                 files
                     .into_iter()
@@ -546,6 +686,158 @@ pub(super) fn compact_callers(row: &mut Value) {
                     .collect(),
             ),
         );
+    }
+}
+
+/// A compact file entry's identity: direction key and file.
+type CallGroup = (&'static str, String);
+
+/// The direction key (`from` or `to`) and node of a call item.
+fn call_node(item: &Value) -> Option<(&'static str, &Value)> {
+    ["from", "to"].into_iter().find_map(|key| {
+        item.get(key)
+            .filter(|node| node.is_object())
+            .map(|node| (key, node))
+    })
+}
+
+/// Files declaring each listed (name, line), over the whole walk.
+fn declaring_files<'a>(
+    items: impl Iterator<Item = &'a Value>,
+) -> HashMap<(String, u64), HashSet<String>> {
+    let mut declared: HashMap<(String, u64), HashSet<String>> = HashMap::new();
+    for item in items {
+        if let Some((_, node)) = call_node(item)
+            && let (Some(name), Some(line)) = (
+                node.get("name").and_then(Value::as_str),
+                node.pointer("/displayRange/startLine")
+                    .and_then(Value::as_u64),
+            )
+        {
+            declared
+                .entry((name.to_owned(), line))
+                .or_default()
+                .insert(node_path(node));
+        }
+    }
+    declared
+}
+
+/// One-based `(line, column)` call sites of an item.
+fn call_sites(item: &Value) -> Vec<(u64, Option<u64>)> {
+    item.get("fromRanges")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|range| {
+            let line = range.get("startLine")?.as_u64()?;
+            let column = range.get("startCharacter").and_then(Value::as_u64);
+            Some((line, column))
+        })
+        .collect()
+}
+
+/// The compact text of one call row filed under `path`.
+fn call_text(
+    key: &str,
+    node: &Value,
+    item: &Value,
+    sites: &[(u64, Option<u64>)],
+    path: &str,
+    declared_in: &str,
+    declared: &HashMap<(String, u64), HashSet<String>>,
+) -> String {
+    let mut text = sites
+        .iter()
+        .map(|(line, column)| match column {
+            Some(column) => format!("{line}:{column}"),
+            None => line.to_string(),
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    if !text.is_empty() {
+        text.push(' ');
+    }
+    text.push_str(if key == "from" { "in " } else { "to " });
+    text.push_str(node.get("kind").and_then(Value::as_str).unwrap_or("symbol"));
+    text.push(' ');
+    text.push_str(node.get("name").and_then(Value::as_str).unwrap_or_default());
+    // A container name (`App`) always helps; a signature only tells apart
+    // listed nodes that share a name (the read lead shows it otherwise).
+    let name = node.get("name").and_then(Value::as_str).unwrap_or_default();
+    let shared_name = declared
+        .iter()
+        .filter(|((listed, _), _)| listed == name)
+        .map(|(_, files)| files.len())
+        .sum::<usize>()
+        > 1;
+    if let Some(detail) = node
+        .get("detail")
+        .and_then(Value::as_str)
+        .filter(|detail| detail_adds(detail, node))
+        .filter(|detail| shared_name || !detail.contains('('))
+    {
+        // One line per call row: a multi-line signature's whitespace runs
+        // collapse to single spaces.
+        let detail = detail.split_whitespace().collect::<Vec<_>>().join(" ");
+        text.push_str(&format!(" ({detail})"));
+    }
+    if let Some(range) = node.get("displayRange")
+        && let Some(start) = range.get("startLine").and_then(Value::as_u64)
+    {
+        // A callee declared in another file names it, relative to the row's
+        // file, so its range is a `lineHint` for the next hop.
+        let file = if declared_in == path {
+            String::new()
+        } else {
+            format!("{}:", relative_to_file(path, declared_in))
+        };
+        match range.get("endLine").and_then(Value::as_u64) {
+            Some(end) if end != start => text.push_str(&format!(" {file}{start}-{end}")),
+            _ => text.push_str(&format!(" {file}{start}")),
+        }
+    }
+    if let Some(via) = item.get("via").filter(|via| via.is_object()) {
+        let name = via.get("name").and_then(Value::as_str).unwrap_or_default();
+        let line = via.get("line").and_then(Value::as_u64).unwrap_or(0);
+        let ambiguous = declared
+            .get(&(name.to_owned(), line))
+            .is_some_and(|files| files.len() > 1);
+        if ambiguous {
+            let file = relative_to_file(path, &node_path(via));
+            text.push_str(&format!(" via {name}@{file}:{line}"));
+        } else {
+            text.push_str(&format!(" via {name}@{line}"));
+        }
+    }
+    text
+}
+
+/// Append a call row to its file entry; a recovered caller is also listed
+/// under its label with its first call line.
+fn push_call(
+    entry: &mut serde_json::Map<String, Value>,
+    text: String,
+    item: &Value,
+    sites: &[(u64, Option<u64>)],
+) {
+    if let Some(calls) = entry.get_mut("matches").and_then(Value::as_array_mut) {
+        calls.push(json!(text));
+    }
+    if let Some(label) = item.get("source").and_then(Value::as_str)
+        && let Some(lines) = entry
+            .entry("recovered")
+            .or_insert_with(|| json!({}))
+            .as_object_mut()
+            .and_then(|recovered| {
+                recovered
+                    .entry(label)
+                    .or_insert_with(|| json!([]))
+                    .as_array_mut()
+            })
+    {
+        lines.push(json!(sites.first().map_or(0, |site| site.0)));
     }
 }
 
@@ -641,34 +933,7 @@ pub(super) fn mark_truncation(
     if row.get("status").and_then(Value::as_str) == Some("error") {
         return;
     }
-    let out_of_policy = walks
-        .iter()
-        .map(|(_, walk)| walk.out_of_policy)
-        .sum::<usize>();
-    if out_of_policy > 0
-        && let Some(warnings) = row
-            .as_object_mut()
-            .map(|object| object.entry("warnings").or_insert_with(|| json!([])))
-            .and_then(Value::as_array_mut)
-    {
-        warnings.push(json!(format!(
-            "{out_of_policy} hierarchy items outside the allowed read roots were omitted."
-        )));
-    }
-    let builtin_lib = walks
-        .iter()
-        .map(|(_, walk)| walk.builtin_lib)
-        .sum::<usize>();
-    if builtin_lib > 0
-        && let Some(warnings) = row
-            .as_object_mut()
-            .map(|object| object.entry("warnings").or_insert_with(|| json!([])))
-            .and_then(Value::as_array_mut)
-    {
-        warnings.push(json!(format!(
-            "{builtin_lib} TypeScript built-in library items (lib.*.d.ts) were omitted."
-        )));
-    }
+    warn_omitted(row, walks);
     let tagged = walks.len() > 1;
     let resumes = walks
         .iter()
@@ -677,18 +942,10 @@ pub(super) fn mark_truncation(
     let Some((_, first)) = resumes.first() else {
         return;
     };
-    let dropped_edges = walks
-        .iter()
-        .map(|(_, walk)| walk.dropped_edges)
-        .sum::<usize>();
-    let unexpanded_nodes = walks
-        .iter()
-        .map(|(_, walk)| walk.unexpanded_nodes)
-        .sum::<usize>();
     let fan_out_capped = walks
         .iter()
-        .flat_map(|(_, walk)| walk.fan_out_capped.iter())
-        .collect::<Vec<_>>();
+        .map(|(_, walk)| walk.fan_out_capped.len())
+        .sum::<usize>();
     row["payload"]["truncated"] = json!(true);
     // Every unexpanded or capped parent is listed and resumable.
     row["payload"]["unexpandedParents"] = json!(
@@ -723,26 +980,7 @@ pub(super) fn mark_truncation(
             ""
         }
     );
-    let mut limits = Vec::new();
-    if dropped_edges > 0 || unexpanded_nodes > 0 {
-        limits.push((
-            "hierarchyNodeLimit",
-            format!(
-                "Stopped at {MAX_HIERARCHY_NODES} hierarchy nodes; {dropped_edges} edges to further nodes were not listed and {unexpanded_nodes} listed results were not expanded (payload.unexpandedParents). {follow}"
-            ),
-        ));
-    }
-    // `payload.unexpandedParents` names every capped node once; the warning
-    // carries the count.
-    if !fan_out_capped.is_empty() {
-        limits.push((
-            "hierarchyFanOutLimit",
-            format!(
-                "Kept the first {MAX_HIERARCHY_FAN_OUT} results of {} node(s) below the anchor (payload.unexpandedParents); each resumes as the anchor of its continuation, which lists every result. {follow}",
-                fan_out_capped.len()
-            ),
-        ));
-    }
+    let limits = limit_warnings(walks, fan_out_capped, &follow);
     match queries {
         Some(queries) => {
             for (reason, warning) in limits {
@@ -766,6 +1004,74 @@ pub(super) fn mark_truncation(
     }
 }
 
+/// Warnings for results a walk skipped: outside the read policy, or
+/// TypeScript built-in library declarations.
+fn warn_omitted(row: &mut Value, walks: &[(Expansion, &HierarchyWalk)]) {
+    let out_of_policy = walks
+        .iter()
+        .map(|(_, walk)| walk.out_of_policy)
+        .sum::<usize>();
+    let builtin_lib = walks
+        .iter()
+        .map(|(_, walk)| walk.builtin_lib)
+        .sum::<usize>();
+    let mut push = |warning: String| {
+        if let Some(warnings) = row
+            .as_object_mut()
+            .map(|object| object.entry("warnings").or_insert_with(|| json!([])))
+            .and_then(Value::as_array_mut)
+        {
+            warnings.push(json!(warning));
+        }
+    };
+    if out_of_policy > 0 {
+        push(format!(
+            "{out_of_policy} hierarchy items outside the allowed read roots were omitted."
+        ));
+    }
+    if builtin_lib > 0 {
+        push(format!(
+            "{builtin_lib} TypeScript built-in library items (lib.*.d.ts) were omitted."
+        ));
+    }
+}
+
+/// `(partial reason, warning)` for each cap a walk hit.
+fn limit_warnings(
+    walks: &[(Expansion, &HierarchyWalk)],
+    fan_out_capped: usize,
+    follow: &str,
+) -> Vec<(&'static str, String)> {
+    let dropped_edges = walks
+        .iter()
+        .map(|(_, walk)| walk.dropped_edges)
+        .sum::<usize>();
+    let unexpanded_nodes = walks
+        .iter()
+        .map(|(_, walk)| walk.unexpanded_nodes)
+        .sum::<usize>();
+    let mut limits = Vec::new();
+    if dropped_edges > 0 || unexpanded_nodes > 0 {
+        limits.push((
+            "hierarchyNodeLimit",
+            format!(
+                "Stopped at {MAX_HIERARCHY_NODES} hierarchy nodes; {dropped_edges} edges to further nodes were not listed and {unexpanded_nodes} listed results were not expanded (payload.unexpandedParents). {follow}"
+            ),
+        ));
+    }
+    // `payload.unexpandedParents` names every capped node once; the warning
+    // carries the count.
+    if fan_out_capped > 0 {
+        limits.push((
+            "hierarchyFanOutLimit",
+            format!(
+                "Kept the first {MAX_HIERARCHY_FAN_OUT} results of {fan_out_capped} node(s) below the anchor (payload.unexpandedParents); each resumes as the anchor of its continuation, which lists every result. {follow}"
+            ),
+        ));
+    }
+    limits
+}
+
 /// An executable query that walks `resume.depth` levels from `resume.node`:
 /// the same operation (or `operation`, to walk one direction only)
 /// re-anchored at the node's zero-based selection start.
@@ -784,7 +1090,7 @@ fn resume_query(query: &LspSearchQuery, resume: &Resume, operation: Option<&str>
     if let Some(operation) = operation {
         object.insert("operation".into(), json!(operation));
     }
-    object.insert("uri".into(), json!(uri_to_path(uri)));
+    object.insert("path".into(), json!(uri_to_path(uri)));
     object.insert(
         "position".into(),
         json!({"line": line, "character": character}),
@@ -806,17 +1112,16 @@ fn canonical_uri_path(uri: &str) -> String {
         .unwrap_or(decoded)
 }
 
-pub(super) async fn hierarchy(
+/// The walk's authorized, deduplicated roots — prepared at the anchor and at
+/// any verified importer call sites — and the directions to expand.
+async fn hierarchy_roots(
     client: &NativeLspClient,
     query: &LspSearchQuery,
     paths: &PathPolicy,
-    path: &str,
-    line: u32,
-    character: u32,
+    (path, line, character): (&str, u32, u32),
     extra_roots: &[(String, u32, u32)],
-    derived_callers: Vec<(Value, Vec<Value>)>,
     cancel: &dyn CancellationCheck,
-) -> Result<Value, LspFailure> {
+) -> Result<(Vec<Value>, &'static [Expansion]), LspFailure> {
     let (prepared, expansions): (Value, &[Expansion]) = match query.operation().as_str() {
         "callers" | "callees" | "callHierarchy" => (
             cancellable(
@@ -868,6 +1173,33 @@ pub(super) async fn hierarchy(
         .filter(|root| item_uri_is_authorized(root, paths))
         .filter(|root| root_keys.insert(keys.key(root)))
         .collect::<Vec<_>>();
+    Ok((roots, expansions))
+}
+
+/// A call or type hierarchy walk from the anchor (plus `extra_roots`). With
+/// `importers`, callers are also derived from verified importer references,
+/// for the importer files the server's call hierarchy did not answer.
+pub(super) async fn hierarchy(
+    client: &NativeLspClient,
+    query: &LspSearchQuery,
+    sources: &mut SourceCache<'_>,
+    path: &str,
+    line: u32,
+    character: u32,
+    extra_roots: &[(String, u32, u32)],
+    importers: Option<(&Importers, &SnippetReadPolicy)>,
+    cancel: &dyn CancellationCheck,
+) -> Result<Value, LspFailure> {
+    let paths = sources.policy();
+    let (roots, expansions) = hierarchy_roots(
+        client,
+        query,
+        paths,
+        (path, line, character),
+        extra_roots,
+        cancel,
+    )
+    .await?;
     let depth = query.depth().unwrap_or(1);
     let mut items = Vec::new();
     let mut failures = Vec::new();
@@ -875,7 +1207,9 @@ pub(super) async fn hierarchy(
     for &expansion in expansions {
         let walk = walk_hierarchy(client, &roots, expansion, depth, paths, cancel).await?;
         items.extend(walk.edges.iter().map(|edge| public_edge(expansion, edge)));
-        if expansion == Expansion::IncomingCalls && !derived_callers.is_empty() {
+        if expansion == Expansion::IncomingCalls
+            && let Some((importers, snippet_policy)) = importers
+        {
             // Reference-derived callers fill in only files the server's
             // call hierarchy did not answer for at level 1.
             let answered = walk
@@ -885,14 +1219,16 @@ pub(super) async fn hierarchy(
                 .filter_map(|edge| edge.node.get("uri").and_then(Value::as_str))
                 .map(canonical_uri_path)
                 .collect::<HashSet<_>>();
-            for (node, sites) in &derived_callers {
-                let file = node
-                    .get("uri")
-                    .and_then(Value::as_str)
-                    .map(canonical_uri_path);
-                if file.is_some_and(|file| answered.contains(&file)) {
-                    continue;
-                }
+            let derived = callers_from_references(
+                client,
+                sources,
+                snippet_policy,
+                cancel,
+                importers,
+                &answered,
+            )
+            .await?;
+            for (node, sites) in &derived {
                 let edge = HierarchyEdge {
                     node: node.clone(),
                     parent: None,
@@ -910,10 +1246,8 @@ pub(super) async fn hierarchy(
         failures.append(&mut walk.failures);
     }
     let (items, failures) = expansion_outcome(items, failures)?;
-    let mut row = items_payload(query, query.operation().as_str(), json!(items));
-    if query.operation() == "callers" {
-        compact_callers(&mut row);
-    }
+    let mut row = items_payload(query, query.operation().as_str(), json!(items.clone()));
+    compact_calls(&mut row, &items);
     mark_partial_expansion(&mut row, query, &failures);
     let walks = walks
         .iter()

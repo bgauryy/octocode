@@ -1,4 +1,4 @@
-name: Native Engine — Rust and N-API Tests
+name: Native Engine — Rust Tests
 
 on:
   pull_request:
@@ -6,10 +6,6 @@ on:
       - 'packages/octocode-native/crates/engine/**'
       - 'packages/octocode-native/Cargo.toml'
       - 'packages/octocode-native/Cargo.lock'
-      - 'packages/octocode-native/package.json'
-      - 'packages/octocode-native/js/engine.*'
-      - 'packages/octocode-native/tests/engine/**'
-      - 'packages/octocode-native/scripts/check-engine-*.cjs'
       - '.github/workflows/engine.yml'
   push:
     branches: [main]
@@ -17,10 +13,6 @@ on:
       - 'packages/octocode-native/crates/engine/**'
       - 'packages/octocode-native/Cargo.toml'
       - 'packages/octocode-native/Cargo.lock'
-      - 'packages/octocode-native/package.json'
-      - 'packages/octocode-native/js/engine.*'
-      - 'packages/octocode-native/tests/engine/**'
-      - 'packages/octocode-native/scripts/check-engine-*.cjs'
       - '.github/workflows/engine.yml'
 
 permissions:
@@ -36,12 +28,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: '24'
-          package-manager-cache: false
-      - run: corepack enable
-      - run: yarn install --immutable
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.96.0
@@ -54,8 +40,6 @@ jobs:
       - name: Format check
         working-directory: packages/octocode-native
         run: cargo fmt --all --check
-      - name: Verify N-API ABI (committed snapshot)
-        run: yarn workspace @octocodeai/octocode-native verify:napi-abi
       - name: Clippy
         working-directory: packages/octocode-native
         run: cargo clippy --locked -p octocode-engine --all-targets --all-features -- -D warnings

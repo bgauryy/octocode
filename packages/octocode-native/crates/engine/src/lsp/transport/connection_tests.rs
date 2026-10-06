@@ -309,7 +309,10 @@ async fn rpc_errors_are_typed_through_the_connection() {
         .await
         .expect_err("rpc error");
     let _server = server_task.await;
-    assert_eq!(error.rpc_code(), Some(ErrorCode::ContentModified));
+    assert_eq!(
+        error.rpc_error().map(|error| error.code),
+        Some(ErrorCode::ContentModified)
+    );
     assert!(error.reason.contains("content modified"));
     assert!(
         connection.is_alive(),

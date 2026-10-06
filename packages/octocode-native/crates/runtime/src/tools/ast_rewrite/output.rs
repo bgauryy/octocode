@@ -49,10 +49,11 @@ pub(super) fn success_value(
                     .any(|matched| shown_ids.contains(matched.id.as_str()))
         })
         .map(|file| {
-            let mut value = public_file(file, query.debug());
-            if !apply {
-                page_patch(&mut value, file, &shown_ids, query.debug());
+            if apply {
+                return applied_file(file);
             }
+            let mut value = public_file(file, query.debug());
+            page_patch(&mut value, file, &shown_ids, query.debug());
             value
         })
         .collect::<Vec<_>>();
@@ -62,39 +63,31 @@ pub(super) fn success_value(
         "affectedFiles":files.len(),
         "matches":shown.iter().map(|matched| public_match(matched, query.debug())).collect::<Vec<_>>(),
         "files":page_files,
-        "complete":!has_more,"isPartial":has_more,
+        "isPartial":has_more,
         "pagination":{"currentPage":page,"totalPages":total_pages,"pageSize":page_size,"hasMore":has_more}
     });
+    if apply {
+        // The preview already showed the root, match rows and patch; the
+        // receipt states only what was committed (debug adds diagnostics).
+        if let Some(map) = value.as_object_mut() {
+            map.remove("root");
+            map.remove("matches");
+        }
+    }
     attach_receipts(&mut value, query, executable);
-    if has_more {
-        let mut next = continuation_query(query, root);
-        next["apply"] = json!(false);
-        next["page"] = json!(page + 1);
-        next["pageSize"] = json!(page_size);
-        next["snapshot"] = json!(snapshot);
-        value["next"] = json!({"nextPage":{
-            "tool":ToolId::AstRewrite.as_str(),"query":next,"confidence":"exact"
-        }});
-    }
-    // A complete preview carries its own guarded apply: the same query with the
-    // preview snapshot and every file's beforeHash. Running it stays the
-    // caller's decision; changed sources or selections are still rejected.
-    if !apply && !has_more && !matches.is_empty() {
-        let mut next = continuation_query(query, root);
-        next["apply"] = json!(true);
-        next["page"] = json!(1);
-        next["snapshot"] = json!(snapshot);
-        next["expectedHashes"] = Value::Object(
-            files
-                .iter()
-                .map(|file| (file.path.clone(), json!(file.before_hash)))
-                .collect(),
-        );
-        value["next"]["apply"] = json!({
-            "tool":ToolId::AstRewrite.as_str(),"query":next,"confidence":"exact"
-        });
-    }
-    if let Some(transaction) = transaction {
+    attach_leads(
+        &mut value,
+        query,
+        root,
+        snapshot,
+        files,
+        (page, page_size, has_more),
+    );
+    if let Some(mut transaction) = transaction {
+        if let Some(map) = transaction.as_object_mut() {
+            // `affectedFiles` and the file rows already name the committed files.
+            map.remove("files");
+        }
         value["transaction"] = transaction;
     }
     if query.debug() {
@@ -110,16 +103,76 @@ pub(super) fn success_value(
     value
 }
 
+/// The next preview page; on a complete preview the guarded apply (the one
+/// lead that writes, marked as such); after an apply, a read-only check.
+/// `paging` is this page, its size and whether more follow.
+fn attach_leads(
+    value: &mut Value,
+    query: &RewriteRequest,
+    root: &Path,
+    snapshot: &str,
+    files: &[PreparedFile],
+    (page, page_size, has_more): (usize, usize, bool),
+) {
+    let apply = query.apply();
+    if has_more {
+        let mut next = continuation_query(query, root);
+        next["apply"] = json!(false);
+        next["page"] = json!(page + 1);
+        next["pageSize"] = json!(page_size);
+        next["snapshot"] = json!(snapshot);
+        value["next"] = json!({
+            "nextPage": crate::tools::result::Continuation::new(ToolId::AstRewrite, next)
+                .confidence("exact")
+                .build()
+        });
+    }
+    // A complete preview carries its own guarded apply: the same query with the
+    // preview snapshot and every file's beforeHash. Running it stays the
+    // caller's decision; changed sources or selections are still rejected.
+    if !apply && !has_more && !files.is_empty() {
+        let mut next = continuation_query(query, root);
+        next["apply"] = json!(true);
+        if let Some(fields) = next.as_object_mut() {
+            fields.remove("page");
+            fields.remove("pageSize");
+        }
+        next["snapshot"] = json!(snapshot);
+        next["expectedHashes"] = Value::Object(
+            files
+                .iter()
+                .map(|file| (file.path.clone(), json!(file.before_hash)))
+                .collect(),
+        );
+        // The one lead that writes: marked, and only ever an optional route.
+        value["next"]["apply"] = crate::tools::result::Continuation::new(ToolId::AstRewrite, next)
+            .why(format!(
+                "Writes these edits to {} file(s); run only to apply this preview.",
+                files.len()
+            ))
+            .confidence("exact")
+            .build();
+    }
+    if apply && let Some(pattern) = query.pattern() {
+        value["next"]["verify"] = crate::tools::result::Continuation::new(
+            ToolId::AstSearch,
+            json!({"operation":"match","path":root,"language":query.lang(),"pattern":pattern}),
+        )
+        .why("Read-only: 0 matches confirms the old pattern is gone.")
+        .confidence("high")
+        .build();
+    }
+}
+
 pub(super) fn continuation_query(query: &RewriteRequest, canonical_root: &Path) -> Value {
     let mut value = Map::new();
     value.insert("path".to_owned(), json!(canonical_root));
-    value.insert("langType".to_owned(), json!(query.lang()));
+    value.insert("language".to_owned(), json!(query.lang()));
     value.insert("apply".to_owned(), json!(query.apply()));
     value.insert("maxFiles".to_owned(), json!(query.max_files()));
     value.insert("maxMatches".to_owned(), json!(query.max_matches()));
     value.insert("page".to_owned(), json!(query.page()));
     value.insert("pageSize".to_owned(), json!(query.page_size()));
-    value.insert("ruleKind".to_owned(), json!(query.rule_kind()));
     for (key, item) in [
         (
             "pattern",
@@ -129,11 +182,6 @@ pub(super) fn continuation_query(query: &RewriteRequest, canonical_root: &Path) 
             "rewrite",
             query.rewrite().as_ref().map(|value| json!(value)),
         ),
-        ("rule", query.rule().cloned()),
-        ("constraints", query.constraints().cloned()),
-        ("utils", query.utils().cloned()),
-        ("transform", query.transform().cloned()),
-        ("fix", query.fix().cloned()),
         (
             "include",
             query.include().as_ref().map(|value| json!(value)),
@@ -166,6 +214,7 @@ pub(super) fn continuation_query(query: &RewriteRequest, canonical_root: &Path) 
             value.insert(key.to_owned(), item);
         }
     }
+    value.extend(query.rule_config_fields());
     Value::Object(value)
 }
 
@@ -219,6 +268,13 @@ fn public_match(matched: &PreparedMatch, debug: bool) -> Value {
         "id":&matched.id[..MATCH_ID_PREFIX.min(matched.id.len())],
         "path":matched.public["path"],
         "line":matched.public["range"]["start"]["line"]
+    })
+}
+
+/// An applied file row: its edit count and the hash of the bytes now on disk.
+fn applied_file(file: &PreparedFile) -> Value {
+    json!({
+        "path":file.path,"matchCount":file.matches.len(),"afterHash":file.after_hash
     })
 }
 
@@ -287,4 +343,19 @@ pub(super) fn portable_relative(root: &Path, target: &Path) -> Result<String, Re
                 "The rewrite escaped the requested root.",
             )
         })
+}
+
+/// astRewrite's answers to the shared response stages (CLI-only: its edit
+/// rows are emitted as-is).
+pub(crate) struct Output;
+impl crate::tools::output::ToolOutput for Output {
+    fn fallback_hint(&self, _query: &Value) -> &'static str {
+        "Broaden the structural pattern, path, or file filters."
+    }
+    fn error_hint(&self, code: &str) -> Option<&'static str> {
+        (code == "ast.rewrite.root_unavailable").then_some(crate::tools::output::VERIFY_PATH_HINT)
+    }
+    fn evidence_kind(&self, _query: &Value, _data: &Value) -> &'static str {
+        "exact"
+    }
 }

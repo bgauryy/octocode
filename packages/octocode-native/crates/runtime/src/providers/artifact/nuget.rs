@@ -16,7 +16,7 @@ pub(crate) async fn nuget(
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     if let Some(name) = query.package_name() {
-        return exact(name, client).await;
+        return exact(name, requested_version(query.version())?, client).await;
     }
     let offset = state.offset.unwrap_or(0);
     if offset >= REACHABLE_END {
@@ -96,8 +96,52 @@ pub(crate) async fn nuget(
 const MAX_SKIP: u64 = 3000;
 const REACHABLE_END: u64 = MAX_SKIP + 1000;
 
+/// The exact NuGet version a lookup asks for: `None` for the latest release
+/// (no version, or `latest`). NuGet versions are numeric (up to four parts)
+/// with an optional prerelease label; ranges are not resolved.
+fn requested_version(version: Option<&str>) -> Result<Option<&str>, ArtifactError> {
+    let Some(version) = version
+        .map(str::trim)
+        .filter(|version| !version.eq_ignore_ascii_case("latest"))
+    else {
+        return Ok(None);
+    };
+    let version = version.trim_start_matches(['v', 'V']);
+    if compare_versions(version, version).is_err() {
+        return Err(ArtifactError::new(
+            "unsupported_capability",
+            format!("NuGet lookups take an exact version or latest, not \"{version}\"."),
+        )
+        .with_hint("Pass an exact package version, e.g. 13.0.3."));
+    }
+    Ok(Some(version))
+}
+
+/// A registration page's leaves: inline, or from the page document it names.
+async fn page_items(
+    page: &Map<String, Value>,
+    client: &RegistryClient<'_>,
+) -> Result<Vec<Value>, ArtifactError> {
+    if let Some(items) = page.get("items") {
+        return rows(items, ArtifactType::Nuget).cloned();
+    }
+    let advertised = official_url(page.get("@id"))?;
+    let owned_page = client
+        .json(ArtifactType::Nuget, advertised, false, None)
+        .await?
+        .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?;
+    rows(
+        object_for(&owned_page, ArtifactType::Nuget)?
+            .get("items")
+            .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?,
+        ArtifactType::Nuget,
+    )
+    .cloned()
+}
+
 async fn exact(
     package_name: &str,
+    version: Option<&str>,
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let base = service_endpoint("RegistrationsBaseUrl", client).await?;
@@ -118,35 +162,89 @@ async fn exact(
     if pages.is_empty() {
         return Ok(ArtifactProviderPage::empty(Some(0)));
     }
-    // Newest registration pages first. The highest listed stable version wins;
-    // a prerelease only when the package has no stable release (as NuGet
-    // clients resolve "latest").
     let mut pages = pages
         .iter()
         .map(|page| object_for(page, ArtifactType::Nuget))
         .collect::<Result<Vec<_>, _>>()?;
-    let upper = |page: &Map<String, Value>| {
-        required(page.get("upper"), ArtifactType::Nuget).unwrap_or_default()
+    let bound = |page: &Map<String, Value>, edge: &str| {
+        required(page.get(edge), ArtifactType::Nuget).unwrap_or_default()
     };
-    pages.sort_by(|a, b| compare_versions(&upper(b), &upper(a)).unwrap_or(Ordering::Equal));
+    pages.sort_by(|a, b| {
+        compare_versions(&bound(b, "upper"), &bound(a, "upper")).unwrap_or(Ordering::Equal)
+    });
+    let release = match version {
+        Some(wanted) => {
+            // An exact version: the registration page whose bounds hold it.
+            let mut seen = Vec::new();
+            let mut found = None;
+            for page in &pages {
+                let holds = compare_versions(&bound(page, "lower"), wanted)
+                    .is_ok_and(|order| order != Ordering::Greater)
+                    && compare_versions(wanted, &bound(page, "upper"))
+                        .is_ok_and(|order| order != Ordering::Greater);
+                if !holds {
+                    continue;
+                }
+                for leaf in page_items(page, client).await? {
+                    let candidate = catalog(&leaf)?;
+                    let listed = required(candidate.get("version"), ArtifactType::Nuget)?;
+                    if compare_versions(&listed, wanted)? == Ordering::Equal {
+                        found = Some(candidate.clone());
+                        break;
+                    }
+                    seen.push(listed);
+                }
+                if found.is_some() {
+                    break;
+                }
+            }
+            match found {
+                Some(found) => found,
+                None => {
+                    if seen.is_empty() {
+                        seen = pages
+                            .iter()
+                            .flat_map(|page| [bound(page, "lower"), bound(page, "upper")])
+                            .filter(|edge| !edge.is_empty())
+                            .collect();
+                    }
+                    return Err(super::npm::version_not_found(package_name, wanted, &seen));
+                }
+            }
+        }
+        None => latest(&pages, client).await?,
+    };
+    let mut artifact = item(&release)?;
+    // The registration catalogEntry usually omits `repository`; the package's
+    // own nuspec declares it.
+    if artifact.repository.is_none()
+        && let Some(version) = artifact.version.clone()
+        && let Some((repository, commit)) = nuspec_repository(package_name, &version, client).await
+    {
+        artifact.repository = Some(repository);
+        artifact.source_ref = commit;
+    }
+    Ok(ArtifactProviderPage {
+        artifacts: vec![artifact],
+        next_state: None,
+        total: Some(1),
+        terminal_limit: None,
+        registry: None,
+    })
+}
+
+/// Newest registration pages first. The highest listed stable version wins;
+/// a prerelease only when the package has no stable release (as NuGet clients
+/// resolve "latest").
+async fn latest(
+    pages: &[&Map<String, Value>],
+    client: &RegistryClient<'_>,
+) -> Result<Map<String, Value>, ArtifactError> {
     let mut stable: Option<Map<String, Value>> = None;
     let mut prerelease: Option<Map<String, Value>> = None;
     for page in pages.iter().take(MAX_REGISTRATION_PAGES) {
-        let owned_page;
-        let items = if let Some(items) = page.get("items") {
-            items
-        } else {
-            let advertised = official_url(page.get("@id"))?;
-            owned_page = client
-                .json(ArtifactType::Nuget, advertised, false, None)
-                .await?
-                .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?;
-            object_for(&owned_page, ArtifactType::Nuget)?
-                .get("items")
-                .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?
-        };
-        for leaf in rows(items, ArtifactType::Nuget)? {
-            let candidate = catalog(leaf)?;
+        for leaf in page_items(page, client).await? {
+            let candidate = catalog(&leaf)?;
             if candidate.get("listed") == Some(&Value::Bool(false)) {
                 continue;
             }
@@ -171,26 +269,9 @@ async fn exact(
             break;
         }
     }
-    let latest = stable
+    stable
         .or(prerelease)
-        .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))?;
-    let mut artifact = item(&latest)?;
-    // The registration catalogEntry usually omits `repository`; the package's
-    // own nuspec declares it.
-    if artifact.repository.is_none()
-        && let Some(version) = artifact.version.clone()
-        && let Some((repository, commit)) = nuspec_repository(package_name, &version, client).await
-    {
-        artifact.repository = Some(repository);
-        artifact.source_ref = commit;
-    }
-    Ok(ArtifactProviderPage {
-        artifacts: vec![artifact],
-        next_state: None,
-        total: Some(1),
-        terminal_limit: None,
-        registry: None,
-    })
+        .ok_or_else(|| super::util::invalid(ArtifactType::Nuget))
 }
 
 /// Registration pages read (newest first) while looking for a stable release.
@@ -419,14 +500,13 @@ fn limit_reason() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::artifact_query;
+    use super::super::types::{artifact_query, test_budget};
     use super::*;
     use crate::providers::RequestBudget;
     use crate::providers::artifact::http::{
         ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse,
     };
     use serde_json::json;
-    use std::time::Duration;
 
     /// Serves fixtures by URL-path fragment. Routing (rather than call order)
     /// keeps tests independent of the process-global artifact JSON cache,
@@ -473,6 +553,19 @@ mod tests {
         }
     }
 
+    /// The exact `Newtonsoft.Json` lookup against `http`.
+    async fn newtonsoft_exact(http: &RouteMock) -> ArtifactProviderPage {
+        let b = test_budget();
+        let client = RegistryClient::uncached(http, &b);
+        let q = artifact_query(
+            serde_json::json!({"type": ArtifactType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
+            None,
+        );
+        nuget(&q, &ArtifactProviderState::default(), &client)
+            .await
+            .expect("nuget exact")
+    }
+
     fn service_index() -> serde_json::Value {
         json!({
             "resources": [
@@ -482,10 +575,6 @@ mod tests {
                 }
             ]
         })
-    }
-
-    fn budget() -> RequestBudget {
-        RequestBudget::with_timeout(Duration::from_secs(10), 10_000_000)
     }
 
     #[tokio::test]
@@ -511,20 +600,7 @@ mod tests {
             "newtonsoft.json.nuspec",
             br#"<package><metadata><repository type="git" url="https://github.com/JamesNK/Newtonsoft.Json" commit="0A2E291C0D9C0C7675D445703E51750363A549EF" /></metadata></package>"#.to_vec(),
         ));
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
-        let q = artifact_query(
-            serde_json::json!({"type": ArtifactType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
-            None,
-        );
-        let page = nuget(&q, &ArtifactProviderState::default(), &client)
-            .await
-            .expect("nuget exact");
+        let page = newtonsoft_exact(&http).await;
         let item = &page.artifacts[0];
         // 13.0.5 is unlisted; 14.0.1-beta2 is a prerelease.
         assert_eq!(item.version.as_deref(), Some("13.0.4"));
@@ -565,20 +641,7 @@ mod tests {
             ("newtonsoft.json", registration),
             ("/v3/index.json", service_index()),
         ]);
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
-        let q = artifact_query(
-            serde_json::json!({"type": ArtifactType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
-            None,
-        );
-        let page = nuget(&q, &ArtifactProviderState::default(), &client)
-            .await
-            .expect("nuget exact");
+        let page = newtonsoft_exact(&http).await;
         assert_eq!(page.artifacts.len(), 1);
         let item = &page.artifacts[0];
         assert_eq!(item.name, "Newtonsoft.Json");
@@ -596,6 +659,68 @@ mod tests {
             item.homepage.as_deref(),
             Some("https://www.newtonsoft.com/json")
         );
+    }
+
+    /// An exact version reads the registration page whose bounds hold it
+    /// (inline or linked), even when a newer release exists; a missing one
+    /// names the nearest published versions; a range is refused.
+    #[tokio::test]
+    async fn nuget_exact_version_reads_the_page_that_holds_it() {
+        let registration = json!({"items": [
+            {"lower": "13.0.1", "upper": "13.0.4", "items": [
+                {"catalogEntry": {"id": "Newtonsoft.Json", "version": "13.0.1"}},
+                {"catalogEntry": {"id": "Newtonsoft.Json", "version": "13.0.3", "licenseExpression": "MIT"}},
+                {"catalogEntry": {"id": "Newtonsoft.Json", "version": "13.0.4"}}
+            ]},
+            {"lower": "9.0.1", "upper": "12.0.3",
+             "@id": "https://api.nuget.org/v3/registration5/newtonsoft.json/page/9.0.1/12.0.3.json"}
+        ]});
+        let old_page = json!({"items": [
+            {"catalogEntry": {"id": "Newtonsoft.Json", "version": "9.0.1"}},
+            {"catalogEntry": {"id": "Newtonsoft.Json", "version": "12.0.3"}}
+        ]});
+        let http = RouteMock::json_routes(vec![
+            ("registration5/newtonsoft.json/page/", old_page),
+            ("registration5/newtonsoft.json/index.json", registration),
+            ("/v3/index.json", service_index()),
+        ]);
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
+        let lookup = |version: &str| {
+            artifact_query(
+                json!({"type": ArtifactType::Nuget, "packageName": "Newtonsoft.Json", "version": version}),
+                None,
+            )
+        };
+        let state = ArtifactProviderState::default();
+        for (requested, expected) in [
+            ("13.0.3", "13.0.3"),
+            ("12.0.3", "12.0.3"),
+            ("v13.0.3", "13.0.3"),
+            ("13.0.3.0", "13.0.3"),
+            ("latest", "13.0.4"),
+        ] {
+            let page = nuget(&lookup(requested), &state, &client)
+                .await
+                .unwrap_or_else(|error| panic!("{requested}: {error:?}"));
+            assert_eq!(
+                page.artifacts[0].version.as_deref(),
+                Some(expected),
+                "{requested}"
+            );
+        }
+        let missing = nuget(&lookup("13.0.2"), &state, &client)
+            .await
+            .expect_err("missing version");
+        assert_eq!(missing.code, "versionNotFound", "{missing:?}");
+        assert!(
+            missing.hints.iter().any(|hint| hint.contains("13.0.3")),
+            "{missing:?}"
+        );
+        let range = nuget(&lookup("[13.0,14.0)"), &state, &client)
+            .await
+            .expect_err("range");
+        assert_eq!(range.code, "unsupported_capability", "{range:?}");
     }
 
     #[test]
@@ -658,13 +783,8 @@ mod tests {
     #[tokio::test]
     async fn nuget_tail_pages_respect_page_size_past_the_skip_limit() {
         let http = SearchMock(Default::default());
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let q = artifact_query(
             json!({"type": ArtifactType::Nuget, "keywords": ["json"], "pageSize": 2}),
             None,
@@ -727,13 +847,8 @@ mod tests {
             ("serilog", registration),
             ("/v3/index.json", service_index()),
         ]);
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let q = artifact_query(
             serde_json::json!({"type": ArtifactType::Nuget, "packageName": "Serilog".to_string()}),
             None,

@@ -18,7 +18,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::algorithms::{Node, scc};
+use super::algorithms::{FileGraphNode, scc};
 use super::model::{CodeGraphSnapshot, EdgeKind, NodeId};
 
 /// A structural relation identity. Deliberately excludes evidence and ranges.
@@ -343,8 +343,8 @@ fn file_of(id: &NodeId) -> Option<String> {
     id.0.strip_prefix("file:").map(str::to_owned)
 }
 
-fn file_graph(snapshot: &CodeGraphSnapshot) -> BTreeMap<String, Node> {
-    let mut graph: BTreeMap<String, Node> = BTreeMap::new();
+fn file_graph(snapshot: &CodeGraphSnapshot) -> BTreeMap<String, FileGraphNode> {
+    let mut graph: BTreeMap<String, FileGraphNode> = BTreeMap::new();
     for edge in snapshot.edges.values() {
         let (Some(from), Some(to)) = (file_of(&edge.from), file_of(&edge.to)) else {
             continue;

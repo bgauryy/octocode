@@ -11,7 +11,7 @@
 //          optional lead calls.
 // A lead is any `hints` entry, or (in legacy streams, where `next` also held
 // leads and `hints` was a prose string[]) a `next` entry that core classifies
-// as a lead. Briefs (goal / mainGoal / reasoning) may be absent from any query.
+// as a lead. Briefs (mainGoal / reasoning) may be absent from any query.
 import { continuationChannel } from '@octocodeai/config/schema';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -24,7 +24,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const HINT_KEYS = ['hints', 'next'];
 export const isHintKey = key => HINT_KEYS.includes(key);
 /** Brief and presentation fields: never part of a continuation's identity. */
-export const BRIEF_KEYS = ['goal', 'mainGoal', 'reasoning', 'debug'];
+export const BRIEF_KEYS = ['mainGoal', 'reasoning', 'debug'];
 export const isHint = v => !!v && typeof v === 'object' && !Array.isArray(v) && typeof v.tool === 'string' && v.query && typeof v.query === 'object';
 /** `{name, hint}` for each executable entry of a continuation container (a map of named hints, an array, or one hint). */
 export function hintEntries(container, name = 'hints') {
@@ -97,7 +97,7 @@ export function leadBytes(value, tool = responseTool(value)) {
 
 // ---------- schema errors ----------
 /** Row error codes that mean the input did not validate (as opposed to a runtime miss). */
-export const SCHEMA_ERROR_CODES = new Set(['invalidInput', 'invalidQuery', 'validation', 'invalidPagination', 'invalidCursor']);
+export const SCHEMA_ERROR_CODES = new Set(['invalidInput', 'invalidPagination']);
 const CALL_VALIDATION = /Input validation error|Invalid arguments for tool|MCP error -32602/i;
 /**
  * Validation errors in one call: a whole-call rejection (MCP SDK input
@@ -231,12 +231,12 @@ export function verboseFields(entry, rules) {
     rows.forEach((row, i) => {
       const query = queries[row?.index ?? i] ?? queries[0] ?? {};
       if (query?.debug === true) { out.debugRows = (out.debugRows ?? 0) + 1; return; }
-      const hints = allHintEntries(row).map(e => e.hint.query);
+      const hints = allHintEntries(row).flatMap(e => e.hint.query.queries ?? []);
       visit(row, { inHint: false, hints, query });
     });
     const { results, ...envelope } = sc;
-    visit(envelope, { inHint: false, hints: hintEntries(envelopeContainer(sc)).map(e => e.hint.query), query: queries[0] ?? {} });
-  } else visit(sc, { inHint: false, hints: allHintEntries(sc).map(e => e.hint.query), query: queries[0] ?? {} });
+    visit(envelope, { inHint: false, hints: hintEntries(envelopeContainer(sc)).flatMap(e => e.hint.query.queries ?? []), query: queries[0] ?? {} });
+  } else visit(sc, { inHint: false, hints: allHintEntries(sc).flatMap(e => e.hint.query.queries ?? []), query: queries[0] ?? {} });
   return out;
 }
 /** Every executable continuation anywhere under a node (row- or item-level containers). */
@@ -321,19 +321,19 @@ export const describeFlag = f => `${f.metric} ${f.was}→${f.now}${f.growth ? ` 
 export function selfTest() {
   let failed = 0;
   const assert = (ok, name) => { console.log(`${ok ? 'PASS' : 'FAIL'} [sensors self-test] ${name}`); if (!ok) failed += 1; };
-  const hint = (tool, query) => ({ tool, query });
+  const hint = (tool, row) => ({ tool, query: row.responseOffset === undefined ? { queries: [row] } : row });
 
   // Hints: `next` and `hints` read the same; envelope too; prose `hints` are not hints.
-  const withNext = { results: [{ data: { next: { nextPage: hint('localSearch', { path: 'a', page: 2 }) } } }], responsePagination: { hasMore: true, next: hint('localSearch', { responseCharOffset: 10 }) } };
-  const withHints = { results: [{ data: { hints: { nextPage: hint('localSearch', { path: 'a', page: 2 }) } } }], responsePagination: { hasMore: true, hints: hint('localSearch', { responseCharOffset: 10 }) } };
+  const withNext = { results: [{ data: { next: { nextPage: hint('localSearch', { path: 'a', page: 2 }) } } }], responsePagination: { hasMore: true, next: hint('localSearch', { responseOffset: 10 }) } };
+  const withHints = { results: [{ data: { hints: { nextPage: hint('localSearch', { path: 'a', page: 2 }) } } }], responsePagination: { hasMore: true, hints: hint('localSearch', { responseOffset: 10 }) } };
   assert(canonical(allHintEntries(withNext)) === canonical(allHintEntries(withHints)) && allHintEntries(withHints).length === 2, 'hints and next walk to the same continuations (row + envelope)');
   assert(hintEntries(envelopeContainer(withHints)).length === 1 && hintEntries(envelopeContainer(withNext)).length === 1, 'envelope continuation read from responsePagination.next (or .hints)');
   assert(allHintEntries({ results: [{ status: 'error', data: { hints: ['Verify the path exists'] } }] }).length === 0, 'error-row prose hints are not continuations');
   // Legacy streams: leads inside `next`, prose `hints`. Current contract: pages in `next`, leads + text in `hints`.
-  const today = { next: { nextPage: hint('localSearch', { page: 2 }), readFixPr: hint('ghGetHistoryItem', { number: 1 }), viewRepo: hint('ghStructure', { repo: 'r' }) }, hints: ['prose'] };
-  const after = { next: { nextPage: hint('localSearch', { page: 2 }) }, hints: { text: ['prose'], readFixPr: hint('ghGetHistoryItem', { number: 1 }), viewRepo: hint('ghStructure', { repo: 'r' }) } };
+  const today = { next: { nextPage: hint('localSearch', { page: 2 }), readFixPullRequest: hint('ghGetHistoryItem', { number: 1 }), viewRepo: hint('ghStructure', { repo: 'r' }) }, hints: ['prose'] };
+  const after = { next: { nextPage: hint('localSearch', { page: 2 }) }, hints: { text: ['prose'], readFixPullRequest: hint('ghGetHistoryItem', { number: 1 }), viewRepo: hint('ghStructure', { repo: 'r' }) } };
   assert(leadEntries(today).length === 2 && leadEntries(after).length === 2 && maxLeadEntries({ results: [{ data: after }] }) === 2, 'leads counted the same in both shapes (pages uncapped)');
-  assert(pageEntries({ results: [{ data: today }] }).length === 1 && pageEntries({ results: [{ data: after }], responsePagination: { next: hint('x', { responseCharOffset: 9 }) } }).length === 2, 'page continuations read from next only (+ envelope)');
+  assert(pageEntries({ results: [{ data: today }] }).length === 1 && pageEntries({ results: [{ data: after }], responsePagination: { next: hint('x', { responseOffset: 9 }) } }).length === 2, 'page continuations read from next only (+ envelope)');
   assert(leadBytes(today) === leadBytes(after) && leadBytes(today) > 0, 'lead bytes comparable across the move');
   assert(allHintEntries(after).length === 3, 'replay set: every next entry and every non-text hints entry');
   // The page/lead rule is core's: clasify's own walk is a page, a clasify handoff elsewhere is a lead.
@@ -348,9 +348,9 @@ export function selfTest() {
 
   // Verbose fields.
   const rules = loadVerboseRules();
-  const v = verboseFields({ args: { queries: [{ path: 'a', searchText: 'x' }] }, raw: {
+  const v = verboseFields({ args: { queries: [{ path: 'a', matchString: 'x' }] }, raw: {
     results: [{ data: { warnings: [`binaryFileSkipped: ${Array.from({ length: 40 }, (_, i) => `f${i}.woff2`).join(', ')}`], pagination: { hasMore: true, nextPage: 2, snapshot: 'abc' }, next: { nextPage: hint('localSearch', { path: 'a', page: 2, snapshot: 'abc', confidence: 'x' }) } } }],
-    responsePagination: { hasMore: false, charOffset: 0 },
+    responsePagination: { hasMore: false, offset: 0 },
   } }, rules);
   assert(v['responsePagination-finished']?.count === 1, 'verbose: responsePagination with hasMore:false reported');
   assert(v['pagination-duplicates-hint']?.count === 1 && v['pagination-duplicates-hint'].bytes > 0, 'verbose: pagination nextPage/snapshot duplicating the continuation reported');

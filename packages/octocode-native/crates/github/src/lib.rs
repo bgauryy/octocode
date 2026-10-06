@@ -10,13 +10,13 @@ mod error;
 mod history;
 mod history_item;
 mod query_syntax;
+mod refs;
+mod retry;
 mod search;
 mod transport;
 mod tree;
 
-pub use budget::{
-    AuthAdmission, ExecutorConfig, GitHubBudget, GitHubResource, LimiterKey, session_snapshot,
-};
+pub use budget::{AuthAdmission, ExecutorConfig, GitHubBudget, GitHubResource, LimiterKey};
 pub use content::{
     CachePartition, CachedContent, ConditionalCache, ContentRequest, ContentResponse,
     GitHubProvider, NoCache,
@@ -25,13 +25,15 @@ pub use credentials::{
     CredentialRequest, CredentialResolver, CredentialSource, ResolvedCredential,
     StaticCredentialResolver,
 };
-pub use endpoint::GitHubEndpoint;
+pub use endpoint::{GitHubEndpoint, credential_host};
 pub use error::{ProviderError, ProviderErrorKind, ProviderErrorReason, RateLimit};
 pub use history::{CommitListRequest, HistoryPage, HistoryRequest, PullListRequest};
 pub use query_syntax::{
     SearchName, qualifier_value, quote_search_keyword, search_phrase, validate_qualifier_value,
     validate_search_name,
 };
+pub use refs::{NamedRef, RefKind, RefPage};
+pub use retry::{full_jitter, header_u64, retry_after_delay};
 pub use search::{
     CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchItem,
     RepositorySearchPage, RepositorySearchRequest, TextMatch, TreeEntry, TreeRequest, TreeResponse,

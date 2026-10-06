@@ -1,6 +1,6 @@
 # Idioms and gotchas
 
-Load when you shape errors, ownership, conversions, control flow, or a public API, or when code fights the borrow checker, spams `.clone()`, or mishandles async. Type shapes, generics vs `dyn`: `references/types-and-patterns.md`.
+Load when you shape errors, ownership, conversions, control flow, or a public API, or when code fights the borrow checker, spams `.clone()`, or mishandles async. Why: idiomatic ownership and errors remove most clones, panics, and borrow fights before they spread. Type shapes, generics vs `dyn`: `references/types-and-patterns.md`.
 
 ## Errors
 - A fallible function returns `Result<T, E>` and propagates with `?`. No `.unwrap()`/`.expect()` in production paths; `expect` only for a true invariant, with a message that says why it cannot fail.

@@ -12,8 +12,16 @@ pub fn octocode_home(env: &BTreeMap<String, String>, cwd: &Path, os_home: &Path)
         })
         .unwrap_or_else(|| os_home.join(".octocode"))
 }
+/// Read one configuration layer, bounded like every config edit. Symlinks are
+/// followed: a dotfile manager may link the file into place.
 pub fn read_file(path: PathBuf) -> FileInput {
-    match fs::read_to_string(&path) {
+    let read = fs::File::open(&path)
+        .and_then(|file| crate::private_file::read_limited(file, super::edit::MAX_CONFIG_BYTES))
+        .and_then(|bytes| {
+            String::from_utf8(bytes)
+                .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidData, "not UTF-8 text"))
+        });
+    match read {
         Ok(text) => FileInput::Read { path, text },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => FileInput::Missing { path },
         Err(e) => FileInput::Unreadable {
@@ -35,7 +43,6 @@ pub fn acquire_config_input(
     os_home: PathBuf,
     trusted_project: bool,
     runtime_surface: RuntimeSurface,
-    revision: u64,
 ) -> ConfigInput {
     let home = octocode_home(&env, &cwd, &os_home);
     let workspace = cwd.join(".octocode");
@@ -59,6 +66,5 @@ pub fn acquire_config_input(
         os_home,
         trusted_project,
         runtime_surface,
-        revision,
     }
 }

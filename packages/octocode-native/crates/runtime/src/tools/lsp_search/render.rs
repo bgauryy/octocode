@@ -7,10 +7,15 @@
 use octocode_engine::lsp::uri::uri_to_path as engine_uri_to_path;
 use serde_json::{Value, json};
 
+/// One flattened document symbol: `name`, `kind`, one-based `line` (the
+/// name line, a usable `lineHint`) and `endLine` (the full extent), the
+/// zero-based name `character`, `parent`/`parentLine` for a member, and
+/// `unlisted`, the children of a symbol whose members are not listed (a
+/// function's locals).
 pub(super) fn flatten_document_symbol(
     value: &Value,
     output: &mut Vec<Value>,
-    container_name: Option<&str>,
+    parent: Option<(&str, u64)>,
 ) {
     let Some(symbol) = value.as_object() else {
         return;
@@ -19,26 +24,8 @@ pub(super) fn flatten_document_symbol(
     let range = symbol
         .get("range")
         .or_else(|| symbol.get("location")?.get("range"));
-    if let (Some(name), Some(range)) = (symbol.get("name").and_then(Value::as_str), range) {
-        // `line`/`character` point at the symbol NAME (`selectionRange`), not the
-        // start of the full range (which includes doc comments/attributes), so
-        // they can be fed back as `lineHint`. `endLine` keeps the full extent.
-        // All three are one-based (`character` is a one-based UTF-16 column,
-        // like `displayRange.startCharacter`).
-        let anchor = symbol.get("selectionRange").unwrap_or(range);
-        let mut compact = json!({
-            "name": name,
-            "kind": kind,
-            "line": anchor.pointer("/start/line").and_then(Value::as_u64).unwrap_or(0) + 1,
-            "character": anchor.pointer("/start/character").and_then(Value::as_u64).unwrap_or(0) + 1,
-            "endLine": range.pointer("/end/line").and_then(Value::as_u64).unwrap_or(0) + 1,
-            "childCount": symbol.get("children").and_then(Value::as_array).map_or(0, Vec::len)
-        });
-        if let Some(container_name) = container_name {
-            compact["containerName"] = json!(container_name);
-        }
-        output.push(compact);
-    }
+    let name = symbol.get("name").and_then(Value::as_str);
+    // Rust `impl` blocks are `object` symbols.
     let structural = matches!(
         kind.as_str(),
         "file"
@@ -50,16 +37,79 @@ pub(super) fn flatten_document_symbol(
             | "interface"
             | "markdownHeading"
             | "struct"
+            | "object"
     );
-    if structural && let Some(children) = symbol.get("children").and_then(Value::as_array) {
-        let parent = symbol
-            .get("name")
-            .and_then(Value::as_str)
-            .or(container_name);
+    let children = symbol
+        .get("children")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let mut line = None;
+    if let (Some(name), Some(range)) = (name, range) {
+        let anchor = symbol.get("selectionRange").unwrap_or(range);
+        let start = anchor
+            .pointer("/start/line")
+            .and_then(Value::as_u64)
+            .unwrap_or(0)
+            + 1;
+        let mut compact = json!({
+            "name": name,
+            "kind": kind,
+            "line": start,
+            "character": anchor.pointer("/start/character").and_then(Value::as_u64).unwrap_or(0),
+            "endLine": range.pointer("/end/line").and_then(Value::as_u64).unwrap_or(0) + 1,
+        });
+        if let Some((parent, parent_line)) = parent {
+            compact["parent"] = json!(parent);
+            compact["parentLine"] = json!(parent_line);
+        }
+        if !structural && !children.is_empty() {
+            compact["unlisted"] = json!(children.len());
+        }
+        output.push(compact);
+        line = Some(start);
+    }
+    if structural {
+        let parent = match (name, line) {
+            (Some(name), Some(line)) => Some((name, line)),
+            _ => parent,
+        };
         for child in children {
             flatten_document_symbol(child, output, parent);
         }
     }
+}
+
+/// Outline rows (`tools::symbol_outline`) for a page of flattened
+/// document symbols: `endLine` only when it differs, and the column only
+/// when another listed symbol starts on the same line.
+pub(super) fn document_symbol_rows(page: &[Value], all: &[Value]) -> Vec<Value> {
+    let mut lines = std::collections::HashMap::<u64, usize>::new();
+    for symbol in all {
+        *lines
+            .entry(symbol["line"].as_u64().unwrap_or(0))
+            .or_default() += 1;
+    }
+    let objects = page
+        .iter()
+        .map(|symbol| {
+            let line = symbol["line"].as_u64().unwrap_or(0);
+            let mut row = json!({"name": symbol["name"], "kind": symbol["kind"], "line": line});
+            if symbol["endLine"].as_u64().is_some_and(|end| end != line) {
+                row["endLine"] = symbol["endLine"].clone();
+            }
+            if lines.get(&line).is_some_and(|count| *count > 1) {
+                row["character"] = symbol["character"].clone();
+            }
+            for key in ["parent", "parentLine"] {
+                if let Some(value) = symbol.get(key) {
+                    row[key] = value.clone();
+                }
+            }
+            row
+        })
+        .collect::<Vec<_>>();
+    crate::tools::symbol_outline::outline_rows(&objects)
 }
 
 pub(super) fn symbol_kind_name(kind: Option<&Value>) -> String {
@@ -121,7 +171,7 @@ pub(super) fn paginate(items: &[Value], page: u32, page_size: u32) -> (Vec<Value
     let mut pagination = json!({
         "currentPage": current,
         "totalPages": total_pages,
-        "totalResults": total,
+        "totalItems": total,
         "hasMore": has_more,
         "pageSize": page_size
     });
@@ -152,4 +202,25 @@ pub(super) fn decode_uri_path(uri: &str) -> Result<String, String> {
 
 pub(super) fn uri_to_path(uri: &str) -> String {
     decode_uri_path(uri).unwrap_or_else(|_| uri.to_owned())
+}
+
+/// Language ids served by the TypeScript server.
+pub(super) const TS_LANGUAGE_IDS: [&str; 4] = [
+    "typescript",
+    "typescriptreact",
+    "javascript",
+    "javascriptreact",
+];
+
+/// A word-bounded literal regex for `name` in the default (`rust`) engine.
+pub(super) fn word_pattern(name: &str) -> String {
+    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    let mut pattern = regex::escape(name);
+    if word(name.chars().next()) {
+        pattern.insert_str(0, "\\b");
+    }
+    if word(name.chars().last()) {
+        pattern.push_str("\\b");
+    }
+    pattern
 }

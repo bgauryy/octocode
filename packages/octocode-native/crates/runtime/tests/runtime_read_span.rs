@@ -2,7 +2,7 @@
 //! shares the response window so every row returns content.
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
-mod support;
+use crate::support;
 
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -32,8 +32,7 @@ fn numbered_lines(content: &str, into: &mut BTreeMap<usize, String>) {
 }
 
 fn row_file(row: &Value) -> &Value {
-    let data = &row["data"];
-    data.get("files").and_then(|files| files.get(0)).unwrap_or(data)
+    &row["data"]
 }
 
 /// Follow a row's `next.continue` chain to the end, collecting every line.
@@ -50,7 +49,11 @@ async fn walk(
         hops += 1;
         assert!(hops < 50, "walk terminates");
         let page = runtime
-            .execute(format!("walk-{hops}"), tool.into(), next.clone())
+            .execute(
+                format!("walk-{hops}"),
+                tool.into(),
+                json!({"queries":[next.clone()]}),
+            )
             .await
             .expect("continuation runs unchanged");
         let row = &page.structured_content["results"][0];
@@ -66,7 +69,10 @@ async fn a_batch_of_reads_shares_the_window_and_every_row_returns_content() {
     let files: Vec<String> = (0..3)
         .map(|index| {
             workspace
-                .write(&format!("f{index}.txt"), numbered_file(&format!("f{index}"), 400))
+                .write(
+                    &format!("f{index}.txt"),
+                    numbered_file(&format!("f{index}"), 400),
+                )
                 .to_string_lossy()
                 .into_owned()
         })
@@ -74,9 +80,17 @@ async fn a_batch_of_reads_shares_the_window_and_every_row_returns_content() {
     let small = workspace.write("small.txt", "one\ntwo\n");
     let runtime = workspace.runtime(&[("OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH", WINDOW.to_string())]);
     let mut queries: Vec<Value> = vec![json!({"path": small})];
-    queries.extend(files.iter().map(|path| json!({"path": path, "fullContent": true})));
+    queries.extend(
+        files
+            .iter()
+            .map(|path| json!({"path": path, "fullContent": true})),
+    );
     let mcp = runtime
-        .execute_mcp("share".into(), "localFetch".into(), json!({"queries": queries}))
+        .execute_mcp(
+            "share".into(),
+            "localFetch".into(),
+            json!({"queries": queries}),
+        )
         .await
         .expect("batch");
     let envelope = &mcp["structuredContent"];
@@ -90,20 +104,38 @@ async fn a_batch_of_reads_shares_the_window_and_every_row_returns_content() {
     assert_eq!(rows.len(), 4);
     assert_eq!(rows[0]["data"]["content"], "1\tone\n2\ttwo\n");
     // The incomplete banner leads the envelope and names the partial rows.
-    assert_eq!(envelope.as_object().unwrap().keys().next().unwrap(), "warnings");
+    assert_eq!(
+        envelope.as_object().unwrap().keys().next().unwrap(),
+        "warnings"
+    );
     let banner = envelope["warnings"][0].as_str().unwrap();
-    assert!(banner.starts_with("incomplete — 3 of 4 rows partial (index 1, 2, 3)"), "{banner}");
+    assert!(
+        banner.starts_with("incomplete — 3 of 4 rows partial (index 1, 2, 3)"),
+        "{banner}"
+    );
     assert!(banner.contains("next.continue"), "{banner}");
     let text = mcp["content"][0]["text"].as_str().unwrap();
-    assert!(text.starts_with("warnings:\n- incomplete — 3 of 4"), "{text:.200}");
+    assert!(
+        text.starts_with("warnings:\n- incomplete — 3 of 4"),
+        "{text:.200}"
+    );
     for (row, path) in rows[1..].iter().zip(&files) {
-        let next = &row["data"]["next"]["continue"]["query"];
-        assert!(next.get("chunkSize").is_none(), "continues at the default page: {next}");
+        let next = &row["data"]["next"]["continue"]["query"]["queries"][0];
+        assert!(
+            next.get("length").is_none(),
+            "continues at the default page: {next}"
+        );
         let lines = walk(&runtime, "localFetch", row).await;
         let expected = std::fs::read_to_string(path).unwrap();
-        assert_eq!(lines.keys().copied().collect::<Vec<_>>(), (1..=400).collect::<Vec<_>>());
         assert_eq!(
-            lines.values().map(|line| format!("{line}\n")).collect::<String>(),
+            lines.keys().copied().collect::<Vec<_>>(),
+            (1..=400).collect::<Vec<_>>()
+        );
+        assert_eq!(
+            lines
+                .values()
+                .map(|line| format!("{line}\n"))
+                .collect::<String>(),
             expected
         );
     }
@@ -142,7 +174,7 @@ async fn a_budget_cut_range_continues_exactly_the_rest_of_the_requested_spans() 
         .execute(
             "cut".into(),
             "localFetch".into(),
-            json!({"path": path, "ranges": ["10-20", "100-1900"]}),
+            json!({"queries":[{"path": path, "ranges": ["10-20", "100-1900"]}]}),
         )
         .await
         .expect("read");
@@ -150,7 +182,10 @@ async fn a_budget_cut_range_continues_exactly_the_rest_of_the_requested_spans() 
     let content = row["data"]["content"].as_str().unwrap();
     // One gap marker between the spans; none inside a span.
     assert_eq!(content.matches("... [").count(), 1, "{content:.400}");
-    assert!(row["data"]["next"]["continue"].is_object(), "the page is cut");
+    assert!(
+        row["data"]["next"]["continue"].is_object(),
+        "the page is cut"
+    );
     let lines = walk(&runtime, "localFetch", row).await;
     let expected: Vec<usize> = (10..=20).chain(100..=1900).collect();
     assert_eq!(lines.keys().copied().collect::<Vec<_>>(), expected);
@@ -195,7 +230,7 @@ async fn a_match_window_that_cuts_its_declaration_offers_the_rest_as_a_lead() {
         .execute(
             "lead".into(),
             "localFetch".into(),
-            json!({"path": path, "matchString": "needle here", "contextLines": 2}),
+            json!({"queries":[{"path": path, "matchString": "needle here", "contextLines": 2}]}),
         )
         .await
         .expect("read");
@@ -203,19 +238,28 @@ async fn a_match_window_that_cuts_its_declaration_offers_the_rest_as_a_lead() {
     let lead = &data["hints"]["readBlock"];
     assert_eq!(lead["tool"], "localFetch", "{data}");
     // The lead reads only the lines of `first` the window left out.
-    let query = &lead["query"];
+    let query = &lead["query"]["queries"][0];
     assert_eq!(query["ranges"], json!(["1-9", "15-21"]), "{query}");
     let rest = runtime
-        .execute("lead-run".into(), "localFetch".into(), query.clone())
+        .execute(
+            "lead-run".into(),
+            "localFetch".into(),
+            json!({"queries":[query.clone()]}),
+        )
         .await
         .expect("lead runs unchanged");
     let mut lines = BTreeMap::new();
     numbered_lines(data["content"].as_str().unwrap(), &mut lines);
     numbered_lines(
-        rest.structured_content["results"][0]["data"]["content"].as_str().unwrap(),
+        rest.structured_content["results"][0]["data"]["content"]
+            .as_str()
+            .unwrap(),
         &mut lines,
     );
-    assert_eq!(lines.keys().copied().collect::<Vec<_>>(), (1..=21).collect::<Vec<_>>());
+    assert_eq!(
+        lines.keys().copied().collect::<Vec<_>>(),
+        (1..=21).collect::<Vec<_>>()
+    );
 
     // Exact-line reads and windows that already cover the block offer none.
     for query in [
@@ -224,7 +268,11 @@ async fn a_match_window_that_cuts_its_declaration_offers_the_rest_as_a_lead() {
         json!({"path": path, "matchString": "needle here", "block": true}),
     ] {
         let outcome = runtime
-            .execute("no-lead".into(), "localFetch".into(), query.clone())
+            .execute(
+                "no-lead".into(),
+                "localFetch".into(),
+                json!({"queries":[query.clone()]}),
+            )
             .await
             .expect("read");
         let data = &outcome.structured_content["results"][0]["data"];

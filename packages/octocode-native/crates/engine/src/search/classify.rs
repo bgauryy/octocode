@@ -96,18 +96,6 @@ fn score_hint_for(kind: &str) -> f64 {
     }
 }
 
-/// Classify every match in `matches` in place. No-op when the extension has no
-/// grammar or the file does not parse.
-#[cfg(test)]
-pub fn classify_file_matches(content: &str, ext: &str, matches: &mut [RipgrepMatch]) {
-    classify_file_matches_before(
-        content,
-        ext,
-        matches,
-        Instant::now() + AST_EXECUTION_TIMEOUT,
-    );
-}
-
 fn classify_file_matches_before(
     content: &str,
     ext: &str,
@@ -298,6 +286,17 @@ fn position_to_byte(content: &str, index: &LineIndex<'_>, line: u32, column: u32
 mod tests {
     use super::*;
 
+    /// Classify every match in `matches` in place. No-op when the extension
+    /// has no grammar or the file does not parse.
+    fn classify_file_matches(content: &str, ext: &str, matches: &mut [RipgrepMatch]) {
+        classify_file_matches_before(
+            content,
+            ext,
+            matches,
+            Instant::now() + AST_EXECUTION_TIMEOUT,
+        );
+    }
+
     fn m(line: u32, column: u32) -> RipgrepMatch {
         RipgrepMatch {
             line,
@@ -435,7 +434,7 @@ mod tests {
 
     #[test]
     fn ripgrep_reports_bom_free_columns_that_classify_maps_back() {
-        use crate::search::ripgrep_search::search;
+        use crate::search::ripgrep_search::tests::search;
         use crate::types::RipgrepSearchOptions;
         let dir =
             std::env::temp_dir().join(format!("octocode-classify-bom-{}", std::process::id()));

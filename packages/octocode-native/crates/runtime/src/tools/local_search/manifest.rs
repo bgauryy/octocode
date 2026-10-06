@@ -46,6 +46,7 @@ struct Entry {
     bytes: usize,
     sources: Vec<Source>,
     value: RipgrepParseResult,
+    skipped: crate::policy::discovery::WalkSkips,
 }
 
 /// A stored scan whose matched files keep their stored size and time.
@@ -55,6 +56,8 @@ pub struct Stored {
     /// A page may show a file's values only while it still hashes to this,
     /// and its secret checks must read those bytes.
     pub digests: HashMap<PathBuf, Digest>,
+    /// What the stored walk left out (policy-skipped, default-excluded).
+    pub skipped: crate::policy::discovery::WalkSkips,
 }
 
 static STORE: Mutex<VecDeque<Entry>> = Mutex::new(VecDeque::new());
@@ -90,13 +93,17 @@ pub fn fits(value: &RipgrepParseResult) -> Option<usize> {
 }
 
 pub fn get(snapshot: &str, policy: &str) -> Option<Stored> {
-    let (value, sources) = {
+    let (value, sources, skipped) = {
         let mut store = STORE.lock().unwrap_or_else(|error| error.into_inner());
         store.retain(|entry| entry.stored.elapsed() < TTL);
         let entry = store
             .iter()
             .find(|entry| entry.snapshot == snapshot && entry.policy == policy)?;
-        (entry.value.clone(), entry.sources.clone())
+        (
+            entry.value.clone(),
+            entry.sources.clone(),
+            entry.skipped.clone(),
+        )
     };
     // Size and time reject most edits without a read; the digest that proves
     // a file's bytes is checked when a page shows it, so a walk hashes each
@@ -111,6 +118,7 @@ pub fn get(snapshot: &str, policy: &str) -> Option<Stored> {
                 .into_iter()
                 .map(|source| (PathBuf::from(source.path), source.digest))
                 .collect(),
+            skipped,
         });
     }
     evict(snapshot);
@@ -119,7 +127,12 @@ pub fn get(snapshot: &str, policy: &str) -> Option<Stored> {
 
 /// Store `value` unless it is too large or a matched file no longer holds the
 /// values it was scanned with (it changed between the scan and this call).
-pub fn put(snapshot: String, policy: String, value: RipgrepParseResult) {
+pub fn put(
+    snapshot: String,
+    policy: String,
+    value: RipgrepParseResult,
+    skipped: crate::policy::discovery::WalkSkips,
+) {
     let Some(bytes) = fits(&value) else {
         return;
     };
@@ -141,6 +154,7 @@ pub fn put(snapshot: String, policy: String, value: RipgrepParseResult) {
             bytes,
             sources,
             value,
+            skipped,
         },
     );
 }
@@ -190,7 +204,7 @@ fn value_matches_source(lines: &[&str], line: u32, value: &str) -> bool {
     let hi = line.saturating_add(span).min(lines.len());
     let window = lines[lo - 1..hi].join("\n");
     value.lines().all(|value_line| {
-        let core = super::executor::strip_clip_markers(value_line);
+        let core = super::verify::strip_clip_markers(value_line);
         core.is_empty() || window.contains(core)
     })
 }
@@ -237,6 +251,7 @@ mod tests {
                         files: Vec::new(),
                         stats: Default::default(),
                     },
+                    skipped: Default::default(),
                 },
             );
         }
@@ -281,6 +296,7 @@ mod tests {
             snapshot.into(),
             "policy".into(),
             one_match(&path, 2, "QUJDQUJDQUJD"),
+            Default::default(),
         );
         assert!(
             get(snapshot, "policy").is_none(),
@@ -292,6 +308,7 @@ mod tests {
             snapshot.into(),
             "policy".into(),
             one_match(&path, 2, "…QUJDQUJ…"),
+            Default::default(),
         );
         let stored = get(snapshot, "policy").expect("consistent scan stored");
         let digest: Digest = Sha256::digest(held.as_bytes()).into();
@@ -306,7 +323,12 @@ mod tests {
             files: Vec::new(),
             stats: Default::default(),
         };
-        put(snapshot.clone(), "policy-a".into(), empty);
+        put(
+            snapshot.clone(),
+            "policy-a".into(),
+            empty,
+            Default::default(),
+        );
         assert!(get(&snapshot, "policy-a").is_some());
         assert!(get(&snapshot, "policy-b").is_none());
     }

@@ -45,14 +45,15 @@ pub(super) fn resolve_anchor(
         });
     }
     if let Some(name) = query.symbol_name() {
-        let source = source
-            .ok_or_else(|| "symbolName anchors require a readable source file in uri".to_owned())?;
+        let source = source.ok_or_else(|| {
+            "symbolName anchors require a readable source file in path".to_owned()
+        })?;
         let resolved = resolve_symbol(path, source, name, query.line_hint(), query.order_hint())?;
         // The receipt adds what the request did not say: the column, and the
         // line only when the symbol sat off its `lineHint`. The name is the
         // request's own `symbolName`.
         let mut symbol = json!({
-            "uri": canonical_uri,
+            "path": super::render::uri_to_path(canonical_uri),
             "foundAtCharacter": resolved.position.character + 1
         });
         if let Some(order_hint) = query.order_hint() {
@@ -81,7 +82,7 @@ pub(super) fn resolve_anchor(
         line,
         character,
         resolved_symbol: Some(json!({
-            "uri": canonical_uri,
+            "path": super::render::uri_to_path(canonical_uri),
             "foundAtLine": line + 1,
             "foundAtCharacter": character + 1
         })),

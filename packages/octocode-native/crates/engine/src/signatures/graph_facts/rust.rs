@@ -5,7 +5,8 @@ use tree_sitter::Node;
 
 use crate::signatures::nodes::node_text;
 
-use super::{GraphAccumulator, GraphImport, LineIndex};
+use super::{GraphAccumulator, LineIndex};
+use crate::graph::GraphFactImport;
 
 /// Outer attributes that precede one item, folded as `(path, unsupported)`.
 #[derive(Clone, Debug, Default)]
@@ -232,17 +233,18 @@ pub(super) fn collect_rust_imports(
                     .unwrap_or(&specifier)
                     .to_owned();
                 let line = index.range(node).start.line + 1;
-                acc.imports.push(GraphImport {
+                acc.imports.push(GraphFactImport {
                     id: format!("import:{specifier}:{line}:{}", acc.imports.len()),
                     specifier,
                     line,
-                    import_kind: "value",
+                    import_kind: "value".to_owned(),
                     local_name: Some(alias.unwrap_or(&imported).to_owned()),
                     imported_name: Some(imported),
                     imported_range: imported_node.map(|name| index.range(name)),
                     local_range: alias_node.or(imported_node).map(|name| index.range(name)),
-                    resolution_hint: unsupported.then_some("unsupported"),
+                    resolution_hint: unsupported.then(|| "unsupported".to_owned()),
                     module_scope: Some(module_scope.to_vec()),
+                    used_in: None,
                 });
             }
         }

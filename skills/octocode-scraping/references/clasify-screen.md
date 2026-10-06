@@ -10,18 +10,18 @@ Load when an unread saved artifact needs semantic location and a small direct re
 6. Follow the `next.clasify` page unchanged when more relevant coverage is needed. Never turn a negative page judgment into whole-site absence.
 
 ```json
-{
+{"queries": [{
   "mainGoal": "Find what the Choice and Score primitives return in the saved page.",
   "reasoning": "Locate independent facts in an unread retained artifact before loading its body.",
-  "resources": [{"id": "artifact", "context": {"tool": "localFetch", "query": {
+  "resources": [{"id": "artifact", "tool": "localFetch", "query": {
     "path": "/absolute/path/to/.octocode/tmp/scrape/session/text/page.clean.md",
     "fullContent": true
-  }}}],
+  }}],
   "questions": [
-    {"id": "choice", "questionType": "locate", "target": "What the Choice primitive returns."},
-    {"id": "score", "questionType": "locate", "target": "What the Score primitive returns."}
+    {"id": "choice", "type": "locate", "ask": "What the Choice primitive returns."},
+    {"id": "score", "type": "locate", "ask": "What the Score primitive returns."}
   ]
-}
+}]}
 ```
 
 ```bash

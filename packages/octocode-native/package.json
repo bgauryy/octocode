@@ -1,7 +1,7 @@
 {
   "name": "@octocodeai/octocode-native",
   "version": "20.0.0",
-  "description": "Native Octocode CLI, tool runtime, and engine primitives",
+  "description": "Native Octocode CLI and tool runtime",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "license": "MIT",
   "type": "module",
@@ -30,12 +30,6 @@
       "import": "./js/runtime.js",
       "require": "./js/runtime.cjs"
     },
-    "./engine": {
-      "types": "./js/engine.d.ts",
-      "import": "./js/engine.js",
-      "require": "./js/engine.cjs"
-    },
-    "./native.cjs": "./native.cjs",
     "./bin/octocode.cjs": "./bin/octocode.cjs",
     "./bin/octocode-regex-worker.cjs": "./bin/octocode-regex-worker.cjs",
     "./bin/resolve-binary.cjs": "./bin/resolve-binary.cjs",
@@ -44,21 +38,9 @@
   "files": [
     "bin",
     "js",
-    "native.cjs",
     "docs/engine",
     "README.md"
   ],
-  "napi": {
-    "binaryName": "octocode-engine",
-    "targets": [
-      "aarch64-apple-darwin",
-      "x86_64-apple-darwin",
-      "x86_64-unknown-linux-gnu",
-      "x86_64-unknown-linux-musl",
-      "aarch64-unknown-linux-gnu",
-      "x86_64-pc-windows-msvc"
-    ]
-  },
   "optionalDependencies": {
     "@octocodeai/octocode-native-darwin-arm64": "20.0.0",
     "@octocodeai/octocode-native-darwin-x64": "20.0.0",
@@ -68,7 +50,6 @@
     "@octocodeai/octocode-native-win32-x64-msvc": "20.0.0"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^3.10.3",
     "@types/node": "^24.13.4",
     "typescript": "^6.0.3",
     "vite": "^8.3.0",
@@ -81,16 +62,14 @@
     "audit": "cargo audit -D unmaintained -D unsound -D yanked",
     "build": "node scripts/build-native.cjs --release",
     "build:dev": "node scripts/build-native.cjs",
-    "build:hosts:dev": "node scripts/build-native.cjs --only hosts",
-    "build:engine:dev": "node scripts/build-native.cjs --only engine",
     "build:target": "node scripts/build-native.cjs --release --target",
     "build:all": "yarn clean:binaries && node scripts/build-native.cjs --release --all",
-    "clean:binaries": "find npm -type f \\( -name 'octocode' -o -name 'octocode.exe' -o -name 'octocode-regex-worker' -o -name 'octocode-regex-worker.exe' -o -name '*.node' \\) -delete && rm -f octocode-native.*.node octocode-engine.*.node",
-    "clean:cache": "find target -type d -name incremental -prune -exec rm -rf {} + 2>/dev/null; find target -path '*/deps/*.o' -type f -delete 2>/dev/null; du -sh target 2>/dev/null || true",
-    "clean:cache:sweep": "cargo sweep --maxsize 30 . && yarn clean:cache",
+    "clean": "cargo clean && yarn clean:binaries",
+    "clean:binaries": "find npm -type f \\( -name 'octocode' -o -name 'octocode.exe' -o -name 'octocode-regex-worker' -o -name 'octocode-regex-worker.exe' -o -name '*.node' \\) -delete && rm -f octocode-native.*.node",
+    "clean:cache": "cargo clean --workspace --profile dev",
     "test": "yarn test:scripts && vitest run && yarn test:rust",
     "test:node": "vitest run",
-    "test:rust": "cargo test --locked -p octocode-native -p octocode-github -p octocode-cli --no-default-features && cargo test --locked -p octocode-engine --all-features && cargo test --locked -p octocode-runtime-napi --features napi-test",
+    "test:rust": "cargo test --locked -p octocode-native -p octocode-github -p octocode-cli -p octocode-runtime-napi --features octocode-runtime-napi/napi-test,octocode-native/dev-unify && cargo test --locked -p octocode-engine --all-features",
     "test:scripts": "node tests/platform.test.cjs && node --test tests/build-publication.test.cjs",
     "lint": "cargo clippy --locked --workspace --all-targets --all-features -- -D warnings",
     "fmt:rust": "cargo fmt --all",
@@ -98,14 +77,12 @@
     "typecheck": "tsc --noEmit && cargo check --locked --workspace --all-targets --all-features",
     "deny": "cargo deny check",
     "platforms:check": "node scripts/check-platform-binaries.cjs",
-    "loader:check": "node scripts/check-engine-loader-entries.cjs",
-    "verify:napi-abi": "node scripts/check-engine-napi-abi.cjs",
     "version:check": "node scripts/check-version-consistency.cjs",
     "version:sync": "node scripts/sync-versions.cjs",
     "pack:check": "node scripts/check-pack-size.cjs",
     "docs:claims": "node scripts/check-doc-claims.cjs",
     "check:crate-boundaries": "node scripts/check-crate-boundaries.cjs",
-    "verify": "yarn check:crate-boundaries && yarn fmt:rust:check && yarn lint && yarn typecheck && yarn test && yarn loader:check && yarn verify:napi-abi && yarn version:check && yarn workspace @octocodeai/config check:tool-contract && yarn docs:claims",
+    "verify": "yarn check:crate-boundaries && yarn fmt:rust:check && yarn lint && tsc --noEmit && yarn test && yarn version:check && yarn workspace @octocodeai/config check:tool-contract && yarn docs:claims",
     "prepublishOnly": "yarn version:check && node ../octocode/scripts/check-no-workspace-protocol.mjs && yarn workspace @octocodeai/config check:core-contract-sync:published"
   }
 }

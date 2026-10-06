@@ -50,8 +50,8 @@ function withoutOpaqueCursors(value) {
 
 async function collect(client) {
   let args = {
-    queries: [{ path: source, fullContent: true, goal: 'page', reasoning: 'Exercise response pagination parity.', debug: false }],
-    responseCharLength: 96,
+    queries: [{ path: source, fullContent: true, mainGoal: 'page', reasoning: 'Exercise response pagination parity.', debug: false }],
+    responseLength: 96,
   };
   const pages = [];
   for (let index = 0; index < 100; index += 1) {
@@ -90,13 +90,13 @@ try {
     name: 'localFetch',
     arguments: {
       queries: [{ path: source, fullContent: true, reasoning: 'Exercise stale response pagination restart parity.', debug: false }],
-      responseCharLength: 96,
-      responseCharOffset: first.nextCharOffset,
+      responseLength: 96,
+      responseOffset: first.nextOffset,
       responseSnapshot: 'response-v1:stale',
     },
   });
   assert.equal(stale.structuredContent.responsePagination.restart, true);
-  assert.equal(stale.structuredContent.responsePagination.next.query.responseCharOffset, 0);
+  assert.equal(stale.structuredContent.responsePagination.next.query.responseOffset, 0);
   const [expectedInvalid, actualInvalid] = await Promise.all([
     reference.callTool({ name: 'localFetch', arguments: { queries: [{}] } }),
     native.callTool({ name: 'localFetch', arguments: { queries: [{}] } }),

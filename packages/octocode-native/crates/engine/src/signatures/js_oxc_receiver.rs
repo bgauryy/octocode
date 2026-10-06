@@ -256,6 +256,26 @@ fn is_nullish(expression: &Expression) -> bool {
 }
 
 /// Record `ty` for `name`; a second, different type makes it unknown.
+/// A field's annotated type is declared; otherwise a non-nullish initializer
+/// contributes its constructed type to the inferred fields.
+fn type_field(
+    (declared, inferred): (&mut Fields, &mut Fields),
+    key: &PropertyKey,
+    annotation: Option<&TSTypeAnnotation>,
+    value: Option<&Expression>,
+) {
+    let Some((name, _)) = property_key_name(key) else {
+        return;
+    };
+    if let Some(annotation) = annotation {
+        declared.insert(name, ts_type(&annotation.type_annotation));
+    } else if let Some(value) = value
+        && !is_nullish(value)
+    {
+        merge(inferred, name, expression_type(value, None));
+    }
+}
+
 fn merge(fields: &mut Fields, name: String, ty: Option<String>) {
     match fields.get_mut(&name) {
         Some(existing) if *existing != ty => *existing = None,
@@ -275,26 +295,18 @@ fn class_fields(class: &Class) -> Fields {
     let mut constructor_parameters = Fields::new();
     for element in &class.body.body {
         match element {
-            ClassElement::PropertyDefinition(property) if !property.r#static => {
-                let Some((name, _)) = property_key_name(&property.key) else {
-                    continue;
-                };
-                if let Some(annotation) = &property.type_annotation {
-                    declared.insert(name, ts_type(&annotation.type_annotation));
-                } else if let Some(value) = &property.value
-                    && !is_nullish(value)
-                {
-                    merge(&mut inferred, name, expression_type(value, None));
-                }
-            }
-            ClassElement::AccessorProperty(property) if !property.r#static => {
-                let Some((name, _)) = property_key_name(&property.key) else {
-                    continue;
-                };
-                if let Some(annotation) = &property.type_annotation {
-                    declared.insert(name, ts_type(&annotation.type_annotation));
-                }
-            }
+            ClassElement::PropertyDefinition(property) if !property.r#static => type_field(
+                (&mut declared, &mut inferred),
+                &property.key,
+                property.type_annotation.as_deref(),
+                property.value.as_ref(),
+            ),
+            ClassElement::AccessorProperty(property) if !property.r#static => type_field(
+                (&mut declared, &mut inferred),
+                &property.key,
+                property.type_annotation.as_deref(),
+                None,
+            ),
             ClassElement::MethodDefinition(method)
                 if method.kind == MethodDefinitionKind::Constructor =>
             {
@@ -391,7 +403,8 @@ mod tests {
     use std::collections::BTreeMap;
 
     fn receivers(source: &str, path: &str) -> BTreeMap<String, Vec<Option<String>>> {
-        let json = super::super::js_oxc::extract_graph_facts(source, path).expect("graph facts");
+        let json =
+            super::super::js_oxc::tests::extract_graph_facts(source, path).expect("graph facts");
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         let mut out: BTreeMap<String, Vec<Option<String>>> = BTreeMap::new();
         for call in value["calls"].as_array().unwrap() {
@@ -491,9 +504,11 @@ class Svc {
 
     #[test]
     fn ts_callee_stays_as_written() {
-        let json =
-            super::super::js_oxc::extract_graph_facts("function f(x: Store) { x.save(); }", "a.ts")
-                .unwrap();
+        let json = super::super::js_oxc::tests::extract_graph_facts(
+            "function f(x: Store) { x.save(); }",
+            "a.ts",
+        )
+        .unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         let call = &value["calls"][0];
         assert_eq!(call["callee"], "x.save");

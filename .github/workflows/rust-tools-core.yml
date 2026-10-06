@@ -58,7 +58,6 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      # build-publication.test.cjs resolves @napi-rs/cli through build-native.cjs.
       - run: corepack enable
       - run: yarn install --immutable
       - name: Verify crate boundaries and release scripts
@@ -69,7 +68,7 @@ jobs:
         run: cargo fmt --all --check
       - name: Test Rust libraries and host adapters
         working-directory: packages/octocode-native
-        run: cargo test --locked -p octocode-native -p octocode-github -p octocode-cli --no-default-features && cargo test --locked -p octocode-engine --all-features && cargo test --locked -p octocode-runtime-napi --features napi-test
+        run: cargo test --locked -p octocode-native -p octocode-github -p octocode-cli && cargo test --locked -p octocode-engine --all-features && cargo test --locked -p octocode-runtime-napi --features napi-test
         env:
           RUST_BACKTRACE: 1
       - name: Clippy workspace crates

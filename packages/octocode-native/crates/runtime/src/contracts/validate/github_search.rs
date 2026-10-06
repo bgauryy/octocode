@@ -36,10 +36,11 @@ pub(super) fn validate_github_search_queries(
         let (runnable, message) = match kind {
             GithubSearchKind::Code => (
                 has_terms("keywords")
-                    || ["path", "extension", "filename", "language"]
+                    || has_terms("extensions")
+                    || ["path", "filename", "language"]
                         .iter()
                         .any(|field| has_text(field)),
-                "ghSearchCode needs keywords or a path, extension, filename, or language filter",
+                "ghSearchCode needs keywords or a path, extensions, filename, or language filter",
             ),
             GithubSearchKind::Repositories => (
                 has_terms("keywords")
@@ -48,12 +49,8 @@ pub(super) fn validate_github_search_queries(
                         "owner",
                         "language",
                         "stars",
-                        "forks",
-                        "goodFirstIssues",
-                        "updated",
+                        "pushed",
                         "created",
-                        "size",
-                        "visibility",
                         "license",
                         "qualifiers",
                     ]

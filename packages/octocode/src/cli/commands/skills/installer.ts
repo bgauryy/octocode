@@ -1,10 +1,9 @@
 import {
   installBundledSkills,
   type SkillInstallMode,
+  type SkillPlatform,
 } from '@octocodeai/octocode-skill-installer';
-import type { Platform } from './platforms.js';
 
-export type InstallMode = SkillInstallMode;
 export type LinkStatus = 'linked' | 'skipped' | 'failed';
 
 export interface LinkResult {
@@ -25,10 +24,10 @@ export interface SkillInstallOutcome {
 export interface InstallSkillParams {
   sourcePath: string;
   skillName: string;
-  platforms: Platform[];
+  platforms: SkillPlatform[];
   workspace: boolean;
   customPath: string | null;
-  mode: InstallMode;
+  mode: SkillInstallMode;
   force: boolean;
   dryRun: boolean;
   /** Test/integration override for global platform roots. */

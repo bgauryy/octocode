@@ -4,15 +4,14 @@
 //! binary (and bundling one via `@vscode/ripgrep`), this module drives
 //! ripgrep's own library crates directly —
 //!   * `grep` (grep-searcher + grep-regex + grep-printer) for the search engine,
-//!   * the `pcre2` feature (grep-pcre2) for `-P` lookaround/backreferences,
+//!   * `grep-pcre2` for `-P` lookaround/backreferences,
 //!   * `ignore` for the gitignore-aware walk, `-g` override globs and `-t` types.
 //!
 //! It returns the same `RipgrepParseResult` shape as the `--json` parser, with
 //! native byte/time stats populated by the in-process search path.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
-#[cfg(feature = "pcre2")]
 use std::sync::atomic::AtomicUsize;
 use std::sync::{
     Arc, Mutex,
@@ -21,9 +20,9 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime};
 
 use super::relevance;
-use crate::error::{Error, Result, Status};
+use super::walk::{WalkFlags, walk_builder};
+use crate::error::{Error, Result};
 use grep_matcher::Matcher;
-#[cfg(feature = "pcre2")]
 use grep_pcre2::RegexMatcherBuilder as Pcre2MatcherBuilder;
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
@@ -44,12 +43,6 @@ use crate::types::{
 
 pub trait RipgrepPathFilter: Send + Sync {
     fn allows(&self, path: &Path, is_dir: bool) -> bool;
-}
-struct AllowAll;
-impl RipgrepPathFilter for AllowAll {
-    fn allows(&self, _: &Path, _: bool) -> bool {
-        true
-    }
 }
 
 const DEFAULT_MAX_SNIPPET_CHARS: u32 = 500;
@@ -82,7 +75,6 @@ const SEARCH_HEAP_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 /// submatch count is still reported in stats.
 const MAX_ONLY_MATCHING_PER_LINE: u32 = 1000;
 
-#[cfg(feature = "pcre2")]
 /// Cap on PCRE2's JIT stack (1 MiB). A user `-P` pattern with catastrophic
 /// backtracking (`(a+)+$`-class) exhausts this cap and fails fast per file
 /// instead of spinning against the JIT's default 32 KB stack growth. Residual
@@ -92,7 +84,6 @@ const MAX_ONLY_MATCHING_PER_LINE: u32 = 1000;
 /// PCRE2 matcher we build (search + pattern validation).
 pub(crate) const PCRE2_MAX_JIT_STACK_BYTES: usize = 1 << 20;
 
-#[cfg(feature = "pcre2")]
 /// Wall-clock ceiling for a whole PCRE2 (`-P`) search. PCRE2's JIT-stack cap
 /// bounds a single catastrophic backtrack's *memory*, but nothing bounds its
 /// *time*: a pathological `-P` pattern can spin for a long time inside a single
@@ -113,25 +104,21 @@ pub(crate) const PCRE2_MAX_JIT_STACK_BYTES: usize = 1 << 20;
 /// catastrophically backtrack.
 pub(crate) const PCRE2_SEARCH_DEADLINE: Duration = Duration::from_secs(5);
 
-#[cfg(feature = "pcre2")]
 /// Extra time the driver waits past the cooperative deadline before it stops
 /// waiting for a stuck PCRE2 worker (see [`PCRE2_SEARCH_DEADLINE`]).
 pub(crate) const PCRE2_DEADLINE_GRACE: Duration = Duration::from_secs(2);
 
-#[cfg(feature = "pcre2")]
 /// How often the PCRE2 driver wakes to poll caller cancellation and the hard
 /// deadline while it waits for the worker.
 const PCRE2_DRIVER_POLL: Duration = Duration::from_millis(25);
 
-#[cfg(feature = "pcre2")]
 /// Maximum number of PCRE2 (`-P`) search worker threads alive at once,
 /// including workers still finishing an uninterruptible match after the driver
 /// stopped waiting. Once saturated, a new `-P` search is rejected rather than
 /// spawning another thread (each may hold a 1 MiB JIT stack — see
 /// [`PCRE2_MAX_JIT_STACK_BYTES`]).
-const MAX_ACTIVE_PCRE2_WORKERS: usize = 8;
+pub(crate) const MAX_ACTIVE_PCRE2_WORKERS: usize = 8;
 
-#[cfg(feature = "pcre2")]
 /// Wall-clock limits for one PCRE2 search. Production uses
 /// [`PCRE2_SEARCH_DEADLINE`] and [`PCRE2_DEADLINE_GRACE`]; tests shrink them.
 #[derive(Clone, Copy)]
@@ -140,7 +127,6 @@ struct Pcre2Limits {
     grace: Duration,
 }
 
-#[cfg(feature = "pcre2")]
 const PCRE2_LIMITS: Pcre2Limits = Pcre2Limits {
     deadline: PCRE2_SEARCH_DEADLINE,
     grace: PCRE2_DEADLINE_GRACE,
@@ -157,15 +143,13 @@ const MAX_BINARY_PREFIX_BYTES: u64 = 8 * 1024 * 1024;
 /// not text cut short.
 const LEADING_BINARY_BYTES: usize = 1024;
 
-#[cfg(feature = "pcre2")]
 /// Live PCRE2 worker count (including abandoned-but-still-running workers).
-static ACTIVE_PCRE2_WORKERS: AtomicUsize = AtomicUsize::new(0);
+pub(crate) static ACTIVE_PCRE2_WORKERS: AtomicUsize = AtomicUsize::new(0);
 
-#[cfg(feature = "pcre2")]
 /// Reserve a worker slot if the live count is below `max`. Returns false when
 /// saturated (leaving the counter unchanged). Lock-free and pure so the bound is
 /// directly unit-testable without driving a real catastrophic regex.
-fn try_acquire_worker_slot(counter: &AtomicUsize, max: usize) -> bool {
+pub(crate) fn try_acquire_worker_slot(counter: &AtomicUsize, max: usize) -> bool {
     let mut current = counter.load(Ordering::Relaxed);
     loop {
         if current >= max {
@@ -183,25 +167,22 @@ fn try_acquire_worker_slot(counter: &AtomicUsize, max: usize) -> bool {
     }
 }
 
-#[cfg(feature = "pcre2")]
-fn release_worker_slot(counter: &AtomicUsize) {
+pub(crate) fn release_worker_slot(counter: &AtomicUsize) {
     counter.fetch_sub(1, Ordering::AcqRel);
 }
 
-#[cfg(feature = "pcre2")]
 /// Releases the global PCRE2 worker slot when the worker thread exits — whether
 /// it completed normally or finished after the driver stopped waiting.
-struct Pcre2WorkerSlot;
+pub(crate) struct Pcre2WorkerSlot;
 
-#[cfg(feature = "pcre2")]
 impl Drop for Pcre2WorkerSlot {
     fn drop(&mut self) {
         release_worker_slot(&ACTIVE_PCRE2_WORKERS);
     }
 }
 
-fn to_napi_err<E: std::fmt::Display>(e: E) -> Error {
-    Error::new(Status::GenericFailure, e.to_string())
+fn to_engine_err<E: std::fmt::Display>(e: E) -> Error {
+    Error::new(e.to_string())
 }
 
 /// Map a byte offset in the raw line `bytes` to the matching byte offset in
@@ -215,40 +196,12 @@ fn lossy_offset(bytes: &[u8], offset: usize) -> usize {
     }
 }
 
-/// Slice the matched span `[start, end)` (byte offsets) out of `line`,
-/// optionally widened by `window` characters on each side. Always returns a
-/// valid UTF-8 substring; trimmed sides are marked with `…`.
-fn span_value(line: &str, start: usize, end: usize, window: usize) -> String {
+/// Slice the matched span `[start, end)` (byte offsets) out of `line` as a
+/// valid UTF-8 substring.
+fn span_value(line: &str, start: usize, end: usize) -> String {
     let start = floor_char_boundary(line, start);
     let end = ceil_char_boundary(line, end).max(start);
-    if window == 0 {
-        return line[start..end].to_owned();
-    }
-    // Step back `window` chars from `start`.
-    let mut left = start;
-    for _ in 0..window {
-        if left == 0 {
-            break;
-        }
-        left = floor_char_boundary(line, left - 1);
-    }
-    // Step forward `window` chars from `end`.
-    let mut right = end;
-    for _ in 0..window {
-        if right >= line.len() {
-            break;
-        }
-        right = ceil_char_boundary(line, right + 1);
-    }
-    let mut out = String::new();
-    if left > 0 {
-        out.push('…');
-    }
-    out.push_str(&line[left..right]);
-    if right < line.len() {
-        out.push('…');
-    }
-    out
+    line[start..end].to_owned()
 }
 
 /// Output mode. The CLI builder applied these with a fixed precedence
@@ -366,6 +319,8 @@ struct CollectResult {
     skipped_binary_count: u32,
     /// Skipped binary files per lowercased extension, most files first.
     skipped_binary_extensions: Vec<BinaryExtensionCount>,
+    /// Root-relative directories the prune list skipped, sorted.
+    pruned_dirs: Vec<String>,
     /// The caller cancelled the search before the walk finished (`cancelled`).
     cancelled: bool,
     error_count: u32,
@@ -391,7 +346,8 @@ struct CollectState {
     binary_files: Mutex<Vec<String>>,
     binary_file_count: AtomicU32,
     skipped_binary_count: AtomicU32,
-    skipped_binary_extensions: Mutex<HashMap<String, u32>>,
+    skipped_binary_extensions: Mutex<HashMap<String, (u32, BTreeSet<String>)>>,
+    pruned_dirs: Mutex<Vec<String>>,
     cancelled: AtomicBool,
     /// Set when the walk must end now (deadline, cancellation, driver timeout).
     stop: AtomicBool,
@@ -417,6 +373,7 @@ impl CollectState {
             binary_file_count: AtomicU32::new(0),
             skipped_binary_count: AtomicU32::new(0),
             skipped_binary_extensions: Mutex::new(HashMap::new()),
+            pruned_dirs: Mutex::new(Vec::new()),
             cancelled: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             error_count: AtomicU32::new(0),
@@ -429,9 +386,17 @@ impl CollectState {
     fn record_skipped_binary(&self, path: &Path) {
         self.skipped_binary_count.fetch_add(1, Ordering::Relaxed);
         let extension = get_extension_internal(&path.to_string_lossy(), true, "");
+        let name = extension
+            .is_empty()
+            .then(|| {
+                path.file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+            })
+            .flatten();
         if let Ok(mut groups) = self.skipped_binary_extensions.lock() {
-            let count = groups.entry(extension).or_insert(0);
+            let (count, names) = groups.entry(extension).or_default();
             *count = count.saturating_add(1);
+            names.extend(name);
         }
     }
 
@@ -448,6 +413,13 @@ impl CollectState {
         // Every binary-quit file is named: each is a coverage gap.
         if let Ok(mut files) = self.binary_files.lock() {
             files.push(path.to_string_lossy().into_owned());
+        }
+    }
+
+    /// Remember a directory the prune list skipped, root-relative.
+    fn record_pruned(&self, relative: String) {
+        if let Ok(mut dirs) = self.pruned_dirs.lock() {
+            dirs.push(relative);
         }
     }
 
@@ -515,15 +487,25 @@ impl CollectState {
                 .unwrap_or_default(),
             binary_file_count: self.binary_file_count.load(Ordering::Relaxed),
             skipped_binary_count: self.skipped_binary_count.load(Ordering::Relaxed),
+            pruned_dirs: self
+                .pruned_dirs
+                .lock()
+                .map(|dirs| {
+                    let mut dirs = dirs.clone();
+                    dirs.sort();
+                    dirs
+                })
+                .unwrap_or_default(),
             skipped_binary_extensions: self
                 .skipped_binary_extensions
                 .lock()
                 .map(|groups| {
                     let mut groups = groups
                         .iter()
-                        .map(|(extension, count)| BinaryExtensionCount {
+                        .map(|(extension, (count, names))| BinaryExtensionCount {
                             extension: extension.clone(),
                             count: *count,
+                            names: names.iter().cloned().collect(),
                         })
                         .collect::<Vec<_>>();
                     groups.sort_by(|a, b| {
@@ -541,7 +523,7 @@ impl CollectState {
     }
 }
 
-/// Saturating `u64` → `u32` for the public (napi-compatible) `u32` stats.
+/// Saturating `u64` → `u32` for the public `u32` stats.
 fn saturate_u32(value: u64) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
 }
@@ -554,8 +536,6 @@ struct CollectSink<'a, M: Matcher> {
     submatches: u32,
     matched_lines: u32,
     work: MatchWork,
-    /// Chars of context around each span in only-matching mode.
-    match_window: usize,
     /// Accumulated only-matching spans for this file.
     om_matches: Vec<RipgrepMatch>,
     /// A retained span limit must never be reported as an exhaustive search.
@@ -580,7 +560,6 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
     fn new(
         matcher: &'a M,
         work: MatchWork,
-        match_window: usize,
         deadline: Option<Instant>,
         stop: &'a AtomicBool,
     ) -> Self {
@@ -590,7 +569,6 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
             submatches: 0,
             matched_lines: 0,
             work,
-            match_window,
             om_matches: Vec::new(),
             span_cap_reached: false,
             deadline,
@@ -629,7 +607,6 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             // Emit one span per submatch with its own UTF-16 column, rather than
             // one whole-line match. find_iter yields non-overlapping matches L→R.
             let matcher = self.matcher;
-            let window = self.match_window;
             let om = &mut self.om_matches;
             matcher
                 .find_iter(bytes, |m| {
@@ -638,7 +615,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
                     if count <= MAX_ONLY_MATCHING_PER_LINE {
                         let (start, end) =
                             (lossy_offset(bytes, m.start()), lossy_offset(bytes, m.end()));
-                        let value = span_value(&line_text, start, end, window);
+                        let value = span_value(&line_text, start, end);
                         let column =
                             byte_to_char_offset_inner(&line_text, start.min(line_text.len()))
                                 as u32;
@@ -740,59 +717,50 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
 /// no-ignore handling. Results are sorted after parallel traversal to reproduce
 /// `--sort`/`--sortr` deterministically.
 fn build_walk_builder(opts: &RipgrepSearchOptions) -> Result<WalkBuilder> {
-    let mut wb = WalkBuilder::new(&opts.path);
-    let no_ignore = opts.no_ignore.unwrap_or(false);
-    wb.ignore(!no_ignore)
-        .git_ignore(!no_ignore)
-        .git_global(!no_ignore)
-        .git_exclude(!no_ignore)
-        .parents(!no_ignore)
-        // hidden(true) means "skip hidden"; rg searches them only with --hidden.
-        .hidden(!opts.hidden.unwrap_or(false))
-        .follow_links(false);
-
-    // ignore::WalkBuilder counts the root as depth 0 and its direct children as
-    // depth 1. The public tool contract counts files in the root as maxDepth 0.
-    if let Some(max_depth) = opts.max_depth {
-        wb.max_depth(Some(max_depth as usize + 1));
-    }
+    let mut wb = walk_builder(
+        Path::new(&opts.path),
+        &WalkFlags {
+            hidden: opts.hidden.unwrap_or(false),
+            no_ignore: opts.no_ignore.unwrap_or(false),
+            no_ignore_global: true,
+            // The public tool contract counts files in the root as maxDepth 0.
+            max_depth: opts.max_depth.map(|max_depth| max_depth as usize + 1),
+        },
+    );
 
     if let Some(lang) = opts.lang_type.as_deref().filter(|l| !l.is_empty()) {
         let mut tb = TypesBuilder::new();
         tb.add_defaults();
         tb.select(lang);
-        wb.types(tb.build().map_err(to_napi_err)?);
+        wb.types(tb.build().map_err(to_engine_err)?);
     }
 
     let has_globs = opts.include.as_ref().is_some_and(|v| !v.is_empty())
-        || opts.exclude.as_ref().is_some_and(|v| !v.is_empty())
-        || opts.exclude_dir.as_ref().is_some_and(|v| !v.is_empty());
+        || opts.exclude.as_ref().is_some_and(|v| !v.is_empty());
     if has_globs {
         let mut ob = OverrideBuilder::new(&opts.path);
         if let Some(include) = &opts.include {
             for glob in include {
-                ob.add(glob).map_err(to_napi_err)?;
+                ob.add(glob).map_err(to_engine_err)?;
             }
         }
         if let Some(exclude) = &opts.exclude {
             for glob in exclude {
-                ob.add(&format!("!{glob}")).map_err(to_napi_err)?;
+                ob.add(&format!("!{glob}")).map_err(to_engine_err)?;
             }
         }
-        if let Some(exclude_dir) = &opts.exclude_dir {
-            for dir in exclude_dir {
-                // `excludeDir: ["sub/"]` must behave like `["sub"]`, not build `!sub//`.
-                let dir = dir.trim_end_matches('/');
-                if dir.is_empty() {
-                    continue;
-                }
-                ob.add(&format!("!{dir}/")).map_err(to_napi_err)?;
-            }
-        }
-        wb.overrides(ob.build().map_err(to_napi_err)?);
+        wb.overrides(ob.build().map_err(to_engine_err)?);
     }
 
     Ok(wb)
+}
+
+/// Whether a walked directory is on the prune list (`exclude_dir`), by name
+/// at any depth.
+fn prunes(opts: &RipgrepSearchOptions, name: &std::ffi::OsStr) -> bool {
+    opts.exclude_dir
+        .as_deref()
+        .is_some_and(|dirs| dirs.iter().any(|dir| std::ffi::OsStr::new(dir) == name))
 }
 
 fn capture_sort_time(opts: &RipgrepSearchOptions, entry: &ignore::DirEntry) -> Option<SystemTime> {
@@ -1018,7 +986,6 @@ struct FileSearcher<'a, M: Matcher> {
     prefix_searcher: Option<Searcher>,
     context_lines: u32,
     work: MatchWork,
-    match_window: usize,
     deadline: Option<Instant>,
     stop: &'a AtomicBool,
 }
@@ -1028,13 +995,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
     /// dropped the whole buffer holding the NUL, so the NUL-free prefix is
     /// searched again from byte 0 and its matches replace the first pass.
     fn search(&mut self, file: &std::fs::File) -> std::io::Result<FileOutcome> {
-        let mut sink = CollectSink::new(
-            self.matcher,
-            self.work,
-            self.match_window,
-            self.deadline,
-            self.stop,
-        );
+        let mut sink = CollectSink::new(self.matcher, self.work, self.deadline, self.stop);
         self.searcher.search_file(self.matcher, file, &mut sink)?;
         let Some(offset) = sink.binary_offset else {
             return Ok(sink.into());
@@ -1047,13 +1008,7 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let prefix_searcher = self
             .prefix_searcher
             .get_or_insert_with(|| build_searcher(opts, context_lines, BinaryDetection::none()));
-        let mut prefix_sink = CollectSink::new(
-            self.matcher,
-            self.work,
-            self.match_window,
-            self.deadline,
-            self.stop,
-        );
+        let mut prefix_sink = CollectSink::new(self.matcher, self.work, self.deadline, self.stop);
         prefix_searcher.search_slice(self.matcher, &prefix, &mut prefix_sink)?;
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;
@@ -1096,7 +1051,6 @@ fn collect<M: Matcher + Sync>(
     } else {
         0
     };
-    let match_window = opts.match_window.unwrap_or(0) as usize;
     let keep_unmatched = mode == Mode::FilesWithoutMatch;
     let limit = collection_limit(opts);
 
@@ -1142,7 +1096,6 @@ fn collect<M: Matcher + Sync>(
                     && !opts.invert_match.unwrap_or(false),
                 ..match_work(mode, only_matching)
             },
-            match_window,
             deadline,
             stop: &state.stop,
         };
@@ -1179,6 +1132,11 @@ fn collect<M: Matcher + Sync>(
                 } else {
                     WalkState::Continue
                 };
+            }
+            if is_dir && dent.depth() > 0 && prunes(opts, dent.file_name()) {
+                let relative = dent.path().strip_prefix(&opts.path).unwrap_or(dent.path());
+                state.record_pruned(relative.to_string_lossy().replace('\\', "/"));
+                return WalkState::Skip;
             }
             if !dent.file_type().is_some_and(|t| t.is_file()) {
                 return WalkState::Continue;
@@ -1222,7 +1180,10 @@ fn collect<M: Matcher + Sync>(
                     return WalkState::Continue;
                 }
             };
-            let relative = path.strip_prefix(&opts.path).unwrap_or(path).to_string_lossy();
+            let relative = path
+                .strip_prefix(&opts.path)
+                .unwrap_or(path)
+                .to_string_lossy();
             let generated = ranks_by_relevance(opts)
                 && outcome.matched_lines > 0
                 && (relevance::is_generated_path(&relative)
@@ -1238,7 +1199,10 @@ fn collect<M: Matcher + Sync>(
             state.files_searched.fetch_add(1, Ordering::Relaxed);
             state.bytes_searched.fetch_add(file_len, Ordering::Relaxed);
             if outcome.opaque {
+                // Binary from its leading bytes: outside a text search, so
+                // any bytes that happened to match are not hits.
                 state.record_skipped_binary(path);
+                return WalkState::Continue;
             } else if outcome.binary {
                 // Text after the NUL was not searched: coverage is partial.
                 state.record_binary(path);
@@ -1407,6 +1371,7 @@ fn build_result(
         binary_file_count,
         skipped_binary_count,
         skipped_binary_extensions,
+        pruned_dirs,
         cancelled,
         error_count,
         first_error,
@@ -1518,58 +1483,37 @@ fn build_result(
         skipped_binary_count: (skipped_binary_count > 0).then_some(skipped_binary_count),
         skipped_binary_extensions: (!skipped_binary_extensions.is_empty())
             .then_some(skipped_binary_extensions),
+        pruned_dirs: (!pruned_dirs.is_empty()).then_some(pruned_dirs),
     };
 
     RipgrepParseResult { files, stats }
 }
 
 /// Build the appropriate matcher (default Rust regex, or PCRE2 for `-P`) and run
-/// the search. `fixed_string` is honored by escaping the pattern for the regex
-/// engine; the CLI gave `-F` precedence over `-P`, so PCRE2 only applies when
-/// `fixed_string` is not set.
-pub(crate) fn search(opts: RipgrepSearchOptions) -> Result<RipgrepParseResult> {
-    search_filtered(opts, Arc::new(AllowAll))
-}
-
-pub(crate) fn search_filtered(
-    opts: RipgrepSearchOptions,
-    path_filter: Arc<dyn RipgrepPathFilter>,
-) -> Result<RipgrepParseResult> {
-    search_cancellable(opts, path_filter, &|| false)
-}
-
-/// [`search_filtered`] that stops walking at the next entry once `cancelled`
-/// returns true. The partial result carries `capReason` `cancelled`.
+/// the search, stopping at the next entry once `cancelled` returns true (the
+/// partial result carries `capReason` `cancelled`). `fixed_string` is honored by
+/// escaping the pattern for the regex engine; the CLI gave `-F` precedence over
+/// `-P`, so PCRE2 only applies when `fixed_string` is not set.
 pub(crate) fn search_cancellable(
     opts: RipgrepSearchOptions,
     path_filter: Arc<dyn RipgrepPathFilter>,
     cancelled: &(dyn Fn() -> bool + Sync),
 ) -> Result<RipgrepParseResult> {
-    #[cfg(feature = "pcre2")]
-    {
-        search_with_limits(opts, path_filter, cancelled, PCRE2_LIMITS)
-    }
-    #[cfg(not(feature = "pcre2"))]
-    {
-        search_with_limits(opts, path_filter, cancelled)
-    }
+    search_with_limits(opts, path_filter, cancelled, PCRE2_LIMITS)
 }
 
 fn search_with_limits(
     opts: RipgrepSearchOptions,
     path_filter: Arc<dyn RipgrepPathFilter>,
     cancelled: &(dyn Fn() -> bool + Sync),
-    #[cfg(feature = "pcre2")] limits: Pcre2Limits,
+    limits: Pcre2Limits,
 ) -> Result<RipgrepParseResult> {
     let mode = resolve_mode(&opts);
 
     if (opts.unique.unwrap_or(false) || opts.count_unique.unwrap_or(false))
         && !opts.only_matching.unwrap_or(false)
     {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "unique/countUnique require onlyMatching:true",
-        ));
+        return Err(Error::new("unique/countUnique require onlyMatching:true"));
     }
 
     let case_sensitive = opts.case_sensitive.unwrap_or(false);
@@ -1582,8 +1526,7 @@ fn search_with_limits(
     let fixed_string = opts.fixed_string.unwrap_or(false);
     let perl_regex = !fixed_string && opts.perl_regex.unwrap_or(false);
 
-    // ── PCRE2 path (only compiled with the `pcre2` feature) ──────────────────────────────
-    #[cfg(feature = "pcre2")]
+    // ── PCRE2 path ──────────────────────────────────────────────────────────────
     if perl_regex {
         let mut b = Pcre2MatcherBuilder::new();
         b.caseless(case_insensitive)
@@ -1596,21 +1539,11 @@ fn search_with_limits(
             .ucp(true)
             .jit_if_available(true)
             .max_jit_stack_size(Some(PCRE2_MAX_JIT_STACK_BYTES));
-        let matcher = b.build(&opts.pattern).map_err(to_napi_err)?;
+        let matcher = b.build(&opts.pattern).map_err(to_engine_err)?;
         return search_pcre2(opts, mode, matcher, path_filter, cancelled, limits);
     }
 
-    // ── Error when PCRE2 is not compiled in ──────────────────────────────────────────
-    #[cfg(not(feature = "pcre2"))]
-    if perl_regex {
-        return Err(Error::new(
-            Status::GenericFailure,
-            "PCRE2 (`perl_regex` / `-P`) search is not available in this build; \
-             use regex:\"rust\" (the default engine) instead.",
-        ));
-    }
-
-    // ── Default Rust-regex path (always compiled) ───────────────────────────────────
+    // ── Default Rust-regex path ─────────────────────────────────────────────────
     let mut b = RegexMatcherBuilder::new();
     b.case_insensitive(case_insensitive)
         .case_smart(smart_case)
@@ -1632,7 +1565,7 @@ fn search_with_limits(
     } else {
         opts.pattern.clone()
     };
-    let matcher = b.build(&pattern).map_err(to_napi_err)?;
+    let matcher = b.build(&pattern).map_err(to_engine_err)?;
     // The Rust regex engine is linear-time and cannot catastrophically
     // backtrack, so it needs no wall-clock deadline.
     let state = CollectState::new();
@@ -1651,7 +1584,6 @@ fn search_with_limits(
     Ok(build_result(&opts, mode, state.snapshot()))
 }
 
-#[cfg(feature = "pcre2")]
 /// Run a PCRE2 search on a worker thread bounded by `limits` (see
 /// [`PCRE2_SEARCH_DEADLINE`]). The driver polls `cancelled` and the hard
 /// deadline; on either it raises the shared stop flag and returns the files the
@@ -1668,7 +1600,6 @@ fn search_pcre2(
     // finishing an uninterruptible match after their driver returned.
     if !try_acquire_worker_slot(&ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS) {
         return Err(Error::new(
-            Status::GenericFailure,
             "Too many concurrent PCRE2 (-P) searches are in flight (some past their wall-clock deadline are still finishing a match); retry shortly, or use regex:\"literal\"/the default engine.",
         ));
     }
@@ -1701,7 +1632,7 @@ fn search_pcre2(
         // Spawn failed: no worker will ever run to release the reserved slot.
         release_worker_slot(&ACTIVE_PCRE2_WORKERS);
     }
-    spawned.map_err(to_napi_err)?;
+    spawned.map_err(to_engine_err)?;
     loop {
         if cancelled() {
             state.cancelled.store(true, Ordering::Relaxed);
@@ -1721,10 +1652,7 @@ fn search_pcre2(
             }
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                return Err(Error::new(
-                    Status::GenericFailure,
-                    "PCRE2 search worker terminated unexpectedly",
-                ));
+                return Err(Error::new("PCRE2 search worker terminated unexpectedly"));
             }
         }
     }
@@ -1732,4 +1660,4 @@ fn search_pcre2(
 
 #[cfg(test)]
 #[path = "ripgrep_search_tests.rs"]
-mod tests;
+pub(crate) mod tests;

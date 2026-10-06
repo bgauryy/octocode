@@ -11,13 +11,8 @@ import { EXIT } from '../exit-codes.js';
 import { resolveNativeBin } from '../native-delegate.js';
 import { contractDriftAllowed, contractDriftMessage } from '@octocodeai/config';
 import type { GrammarCapability } from '@octocodeai/config/mcp';
-import {
-  projectSelected,
-  type JsonObject,
-  type SchemeView,
-} from './scheme-projection.js';
-
-export { project, projectSelected } from './scheme-projection.js';
+import type { SchemeJsonObject, SchemeView } from '@octocodeai/config/schema';
+import { project } from './scheme-projection.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -39,7 +34,7 @@ interface MachineCatalog {
 
 const USAGE = `octocode scheme [toolName] [--view full|query|variants] [--select FIELD=VALUE] [--compact|--pretty]
 
-  octocode scheme                   list every tool, availability, and agent instructions
+  octocode scheme                   list enabled tools and agent instructions
   octocode scheme <toolName>        print the tool's contract with variants before its schema
   octocode scheme <toolName> --view variants
                                     compact branch names, selectors, and examples
@@ -96,7 +91,7 @@ function isEnabled(availability: unknown): boolean {
     !!availability &&
     typeof availability === 'object' &&
     !Array.isArray(availability) &&
-    (availability as JsonObject).enabled === true
+    (availability as SchemeJsonObject).enabled === true
   );
 }
 
@@ -259,15 +254,18 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
 
   const machineByName = new Map(machine.tools.map(tool => [tool.name, tool]));
 
+  // Discovery lists only tools this surface can run, like MCP tools/list.
+  const listed = (catalog.tools as readonly SchemeJsonObject[]).filter(tool =>
+    presentation.enabled.includes(String(tool.name))
+  );
   if (toolName === undefined) {
-    const tools = (catalog.tools as readonly JsonObject[]).map(tool => {
+    const tools = listed.map(tool => {
       const name = String(tool.name);
       const runtimeEntry = machineByName.get(name);
       return {
         name,
         description: tool.shortDescription ?? '',
         fields: runtimeEntry?.fields ?? '[]',
-        availability: runtimeEntry?.availability ?? { enabled: false },
       };
     });
     return writeJson(
@@ -276,7 +274,7 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
         version: 1,
         toolCount: tools.length,
         output:
-          'Compact discovery catalog with availability-scoped agent instructions. Inspect one tool before execution.',
+          'Compact catalog of enabled tools with agent instructions. Inspect one tool before execution.',
         commands: {
           schema: 'scheme <name> --view query',
           fullContract: 'scheme <name> --view full',
@@ -291,20 +289,18 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
     );
   }
 
-  const tool = (catalog.tools as readonly JsonObject[]).find(
+  const tool = (catalog.tools as readonly SchemeJsonObject[]).find(
     candidate => candidate.name === toolName
   );
   if (!tool) {
-    const known = (catalog.tools as readonly JsonObject[])
-      .map(candidate => String(candidate.name))
-      .join(', ');
+    const known = listed.map(candidate => String(candidate.name)).join(', ');
     emitError(`Unknown tool: ${toolName}. Known tools: ${known}`, jsonErrors);
     return EXIT.USAGE;
   }
   // The catalog already carries the availability-scoped description.
-  let value: JsonObject;
+  let value: SchemeJsonObject;
   try {
-    value = projectSelected(tool, view, select);
+    value = project(tool, view, select);
   } catch (error) {
     emitError(
       error instanceof Error ? error.message : String(error),
@@ -320,7 +316,7 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
   const runtimeEntry = machineByName.get(String(toolName));
   value.availability = (runtimeEntry?.availability ?? {
     enabled: false,
-  }) as JsonObject;
+  }) as SchemeJsonObject;
   // The compact catalog carries a generic `run` hint; the per-tool view echoes
   // the concrete invocation so an agent inspecting one contract sees exactly
   // how to execute it.

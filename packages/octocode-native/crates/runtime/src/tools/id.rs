@@ -103,9 +103,76 @@ impl std::fmt::Display for ToolId {
     }
 }
 
+/// The output channel of a follow-up call, classified by the core
+/// contract's `continuationChannels`: `next` keeps pages, `hints` leads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Channel {
+    /// More of the same result.
+    Page,
+    /// An optional follow-up call.
+    Lead,
+}
+
+/// The channel of continuation `name` emitted by `tool`. An entry named
+/// after its own tool resumes that tool's walk (clasify's `next.clasify`);
+/// the same name on another tool is a handoff lead.
+#[must_use]
+pub fn channel(tool: ToolId, name: &str) -> Channel {
+    let name = kind(name);
+    let page = name == tool.as_str()
+        || continuation_channels::PAGE_NAMES.contains(&name)
+        || has_prefix(name, continuation_channels::PAGE_PREFIXES);
+    if page { Channel::Page } else { Channel::Lead }
+}
+
+/// The kind of continuation `name`: a name ending in digits repeats its
+/// kind (`readHits2` is another `readHits`).
+pub(crate) fn kind(name: &str) -> &str {
+    let base = name.trim_end_matches(|c: char| c.is_ascii_digit());
+    if base.is_empty() { name } else { base }
+}
+
+/// A page that leaves more of this result to read (a restart page starts
+/// over instead): a row offering one is partial, and the CLI exits 6.
+#[must_use]
+pub fn is_remaining(tool: ToolId, name: &str) -> bool {
+    channel(tool, name) == Channel::Page && !is_restart(name)
+}
+
+/// A page that starts the result over on the current source.
+#[must_use]
+pub fn is_restart(name: &str) -> bool {
+    has_prefix(name, continuation_channels::RESTART_PREFIXES)
+}
+
+/// A page that continues after the evidence a row shows: following it from
+/// an earlier part of a split row would skip the parts between, so it rides
+/// the row's last part.
+#[must_use]
+pub fn resumes_after_shown(name: &str) -> bool {
+    has_prefix(name, continuation_channels::RESUME_PREFIXES)
+}
+
+/// `name` is a prefix or a prefix followed by a capitalized word.
+fn has_prefix(name: &str, prefixes: &[&str]) -> bool {
+    prefixes.iter().any(|prefix| {
+        name.strip_prefix(prefix).is_some_and(|rest| {
+            rest.is_empty() || rest.starts_with(|c: char| c.is_ascii_uppercase())
+        })
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// GitHub routing sees exactly the contract's `github` family.
+    #[test]
+    fn the_github_identity_covers_exactly_the_github_family() {
+        for id in ToolId::ALL {
+            assert_eq!(id.github().is_some(), id.is_github(), "{}", id.as_str());
+        }
+    }
 
     fn contract_tools() -> &'static [serde_json::Value] {
         crate::contracts::parsed_contract().expect("contract")["tools"]

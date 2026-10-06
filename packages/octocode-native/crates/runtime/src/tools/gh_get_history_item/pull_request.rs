@@ -1,19 +1,17 @@
 //! `operation: "pullRequest"`: concurrent collection loads (GraphQL first page
 //! or REST windows), metadata row, and assembly of the shaped sections.
-use super::continuations::{
-    INVENTORY_ALL_PATCHES_FILES, attach_full_patch_continuation, attach_raw_body_read,
-    pr_next_menu, promote_pr_continuations,
-};
-use super::files::{
-    FileFilter, InventoryFilter, clamp_warning, file_page_size, patch_selection, push_warning,
-    shape_pr_files,
-};
+use super::filter::{FileFilter, InventoryFilter, patch_selection};
 use super::graphql::{
     GraphqlCollection, GraphqlOutcome, GraphqlPr, graphql_complete_collection_eligible,
     graphql_pull_request, map_graphql_comments, map_graphql_commits, map_graphql_files,
     map_graphql_reviews,
 };
+use super::inventory::{file_page_size, shape_pr_files};
+use super::patch::{HeadSources, clamp_warning, head_text_needed, match_context, push_warning};
+use super::patch_hop::attach_full_patch_continuation;
+use super::pr_menu::{INVENTORY_ALL_PATCHES_FILES, pr_next_menu};
 use super::pr_sections::{shape_pr_comments, shape_pr_commits, shape_pr_reviews};
+use super::promotion::{attach_raw_body_read, promote_pr_continuations};
 use super::util::{
     body_matches, content_flag, history_body_view, is_bot, map_comments, needle, nonzero,
     paginate_text, str_at, string, view_dropped_text,
@@ -56,7 +54,7 @@ pub(super) fn content_wants(query: &HistoryItemRequest) -> ContentWants {
         .and_then(Value::as_object);
     ContentWants {
         body: content_flag(content, "body"),
-        files: content_flag(content, "changedFiles") || patch_mode != "none",
+        files: content_flag(content, "files") || patch_mode != "none",
         discussion: content_flag(comments_selector, "discussion"),
         inline: content_flag(comments_selector, "reviewInline"),
         reviews: content_flag(content, "reviews"),
@@ -97,47 +95,194 @@ pub(super) async fn pull_request<R: CredentialResolver>(
     context: &RequestContext,
 ) -> Result<Value, ProviderError> {
     let wants = content_wants(query);
-    // REST serves whatever GraphQL could not; a failed fast path keeps its
-    // reason, and a cancelled or expired request stops here.
-    let (graphql, graphql_fallback) = if graphql_complete_collection_eligible(query) {
-        match graphql_pull_request(transport, query, context, &wants).await {
-            Ok(GraphqlOutcome::Served(pr)) => (Some(*pr), None),
-            Ok(GraphqlOutcome::Unavailable) => (None, None),
-            Ok(GraphqlOutcome::Failed(reason)) => (None, Some(reason)),
+    let (graphql, graphql_fallback) = fast_path(transport, query, context, &wants).await?;
+    let plan = PrPlan::new(query)?;
+    let loads = load_pr(transport, query, context, &wants, &plan, graphql.as_ref()).await?;
+    let shaped = shape_pr(transport, query, context, &wants, &plan, loads).await?;
+    Ok(finish_pr(query, &wants, &plan, shaped, graphql_fallback))
+}
+
+/// The GraphQL fast path. REST serves whatever GraphQL could not; a failed
+/// fast path keeps its reason, and a cancelled or expired request stops here.
+async fn fast_path<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+    wants: &ContentWants,
+) -> Result<(Option<GraphqlPr>, Option<String>), ProviderError> {
+    if !graphql_complete_collection_eligible(query) {
+        return Ok((None, None));
+    }
+    match graphql_pull_request(transport, query, context, wants).await {
+        Ok(GraphqlOutcome::Served(pr)) => Ok((Some(*pr), None)),
+        Ok(GraphqlOutcome::Unavailable) => Ok((None, None)),
+        Ok(GraphqlOutcome::Failed(reason)) => Ok((None, Some(reason))),
+        Err(error)
+            if matches!(
+                error.kind,
+                ProviderErrorKind::Cancelled | ProviderErrorKind::Timeout
+            ) =>
+        {
             Err(error)
-                if matches!(
-                    error.kind,
-                    ProviderErrorKind::Cancelled | ProviderErrorKind::Timeout
-                ) =>
-            {
-                return Err(error);
-            }
-            Err(error) => (None, Some(error.message.to_string())),
         }
-    } else {
-        (None, None)
-    };
-    let number = query
-        .number()
-        .ok_or_else(|| validation("number is required"))?
-        .to_string();
-    let content_value = query.content_value();
-    let content = content_value.as_ref().and_then(Value::as_object);
-    let patch_selector = content
-        .and_then(|c| c.get("patches"))
-        .and_then(Value::as_object);
-    let patch_mode = wants.patch_mode.as_str();
-    let include_bots = wants.include_bots;
-    let page_size = query.collection_page_size();
-    let selection = patch_selection(patch_selector);
-    let needle = needle(query);
-    let scope = InventoryFilter::from_query(query).map_err(|message| validation(&message))?;
-    let file_filter = FileFilter {
-        selected: &selection.0,
-        needle: needle.as_deref(),
-        scope: scope.as_ref(),
-    };
-    let body_filter = |value: &Value| body_matches(value, needle.as_deref());
+        Err(error) => Ok((None, Some(error.message.to_string()))),
+    }
+}
+
+/// What a pull-request read selects: the content selector, the patch
+/// selection, the literal and the file scope.
+struct PrPlan {
+    number: String,
+    content: Option<Value>,
+    selection: (Vec<String>, super::filter::PatchRanges),
+    needle: Option<String>,
+    scope: Option<InventoryFilter>,
+}
+
+impl PrPlan {
+    fn new(query: &HistoryItemRequest) -> Result<Self, ProviderError> {
+        let number = query
+            .number()
+            .ok_or_else(|| validation("number is required"))?
+            .to_string();
+        let content = query.content_value();
+        let selection = patch_selection(
+            content
+                .as_ref()
+                .and_then(|c| c.get("patches"))
+                .and_then(Value::as_object),
+        );
+        let scope = InventoryFilter::from_query(query).map_err(|message| validation(&message))?;
+        Ok(Self {
+            number,
+            content,
+            selection,
+            needle: needle(query),
+            scope,
+        })
+    }
+    fn content(&self) -> Option<&Map<String, Value>> {
+        self.content.as_ref().and_then(Value::as_object)
+    }
+    fn patch_selector(&self) -> Option<&Map<String, Value>> {
+        self.content()
+            .and_then(|c| c.get("patches"))
+            .and_then(Value::as_object)
+    }
+    fn file_filter(&self) -> FileFilter<'_> {
+        FileFilter {
+            selected: &self.selection.0,
+            needle: self.needle.as_deref(),
+            scope: self.scope.as_ref(),
+        }
+    }
+}
+
+/// The provider data one pull-request read loaded.
+struct PrLoads {
+    raw: Value,
+    files: Option<Loaded>,
+    discussion: Option<Loaded>,
+    inline: Option<Loaded>,
+    reviews: Option<Loaded>,
+    commits: Option<Loaded>,
+}
+
+/// Requests that run before the collections: the PR itself, beside the
+/// first file batch, when a filtered file scan or a later comment page needs
+/// the PR's counts to read every batch at once.
+async fn first_requests<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    context: &RequestContext,
+    pulls: &[&str],
+    filtered_files: bool,
+    later_comments: bool,
+) -> Result<(Option<Value>, Option<Vec<Value>>), ProviderError> {
+    if filtered_files {
+        let files_path = [pulls, &["files"]].concat();
+        let batch = [
+            ("per_page", PROVIDER_BATCH.to_string()),
+            ("page", "1".to_owned()),
+        ];
+        let (raw, (files, more)) = tokio::try_join!(
+            fetch(transport, pulls, &[], context),
+            fetch(transport, &files_path, &batch, context),
+        )?;
+        let whole = (!more).then(|| files.as_array().cloned()).flatten();
+        return Ok((Some(raw.0), whole));
+    }
+    if later_comments {
+        return Ok((Some(fetch(transport, pulls, &[], context).await?.0), None));
+    }
+    Ok((None, None))
+}
+
+/// The PR fetched before its collections, beside its first file batch, when
+/// they need its counts: a selected or match-filtered file scan cannot jump
+/// to a batch by index, nor can a later comment page that filters bots; with
+/// the PR's counts in hand they read every batch at once. When the first
+/// file batch is the whole list (most PRs), a filtered read costs one round
+/// trip.
+async fn prefetch<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+    wants: &ContentWants,
+    plan: &PrPlan,
+    graphql: Option<&GraphqlPr>,
+) -> Result<(Option<Value>, Option<Vec<Value>>), ProviderError> {
+    if graphql.is_some() {
+        return Ok((None, None));
+    }
+    let filtered_files = wants.files && !plan.file_filter().is_trivial();
+    let later_comments =
+        (wants.discussion || wants.inline) && query.comment_page().is_some_and(|page| page > 1);
+    let pulls = [
+        "repos",
+        query.owner(),
+        query.repo(),
+        "pulls",
+        plan.number.as_str(),
+    ];
+    first_requests(transport, context, &pulls, filtered_files, later_comments).await
+}
+
+/// The PR itself: from GraphQL, the prefetch, or one REST read.
+async fn load_raw<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    context: &RequestContext,
+    pulls: &[&str],
+    graphql: Option<&GraphqlPr>,
+    prefetched: Option<Value>,
+) -> Result<Value, ProviderError> {
+    match (graphql, prefetched) {
+        (Some(graphql), _) => Ok(graphql.raw.clone()),
+        (None, Some(raw)) => Ok(raw),
+        (None, None) => fetch(transport, pulls, &[], context)
+            .await
+            .map(|(raw, _)| raw),
+    }
+}
+
+/// A collection's item count on the prefetched PR (`changed_files`,
+/// `comments`, `review_comments`).
+fn provider_count(raw: Option<&Value>, key: &str) -> Option<usize> {
+    raw.and_then(|raw| raw.get(key))
+        .and_then(Value::as_u64)
+        .map(|total| usize::try_from(total).unwrap_or(usize::MAX))
+}
+
+async fn load_pr<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+    wants: &ContentWants,
+    plan: &PrPlan,
+    graphql: Option<&GraphqlPr>,
+) -> Result<PrLoads, ProviderError> {
+    let (file_filter, needle) = (plan.file_filter(), plan.needle.as_deref());
+    let (include_bots, page_size) = (wants.include_bots, query.collection_page_size());
+    let body_filter = |value: &Value| body_matches(value, needle);
     let comment_filter = |value: &Value| {
         (include_bots || !is_bot(str_at(value, "/user/login").unwrap_or(""))) && body_filter(value)
     };
@@ -148,72 +293,36 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         filtered,
         provider_total: None,
     };
-    let pulls = ["repos", query.owner(), query.repo(), "pulls", &number];
-    let issues = ["repos", query.owner(), query.repo(), "issues", &number];
-    let files_path = [pulls.as_slice(), &["files"]].concat();
-    let discussion_path = [issues.as_slice(), &["comments"]].concat();
-    let inline_path = [pulls.as_slice(), &["comments"]].concat();
-    let reviews_path = [pulls.as_slice(), &["reviews"]].concat();
-    let commits_path = [pulls.as_slice(), &["commits"]].concat();
+    let (owner, repo, number) = (query.owner(), query.repo(), plan.number.as_str());
+    let under_pulls = |leaf: &'static str| ["repos", owner, repo, "pulls", number, leaf];
+    let [files_path, inline_path, reviews_path, commits_path] =
+        ["files", "comments", "reviews", "commits"].map(under_pulls);
+    let discussion_path = ["repos", owner, repo, "issues", number, "comments"];
     let complete = |kind: fn(&GraphqlPr) -> GraphqlCollection, map: fn(&Value) -> Vec<Value>| {
         graphql
-            .as_ref()
             .filter(|g| kind(g) == GraphqlCollection::Complete)
             .map(|g| map(&g.source))
     };
-    // A selected or match-filtered file scan cannot jump to a batch by index;
-    // with the PR's changed-file count in hand it reads every batch at once.
-    // The first batch loads beside the PR itself: when it is the whole list
-    // (most PRs), a filtered read (every patch-walk hop) costs one round trip.
-    let filtered_files = wants.files
-        && !file_filter.is_trivial()
-        && complete(|g| g.files, map_graphql_files).is_none();
-    let (raw_first, first_file_batch) = match graphql.as_ref() {
-        None if filtered_files => {
-            let batch = [
-                ("per_page", PROVIDER_BATCH.to_string()),
-                ("page", "1".to_owned()),
-            ];
-            let (raw, (files, more)) = tokio::try_join!(
-                fetch(transport, &pulls, &[], context),
-                fetch(transport, &files_path, &batch, context),
-            )?;
-            let whole = (!more).then(|| files.as_array().cloned()).flatten();
-            (Some(raw.0), whole)
-        }
-        _ => (None, None),
-    };
-    let file_total = raw_first
-        .as_ref()
-        .and_then(|raw| raw.get("changed_files"))
-        .and_then(Value::as_u64)
-        .map(|total| usize::try_from(total).unwrap_or(usize::MAX));
-    let raw_load = async {
-        match (graphql.as_ref(), raw_first.clone()) {
-            (Some(graphql), _) => Ok(graphql.raw.clone()),
-            (None, Some(raw)) => Ok(raw),
-            (None, None) => fetch(transport, &pulls, &[], context)
-                .await
-                .map(|(raw, _)| raw),
-        }
-    };
-    // Independent REST collections load concurrently; each one derives its
-    // provider batches from the public page cursor (no provider cursors leak
-    // into continuations).
-    let (raw, files_loaded, discussion_loaded, inline_loaded, reviews_loaded, commits_loaded) = tokio::try_join!(
-        raw_load,
+    let (raw_first, first_file_batch) =
+        prefetch(transport, query, context, wants, plan, graphql).await?;
+    let provider_count = |key: &str| provider_count(raw_first.as_ref(), key);
+    let pulls = ["repos", owner, repo, "pulls", number];
+    // Collections load concurrently; each derives its provider batches from
+    // the public page cursor (no provider cursor leaks into continuations).
+    let (raw, files, discussion, inline, reviews, commits) = tokio::try_join!(
+        load_raw(transport, context, &pulls, graphql, raw_first.clone()),
         load_collection(
             transport,
             wants.files,
             complete(|g| g.files, map_graphql_files).or(first_file_batch),
             &files_path,
             WindowSpec {
-                provider_total: file_total,
-                page_size: file_page_size(query, patch_mode != "none"),
+                provider_total: provider_count("changed_files"),
+                page_size: file_page_size(query, wants.patch_mode != "none"),
                 ..spec(
                     MAX_FILE_BATCHES,
                     query.file_page(),
-                    !file_filter.is_trivial(),
+                    !file_filter.is_trivial()
                 )
             },
             |value| file_filter.matches(value),
@@ -224,7 +333,10 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             wants.discussion,
             complete(|g| g.discussion, map_graphql_comments),
             &discussion_path,
-            spec(MAX_COLLECTION_BATCHES, query.comment_page(), true),
+            WindowSpec {
+                provider_total: provider_count("comments"),
+                ..spec(MAX_COLLECTION_BATCHES, query.comment_page(), true)
+            },
             comment_filter,
             context,
         ),
@@ -233,7 +345,10 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             wants.inline,
             None,
             &inline_path,
-            spec(MAX_COLLECTION_BATCHES, query.comment_page(), true),
+            WindowSpec {
+                provider_total: provider_count("review_comments"),
+                ..spec(MAX_COLLECTION_BATCHES, query.comment_page(), true)
+            },
             comment_filter,
             context,
         ),
@@ -260,18 +375,32 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             context,
         ),
     )?;
+    Ok(PrLoads {
+        raw,
+        files,
+        discussion,
+        inline,
+        reviews,
+        commits,
+    })
+}
 
-    // Inline review comments sort before discussion; the combined list is
-    // complete only when both sources are.
+/// Inline review comments sort before discussion; the combined list is
+/// complete only when both sources are. Hidden bots are counted.
+fn merge_comments(
+    inline: Option<Loaded>,
+    discussion: Option<Loaded>,
+    include_bots: bool,
+) -> (Vec<Value>, Option<WindowState>, Vec<String>) {
     let mut comments = Vec::new();
-    let mut comments_state: Option<WindowState> = None;
-    let mut sanitization_warnings = Vec::new();
+    let mut state: Option<WindowState> = None;
+    let mut warnings = Vec::new();
     for (loaded, kind, label) in [
-        (inline_loaded, "review_inline", "inline "),
-        (discussion_loaded, "discussion", ""),
+        (inline, "review_inline", "inline "),
+        (discussion, "discussion", ""),
     ] {
         let Some(loaded) = loaded else { continue };
-        comments_state = Some(match comments_state {
+        state = Some(match state {
             None => loaded.state,
             Some(previous) => previous.merge(loaded.state),
         });
@@ -282,50 +411,282 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             .count();
         comments.extend(map_comments(loaded.items, kind, include_bots));
         if !include_bots && dropped > 0 {
-            sanitization_warnings.push(format!(
-                "{dropped} bot {label}comment(s) hidden (set content.comments.includeBots:true to include)"
+            warnings.push(format!(
+                "{dropped} bot {label}comment(s) hidden (set includeBots:true to include)"
             ));
         }
     }
+    (comments, state, warnings)
+}
 
-    // A later page already holds the header and the menu from page one,
-    // and a file inventory or patch read is read for its files: both carry
-    // only the identity fields every page must re-prove, plus the fields the
-    // output contract requires of every pull-request row.
-    let file_read = wants.files;
-    let slim = (query.later_page() || file_read) && !query.debug();
-    let mut row = pr_metadata(&raw, query);
-    if slim && let Some(fields) = row.as_object_mut() {
-        // A patch read re-proves only the head it read; a list page also
-        // keeps the merge commit and file count, and a first inventory page
-        // the diff size it lists.
-        // Merge state rides every row, so a content read never leaves the
-        // merge date to guesswork; labels ride the first page.
-        let patches = patch_mode != "none";
-        let first_page = !query.later_page();
-        let totals = first_page && !patches;
-        fields.retain(|key, _| {
-            matches!(
-                key.as_str(),
-                "number"
-                    | "title"
-                    | "state"
-                    | "author"
-                    | "createdAt"
-                    | "sourceSha"
-                    | "mergedAt"
-                    | "closedAt"
-                    | "targetBranch"
-            ) || (first_page && key == "labels")
-                || (!patches && matches!(key.as_str(), "mergeCommitSha" | "changedFilesCount"))
-                || (totals && matches!(key.as_str(), "additions" | "deletions"))
+/// A later page already holds the header and the menu from page one, and a
+/// file inventory or patch read is read for its files: both carry only the
+/// identity fields every page must re-prove, plus the fields the output
+/// contract requires of every pull-request row. A patch read re-proves only
+/// the head it read; a list page also keeps the merge commit and file count,
+/// and a first inventory page the diff size it lists. Merge state rides
+/// every row; labels ride the first page.
+fn slim_row(row: &mut Value, query: &HistoryItemRequest, patches: bool) {
+    let Some(fields) = row.as_object_mut() else {
+        return;
+    };
+    let first_page = !query.later_page();
+    let totals = first_page && !patches;
+    fields.retain(|key, _| {
+        matches!(
+            key.as_str(),
+            "number"
+                | "title"
+                | "state"
+                | "author"
+                | "createdAt"
+                | "sourceSha"
+                | "mergedAt"
+                | "closedAt"
+                | "targetBranch"
+        ) || (first_page && key == "labels")
+            || (!patches && matches!(key.as_str(), "mergeCommitSha" | "changedFilesCount"))
+            || (totals && matches!(key.as_str(), "additions" | "deletions"))
+    });
+}
+
+/// What the changed-file section of a read found.
+#[derive(Default)]
+struct FileOutcome {
+    no_selected_files_matched: bool,
+    review: Vec<String>,
+    unsearched: Vec<String>,
+    first_unsearched: Option<String>,
+    scope_unmatched: bool,
+    merge_read: Option<Value>,
+    /// `readAtCommit`/`readParent`: the top file at the head (when no merge
+    /// read covers it) and at the base.
+    side_reads: Vec<(&'static str, Value)>,
+    /// Files whose `matchString` context the hunks cut short.
+    clipped: Vec<(String, Vec<String>)>,
+}
+
+fn shape_files_section(
+    row: &mut Value,
+    pagination: &mut Map<String, Value>,
+    loaded: Loaded,
+    raw: &Value,
+    query: &HistoryItemRequest,
+    wants: &ContentWants,
+    plan: &PrPlan,
+) -> FileOutcome {
+    let file_filter = plan.file_filter();
+    // A cross-tool read: one check at the merge commit, on the first page,
+    // over every loaded file (a later patch window does not repeat it, and
+    // the shown window may hold no code file).
+    let merge_read = (!query.later_page())
+        .then(|| {
+            super::pr_menu::read_at_merge(query, raw, &loaded.items, |file| {
+                file_filter.matches(file)
+            })
+        })
+        .flatten();
+    // Both sides of the numbered diff for its top file: the head (a merged
+    // PR's merge read stands for its new side) and the base, whose old-side
+    // numbers match while the base has not moved past the diff's merge base.
+    let side_reads = if query.later_page() || wants.patch_mode == "none" {
+        Vec::new()
+    } else {
+        super::pr_menu::change_reads(
+            query.owner(),
+            query.repo(),
+            &loaded.items,
+            &super::pr_menu::ChangeSides {
+                new_ref: str_at(raw, "/head/sha").filter(|_| merge_read.is_none()),
+                old_ref: str_at(raw, "/base/sha").filter(|sha| !sha.is_empty()),
+                old_confidence: "medium",
+            },
+            |file| file_filter.matches(file),
+        )
+    };
+    let listed = loaded.state.skipped + loaded.items.len();
+    let state = loaded.state;
+    // An `include`/`status`/`minChanges` scope that matched no changed file at all.
+    let scope_unmatched = (plan.scope.is_some() || plan.needle.is_some())
+        && state.exhausted
+        && query.file_page().unwrap_or(1) == 1
+        && !loaded.items.iter().any(|file| file_filter.matches(file));
+    let shaped = shape_pr_files(
+        row,
+        pagination,
+        loaded.items,
+        state,
+        query,
+        plan.patch_selector(),
+        &wants.patch_mode,
+        plan.scope.as_ref(),
+    );
+    if let Some(page) = pagination.get_mut("files") {
+        let changed_files = raw
+            .get("changed_files")
+            .and_then(Value::as_u64)
+            .map(|total| usize::try_from(total).unwrap_or(usize::MAX));
+        reconcile_file_totals(
+            page,
+            state,
+            listed,
+            changed_files,
+            !file_filter.is_trivial(),
+        );
+    }
+    FileOutcome {
+        no_selected_files_matched: shaped.no_selected_match,
+        review: shaped.review,
+        unsearched: shaped.unsearched,
+        first_unsearched: shaped.first_unsearched,
+        scope_unmatched,
+        merge_read,
+        side_reads,
+        clipped: shaped.clipped,
+    }
+}
+
+/// Files read at the head per call to widen `matchString` context; the rest
+/// keep their clip flag and `next.expandContext`.
+const MAX_HEAD_SOURCES: usize = 10;
+
+/// The head text of each in-scope file whose `matchString` hit runs need
+/// more context than its hunks hold, read once at `sourceSha` (the history
+/// read cache revalidates it). `None` when no file needs it.
+async fn head_sources<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+    raw: &Value,
+    loaded: &Loaded,
+    plan: &PrPlan,
+) -> Option<HeadSources> {
+    let needle = needle(query)?;
+    let sha = str_at(raw, "/head/sha").filter(|sha| !sha.is_empty())?;
+    let lines = match_context(query);
+    let filter = plan.file_filter();
+    let paths: Vec<&str> = loaded
+        .items
+        .iter()
+        .filter(|file| filter.matches(file) && str_at(file, "/status") != Some("removed"))
+        .filter(|file| {
+            str_at(file, "/patch").is_some_and(|patch| head_text_needed(patch, &needle, lines))
+        })
+        .filter_map(|file| str_at(file, "/filename"))
+        .take(MAX_HEAD_SOURCES)
+        .collect();
+    if paths.is_empty() {
+        return None;
+    }
+    let reads = paths.iter().map(|path| async move {
+        let mut segments = vec!["repos", query.owner(), query.repo(), "contents"];
+        segments.extend(path.split('/'));
+        let text = fetch(transport, &segments, &[("ref", sha.to_owned())], context)
+            .await
+            .ok()
+            .and_then(|(value, _)| decode_contents(&value));
+        ((*path).to_owned(), text)
+    });
+    let mut sources = HeadSources::default();
+    for (path, text) in futures_util::future::join_all(reads).await {
+        sources.insert(
+            path,
+            text.map(|text| text.lines().map(str::to_owned).collect()),
+        );
+    }
+    Some(sources)
+}
+
+/// A Contents API file body as text; `None` for a directory, a body GitHub
+/// left out (over 1 MB), or bytes that are not UTF-8.
+fn decode_contents(value: &Value) -> Option<String> {
+    use base64::Engine as _;
+    if str_at(value, "/encoding") != Some("base64") {
+        return None;
+    }
+    let packed: String = str_at(value, "/content")?
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect();
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(packed)
+        .ok()?;
+    String::from_utf8(bytes).ok()
+}
+
+/// The read's own next steps. A summary offers the PR-read menu; an
+/// unfiltered first inventory page offers its review pick (and every patch
+/// on a small PR); a filtered inventory or a patch read is a targeted answer
+/// and keeps only its continuations.
+fn read_menu(
+    query: &HistoryItemRequest,
+    plan: &PrPlan,
+    patch_mode: &str,
+    review: &[String],
+    raw: &Value,
+    slim: bool,
+    file_read: bool,
+) -> Option<Value> {
+    if !slim {
+        return Some(pr_next_menu(query, plan.content(), patch_mode, review, raw));
+    }
+    let first_inventory =
+        file_read && patch_mode == "none" && !query.later_page() && !query.has_file_filter();
+    if !first_inventory {
+        return None;
+    }
+    let all_patches = raw
+        .get("changed_files")
+        .and_then(Value::as_u64)
+        .is_some_and(|files| files <= INVENTORY_ALL_PATCHES_FILES);
+    let mut next = pr_next_menu(query, plan.content(), patch_mode, review, raw);
+    if let Some(menu) = next.as_object_mut() {
+        menu.retain(|name, _| {
+            name == "readSelectedPatches" || (all_patches && name == "readPatches")
         });
     }
-    if !sanitization_warnings.is_empty() {
-        row["sanitizationWarnings"] = json!(sanitization_warnings);
+    Some(next).filter(|next| next.as_object().is_some_and(|next| !next.is_empty()))
+}
+
+/// A shaped pull-request row and what the response still needs from it.
+struct ShapedPr {
+    row: Value,
+    files: FileOutcome,
+    /// Surfaces whose minified view dropped text (`next.readRawBody`).
+    minified: Vec<&'static str>,
+    menu: Option<Value>,
+    /// The code the first anchored review comment discusses.
+    comment_read: Option<Value>,
+}
+
+async fn shape_pr<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+    wants: &ContentWants,
+    plan: &PrPlan,
+    loads: PrLoads,
+) -> Result<ShapedPr, ProviderError> {
+    let PrLoads {
+        raw,
+        files,
+        discussion,
+        inline,
+        reviews,
+        commits,
+    } = loads;
+    let patch_mode = wants.patch_mode.as_str();
+    let (comments, comments_state, bot_warnings) =
+        merge_comments(inline, discussion, wants.include_bots);
+    let slim = (query.later_page() || wants.files) && !query.debug();
+    let mut row = pr_metadata(&raw, query);
+    if slim {
+        slim_row(&mut row, query, patch_mode != "none");
     }
-    let mut content_pagination = Map::new();
-    // Surfaces whose minified view dropped text (`next.readRawBody`).
+    if !bot_warnings.is_empty() {
+        row["sanitizationWarnings"] = json!(bot_warnings);
+    }
+    let mut pagination = Map::new();
     let mut minified = Vec::new();
     if wants.body {
         let raw_body = raw.get("body").and_then(Value::as_str).unwrap_or("");
@@ -333,76 +694,50 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         if view_dropped_text(raw_body, &body) {
             minified.push("body");
         }
-        let (text, pagination) = paginate_text(&body, query.char_offset(), query.char_length());
+        let (text, page) = paginate_text(&body, query.char_offset(), query.char_length());
         row["body"] = json!(text);
-        content_pagination.insert("body".into(), pagination);
+        pagination.insert("body".into(), page);
     }
-    let mut no_selected_files_matched = false;
-    let mut review = Vec::new();
-    let mut unsearched = Vec::new();
-    let mut first_unsearched = None;
-    let mut scope_unmatched = false;
-    if let Some(loaded) = files_loaded {
-        let listed = loaded.state.skipped + loaded.items.len();
-        let state = loaded.state;
-        // A `files`/`fileFilter` scope that matched no changed file at all.
-        scope_unmatched = scope.is_some()
-            && needle.is_none()
-            && state.exhausted
-            && query.file_page().unwrap_or(1) == 1
-            && !loaded.items.iter().any(|file| file_filter.matches(file));
-        let shaped = shape_pr_files(
-            &mut row,
-            &mut content_pagination,
-            loaded.items,
-            state,
-            query,
-            patch_selector,
-            patch_mode,
-            scope.as_ref(),
-        );
-        no_selected_files_matched = shaped.no_selected_match;
-        review = shaped.review;
-        unsearched = shaped.unsearched;
-        first_unsearched = shaped.first_unsearched;
-        if let Some(page) = content_pagination.get_mut("changedFiles") {
-            let changed_files = raw
-                .get("changed_files")
-                .and_then(Value::as_u64)
-                .map(|total| usize::try_from(total).unwrap_or(usize::MAX));
-            reconcile_file_totals(
-                page,
-                state,
-                listed,
-                changed_files,
-                !file_filter.is_trivial(),
-            );
+    let widened;
+    let query = match &files {
+        Some(loaded) if patch_mode != "none" => {
+            match head_sources(transport, query, context, &raw, loaded, plan).await {
+                Some(sources) => {
+                    widened = HistoryItemRequest {
+                        head_sources: Some(std::sync::Arc::new(sources)),
+                        ..query.clone()
+                    };
+                    &widened
+                }
+                None => query,
+            }
         }
+        _ => query,
+    };
+    let file_outcome = files.map_or_else(FileOutcome::default, |loaded| {
+        shape_files_section(&mut row, &mut pagination, loaded, &raw, query, wants, plan)
+    });
+    let mut comment_read = None;
+    if let Some(state) = comments_state {
+        let shape = shape_pr_comments(&mut row, &mut pagination, comments, state, query);
+        if shape.dropped {
+            minified.push("comments");
+        }
+        comment_read = shape.code_read;
     }
-    if let Some(state) = comments_state
-        && shape_pr_comments(&mut row, &mut content_pagination, comments, state, query)
-    {
-        minified.push("comments");
-    }
-    if let Some(loaded) = reviews_loaded
-        && shape_pr_reviews(
-            &mut row,
-            &mut content_pagination,
-            loaded.items,
-            loaded.state,
-            query,
-        )
+    if let Some(loaded) = reviews
+        && shape_pr_reviews(&mut row, &mut pagination, loaded.items, loaded.state, query)
     {
         minified.push("reviews");
     }
     if !minified.is_empty() {
         row["bodyView"] = json!("minified");
     }
-    if let Some(loaded) = commits_loaded {
+    if let Some(loaded) = commits {
         shape_pr_commits(
             transport,
             &mut row,
-            &mut content_pagination,
+            &mut pagination,
             loaded.items,
             loaded.state,
             query,
@@ -410,35 +745,19 @@ pub(super) async fn pull_request<R: CredentialResolver>(
         )
         .await?;
     }
-    if !slim {
-        row["next"] = pr_next_menu(query, content, patch_mode, &review, &raw);
-    } else if file_read
-        && patch_mode == "none"
-        && !query.later_page()
-        && query.file_filter().is_none()
-    {
-        // An unfiltered inventory's own next steps: the review pick (and
-        // every patch on a small PR). A
-        // filtered inventory or a patch read is a targeted answer and keeps
-        // only its continuations.
-        let all_patches = raw
-            .get("changed_files")
-            .and_then(Value::as_u64)
-            .is_some_and(|files| files <= INVENTORY_ALL_PATCHES_FILES);
-        let mut menu = pr_next_menu(query, content, patch_mode, &review, &raw);
-        if let Some(menu) = menu.as_object_mut() {
-            menu.retain(|name, _| {
-                name == "reviewPatches" || (all_patches && name == "getAllPatches")
-            });
-        }
-        if menu.as_object().is_some_and(|menu| !menu.is_empty()) {
-            row["next"] = menu;
-        }
-    }
+    let menu = read_menu(
+        query,
+        plan,
+        patch_mode,
+        &file_outcome.review,
+        &raw,
+        slim,
+        wants.files,
+    );
     // Patch rows are the evidence of a patch read: it re-proves only number,
     // state, and the head it read. The metadata read names the PR (title,
     // author, createdAt); a read without patch rows keeps them.
-    let patch_rows = row["changedFiles"]
+    let patch_rows = row["files"]
         .as_array()
         .is_some_and(|files| !files.is_empty() && files.iter().all(Value::is_object));
     if slim
@@ -451,73 +770,145 @@ pub(super) async fn pull_request<R: CredentialResolver>(
             fields.remove(key);
         }
     }
-    if !content_pagination.is_empty() {
-        row["contentPagination"] = Value::Object(content_pagination);
+    if !pagination.is_empty() {
+        row["contentPagination"] = Value::Object(pagination);
     }
-    let mut out = json!({"type":"pullRequests","pullRequests":[row]});
-    if scope_unmatched && !no_selected_files_matched {
+    Ok(ShapedPr {
+        row,
+        files: file_outcome,
+        minified,
+        menu,
+        comment_read,
+    })
+}
+
+/// A scope or literal that matched nothing: an empty row with a recovery
+/// tip, or, when other sections hold evidence, a warning.
+fn mark_unmatched(
+    out: &mut Value,
+    query: &HistoryItemRequest,
+    plan: &PrPlan,
+    files: &FileOutcome,
+    other_evidence: bool,
+) -> Option<String> {
+    let mut needle_missed = None;
+    if files.scope_unmatched && files.unsearched.is_empty() && !files.no_selected_files_matched {
+        match query.match_string().filter(|_| plan.needle.is_some()) {
+            Some(literal) if plan.scope.is_none() && other_evidence => {
+                needle_missed = Some(format!(
+                    "matchString {literal:?} hit no patch line in the PR's changed files."
+                ));
+            }
+            Some(_) => {
+                out["status"] = json!("empty");
+                out["hints"] = json!([
+                    "matchString hit no patch line; check its spelling, drop it, or read the inventory (sections:[\"files\"])."
+                ]);
+            }
+            None => {
+                out["status"] = json!("empty");
+                out["hints"] = json!([
+                    "No changed file matched include/status/minChanges; read the inventory (sections:[\"files\"]) and copy a path."
+                ]);
+            }
+        }
+    }
+    if files.no_selected_files_matched {
         out["status"] = json!("empty");
-        out["errorCode"] = json!("noSelectedFilesMatched");
         out["hints"] = json!([
-            "No changed file matched files/status; read the inventory (include:[\"files\"]) and copy a path."
+            "No changed file matched include or patchRanges; copy a path from files or request sections:[\"files\"]."
         ]);
     }
-    if no_selected_files_matched {
-        out["status"] = json!("empty");
-        out["errorCode"] = json!("noSelectedFilesMatched");
-        out["hints"] = json!([
-            "No changed file matched patches.files or patches.ranges; copy a path from changedFiles or request changedFiles:true."
-        ]);
+    needle_missed
+}
+
+fn finish_pr(
+    query: &HistoryItemRequest,
+    wants: &ContentWants,
+    plan: &PrPlan,
+    shaped: ShapedPr,
+    graphql_fallback: Option<String>,
+) -> Value {
+    let ShapedPr {
+        row,
+        files,
+        minified,
+        menu,
+        comment_read,
+    } = shaped;
+    let patch_mode = wants.patch_mode.as_str();
+    // A `matchString` miss in the files is an empty row only when no other
+    // section of the read (body, comments, reviews) holds evidence;
+    // otherwise the row says so in a warning.
+    let other_evidence = wants.body
+        || ["comments", "reviews"].iter().any(|key| {
+            row.get(*key)
+                .and_then(Value::as_array)
+                .is_some_and(|items| !items.is_empty())
+        });
+    let mut out = json!({"pullRequests":[row]});
+    let needle_missed = mark_unmatched(&mut out, query, plan, &files, other_evidence);
+    if !files.unsearched.is_empty() {
+        out["pullRequests"][0]["unsearchedFiles"] = json!(files.unsearched);
     }
-    if !unsearched.is_empty() {
-        out["pullRequests"][0]["unsearchedFiles"] = json!(unsearched);
-    }
-    if (patch_mode != "none" || needle.is_some())
+    if (patch_mode != "none" || plan.needle.is_some())
         && let Some(warning) = clamp_warning(query)
     {
+        push_warning(&mut out, warning);
+    }
+    if let Some(warning) = needle_missed {
         push_warning(&mut out, warning);
     }
     promote_pr_continuations(&mut out, query);
     attach_full_patch_continuation(&mut out, query);
     attach_raw_body_read(&mut out, query, &minified);
-    if let Some(path) = first_unsearched {
-        attach_unsearched_read(&mut out, query, &path);
+    if let Some(path) = &files.first_unsearched {
+        attach_unsearched_read(&mut out, query, path);
     }
-    // A cross-tool read: the top-level `next`, not the row's PR-read menu.
-    // One check at the merge commit is enough: a later patch window does not
-    // repeat it. Lossless re-reads of reshaped views come first; the optional
-    // check joins only while the leads stay within the menu cap.
-    if !query.later_page()
-        && lead_count(&out) < super::continuations::MENU_CAP
-        && let Some(read) = super::continuations::read_at_merge(
-            query,
-            &raw,
-            &out["pullRequests"][0]["changedFiles"],
+    attach_context_reads(&mut out, query, &files.clipped);
+    // The row's next steps ride the response's leads (one capped list),
+    // never a second list nested in the row; the contract's lead priority
+    // keeps every lead under the lead cap.
+    let merge_read = files.merge_read.filter(|_| patch_mode != "none");
+    // A patch read's next step is the code at either side of its numbered
+    // diff: those reads rank ahead of the section menu.
+    let leads = files
+        .side_reads
+        .into_iter()
+        .map(|(name, read)| (name.to_owned(), read))
+        .chain(
+            menu.and_then(|menu| match menu {
+                Value::Object(menu) => Some(menu),
+                _ => None,
+            })
+            .into_iter()
+            .flatten(),
         )
-    {
+        .chain(merge_read.map(|read| ("readAtMerge".to_owned(), read)));
+    for (name, lead) in leads {
         if !out.get("next").is_some_and(Value::is_object) {
             out["next"] = json!({});
         }
-        out["next"]["readAtMerge"] = read;
+        if let Some(next) = out["next"].as_object_mut() {
+            next.entry(name).or_insert(lead);
+        }
+    }
+    // The comments' own lead goes before the menu's: it is the read the
+    // comment page asked for.
+    if let Some(read) = comment_read {
+        if !out.get("next").is_some_and(Value::is_object) {
+            out["next"] = json!({});
+        }
+        if let Some(next) = out["next"].as_object_mut() {
+            next.shift_insert(0, "readCommentCode".to_owned(), read);
+        }
     }
     if !query.debug() {
         trim_content_pagination(&mut out);
     } else if let Some(reason) = graphql_fallback {
         out["graphqlFallback"] = json!(reason);
     }
-    Ok(out)
-}
-
-/// Leads (not pages) already offered at the response level.
-fn lead_count(out: &Value) -> usize {
-    use crate::runtime::channels::{Channel, channel};
-    out.get("next")
-        .and_then(Value::as_object)
-        .map_or(0, |next| {
-            next.keys()
-                .filter(|name| channel(ToolId::GhGetHistoryItem, name) == Channel::Lead)
-                .count()
-        })
+    out
 }
 
 /// A `matchString` search that skipped patchless files covers only part of
@@ -536,17 +927,69 @@ fn attach_unsearched_read(out: &mut Value, query: &HistoryItemRequest, path: &st
     if !out.get("next").is_some_and(Value::is_object) {
         out["next"] = json!({});
     }
-    out["next"]["searchUnpatchedFile"] = json!({
-        "tool": ToolId::GhGetFileContent.as_str(),
-        "confidence": "high",
-        "query": {
+    out["next"]["searchUnpatchedFile"] = crate::tools::result::Continuation::new(
+        ToolId::GhGetFileContent,
+        json!({
             "owner": query.owner(),
             "repo": query.repo(),
             "path": path,
-            "branch": sha,
+            "ref": sha,
             "matchString": needle,
-        },
-    });
+        }),
+    )
+    .confidence("high")
+    .build();
+}
+
+/// `matchString` context the hunks cut short and the head text did not
+/// fill: the row is partial, and `next.expandContext` reads each file's
+/// wanted windows at the PR head (`sourceSha`).
+fn attach_context_reads(
+    out: &mut Value,
+    query: &HistoryItemRequest,
+    clipped: &[(String, Vec<String>)],
+) {
+    let Some(sha) = str_at(out, "/pullRequests/0/sourceSha").map(str::to_owned) else {
+        return;
+    };
+    if clipped.is_empty() {
+        return;
+    }
+    out["isPartial"] = json!(true);
+    match out.get_mut("partialReasons").and_then(Value::as_array_mut) {
+        Some(reasons) => reasons.push(json!("contextClipped")),
+        None => out["partialReasons"] = json!(["contextClipped"]),
+    }
+    push_warning(
+        out,
+        format!(
+            "contextLines {} reaches past the diff hunks of {} file(s) (contextClipped); next.expandContext reads those lines at sourceSha.",
+            match_context(query),
+            clipped.len()
+        ),
+    );
+    if !out.get("next").is_some_and(Value::is_object) {
+        out["next"] = json!({});
+    }
+    for (index, (path, ranges)) in clipped.iter().enumerate() {
+        let name = if index == 0 {
+            "expandContext".to_owned()
+        } else {
+            format!("expandContext{}", index + 1)
+        };
+        out["next"][name] = crate::tools::result::Continuation::new(
+            ToolId::GhGetFileContent,
+            json!({
+                "owner": query.owner(),
+                "repo": query.repo(),
+                "path": path,
+                "ref": sha,
+                "ranges": ranges,
+            }),
+        )
+        .confidence("exact")
+        .build();
+    }
 }
 
 /// Default responses drop pagination that adds nothing once `next.*` is
@@ -571,7 +1014,7 @@ fn trim_content_pagination(out: &mut Value) {
             page.get("hasMore") == Some(&Value::Bool(false)) && page.get("terminalLimit").is_none();
         // A finished first page, or a whole text window (offset zero).
         let first = page.get("currentPage").and_then(Value::as_u64) == Some(1)
-            || page.get("charOffset").and_then(Value::as_u64) == Some(0);
+            || page.get("offset").and_then(Value::as_u64) == Some(0);
         !(done && first)
     });
     if pages
@@ -586,6 +1029,25 @@ fn trim_content_pagination(out: &mut Value) {
     if pages.is_empty() {
         row.remove("contentPagination");
     }
+}
+
+/// Characters a PR summary's `bodyPreview` shows.
+const BODY_PREVIEW_CHARS: usize = 300;
+
+/// The opening of a PR body's (template-minified) view, whitespace runs
+/// collapsed; a cut preview ends with `…`. `None` for an empty body.
+fn body_preview(body: &str, query: &HistoryItemRequest) -> Option<String> {
+    let view = history_body_view(body, query);
+    let flat = view.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.is_empty() {
+        return None;
+    }
+    if flat.chars().count() <= BODY_PREVIEW_CHARS {
+        return Some(flat);
+    }
+    let mut preview = flat.chars().take(BODY_PREVIEW_CHARS).collect::<String>();
+    preview.push('…');
+    Some(preview)
 }
 
 fn pr_metadata(raw: &Value, query: &HistoryItemRequest) -> Value {
@@ -635,6 +1097,13 @@ fn pr_metadata(raw: &Value, query: &HistoryItemRequest) -> Value {
     {
         row.remove("draft");
     }
+    // A summary previews what the PR says; the menu's body read (`readFiles`,
+    // `readPatches` or `readBody`) holds the whole body.
+    if query.content_value().is_none()
+        && let Some(preview) = str_at(raw, "/body").and_then(|body| body_preview(body, query))
+    {
+        row["bodyPreview"] = json!(preview);
+    }
     if query.debug() {
         // Diagnostics keep the provider's timestamps whole.
         if let Some(updated) = raw.get("updated_at").filter(|v| v.is_string()) {
@@ -663,7 +1132,7 @@ mod tests {
     }
 
     #[test]
-    fn summary_rows_state_each_time_once_and_no_body() {
+    fn summary_rows_state_each_time_once_and_preview_the_body() {
         let base = json!({"number":1,"title":"t","user":{"login":"a"},"body":"Long description",
             "created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-05T00:00:00Z"});
         let merged = summary(
@@ -675,9 +1144,11 @@ mod tests {
             false,
         );
         assert_eq!(merged["mergedAt"], "2026-01-04T00:00:00Z", "{merged}");
-        for absent in ["closedAt", "updatedAt", "body", "bodyPreview"] {
+        for absent in ["closedAt", "updatedAt", "body"] {
             assert!(merged.get(absent).is_none(), "{absent}: {merged}");
         }
+        // The summary previews the body; the menu's body read holds it whole.
+        assert_eq!(merged["bodyPreview"], "Long description", "{merged}");
         let closed = summary(
             merge(
                 base.clone(),

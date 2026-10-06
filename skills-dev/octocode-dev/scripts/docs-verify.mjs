@@ -8,7 +8,6 @@ import {
   TOOL_NAMES,
   isBetaTool,
   isCliOnlyTool,
-  prepareDirectToolInput,
 } from '@octocodeai/config/schema';
 import { DEFAULT_CONFIG } from '@octocodeai/config';
 
@@ -410,9 +409,14 @@ function validateToolExamples() {
       try {
         try { examples = [JSON.parse(json)]; }
         catch { examples = json.trim().split('\n').filter(line => line.trim()).map(line => JSON.parse(line)); }
-        for (const example of examples) prepareDirectToolInput(name, example);
+        // A reference example is one query row unless it shows the whole `{queries}` input.
+        const schema = DIRECT_TOOL_DEFINITIONS.find(definition => definition.name === name).inputSchema;
+        for (const example of examples) {
+          const parsed = schema.safeParse('queries' in example ? example : { queries: [example] });
+          if (!parsed.success) throw new Error(parsed.error.issues.map(issue => `${issue.path.join('.')}: ${issue.message}`).join('; '));
+        }
       } catch (error) {
-        failures.push(`docs/OCTOCODE_TOOLS.md ${name} example: ${error.message}; ${(error.details ?? []).join('; ')}`);
+        failures.push(`docs/OCTOCODE_TOOLS.md ${name} example: ${error.message}`);
       }
     }
   }

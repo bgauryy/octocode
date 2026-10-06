@@ -22,8 +22,10 @@ if (args.includes('--help')) {
   --self-test  run collection, routing, standalone-runtime, and usage-error regressions
   --help       this text
 
-Navigation gates treat the skill as a map: SKILL.md is the lobby with a Mermaid map of every reference
-page (references/, docs/, scripts/docs/) and its trigger, at most 12 reference pages of at most 100 lines;
+Navigation gates treat the skill as a map: SKILL.md is a lobby of at most 150 lines with one Mermaid map —
+at most 12 flow nodes, plus every reference page (references/, docs/, scripts/docs/) as a leaf on a
+dotted edge labeled with its trigger — and at most 12 reference pages of at most 100 lines, each opening
+with "Load when … Why: …";
 every local file reference stays
 inside the folder, and every shipped file is reachable from the lobby, README, or another used file.
 Exit 1 on any ERROR.`);
@@ -32,6 +34,8 @@ Exit 1 on any ERROR.`);
 
 const MAX_REFERENCE_LINES = 100;
 const MAX_REFERENCES = 12;
+const MAX_LOBBY_LINES = 150;
+const MAX_MAP_FLOW_NODES = 12;
 const MAP_PAGE = /^(?:references|docs|scripts\/docs)\/.+\.md$/;
 const MAP_ROOT = /^(?:references|docs|scripts\/docs)\//;
 
@@ -205,6 +209,26 @@ function flowPhases(text) {
     .filter((p) => p && p !== 'FLOW' && p !== 'SKILL'))];
 }
 
+// Count map nodes, leaving out reference-page leaves (labels naming a .md page): the flow cap
+// and the every-page coverage rule apply to different nodes, so both can hold at once.
+function mapFlowNodes(mermaid) {
+  const labels = new Map();
+  for (const raw of mermaid.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || /^(?:flowchart|graph|%%|classDef|class\s|style\s|linkStyle|subgraph|end$|direction)/.test(line)) continue;
+    const bare = line
+      .replace(/\|[^|]*\|/g, ' ')
+      .replace(/(?:--|-\.|==)\s*"[^"]*"\s*(?:-->|\.->|---|\.-|==>)/g, ' --> ');
+    for (const part of bare.split(/\s*(?:-\.->|\.->|-->|---|-\.-|==>|--[ox])\s*|\s&\s/)) {
+      const m = part.trim().match(/^([A-Za-z_][\w]*)\s*(.*)$/);
+      if (!m) continue;
+      const label = m[2].replace(/^[[({>]+|[\])}]+$/g, '').replace(/^"|"$/g, '');
+      if (!labels.has(m[1]) || label) labels.set(m[1], label || labels.get(m[1]) || '');
+    }
+  }
+  return [...labels].filter(([, label]) => !/\.md\b/.test(label)).map(([id]) => id);
+}
+
 function checkSkill(dir) {
   const findings = [];
   const skillPath = join(dir, 'SKILL.md');
@@ -239,7 +263,18 @@ function checkSkill(dir) {
     warn('description-trigger', 'description should lead with “Use when …”.');
   }
   if (fm?.description && fm.description.length > 1024) error('description-too-long', 'description must be <=1024 chars.');
-  if (lines > 220) warn('lobby-long', `SKILL.md is ${lines} lines; keep the lobby lean when possible.`);
+  if (fm?.description) {
+    const desc = fm.description.replace(/^>-\s*/, '').trim();
+    // Shape: one "Use when …" sentence, then at most one boundary sentence ("Not for …", "Skip …", "For …, use …").
+    const extra = desc.split(/(?<=[.!?])\s+(?=[A-Z])/).slice(1).filter((t) => !/^(?:Not for|Skip|For\b.*\buse\b)/.test(t));
+    if (/\bTriggers?(?: include|:)/i.test(desc) || extra.length) {
+      warn('description-shape', `description is one "Use when …" sentence plus an optional "Not for …" boundary; move ${extra.length ? `"${extra[0].slice(0, 40)}…"` : 'the trigger list'} into the lobby.`);
+    }
+    if (/\b(?:I|you|your)\b/.test(desc) || /\b(?:MUST|ALWAYS|NEVER|IMPORTANT|CRITICAL)\b/.test(desc)) {
+      warn('description-voice', 'description has "I"/"you" or a mandate word; state user intents, and put hard rules in the lobby.');
+    }
+  }
+  if (lines > MAX_LOBBY_LINES) warn('lobby-long', `SKILL.md is ${lines} lines; the limit is ${MAX_LOBBY_LINES} — move detail, not core logic, into references.`);
 
   const lobby = bodyWithoutFrontmatter(skill);
   const conventions = [
@@ -268,9 +303,8 @@ function checkSkill(dir) {
   const fromLobby = new Set(linkedPaths(skill));
   const refTexts = new Map();
   if (existsSync(refsDir)) {
-    for (const file of readdirSync(refsDir).filter((f) => f.endsWith('.md'))) {
-      const rel = `references/${file}`;
-      const text = readFileSync(join(refsDir, file), 'utf8');
+    for (const rel of files.filter((f) => f.startsWith('references/') && f.endsWith('.md'))) {
+      const text = readFileSync(join(dir, rel), 'utf8');
       const refLines = text.trimEnd().split(/\r?\n/).length;
       refTexts.set(rel, text);
       for (const p of linkedPaths(text)) referenced.add(p);
@@ -286,8 +320,12 @@ function checkSkill(dir) {
   if (refPages.length > MAX_REFERENCES) {
     warn('references-many', `${refPages.length} reference pages; the limit is ${MAX_REFERENCES} — merge pages that serve one decision or one moment of use.`);
   }
+  const mermaid = [...lobby.matchAll(/```mermaid\s*\n([\s\S]*?)```/g)].map((m) => m[1]).join('\n');
+  const flowNodes = mermaid ? mapFlowNodes(mermaid) : [];
+  if (flowNodes.length > MAX_MAP_FLOW_NODES) {
+    warn('lobby-map-large', `the SKILL.md map has ${flowNodes.length} flow nodes; the limit is ${MAX_MAP_FLOW_NODES} (reference-page leaves do not count) — merge phases or move a loop into its page.`);
+  }
   if (mapPages.length) {
-    const mermaid = [...lobby.matchAll(/```mermaid\s*\n([\s\S]*?)```/g)].map((m) => m[1]).join('\n');
     if (!mermaid) {
       warn('lobby-map-missing', 'SKILL.md needs a Mermaid skill map: flow phases plus every reference page, each on an edge labeled with its trigger.');
     } else {
@@ -324,9 +362,8 @@ function checkSkill(dir) {
   }
 
   if (existsSync(refsDir)) {
-    for (const file of readdirSync(refsDir).filter((f) => f.endsWith('.md'))) {
-      const rel = `references/${file}`;
-      if (file !== 'references.md' && !referenced.has(rel) && !skill.includes(rel)) {
+    for (const rel of refTexts.keys()) {
+      if (basename(rel) !== 'references.md' && !referenced.has(rel) && !skill.includes(rel)) {
         warn('orphan-reference', `${rel} is not routed from SKILL.md or another reference.`);
       }
     }
@@ -361,7 +398,7 @@ function checkSkill(dir) {
   }
 
   for (const [rel, text] of refTexts) {
-    if (!referenced.has(rel)) continue; // already reported as orphan-reference
+    if (!referenced.has(rel) && !skill.includes(rel)) continue; // already reported as orphan-reference
     if (!listedInLobby(rel)) {
       warn('lobby-reference-unlisted', `${rel} is reachable only through another reference; the lobby must list every reference with when to read it.`);
     }
@@ -369,6 +406,8 @@ function checkSkill(dir) {
     const head = text.split(/\r?\n/).filter(Boolean).slice(0, 5).join(' ');
     if (!ENTRY_CUE.test(head)) {
       warn('reference-entry-cue', `${rel} should open by saying when to load it ("Load when …").`);
+    } else if (!/\bWhy:/.test(head)) {
+      warn('reference-why-cue', `${rel} opens with when to load it but not why; add "Why: …" to the opening line.`);
     }
     if (refTexts.size >= 3 && !linkedPaths(text).length && !ONWARD_CUE.test(text)) {
       warn('reference-dead-end', `${rel} points nowhere; add the next hop or say the step ends here.`);
@@ -470,6 +509,10 @@ Run the hook test and stop.
       [validLobby.replace(/^name: hook-skill$/m, 'name: claude-hook'), 'name-reserved'],
       [validLobby.replace(/^description: .*$/m, 'description: "Use when testing <b>tags</b>."'), 'frontmatter-xml'],
       [validLobby.replace(/^(description: .*)$/m, `$1\ncompatibility: ${'x'.repeat(501)}`), 'compatibility-length'],
+      [validLobby.replace(/^description: .*$/m, 'description: "Use when testing hooks. Triggers include hook, lint."'), 'description-shape'],
+      [validLobby.replace(/^description: .*$/m, 'description: "Use when testing hooks. Verify each hook first."'), 'description-shape'],
+      [validLobby.replace(/^description: .*$/m, 'description: "Use when you MUST test hooks."'), 'description-voice'],
+      [validLobby + '\n```mermaid\nflowchart LR\n  A-->B-->C-->D-->E-->F-->G\n  H-->I-->J-->K-->L-->M\n```\n', 'lobby-map-large'],
     ];
     for (const [text, code] of frontmatterCases) {
       writeFileSync(join(skillDir, 'SKILL.md'), text);
@@ -477,6 +520,8 @@ Run the hook test and stop.
     }
     writeFileSync(join(skillDir, 'SKILL.md'), validLobby.replace(/^(description: .*)$/m, '$1\ncompatibility: Requires Node.js 20+'));
     const validCompat = checkSkill(skillDir).findings;
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby.replace(/^description: .*$/m, 'description: "Use when testing hooks. Not for linting → other-skill."'));
+    if (checkSkill(skillDir).findings.length) throw new Error('description boundary false positive');
     if (validCompat.length) throw new Error(`compatibility false positive: ${JSON.stringify(validCompat)}`);
     writeFileSync(join(skillDir, 'SKILL.md'), validLobby);
 
@@ -506,6 +551,10 @@ Run the hook test and stop.
     writeFileSync(join(skillDir, 'references', 'extra.md'), '# Extra\n\nLoad when the hook is slow. Next: the step ends here.\n');
     writeFileSync(join(skillDir, 'SKILL.md'), validLobby + '\n```mermaid\nflowchart LR\n  R[RUN] -. "hook fails" .-> G["guide.md"]\n```\nIf the hook fails, load `references/guide.md`. If it is slow, load `references/extra.md`.\n');
     if (!checkSkill(skillDir).findings.some((f) => f.code === 'lobby-map-incomplete')) throw new Error('lobby-map-incomplete regression');
+    mkdirSync(join(skillDir, 'references', 'sub'));
+    writeFileSync(join(skillDir, 'references', 'sub', 'deep.md'), '# Deep\n\nLoad when nested. Next: the step ends here.\n');
+    writeFileSync(join(skillDir, 'SKILL.md'), validLobby + '\n```mermaid\nflowchart LR\n  R[RUN] -. "nested" .-> D["references/sub/deep.md"]\n```\n');
+    if (!checkSkill(skillDir).findings.some((f) => f.code === 'reference-why-cue' && f.message.includes('sub/deep.md'))) throw new Error('nested reference-why-cue regression');
     rmSync(join(skillDir, 'references'), { recursive: true, force: true });
     writeFileSync(join(skillDir, 'SKILL.md'), validLobby);
 

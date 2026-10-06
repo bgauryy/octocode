@@ -1,0 +1,1130 @@
+//! Coverage disclosure and leads: what a page could not cover (binary,
+//! default-excluded, policy-withheld, unreadable) and the follow-up calls
+//! (read, references, re-runs, listings) a page offers.
+
+use super::executor::*;
+use super::layout::*;
+use super::types::*;
+use crate::policy::path::PathPolicy;
+use crate::policy::prune::DefaultsFlag;
+use crate::security::ContentSecurity;
+use crate::tools::cancel::CancellationCheck;
+use crate::tools::id::ToolId;
+use crate::tools::local_fetch::MAX_READ_RANGES;
+use crate::tools::result::Continuation;
+use octocode_engine::{portable::search_ripgrep_cancellable, types::RipgrepSearchOptions};
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+use std::sync::Arc;
+
+/// What the scan could not cover, and how the row says so.
+pub(super) struct Coverage {
+    pub(super) error_count: u32,
+    /// A file was searched only up to its first NUL (`binaryQuit`).
+    pub(super) binary_cut: bool,
+    pub(super) binary_files: String,
+    pub(super) pcre2_deadline: bool,
+    pub(super) skip_hint: Option<String>,
+    /// include/exclude filtered out every file: nothing was searched.
+    pub(super) scope_miss: bool,
+    /// Entries the security path policy withheld from the walk.
+    pub(super) withheld: usize,
+}
+
+impl Coverage {
+    pub(super) fn of(
+        query: &LocalSearchQuery,
+        stats: &SearchStats,
+        scanned: &octocode_engine::types::RipgrepStats,
+        root: &std::path::Path,
+        output_root: &std::path::Path,
+        skipped: &crate::policy::discovery::WalkSkips,
+    ) -> Self {
+        let cap_has = |name: &str| {
+            stats
+                .cap_reason
+                .as_deref()
+                .is_some_and(|reason| reason.split(", ").any(|r| r == name))
+        };
+        let skip_hint = skipped_target_hint(
+            root.is_file(),
+            stats.files_searched,
+            stats.cap_reason.as_deref(),
+        )
+        .or_else(|| {
+            (root.is_file() && scanned.skipped_binary_count.unwrap_or(0) > 0).then(|| {
+                "The target file is binary from its leading bytes (a NUL in its header); it was not searched, and no text tool reads it.".into()
+            })
+        });
+        Self {
+            error_count: stats.error_count.unwrap_or(0),
+            binary_cut: cap_has("binaryQuit"),
+            binary_files: binary_file_list(
+                scanned.binary_files.as_deref().unwrap_or_default(),
+                scanned.binary_file_count.unwrap_or(0),
+                output_root,
+            ),
+            pcre2_deadline: cap_has("pcre2Deadline"),
+            scope_miss: !root.is_file()
+                && stats.files_searched == 0
+                && skip_hint.is_none()
+                && (!query.include.is_empty() || !query.exclude.is_empty()),
+            skip_hint,
+            withheld: skipped.withheld.total(),
+        }
+    }
+
+    /// Unreadable paths or a binary cut leave coverage incomplete: absence
+    /// is unproven, and prefix matches before a NUL are not the file's full
+    /// set.
+    pub(super) fn gap(&self) -> bool {
+        self.error_count > 0 || self.binary_cut
+    }
+
+    pub(super) fn warnings(
+        &self,
+        files: &[SearchFile],
+        layout: &Layout,
+        shown_redacted: usize,
+        unverified: bool,
+        empty: bool,
+    ) -> Vec<String> {
+        let mut warnings = vec![];
+        let any_truncated = files.iter().any(|file| {
+            file.matches
+                .as_ref()
+                .is_some_and(|matches| matches.iter().any(|matched| matched.truncated))
+        });
+        if layout.budget_binds && any_truncated {
+            warnings.push(
+                "Match values were shortened to keep the total response within its size budget. Every match row and its line anchor is preserved; next.expandValues reads the shortened values whole.".into(),
+            );
+        } else if any_truncated {
+            warnings.push(
+                "Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. next.expandValues reads them whole.".into(),
+            );
+        }
+        if shown_redacted > 0 && !layout.list {
+            warnings.push(format!(
+                "redactedMatches: {shown_redacted} returned match value(s) had secret-shaped text replaced by [REDACTED…] placeholders; those values are not verbatim source."
+            ));
+        }
+        if unverified {
+            warnings.push(
+                "Some match values were redacted because their source file could not be re-read to check clipped text for secrets. Use localFetch at the returned anchors.".into(),
+            );
+        }
+        if self.pcre2_deadline {
+            warnings.push(
+                "The PCRE2 (regex:\"pcre2\") search hit its wall-clock deadline and was stopped; results cover only the files finished before it. Narrow the pattern/scope, or use regex:\"literal\" or the default engine.".into(),
+            );
+        }
+        if self.binary_cut {
+            warnings.push(format!(
+                "binaryFileSkipped: {} searched only up to the first NUL byte; no text tool reads past it.",
+                self.binary_files
+            ));
+        }
+        // Hints are shown only on empty/error rows; a partial row keeps the
+        // unreadable-path explanation as a warning.
+        if self.error_count > 0 && empty {
+            warnings.push(unreadable_hint(self.error_count));
+        }
+        warnings
+    }
+
+    /// Rows carry prose hints only when empty or failed.
+    pub(super) fn empty_hints(&self, query: &LocalSearchQuery, empty: bool) -> Vec<String> {
+        if !empty {
+            return vec![];
+        }
+        if self.scope_miss {
+            vec!["Nothing searched: include/exclude matched no file under path. Fix the globs, or set path to the directory.".into()]
+        } else if self.error_count > 0 {
+            vec![unreadable_hint(self.error_count)]
+        } else if let Some(hint) = &self.skip_hint {
+            vec![hint.clone()]
+        } else if self.withheld > 0 {
+            // Not a spelling problem: the policy notice in `warnings` names
+            // what was withheld.
+            vec![format!(
+                "No matches; {} withheld by security path policy (no flag lifts it), so absence there is unproven.",
+                entries(self.withheld)
+            )]
+        } else if self.binary_cut {
+            vec![
+                "No matches in the searched text, but binary file(s) were searched only up to their first NUL byte; absence is not proven for them.".into(),
+                empty_hint(query),
+            ]
+        } else {
+            vec![empty_hint(query)]
+        }
+    }
+}
+
+/// A page's result, for its leads.
+pub(super) struct Found<'a> {
+    pub(super) query: &'a LocalSearchQuery,
+    pub(super) paths: &'a PathPolicy,
+    pub(super) root: &'a std::path::Path,
+    pub(super) output_root: &'a std::path::Path,
+    pub(super) files: &'a [SearchFile],
+    pub(super) layout: &'a Layout,
+    pub(super) definition: Option<&'a Definition>,
+    pub(super) symbol: Option<&'a str>,
+    pub(super) scanned: &'a octocode_engine::types::RipgrepStats,
+    /// What the walk left out: policy-withheld and default-excluded files.
+    pub(super) skipped: &'a crate::policy::discovery::WalkSkips,
+    /// Nothing capped and no coverage gap.
+    pub(super) complete: bool,
+    pub(super) empty: bool,
+}
+
+impl Found<'_> {
+    /// Leads in the tool's own rank: a read of the top hit, the symbol's
+    /// lspSearch lead, then reads of clipped values, the skipped binaries
+    /// and the literal search.
+    pub(super) fn add_leads(
+        &self,
+        next: &mut Option<Value>,
+        hints: &mut Vec<String>,
+        warnings: &mut Vec<String>,
+        probe_options: Option<RipgrepSearchOptions>,
+        cancel: &impl CancellationCheck,
+    ) {
+        let query = self.query;
+        let mut add = |name: String, lead: Value| {
+            if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
+                map.insert(name, lead);
+            }
+        };
+        if let Some(read) = self.read_lead() {
+            add("read".into(), read);
+        }
+        if let (Some(symbol), Some(definition)) = (self.symbol, self.definition)
+            && let Some(row) = crate::tools::lsp_search::verify_query(
+                &definition.source,
+                symbol,
+                u64::from(definition.line),
+                crate::tools::lsp_search::Verify::for_kind(&definition.kind),
+            )
+        {
+            add(
+                "verifyReferences".into(),
+                Continuation::new(ToolId::LspSearch, row)
+                    .why("Uses of the searched symbol's declaration.")
+                    .build(),
+            );
+        }
+        // Every clipped value on the page stays reachable whole.
+        let expansions = expand_values(
+            query,
+            self.paths,
+            self.output_root,
+            self.files,
+            self.layout.context_lines,
+            query.multiline != LocalSearchQueryMultiline::Off,
+            // A caller-sized (grid) page keeps its rows whatever the value
+            // width; a streamed page is cut by serialized size.
+            (!self.layout.streamed).then_some(GridPage {
+                value_cap: self.layout.budget_cap.unwrap_or(RESPONSE_VALUE_CHAR_BUDGET),
+            }),
+        );
+        for (index, expansion) in expansions.into_iter().enumerate() {
+            let name = if index == 0 {
+                "expandValues".to_owned()
+            } else {
+                format!("expandValues{}", index + 1)
+            };
+            add(name, expansion);
+        }
+        if let Some((warning, listing)) = self.skipped_binaries() {
+            warnings.extend(Some(warning).filter(|warning| !warning.is_empty()));
+            add("binarySkipped".into(), listing);
+        }
+        // What the walk left out is disclosed once, on the first page: the
+        // security policy's withheld entries (nothing lifts them), and the
+        // default excludes with the same search over them.
+        if self.first_page() {
+            warnings.extend(self.skipped.withheld.notice());
+            if !self.empty
+                && let Some(names) = excluded_names(self.scanned, self.skipped)
+            {
+                warnings.push(format!(
+                    "Default excludes skipped {names}; the same search with defaultExcludes:false covers them."
+                ));
+                add("includeIgnored".into(), excluded_lead(query));
+            }
+        }
+        // An unset `regex` is inferred from the text: say which reading ran
+        // when the literal and regex readings differ.
+        let inferred = match query.regex_mode() {
+            _ if query.regex.is_some() => None,
+            LocalSearchQueryRegex::Literal => query
+                .match_string
+                .contains(['.', '(', ')'])
+                .then_some("matchString ran as literal text; regex:\"rust\" runs it as a regex."),
+            _ => Some("matchString ran as a regex; regex:\"literal\" matches it exactly."),
+        };
+        warnings.extend(inferred.map(str::to_owned));
+        if self.empty && self.complete && !self.root.is_file() {
+            disclose_unsearched(
+                query,
+                self.paths,
+                probe_options,
+                excluded_names(self.scanned, self.skipped),
+                next,
+                hints,
+                cancel,
+            );
+        }
+    }
+
+    pub(super) fn first_page(&self) -> bool {
+        self.query.page().max(1) == 1
+    }
+
+    /// The natural next step on a complete first page: read the top hit in
+    /// context. A shown declaration of the searched symbol reads that
+    /// declaration whole when one block read holds it; a larger one (a big
+    /// class) reads its hit in context, like any other hit.
+    pub(super) fn read_lead(&self) -> Option<Value> {
+        let query = self.query;
+        let readable = self.complete
+            && self.first_page()
+            && !self.layout.list
+            && query.result_view != LocalSearchQueryResultView::MatchOnly
+            && self.layout.context_lines == 0
+            && query.regex_mode() != LocalSearchQueryRegex::Pcre2
+            && query.invert_match != Some(true);
+        if !readable {
+            return None;
+        }
+        let declared = self.definition.and_then(|definition| {
+            self.files
+                .iter()
+                .find(|file| {
+                    self.output_root.join(&file.path).to_string_lossy()
+                        == definition.source.as_str()
+                })
+                .zip(Some(definition))
+        });
+        match declared {
+            Some((file, definition))
+                if (definition.end + 1).saturating_sub(definition.start) as usize
+                    <= crate::tools::local_fetch::BLOCK_MAX_LINES =>
+            {
+                Some(declaration_read(
+                    query,
+                    self.root,
+                    file,
+                    definition.start,
+                    definition.end,
+                ))
+            }
+            Some((file, _)) => read_handoff(query, self.root, file),
+            None => self
+                .files
+                .first()
+                .and_then(|top| read_handoff(query, self.root, top)),
+        }
+    }
+
+    /// Files binary from their leading bytes are outside a text search, not
+    /// a coverage gap: disclosed once, on the first page, as a count by
+    /// extension with a listing.
+    /// The listing also covers binary-cut files too many to name in their
+    /// own warning ([`binary_file_list`]).
+    pub(super) fn skipped_binaries(&self) -> Option<(String, Value)> {
+        if !self.first_page() || self.root.is_file() {
+            return None;
+        }
+        let skipped = self
+            .scanned
+            .skipped_binary_extensions
+            .as_deref()
+            .unwrap_or_default();
+        let cut = self.scanned.binary_files.as_deref().unwrap_or_default();
+        let cut_groups = if cut.len() > MAX_NAMED_BINARY_FILES {
+            binary_groups(cut)
+        } else {
+            Vec::new()
+        };
+        if skipped.is_empty() && cut_groups.is_empty() {
+            return None;
+        }
+        let listing =
+            leading_binary_listing(self.query, &merge_binary_groups(skipped, &cut_groups));
+        let warning = if skipped.is_empty() {
+            // The cut files' own warning carries the count.
+            String::new()
+        } else {
+            leading_binary_warning(skipped)
+        };
+        Some((warning, listing))
+    }
+}
+
+/// The searched symbol's declaration among the shown hits.
+pub(super) struct Definition {
+    /// Absolute path of the declaring file.
+    pub(super) source: String,
+    /// The declaration's name line.
+    pub(super) line: u32,
+    pub(super) kind: String,
+    /// Its first and last line.
+    pub(super) start: u32,
+    pub(super) end: u32,
+}
+
+/// localFetch read of a shown declaration whole, from its first line to its
+/// last; localFetch pages a long one.
+pub(super) fn declaration_read(
+    query: &LocalSearchQuery,
+    root: &std::path::Path,
+    file: &SearchFile,
+    start: u32,
+    end: u32,
+) -> Value {
+    Continuation::new(
+        ToolId::LocalFetch,
+        json!({"path": joined_path(query, root, file), "ranges": [format!("{start}-{end}")]}),
+    )
+    .why("Read the declaration whole.")
+    .build()
+}
+
+/// A shown file's path joined to the caller's own `path`, so a read
+/// resolves wherever the search did.
+pub(super) fn joined_path(
+    query: &LocalSearchQuery,
+    root: &std::path::Path,
+    file: &SearchFile,
+) -> String {
+    if root.is_file() {
+        query.path.to_string()
+    } else {
+        std::path::Path::new(query.path.as_str())
+            .join(&file.path)
+            .to_string_lossy()
+            .into_owned()
+    }
+}
+
+/// Re-run an empty search over what the defaults leave out: ignored and
+/// hidden entries, and the default-excluded directories (`build/`,
+/// `node_modules/`, …). A match there, or default-excluded directories the
+/// re-run could not finish, is named with the lead that searches them.
+pub(super) fn disclose_unsearched(
+    query: &LocalSearchQuery,
+    paths: &PathPolicy,
+    probe_options: Option<RipgrepSearchOptions>,
+    excluded: Option<String>,
+    next: &mut Option<Value>,
+    hints: &mut Vec<String>,
+    cancel: &impl CancellationCheck,
+) {
+    let Some(options) = probe_options else {
+        return;
+    };
+    let probe = ignored_probe(options, paths, cancel);
+    let (count, cut) = match &probe {
+        Some(found) => (found.count, found.cut),
+        None => (0, true),
+    };
+    if count == 0 && (!cut || excluded.is_none()) {
+        return;
+    }
+    // The action leads: the response stage clips long hints at the end.
+    let names = excluded
+        .map(|names| format!(" ({names})"))
+        .unwrap_or_default();
+    let hint = if count == 0 {
+        format!(
+            "Run hints.includeIgnored before claiming absence: default-excluded paths were not searched{names}."
+        )
+    } else {
+        format!(
+            "Run hints.includeIgnored: {}{count} file(s) match in ignored, hidden or default-excluded paths{names}.",
+            if cut { "at least " } else { "" },
+        )
+    };
+    hints.insert(0, hint);
+    if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
+        map.insert("includeIgnored".into(), unsearched_lead(query));
+    }
+}
+
+/// Distinct names of the pruned directories, each with how many were
+/// pruned when more than one: `node_modules ×3, build`.
+pub(super) fn pruned_names(pruned: &[String]) -> String {
+    let mut counts = std::collections::BTreeMap::<&str, usize>::new();
+    for dir in pruned {
+        let name = dir.rsplit('/').next().unwrap_or(dir);
+        *counts.entry(name).or_default() += 1;
+    }
+    counts
+        .into_iter()
+        .map(|(name, count)| {
+            if count > 1 {
+                format!("{name}/ ×{count}")
+            } else {
+                format!("{name}/")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// What the default excludes left out of the walk, as one clause: the
+/// pruned directories and the skipped generated files, each by name with
+/// its count (`2 dirs (target/, dist/) and 3 files (*.lock ×2, *.min.js)`).
+pub(super) fn excluded_names(
+    scanned: &octocode_engine::types::RipgrepStats,
+    skipped: &crate::policy::discovery::WalkSkips,
+) -> Option<String> {
+    let pruned = scanned.pruned_dirs.as_deref().unwrap_or_default();
+    let mut parts = Vec::new();
+    if !pruned.is_empty() {
+        let noun = if pruned.len() == 1 { "dir" } else { "dirs" };
+        parts.push(format!(
+            "{} {noun} ({})",
+            pruned.len(),
+            pruned_names(pruned)
+        ));
+    }
+    let files: usize = skipped.generated.values().sum();
+    if files > 0 {
+        let noun = if files == 1 { "file" } else { "files" };
+        let patterns = skipped
+            .generated
+            .iter()
+            .map(|(pattern, count)| {
+                if *count > 1 {
+                    format!("{pattern} ×{count}")
+                } else {
+                    pattern.clone()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("{files} {noun} ({patterns})"));
+    }
+    (!parts.is_empty()).then(|| parts.join(" and "))
+}
+
+/// The same search with the default excludes off, from page 1: a result
+/// that found matches keeps its ignore and hidden settings.
+pub(super) fn excluded_lead(query: &LocalSearchQuery) -> Value {
+    let mut lead = restart_fields(query);
+    if let Some(fields) = lead.as_object_mut() {
+        fields.insert("defaultExcludes".into(), json!(false));
+    }
+    Continuation::new(ToolId::LocalSearch, lead).build()
+}
+
+/// The query as a fresh page-1 search: no page, match page or snapshot.
+pub(super) fn restart_fields(query: &LocalSearchQuery) -> Value {
+    let mut lead = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
+    if let Some(fields) = lead.as_object_mut() {
+        fields.retain(|key, value| {
+            !value.is_null() && !matches!(key.as_str(), "page" | "matchPage" | "snapshot")
+        });
+    }
+    lead
+}
+
+/// "1 entry" or "N entries".
+pub(super) fn entries(count: usize) -> String {
+    if count == 1 {
+        "1 entry".to_owned()
+    } else {
+        format!("{count} entries")
+    }
+}
+
+/// The same search over everything the defaults leave out, from page 1.
+pub(super) fn unsearched_lead(query: &LocalSearchQuery) -> Value {
+    let mut lead = restart_fields(query);
+    if let Some(fields) = lead.as_object_mut() {
+        fields.insert("noIgnore".into(), json!(true));
+        fields.insert("hidden".into(), json!(true));
+        fields.insert("defaultExcludes".into(), json!(false));
+    }
+    Continuation::new(ToolId::LocalSearch, lead).build()
+}
+
+/// Hit rows a page may show and still name each hit's enclosing
+/// declaration: a sweep of more hits is read as lines, not functions.
+pub(super) const ENCLOSING_MAX_ROWS: usize = 50;
+
+/// Shown files checked for the searched symbol's declaration when the page
+/// is too large to annotate.
+pub(super) const DEFINITION_MAX_FILES: usize = 3;
+
+/// Serialized chars an `in` field adds besides its value: `,"in":""`.
+pub(super) const ENCLOSING_FIELD_CHARS: usize = 8;
+
+/// The current outline of a shown file, or `None` when it is too large,
+/// unreadable, unsupported, or no longer the bytes a stored scan matched.
+pub(super) fn shown_outline(
+    source: &std::path::Path,
+    expected: Option<Option<super::manifest::Digest>>,
+    security: &ContentSecurity,
+) -> Option<super::enclosing::Outline> {
+    let limit = crate::tools::ast_search::MAX_PARSE_SOURCE_BYTES;
+    let bytes = crate::tools::source::read_bounded(source, limit).ok()?;
+    if let Some(expected) = expected
+        && expected != Some(<[u8; 32]>::from(Sha256::digest(&bytes)))
+    {
+        return None;
+    }
+    let text = security.decode_source_bytes(&bytes, limit).ok()?;
+    super::enclosing::Outline::of(&text, &source.to_string_lossy())
+}
+
+/// Lines a shown row stands for: every matched line of a merged block.
+pub(super) fn row_lines(row: &SearchMatch) -> Vec<u32> {
+    row.match_lines.clone().unwrap_or_else(|| vec![row.line])
+}
+
+/// Set `in` on every hit row of a page of at most [`ENCLOSING_MAX_ROWS`]
+/// rows whose names fit the page budget, and find the first shown hit that
+/// declares `symbol`. Each file is parsed once.
+pub(super) fn annotate_enclosing(
+    files: &mut [SearchFile],
+    symbol: Option<&str>,
+    declaring: Option<&str>,
+    output_root: &std::path::Path,
+    page_budget: usize,
+    expected: &dyn Fn(&std::path::Path) -> Option<Option<super::manifest::Digest>>,
+    security: &ContentSecurity,
+) -> Option<Definition> {
+    let rows: usize = files
+        .iter()
+        .map(|file| file.matches.as_ref().map_or(0, Vec::len))
+        .sum();
+    let annotate = rows > 0 && rows <= ENCLOSING_MAX_ROWS;
+    if !annotate && symbol.is_none() {
+        return None;
+    }
+    let mut names: Vec<Vec<Option<String>>> = Vec::with_capacity(files.len());
+    let mut definition = None;
+    for (position, file) in files.iter().enumerate() {
+        let Some(matches) = file.matches.as_ref().filter(|rows| !rows.is_empty()) else {
+            names.push(Vec::new());
+            continue;
+        };
+        if !annotate && (definition.is_some() || position >= DEFINITION_MAX_FILES) {
+            break;
+        }
+        let source = output_root.join(&file.path);
+        let Some(outline) = shown_outline(&source, expected(&source), security) else {
+            names.push(Vec::new());
+            continue;
+        };
+        if definition.is_none()
+            && let Some(symbol) = symbol
+            && let Some((line, (kind, start, end))) = matches
+                .iter()
+                .flat_map(row_lines)
+                .find_map(|line| Some((line, outline.declaration(symbol, line)?)))
+        {
+            definition = Some(Definition {
+                source: source.to_string_lossy().into_owned(),
+                line,
+                kind: kind.to_owned(),
+                start,
+                end,
+            });
+        }
+        names.push(if annotate {
+            row_owners(&outline, matches, declaring)
+        } else {
+            Vec::new()
+        });
+    }
+    if annotate {
+        let added: usize = names
+            .iter()
+            .flatten()
+            .flatten()
+            .map(|name| crate::tools::stream_page::json_text_chars(name) + ENCLOSING_FIELD_CHARS)
+            .sum();
+        let page = serde_json::to_string(&*files).map_or(usize::MAX, |text| text.len());
+        if page.saturating_add(added) <= page_budget {
+            for (file, names) in files.iter_mut().zip(names) {
+                for (row, name) in file.matches.iter_mut().flatten().zip(names) {
+                    row.enclosing = name;
+                }
+            }
+        }
+    }
+    definition
+}
+
+/// Each row's `in` name. A run of consecutive rows in one declaration names
+/// it once, on its first row, with the declaration's last line; the rows
+/// after it inside that range share it. With `declaring` (a declaration
+/// search), only rows that declare that symbol are named.
+pub(super) fn row_owners(
+    outline: &super::enclosing::Outline,
+    rows: &[SearchMatch],
+    declaring: Option<&str>,
+) -> Vec<Option<String>> {
+    let owners = rows
+        .iter()
+        .map(|row| {
+            let named = declaring.is_none_or(|symbol| {
+                row_lines(row)
+                    .iter()
+                    .any(|line| outline.declares(symbol, *line))
+            });
+            named.then(|| outline.owner(row_lines(row)[0])).flatten()
+        })
+        .collect::<Vec<_>>();
+    owners
+        .iter()
+        .enumerate()
+        .map(|(index, owner)| {
+            let owner = (*owner)?;
+            if index > 0 && owners[index - 1] == Some(owner) {
+                return None;
+            }
+            let shared = owners.get(index + 1) == Some(&Some(owner));
+            outline.label(owner, shared)
+        })
+        .collect()
+}
+
+/// Hits a handed-off read may cover (each opens a ±6-line window).
+pub(super) const READ_HANDOFF_MAX_HITS: usize = 20;
+
+/// Lines a handed-off read shows on each side of a hit.
+/// A range end past any file: localFetch clamps it to the last line, so the
+/// read runs from its start to the end of the file, paged.
+pub(super) const READ_TO_END_LINE: usize = 1_000_000;
+
+pub(super) const READ_HANDOFF_CONTEXT: u32 = 6;
+
+/// `(start, end)` windows of `context` lines around each line, merged where
+/// they overlap or touch, in line order.
+pub(super) fn hit_windows(lines: impl IntoIterator<Item = u32>, context: u32) -> Vec<(u32, u32)> {
+    crate::tools::line_spans::merge_spans(lines.into_iter().map(|line| {
+        (
+            line.saturating_sub(context).max(1),
+            line.saturating_add(context),
+        )
+    }))
+}
+
+/// localFetch read of one file's hits in context (the file declaring the
+/// searched symbol, else the top file): ±6-line `ranges`
+/// around exactly the shown hits, or (when they need more windows than one
+/// read holds) the search text as `matchString`. Paths join the caller's
+/// own `path`, so the read resolves wherever the search did.
+pub(super) fn read_handoff(
+    query: &LocalSearchQuery,
+    root: &std::path::Path,
+    top: &SearchFile,
+) -> Option<Value> {
+    let hits = top.matches.as_ref()?;
+    if hits.is_empty() || hits.len() > READ_HANDOFF_MAX_HITS {
+        return None;
+    }
+    let path = joined_path(query, root, top);
+    let windows = hit_windows(hits.iter().flat_map(row_lines), READ_HANDOFF_CONTEXT);
+    if windows.len() <= MAX_READ_RANGES {
+        let ranges = windows
+            .iter()
+            .map(|(start, end)| format!("{start}-{end}"))
+            .collect::<Vec<_>>();
+        return Some(
+            Continuation::new(ToolId::LocalFetch, json!({"path": path, "ranges": ranges}))
+                .why("Read the top file's hits in context.")
+                .build(),
+        );
+    }
+    let mut read = json!({
+        "path": path,
+        "matchString": query.match_string.as_str(),
+        "contextLines": READ_HANDOFF_CONTEXT,
+    });
+    if query.regex_mode() != LocalSearchQueryRegex::Literal
+        && regex::escape(&query.match_string) != query.match_string.as_str()
+    {
+        read["regex"] = json!("rust");
+    }
+    if query.case_mode != LocalSearchQueryCaseMode::Insensitive {
+        read["caseMode"] = json!(query.case_mode);
+    }
+    Some(
+        Continuation::new(ToolId::LocalFetch, read)
+            .why("Read the top file's hits in context.")
+            .build(),
+    )
+}
+
+/// A query that explicitly targets a single file which the engine then skips
+/// (e.g. over the per-file byte ceiling, surfaced as `capReason:"maxFileSize"`
+/// with `filesScanned:0`) is a silent false negative without an explanation:
+/// nothing was searched, so "no matches" would be misleading.
+pub(super) fn skipped_target_hint(
+    single_file: bool,
+    files_searched: u32,
+    cap_reason: Option<&str>,
+) -> Option<String> {
+    let reason = cap_reason?;
+    if single_file && reason.contains("binaryQuit") {
+        return Some(
+            "The target file is binary (NUL byte found); it was not searched past that point, and no text tool reads past it."
+                .into(),
+        );
+    }
+    (single_file && files_searched == 0).then(|| {
+        format!(
+            "The target file was skipped ({reason}): nothing was searched. Raise limits or read it with localFetch chunks."
+        )
+    })
+}
+
+pub(super) fn unreadable_hint(count: u32) -> String {
+    format!(
+        "{count} path(s) could not be read (see stats.firstError), so absence is not proven. Check permissions, or narrow path to readable directories."
+    )
+}
+
+pub(super) fn empty_hint(query: &LocalSearchQuery) -> String {
+    let mut tips = Vec::new();
+    // Published fields only: smart case (the default) matches any case for
+    // an all-lowercase term; `caseMode` is named only to a caller who set it.
+    match query.case_mode {
+        LocalSearchQueryCaseMode::Sensitive => tips.push("caseMode:\"insensitive\""),
+        LocalSearchQueryCaseMode::Smart if query.match_string.chars().any(char::is_uppercase) => {
+            tips.push("an all-lowercase matchString")
+        }
+        _ => {}
+    }
+    tips.push("a shorter term");
+    if query.regex_mode() == LocalSearchQueryRegex::Literal {
+        tips.push("regex:\"rust\"");
+    } else {
+        tips.push("regex:\"literal\" if matchString has metacharacters");
+    }
+    format!("No matches. Try {}.", tips.join(", "))
+}
+
+/// Wall-clock bound of the ignored/hidden re-walk behind an empty result.
+pub(super) const IGNORED_PROBE_MS: u64 = 400;
+
+/// Files an empty search's re-run found where the defaults do not look.
+pub(super) struct IgnoredMatches {
+    pub(super) count: usize,
+    /// The re-run stopped early (deadline or cap): there may be more.
+    pub(super) cut: bool,
+}
+
+/// Re-run an empty search with `noIgnore`, `hidden` and no default prune
+/// (files only, within [`IGNORED_PROBE_MS`]); `None` when it could not run.
+pub(super) fn ignored_probe(
+    mut options: RipgrepSearchOptions,
+    paths: &PathPolicy,
+    cancel: &impl CancellationCheck,
+) -> Option<IgnoredMatches> {
+    options.no_ignore = Some(true);
+    options.hidden = Some(true);
+    options.exclude_dir = None;
+    options.files_only = Some(true);
+    options.files_without_match = Some(false);
+    options.count_lines_per_file = Some(false);
+    options.count_matches_per_file = Some(false);
+    options.only_matching = Some(false);
+    options.unique = Some(false);
+    options.count_unique = Some(false);
+    options.context_lines = Some(0);
+    options.sort = Some("path".into());
+    let started = std::time::Instant::now();
+    let deadline = std::time::Duration::from_millis(IGNORED_PROBE_MS);
+    let found = search_ripgrep_cancellable(options, Arc::new(paths.clone()), &|| {
+        cancel.check().is_err() || started.elapsed() > deadline
+    })
+    .ok()?;
+    Some(IgnoredMatches {
+        count: found.files.len(),
+        cut: found
+            .stats
+            .cap_reason
+            .as_deref()
+            .is_some_and(|reason| !reason.is_empty()),
+    })
+}
+
+/// `binarySkipped` warning: how many files were skipped as binary from
+/// their leading bytes, grouped by extension (`.woff2 54, .png 2`).
+pub(super) fn leading_binary_warning(
+    groups: &[octocode_engine::types::BinaryExtensionCount],
+) -> String {
+    let total: u64 = groups.iter().map(|group| u64::from(group.count)).sum();
+    let by_extension = binary_counts(groups);
+    // Self-contained: the listing lead may be cut by the lead cap.
+    let (noun, them) = if total == 1 {
+        ("binary file", "it")
+    } else {
+        ("binary files", "them")
+    };
+    format!(
+        "binarySkipped: {total} {noun} not searched ({by_extension}); structureSearch operation:\"files\" with these extensions (or hints.binarySkipped) lists {them}."
+    )
+}
+
+/// Most chars of exact names a binary listing's `nameRegex` spells out.
+pub(super) const MAX_LISTED_NAME_CHARS: usize = 2_000;
+
+/// Most extensions a structureSearch `extensions` filter takes.
+pub(super) const MAX_LISTED_EXTENSIONS: usize = 100;
+
+/// A structureSearch `files` query over the searched scope that lists every
+/// skipped binary: by `extensions`, or by a basename regex when one has no
+/// extension (or there are more extensions than the filter takes). It may
+/// also list same-extension text files; it never misses a skipped one.
+pub(super) fn leading_binary_listing(
+    query: &LocalSearchQuery,
+    groups: &[octocode_engine::types::BinaryExtensionCount],
+) -> Value {
+    let mut listing = json!({
+        "operation": "files",
+        "path": query.path.as_str(),
+        "entryType": "f",
+    });
+    let by_extension = groups.len() <= MAX_LISTED_EXTENSIONS
+        && groups.iter().all(|group| !group.extension.is_empty());
+    if by_extension {
+        listing["extensions"] = json!(
+            groups
+                .iter()
+                .map(|group| group.extension.as_str())
+                .collect::<Vec<_>>()
+        );
+    } else {
+        // Extensionless binaries by exact name: a no-extension pattern
+        // would also list every extensionless text file.
+        let names = groups
+            .iter()
+            .filter(|group| group.extension.is_empty())
+            .flat_map(|group| group.names.iter().map(|name| regex::escape(name)))
+            .collect::<Vec<_>>();
+        let extensions = groups
+            .iter()
+            .filter(|group| !group.extension.is_empty())
+            .map(|group| regex::escape(&group.extension))
+            .collect::<Vec<_>>();
+        let mut alternatives = Vec::new();
+        if !names.is_empty() {
+            let exact = format!("^(?:{})$", names.join("|"));
+            // Too many names for one call: every extensionless name instead,
+            // which may also list text files but never misses a binary.
+            alternatives.push(if exact.len() > MAX_LISTED_NAME_CHARS {
+                r"^\.?[^.]*$".to_owned()
+            } else {
+                exact
+            });
+        }
+        if !extensions.is_empty() {
+            alternatives.push(format!(r"\.(?i:{})$", extensions.join("|")));
+        }
+        listing["nameRegex"] = json!(alternatives.join("|"));
+    }
+    if let Some(depth) = query.max_depth {
+        listing["maxDepth"] = json!(depth);
+    }
+    if !query.exclude.is_empty() {
+        listing["exclude"] = json!(query.exclude);
+    }
+    if !query.default_excludes.defaults() {
+        listing["defaultExcludes"] = json!(false);
+    }
+    if query.no_ignore == Some(true) {
+        listing["noIgnore"] = json!(true);
+    }
+    Continuation::new(ToolId::StructureSearch, listing)
+        .why("List the files skipped as binary.")
+        .confidence("high")
+        .build()
+}
+
+/// Binary-cut files a warning names one by one; more are a count by
+/// extension, listed whole by the `binarySkipped` lead.
+pub(super) const MAX_NAMED_BINARY_FILES: usize = 10;
+
+/// Paths grouped by lowercased extension (`""` for none, naming those
+/// files), most files first, as the engine groups skipped binaries.
+pub(super) fn binary_groups(paths: &[String]) -> Vec<octocode_engine::types::BinaryExtensionCount> {
+    let mut groups = std::collections::BTreeMap::<String, (u32, Vec<String>)>::new();
+    for path in paths {
+        let path = std::path::Path::new(path);
+        let extension = path
+            .extension()
+            .map(|extension| extension.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let group = groups.entry(extension.clone()).or_default();
+        group.0 = group.0.saturating_add(1);
+        if extension.is_empty()
+            && let Some(name) = path.file_name()
+        {
+            group.1.push(name.to_string_lossy().into_owned());
+        }
+    }
+    let mut groups = groups
+        .into_iter()
+        .map(|(extension, (count, mut names))| {
+            names.sort();
+            names.dedup();
+            octocode_engine::types::BinaryExtensionCount {
+                extension,
+                count,
+                names,
+            }
+        })
+        .collect::<Vec<_>>();
+    groups.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.extension.cmp(&b.extension))
+    });
+    groups
+}
+
+/// Two extension groupings as one: counts summed, names joined.
+pub(super) fn merge_binary_groups(
+    first: &[octocode_engine::types::BinaryExtensionCount],
+    second: &[octocode_engine::types::BinaryExtensionCount],
+) -> Vec<octocode_engine::types::BinaryExtensionCount> {
+    let mut merged: Vec<octocode_engine::types::BinaryExtensionCount> = first.to_vec();
+    for group in second {
+        match merged
+            .iter_mut()
+            .find(|known| known.extension == group.extension)
+        {
+            Some(known) => {
+                known.count = known.count.saturating_add(group.count);
+                known.names.extend(group.names.iter().cloned());
+                known.names.sort();
+                known.names.dedup();
+            }
+            None => merged.push(group.clone()),
+        }
+    }
+    merged
+}
+
+/// `.woff2 54, .png 2, no extension 1`.
+pub(super) fn binary_counts(groups: &[octocode_engine::types::BinaryExtensionCount]) -> String {
+    groups
+        .iter()
+        .map(|group| {
+            if group.extension.is_empty() {
+                format!("no extension {}", group.count)
+            } else {
+                format!(".{} {}", group.extension, group.count)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The binary-cut files a warning names: every root-relative path, files
+/// sharing a directory written once under it (`dir/{a.txt,b.txt}`), then
+/// the count of any the engine could not name (`and 3 more`). Past
+/// [`MAX_NAMED_BINARY_FILES`] they are a count by extension, and the
+/// `binarySkipped` listing names each one.
+pub(super) fn binary_file_list(paths: &[String], total: u32, root: &std::path::Path) -> String {
+    if paths.is_empty() {
+        return "a file with a NUL byte was".into();
+    }
+    if paths.len() > MAX_NAMED_BINARY_FILES {
+        let total = (total as usize).max(paths.len());
+        return format!(
+            "{total} files ({}; structureSearch operation:\"files\" with these extensions lists them) were",
+            binary_counts(&binary_groups(paths))
+        );
+    }
+    let mut by_dir = std::collections::BTreeMap::<String, Vec<String>>::new();
+    for path in paths {
+        let path = std::path::Path::new(path);
+        let relative = path
+            .strip_prefix(root)
+            .ok()
+            .filter(|relative| !relative.as_os_str().is_empty())
+            .unwrap_or(path);
+        let dir = relative
+            .parent()
+            .map(|dir| dir.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let name = relative.file_name().map_or_else(
+            || relative.to_string_lossy().into_owned(),
+            |name| name.to_string_lossy().into_owned(),
+        );
+        by_dir.entry(dir).or_default().push(name);
+    }
+    let mut names = by_dir
+        .into_iter()
+        .flat_map(|(dir, names)| {
+            let prefix = if dir.is_empty() {
+                String::new()
+            } else {
+                format!("{dir}/")
+            };
+            if names.len() == 1 || dir.is_empty() {
+                names
+                    .into_iter()
+                    .map(|name| format!("{prefix}{name}"))
+                    .collect::<Vec<_>>()
+            } else {
+                vec![format!("{prefix}{{{}}}", names.join(","))]
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let unnamed = (total as usize).saturating_sub(paths.len());
+    if unnamed > 0 {
+        names.push_str(&format!(" and {unnamed} more"));
+    }
+    let verb = if paths.len() + unnamed == 1 {
+        "was"
+    } else {
+        "were"
+    };
+    format!("{names} {verb}")
+}
+
+#[cfg(test)]
+mod empty_hint_tests {
+    use super::{LocalSearchQuery, empty_hint};
+
+    fn query(row: serde_json::Value) -> LocalSearchQuery {
+        serde_json::from_value(row).expect("localSearch row")
+    }
+
+    /// An empty-result tip names only published fields: smart case already
+    /// matches any case for an all-lowercase term, so a mixed-case term gets
+    /// that tip; only a caller who set `caseMode` is told about it.
+    #[test]
+    fn empty_tips_name_published_fields() {
+        let mixed = empty_hint(&query(
+            serde_json::json!({"path":".","matchString":"FooBar"}),
+        ));
+        assert!(!mixed.contains("caseMode"), "{mixed}");
+        assert!(mixed.contains("all-lowercase matchString"), "{mixed}");
+        let lower = empty_hint(&query(
+            serde_json::json!({"path":".","matchString":"foobar"}),
+        ));
+        assert!(
+            !lower.contains("caseMode") && !lower.contains("lowercase"),
+            "{lower}"
+        );
+        let strict = empty_hint(&query(
+            serde_json::json!({"path":".","matchString":"FooBar","caseMode":"sensitive"}),
+        ));
+        assert!(strict.contains("caseMode:\"insensitive\""), "{strict}");
+    }
+}

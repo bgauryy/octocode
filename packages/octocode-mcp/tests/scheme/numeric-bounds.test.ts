@@ -3,7 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { FileContentQueryLocalSchema } from '@octocodeai/config/schema';
 import { GitHubCodeSearchQueryLocalSchema } from '@octocodeai/config/schema';
 import { GitHubReposSearchSingleQueryLocalSchema } from '@octocodeai/config/schema';
-import { SearchPullRequestsLocalSchema } from '@octocodeai/config/schema';
+import {
+  GitHubGetHistoryItemQueryLocalSchema,
+  SearchPullRequestsLocalSchema,
+} from '@octocodeai/config/schema';
 import { GitHubViewRepoStructureQueryLocalSchema } from '@octocodeai/config/schema';
 import { ArtifactSearchQueryLocalSchema } from '@octocodeai/config/schema';
 import { LocalFetchContentQuerySchema } from '@octocodeai/config/schema';
@@ -56,7 +59,7 @@ describe('numeric schema fields are bounded (#C1)', () => {
       mainGoal: 'test goal',
       reasoning: 'exercise offset bounds',
       path: '/fixture.txt',
-      chunkType: 'bytes' as const,
+      unit: 'bytes' as const,
     };
     expect(
       LocalFetchContentQuerySchema.safeParse({ ...query, offset: SENTINEL })
@@ -113,7 +116,7 @@ describe('numeric schema fields are bounded (#C1)', () => {
 
   it('rejects a negative LSP line without changing the observed anchor', () => {
     const r = LspSearchQuerySchema.safeParse({
-      uri: 'a.ts',
+      path: 'a.ts',
       operation: 'definition',
       symbolName: 'x',
       lineHint: -5,
@@ -121,58 +124,31 @@ describe('numeric schema fields are bounded (#C1)', () => {
     expect(r.success).toBe(false);
   });
 
-  it('pullRequests: content.patches.ranges line arrays are bounded (reject above the cap)', () => {
+  it('pullRequests: patchRanges line arrays are bounded (reject above the cap)', () => {
     // The SENTINEL is above the 1e9 line-number cap -> rejected as too_big,
     // and the cap is never the ±MAX_SAFE_INTEGER sentinel.
-    const r = SearchPullRequestsLocalSchema.safeParse({
-      mainGoal: 'test goal',
-      reasoning: 'exercise patch line bounds',
-      owner: 'o',
-      repo: 'r',
-      prNumber: 1,
-      content: {
-        patches: {
-          mode: 'selected',
-          ranges: [
-            {
-              file: 'a.ts',
-              additions: [SENTINEL],
-              deletions: [SENTINEL],
-            },
-          ],
-        },
-      },
-    });
-
+    const read = (line: number) =>
+      GitHubGetHistoryItemQueryLocalSchema.safeParse({
+        mainGoal: 'test goal',
+        reasoning: 'exercise patch line bounds',
+        operation: 'pullRequest',
+        owner: 'o',
+        repo: 'r',
+        number: 1,
+        sections: ['patches'],
+        patchRanges: [{ file: 'a.ts', additions: [line], deletions: [line] }],
+      });
+    const r = read(SENTINEL);
     expect(r.success).toBe(false);
     if (!r.success) {
       const tooBig = r.error.issues.filter(i => i.code === 'too_big');
       expect(tooBig.length).toBeGreaterThan(0);
       const paths = tooBig.map(i => i.path.join('.'));
-      expect(paths).toContain('content.patches.ranges.0.additions.0');
-      expect(paths).toContain('content.patches.ranges.0.deletions.0');
+      expect(paths).toContain('patchRanges.0.additions.0');
+      expect(paths).toContain('patchRanges.0.deletions.0');
     }
 
     // A value exactly at the cap is accepted.
-    const ok = SearchPullRequestsLocalSchema.safeParse({
-      mainGoal: 'test goal',
-      reasoning: 'exercise patch line bounds',
-      owner: 'o',
-      repo: 'r',
-      prNumber: 1,
-      content: {
-        patches: {
-          mode: 'selected',
-          ranges: [
-            {
-              file: 'a.ts',
-              additions: [1_000_000_000],
-              deletions: [1_000_000_000],
-            },
-          ],
-        },
-      },
-    });
-    expect(ok.success).toBe(true);
+    expect(read(1_000_000_000).success).toBe(true);
   });
 });

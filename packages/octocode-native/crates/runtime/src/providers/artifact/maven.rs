@@ -223,30 +223,12 @@ async fn repository_from_pom(
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::artifact_query;
+    use super::super::types::{StaticHttp, artifact_query, test_budget};
     use super::*;
     use crate::providers::RequestBudget;
     use crate::providers::artifact::http::{
         ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse,
     };
-    use std::time::Duration;
-
-    struct MockHttp(Vec<u8>);
-
-    impl ArtifactHttp for MockHttp {
-        fn get<'a>(
-            &'a self,
-            _req: ArtifactHttpRequest,
-            _budget: &'a RequestBudget,
-        ) -> ArtifactHttpFuture<'a> {
-            let body = self.0.clone();
-            Box::pin(async move { Ok(ArtifactHttpResponse { status: 200, body }) })
-        }
-    }
-
-    fn budget() -> RequestBudget {
-        RequestBudget::with_timeout(Duration::from_secs(10), 10_000_000)
-    }
 
     /// Returns pre-set responses in insertion order; further calls 404.
     struct SequenceMock {
@@ -297,13 +279,8 @@ mod tests {
 
     async fn exact_with(responses: Vec<&str>) -> ArtifactItem {
         let http = SequenceMock::new(responses);
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let page = maven(&guava_query(), &ArtifactProviderState::default(), &client)
             .await
             .expect("maven exact");
@@ -363,14 +340,9 @@ mod tests {
             "<versioning><release>2.15.2</release></versioning>",
             "</metadata>"
         );
-        let http = MockHttp(xml.as_bytes().to_vec());
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let http = StaticHttp(xml.as_bytes().to_vec());
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let q = artifact_query(
             serde_json::json!({"type": ArtifactType::Maven, "packageName": "com.fasterxml.jackson.core:jackson-databind".to_string()}),
             None,
@@ -391,14 +363,9 @@ mod tests {
 
     #[tokio::test]
     async fn maven_rejects_invalid_coordinate() {
-        let http = MockHttp(vec![]);
-        let b = budget();
-        let client = RegistryClient {
-            http: &http,
-            budget: &b,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let http = StaticHttp(vec![]);
+        let b = test_budget();
+        let client = RegistryClient::uncached(&http, &b);
         let q = artifact_query(
             serde_json::json!({"type": ArtifactType::Maven, "packageName": "not-a-maven-coordinate".to_string()}),
             None,

@@ -1,7 +1,7 @@
 //! Public-page windows over GitHub REST collections: provider batch loading
 //! derived from public page cursors, and the page objects reported back.
-use super::files::max_inventory_page;
-use super::{default_page_size, fetch};
+use super::inventory::max_inventory_page;
+use super::{DEFAULT_PAGE_SIZE, fetch};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, RequestContext,
 };
@@ -261,7 +261,7 @@ pub(super) fn reconcile_file_totals(
     let Some(total) = changed_files else { return };
     let listable = total.min(MAX_FILE_BATCHES * PROVIDER_BATCH);
     if !state.exhausted && !filtered {
-        let per = page["itemsPerPage"].as_u64().unwrap_or(1).max(1) as usize;
+        let per = page["pageSize"].as_u64().unwrap_or(1).max(1) as usize;
         page["totalItems"] = json!(listable);
         page["totalPages"] = json!(listable.div_ceil(per));
         page["countScope"] = json!("complete");
@@ -277,7 +277,7 @@ pub(super) fn reconcile_file_totals(
         page["providerLimit"] = json!({
             "reason":"providerFileListLimit",
             "listed": if state.exhausted { listed } else { listable },
-            "changedFiles": total
+            "changedFilesCount": total
         });
     }
 }
@@ -301,7 +301,7 @@ pub(super) fn paginate_window(
     page_size: Option<usize>,
 ) -> (Vec<Value>, Value) {
     let per = page_size
-        .unwrap_or_else(default_page_size)
+        .unwrap_or(DEFAULT_PAGE_SIZE)
         .clamp(1, max_inventory_page());
     let loaded = skipped + values.len();
     let pages = loaded.div_ceil(per).max(1);
@@ -318,7 +318,7 @@ pub(super) fn paginate_window(
         .skip(start.saturating_sub(skipped))
         .take(per)
         .collect();
-    let mut page = json!({"currentPage":current,"itemsPerPage":per,"totalItems":loaded,"hasMore":more,"nextPage":more.then_some(current+1),"countScope":if exhausted {"complete"} else {"loaded"}});
+    let mut page = json!({"currentPage":current,"pageSize":per,"totalItems":loaded,"hasMore":more,"nextPage":more.then_some(current+1),"countScope":if exhausted {"complete"} else {"loaded"}});
     if exhausted {
         page["totalPages"] = json!(pages);
     }
@@ -332,19 +332,6 @@ pub(super) fn mark_capped(page: &mut Value, capped: bool) {
         page["terminalLimit"] = json!(true);
         page["providerLimit"] = json!({"reason":"providerBatchLimit"});
     }
-}
-
-/// Rename a generic page to the changed-file page vocabulary.
-pub(super) fn commit_files_pagination(mut page: Value) -> Value {
-    if let Some(map) = page.as_object_mut() {
-        if let Some(v) = map.remove("totalItems") {
-            map.insert("totalFiles".into(), v);
-        }
-        if let Some(v) = map.remove("nextPage") {
-            map.insert("nextFilePage".into(), v);
-        }
-    }
-    page
 }
 
 #[cfg(test)]

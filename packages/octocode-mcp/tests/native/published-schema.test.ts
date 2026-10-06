@@ -6,12 +6,11 @@ import {
 } from '@octocodeai/config/schema';
 import { publishedInputSchema } from '@octocodeai/config/mcp';
 import { toolInputSchema } from '../../src/native/index.js';
-import { wrapBareQuery } from './wrapBareQuery.js';
 
 type Standard = {
   '~standard': {
     jsonSchema: { input: (options: object) => unknown };
-    validate: (value: unknown) => Promise<{ issues?: readonly unknown[] }>;
+    validate: (value: unknown) => { value: unknown; issues?: unknown };
   };
 };
 
@@ -21,29 +20,28 @@ describe('advertised input schema', () => {
     DIRECT_TOOL_DEFINITIONS.map(d => d.name).filter(
       name => !isCliOnlyTool(name)
     )
-  )(
-    '%s advertises core’s published view but validates canonically',
-    async name => {
-      const definition = DIRECT_TOOL_DEFINITIONS.find(d => d.name === name)!;
-      const schema = toolInputSchema(definition, wrapBareQuery) as Standard;
-      const canonical = z.toJSONSchema(definition.inputSchema, {
-        io: 'input',
-        unrepresentable: 'any',
-      }) as Record<string, unknown>;
-      expect(
-        schema['~standard'].jsonSchema.input({ target: 'draft-2020-12' })
-      ).toEqual(publishedInputSchema(name, canonical));
-    }
-  );
+  )('%s advertises core’s published view', async name => {
+    const definition = DIRECT_TOOL_DEFINITIONS.find(d => d.name === name)!;
+    const schema = toolInputSchema(definition) as Standard;
+    const canonical = z.toJSONSchema(definition.inputSchema, {
+      io: 'input',
+      unrepresentable: 'any',
+    }) as Record<string, unknown>;
+    expect(
+      schema['~standard'].jsonSchema.input({ target: 'draft-2020-12' })
+    ).toEqual(publishedInputSchema(name, canonical));
+  });
 
-  it('still rejects what the canonical contract rejects', async () => {
+  it('passes every input through: native is the only validator', () => {
     const definition = DIRECT_TOOL_DEFINITIONS.find(
       d => d.name === 'localSearch'
     )!;
-    const schema = toolInputSchema(definition, wrapBareQuery) as Standard;
-    const result = await schema['~standard'].validate({
-      queries: [{ searchText: 'x', path: '.', pageSize: 5000 }],
-    });
-    expect(result.issues?.length).toBeGreaterThan(0);
+    const schema = toolInputSchema(definition) as Standard;
+    const input = {
+      queries: [{ matchString: 'x', path: '.', pageSize: 5000 }],
+    };
+    const result = schema['~standard'].validate(input);
+    expect(result.issues).toBeUndefined();
+    expect(result.value).toBe(input);
   });
 });

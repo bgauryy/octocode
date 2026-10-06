@@ -9,25 +9,24 @@ repository.workspace = true
 description = "GitHub protocol and bounded provider operations for Octocode"
 
 [dependencies]
-base64 = "0.23"
-bytes = "1"
-futures-util = "0.3"
-getrandom = "0.3"
+base64 = { workspace = true }
+bytes = { workspace = true }
+futures-util = { workspace = true }
+getrandom = { workspace = true }
 hex = { workspace = true }
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "query", "system-proxy"] }
-secrecy = "0.10"
+reqwest = { workspace = true }
+secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
-moka = { workspace = true }
 tokio = { workspace = true, features = ["macros", "sync", "time"] }
-tokio-util = { version = "0.7", default-features = false }
+tokio-util = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = { workspace = true }
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "io-util"] }
-wiremock = "0.6"
+wiremock = { workspace = true }
 
 [lints]
 workspace = true

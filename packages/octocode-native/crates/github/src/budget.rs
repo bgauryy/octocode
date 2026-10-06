@@ -10,49 +10,25 @@
 //! Blocking facts are optionally mirrored to
 //! `~/.octocode/tmp/ratelimit/<host>-<token>.json` so short-lived CLI
 //! processes honor each other's limits.
-use super::{ProviderError, ProviderErrorKind, RateLimit};
+mod circuit;
+mod classify;
+mod persist;
+
+pub(crate) use classify::{is_primary_rate_limit, is_secondary_rate_limit};
+
+use super::{ProviderError, ProviderErrorKind, RateLimit, credential_host, retry::header_u64};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap, VecDeque},
-    path::{Path, PathBuf},
-    sync::{
-        Arc, Mutex, OnceLock,
-        atomic::{AtomicU64, Ordering},
-    },
+    path::Path,
+    sync::{Arc, Mutex, OnceLock},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio_util::sync::CancellationToken;
 use url::Url;
-
-static GITHUB_CALLS: AtomicU64 = AtomicU64::new(0);
-static RATE_LIMITS: AtomicU64 = AtomicU64::new(0);
-static FAILURES: AtomicU64 = AtomicU64::new(0);
-static TMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Process stats: `githubCalls` counts sent HTTP requests, `rateLimits` only
-/// real GitHub rate-limit events (primary, secondary, GraphQL RATE_LIMITED),
-/// `failures` every other failed response or transport error.
-pub fn session_snapshot() -> serde_json::Value {
-    serde_json::json!({
-        "githubCalls": GITHUB_CALLS.load(Ordering::Relaxed),
-        "rateLimits": RATE_LIMITS.load(Ordering::Relaxed),
-        "failures": FAILURES.load(Ordering::Relaxed),
-        "rateLimitState": GitHubBudget::global().snapshot(),
-    })
-}
-
-pub(crate) fn count_call() {
-    GITHUB_CALLS.fetch_add(1, Ordering::Relaxed);
-}
-pub(crate) fn count_rate_limit() {
-    RATE_LIMITS.fetch_add(1, Ordering::Relaxed);
-}
-pub(crate) fn count_failure() {
-    FAILURES.fetch_add(1, Ordering::Relaxed);
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GitHubResource {
@@ -181,10 +157,7 @@ pub struct LimiterKey {
 
 impl LimiterKey {
     pub fn new(host: &str, token: Option<&str>) -> Self {
-        let host = match host.trim().to_ascii_lowercase().as_str() {
-            "api.github.com" => "github.com".to_owned(),
-            other => other.to_owned(),
-        };
+        let host = credential_host(&host.trim().to_ascii_lowercase()).to_owned();
         let token = match token.filter(|value| !value.is_empty()) {
             Some(token) => {
                 let digest = Sha256::digest(token.as_bytes());
@@ -218,10 +191,6 @@ impl LimiterKey {
             .collect();
         format!("{host}-{}.json", self.token)
     }
-
-    fn label(&self) -> String {
-        format!("{}/{}", self.host, self.token)
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
@@ -250,37 +219,6 @@ struct KeyFacts {
 }
 
 impl KeyFacts {
-    /// Keep the most restrictive of two views (memory vs. disk).
-    fn merge(&mut self, other: KeyFacts, now_ms: u64) {
-        for (name, bucket) in other.buckets {
-            if bucket.remaining != 0 || bucket.reset.saturating_mul(1000) <= now_ms {
-                continue;
-            }
-            let replace = self
-                .buckets
-                .get(&name)
-                .is_none_or(|current| current.reset < bucket.reset || current.remaining > 0);
-            if replace {
-                self.buckets.insert(name, bucket);
-            }
-        }
-        self.cooldown_until_ms = self.cooldown_until_ms.max(other.cooldown_until_ms);
-        for (group, stamp) in other.last_start_ms {
-            let entry = self.last_start_ms.entry(group).or_default();
-            *entry = (*entry).max(stamp);
-        }
-        let mut window: Vec<u64> = self
-            .code_search_ms
-            .iter()
-            .chain(other.code_search_ms.iter())
-            .copied()
-            .filter(|stamp| stamp.saturating_add(60_000) > now_ms)
-            .collect();
-        window.sort_unstable();
-        window.dedup();
-        self.code_search_ms = window.into();
-    }
-
     /// Undo one reservation made by `admit` (its start and window slot) when
     /// the request was never sent.
     fn release(&mut self, group: &str, start: u64, previous: Option<u64>, window: bool) {
@@ -297,37 +235,6 @@ impl KeyFacts {
                 .rposition(|stamp| *stamp == start)
         {
             self.code_search_ms.remove(index);
-        }
-    }
-
-    /// Only facts that can block a future request are persisted.
-    fn blocking_view(&self, now_ms: u64) -> KeyFacts {
-        KeyFacts {
-            buckets: self
-                .buckets
-                .iter()
-                .filter(|(_, b)| b.remaining == 0 && b.reset.saturating_mul(1000) > now_ms)
-                .map(|(name, b)| (name.clone(), *b))
-                .collect(),
-            cooldown_until_ms: if self.cooldown_until_ms > now_ms {
-                self.cooldown_until_ms
-            } else {
-                0
-            },
-            last_start_ms: self
-                .last_start_ms
-                .iter()
-                .filter(|(_, stamp)| stamp.saturating_add(60_000) > now_ms)
-                .map(|(group, stamp)| (group.clone(), *stamp))
-                .collect(),
-            code_search_ms: self
-                .code_search_ms
-                .iter()
-                .copied()
-                .filter(|stamp| stamp.saturating_add(60_000) > now_ms)
-                .collect(),
-            circuit_failures: 0,
-            circuit_open_until_ms: 0,
         }
     }
 }
@@ -391,12 +298,7 @@ pub(crate) struct KeyState {
     groups: HashMap<&'static str, Arc<Semaphore>>,
     git: Arc<Semaphore>,
     facts: Mutex<KeyFacts>,
-    persist: Mutex<Option<Persist>>,
-}
-
-struct Persist {
-    path: PathBuf,
-    seen: Option<SystemTime>,
+    persist: Mutex<Option<persist::Persist>>,
 }
 
 pub(crate) fn now_ms() -> u64 {
@@ -442,28 +344,6 @@ pub(crate) async fn pause(
     }
 }
 
-/// Full-jitter exponential backoff: uniform in `[0, base * 2^attempt]`,
-/// bounded by `cap`.
-pub(crate) fn full_jitter(base: Duration, attempt: u8, cap: Duration) -> Duration {
-    let ceiling = base
-        .saturating_mul(1_u32 << attempt.min(16))
-        .min(cap)
-        .as_millis() as u64;
-    if ceiling == 0 {
-        return Duration::ZERO;
-    }
-    let mut bytes = [0_u8; 8];
-    let random = if getrandom::fill(&mut bytes).is_ok() {
-        u64::from_le_bytes(bytes)
-    } else {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|value| value.subsec_nanos() as u64)
-            .unwrap_or(0)
-    };
-    Duration::from_millis(random % (ceiling + 1))
-}
-
 async fn acquire(
     semaphore: &Arc<Semaphore>,
     deadline: Instant,
@@ -477,10 +357,6 @@ async fn acquire(
             ProviderError::new(ProviderErrorKind::Cancelled, "GitHub concurrency limiter closed")
         }),
     }
-}
-
-fn header_u64(headers: &HeaderMap, name: &str) -> Option<u64> {
-    headers.get(name)?.to_str().ok()?.trim().parse().ok()
 }
 
 impl KeyState {
@@ -512,101 +388,6 @@ impl KeyState {
         self.facts
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-    }
-
-    fn attach_dir(&self, dir: &Path) {
-        let mut persist = self
-            .persist
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if persist.is_none() {
-            *persist = Some(Persist {
-                path: dir.join(self.key.file_name()),
-                seen: None,
-            });
-        }
-    }
-
-    /// Merge the on-disk view when another process has written it since we
-    /// last looked (one `stat` per logical request).
-    pub fn refresh_from_disk(&self) {
-        let mut persist = self
-            .persist
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(persist) = persist.as_mut() else {
-            return;
-        };
-        let Ok(modified) = std::fs::metadata(&persist.path).and_then(|meta| meta.modified()) else {
-            return;
-        };
-        if persist.seen == Some(modified) {
-            return;
-        }
-        persist.seen = Some(modified);
-        let Some(disk) = std::fs::read(&persist.path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<KeyFacts>(&bytes).ok())
-        else {
-            return;
-        };
-        self.facts().merge(disk, now_ms());
-    }
-
-    /// Load-merge-write via a unique temp file + atomic rename.
-    fn persist(&self) {
-        self.persist_with(|_| {});
-    }
-
-    /// [`Self::persist`] with `adjust` applied to the merged view before the
-    /// write.
-    fn persist_with(&self, adjust: impl FnOnce(&mut KeyFacts)) {
-        let path = {
-            let persist = self
-                .persist
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            match persist.as_ref() {
-                Some(persist) => persist.path.clone(),
-                None => return,
-            }
-        };
-        let now = now_ms();
-        let mut view = self.facts().blocking_view(now);
-        if let Some(disk) = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<KeyFacts>(&bytes).ok())
-        {
-            view.merge(disk, now);
-        }
-        adjust(&mut view);
-        let Ok(bytes) = serde_json::to_vec(&view) else {
-            return;
-        };
-        let Some(parent) = path.parent() else {
-            return;
-        };
-        if std::fs::create_dir_all(parent).is_err() {
-            return;
-        }
-        let tmp = parent.join(format!(
-            ".{}.{}.{}.tmp",
-            self.key.file_name(),
-            std::process::id(),
-            TMP_COUNTER.fetch_add(1, Ordering::Relaxed)
-        ));
-        if std::fs::write(&tmp, bytes).is_ok() && std::fs::rename(&tmp, &path).is_err() {
-            let _ = std::fs::remove_file(&tmp);
-        }
-        if let Ok(modified) = std::fs::metadata(&path).and_then(|meta| meta.modified())
-            && let Some(persist) = self
-                .persist
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .as_mut()
-        {
-            persist.seen = Some(modified);
-        }
     }
 
     /// Current blocker for `resource`, if any: open circuit, secondary
@@ -833,36 +614,6 @@ impl KeyState {
         self.persist();
     }
 
-    pub fn record_success(&self) {
-        let mut facts = self.facts();
-        facts.circuit_failures = 0;
-        facts.circuit_open_until_ms = 0;
-    }
-
-    /// Only secondary limits and 5xx/transport failures open the circuit.
-    pub fn record_circuit_failure(&self, config: &ExecutorConfig) {
-        let mut facts = self.facts();
-        facts.circuit_failures = facts.circuit_failures.saturating_add(1);
-        if facts.circuit_failures >= config.circuit_failures {
-            facts.circuit_open_until_ms =
-                now_ms().saturating_add(config.circuit_open.as_millis() as u64);
-        }
-    }
-
-    fn snapshot(&self) -> serde_json::Value {
-        let now = now_ms();
-        let facts = self.facts();
-        serde_json::json!({
-            "key": self.key.label(),
-            "buckets": facts.buckets.iter().map(|(name, bucket)| (name.clone(), serde_json::json!({
-                "remaining": bucket.remaining,
-                "resetEpochSeconds": bucket.reset,
-            }))).collect::<serde_json::Map<_, _>>(),
-            "cooldownRemainingMs": facts.cooldown_until_ms.saturating_sub(now),
-            "circuitOpen": facts.circuit_open_until_ms > now,
-        })
-    }
-
     /// Blocking `git` admission for clone subprocesses: honors the key's
     /// secondary cooldown / circuit, then takes a `git` group permit.
     pub fn acquire_git_blocking(
@@ -955,7 +706,6 @@ impl GitHubBudget {
                 cancellation,
             )
             .await?;
-        count_call();
         Ok(AuthAdmission {
             _admission: admission,
         })
@@ -995,55 +745,6 @@ impl GitHubBudget {
         }
         state
     }
-
-    fn snapshot(&self) -> serde_json::Value {
-        let keys: Vec<Arc<KeyState>> = self
-            .keys
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .values()
-            .cloned()
-            .collect();
-        serde_json::Value::Array(keys.iter().map(|state| state.snapshot()).collect())
-    }
-}
-
-/// Octokit: `/\bsecondary rate\b/i` on the error message.
-pub fn mentions_secondary_rate(body: &str) -> bool {
-    let lower = body.to_ascii_lowercase();
-    lower.match_indices("secondary rate").any(|(index, _)| {
-        let before_ok = index == 0
-            || !lower.as_bytes()[index - 1].is_ascii_alphanumeric()
-                && lower.as_bytes()[index - 1] != b'_';
-        let end = index + "secondary rate".len();
-        let after_ok = lower
-            .as_bytes()
-            .get(end)
-            .is_none_or(|byte| !byte.is_ascii_alphanumeric() && *byte != b'_');
-        before_ok && after_ok
-    })
-}
-
-pub fn is_primary_rate_limit(status: u16, remaining: Option<u64>) -> bool {
-    remaining == Some(0) && matches!(status, 403 | 429)
-}
-
-pub fn is_secondary_rate_limit(
-    status: u16,
-    remaining: Option<u64>,
-    retry_after: Option<u64>,
-    body: &str,
-) -> bool {
-    if !matches!(status, 403 | 429) {
-        return false;
-    }
-    if mentions_secondary_rate(body) {
-        return true;
-    }
-    if status == 429 && remaining != Some(0) {
-        return true;
-    }
-    status == 403 && retry_after.is_some() && remaining != Some(0)
 }
 
 #[cfg(test)]
@@ -1079,38 +780,6 @@ mod tests {
                     .expect("GitHub test URL should parse")
             ),
             GitHubResource::Graphql
-        );
-    }
-
-    #[test]
-    fn detects_secondary_limit_from_body_even_when_remaining_is_positive() {
-        assert!(is_secondary_rate_limit(
-            403,
-            Some(21),
-            None,
-            "You have exceeded a secondary rate limit. Please wait a few minutes"
-        ));
-        assert!(!is_primary_rate_limit(403, Some(21)));
-        assert!(is_primary_rate_limit(403, Some(0)));
-        // Word boundary: "secondary rates" / 404 bodies do not qualify.
-        assert!(!mentions_secondary_rate("nonsecondary ratex"));
-        assert!(!is_secondary_rate_limit(
-            404,
-            None,
-            None,
-            "secondary rate limit"
-        ));
-    }
-
-    #[test]
-    fn full_jitter_stays_within_bounds() {
-        for attempt in 0..6 {
-            let delay = full_jitter(Duration::from_millis(100), attempt, Duration::from_secs(1));
-            assert!(delay <= Duration::from_millis(100 << attempt).min(Duration::from_secs(1)));
-        }
-        assert_eq!(
-            full_jitter(Duration::ZERO, 3, Duration::from_secs(1)),
-            Duration::ZERO
         );
     }
 
@@ -1155,56 +824,19 @@ mod tests {
         assert!(rate.retry_after_seconds.unwrap_or_default() >= 119);
     }
 
-    #[test]
-    fn disk_state_round_trips_blocking_facts_only() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let key = LimiterKey::new("ghe.example", Some("tok"));
-        let reset = now_ms() / 1000 + 300;
-        {
-            let budget = GitHubBudget::relaxed();
-            let state = budget.key_state(&key, Some(dir.path()));
-            let mut headers = HeaderMap::new();
-            headers.insert("x-ratelimit-remaining", "42".parse().expect("header"));
-            headers.insert(
-                "x-ratelimit-reset",
-                reset.to_string().parse().expect("header"),
-            );
-            headers.insert("x-ratelimit-resource", "core".parse().expect("header"));
-            state.observe(&headers, "core");
-            state.exhaust("search", reset);
-            state.cool_down(now_ms() + 30_000);
-        }
-        let file = dir.path().join(key.file_name());
-        let raw: serde_json::Value =
-            serde_json::from_slice(&std::fs::read(&file).expect("state file")).expect("json");
-        assert!(raw["buckets"].get("core").is_none(), "{raw}");
-        assert_eq!(raw["buckets"]["search"]["remaining"], 0);
-        // A fresh process (new registry) sees the other process's facts.
-        let budget = GitHubBudget::relaxed();
-        let state = budget.key_state(&key, Some(dir.path()));
-        let search = state.blocked("search", budget.config()).expect("search");
-        assert_eq!(search.reset, Some(reset));
-        let core = state.blocked("core", budget.config()).expect("cooldown");
-        assert_eq!(core.reset, None);
-        let leftovers = std::fs::read_dir(dir.path())
-            .expect("dir")
-            .filter(|entry| {
-                entry
-                    .as_ref()
-                    .is_ok_and(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
-            })
-            .count();
-        assert_eq!(leftovers, 0);
+    /// A budget under `config` and its state for one host key.
+    fn limited(config: ExecutorConfig) -> (Arc<GitHubBudget>, Arc<KeyState>) {
+        let budget = Arc::new(GitHubBudget::with_config(config));
+        let state = budget.key_state(&LimiterKey::new("h", None), None);
+        (budget, state)
     }
 
     #[tokio::test]
     async fn search_spacing_orders_starts() {
-        let config = ExecutorConfig {
+        let (budget, state) = limited(ExecutorConfig {
             search_spacing: Duration::from_millis(150),
             ..ExecutorConfig::relaxed()
-        };
-        let budget = Arc::new(GitHubBudget::with_config(config));
-        let state = budget.key_state(&LimiterKey::new("h", None), None);
+        });
         let deadline = Instant::now() + Duration::from_secs(5);
         let token = CancellationToken::new();
         let started = Instant::now();
@@ -1226,12 +858,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_short_code_search_window_wait_is_taken_inside_the_request() {
-        let config = ExecutorConfig {
+        let (budget, state) = limited(ExecutorConfig {
             code_search_per_minute: 2,
             ..ExecutorConfig::relaxed()
-        };
-        let budget = Arc::new(GitHubBudget::with_config(config));
-        let state = budget.key_state(&LimiterKey::new("h", None), None);
+        });
         // The window is full, and its oldest slot frees in ~1.5 s: longer
         // than the 1 s retry-after cap, inside the code-search wait.
         {
@@ -1399,12 +1029,10 @@ mod tests {
 
     #[tokio::test]
     async fn code_search_window_fails_fast_when_full() {
-        let config = ExecutorConfig {
+        let (budget, state) = limited(ExecutorConfig {
             code_search_per_minute: 2,
             ..ExecutorConfig::relaxed()
-        };
-        let budget = Arc::new(GitHubBudget::with_config(config));
-        let state = budget.key_state(&LimiterKey::new("h", None), None);
+        });
         let deadline = Instant::now() + Duration::from_secs(5);
         let token = CancellationToken::new();
         for _ in 0..2 {

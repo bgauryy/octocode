@@ -7,7 +7,7 @@ This directory contains the active GitHub Actions workflows for the Octocode mon
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `ci.yml` | Pull requests and pushes to `main` | Documentation, lint, build-output, typecheck, test, and coverage checks |
-| `engine.yml` | Engine-related pull requests and pushes to `main` | Engine Rust tests, Clippy, fmt, and the N-API ABI check against the committed snapshot |
+| `engine.yml` | Engine-related pull requests and pushes to `main` | Engine Rust tests, Clippy, and fmt |
 | `rust-tools-core.yml` | Native package pull requests and pushes to `main` | cargo-deny, per-OS test & Clippy |
 | `agents-communication.yml` | Communication skill changes, pushes to `main`, manual dispatch | Python runtime across OS targets plus the declared Python 3.9 minimum |
 | `skill-installer-windows.yml` | Skill-installer changes, pushes to `main` | Windows installer and junction behavior |
@@ -26,8 +26,7 @@ platform packages. Build those locally (`build:dev`, `build:target <platform>`,
 `build:all`, or `dev.mjs build:publish` for a release).
 
 The engine workflow runs only when engine paths change. It runs `cargo fmt`,
-checks the N-API ABI against the committed snapshot, runs Clippy with warnings
-denied, and executes Cargo tests.
+runs Clippy with warnings denied, and executes Cargo tests.
 
 Useful local commands before opening a PR:
 

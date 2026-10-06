@@ -1,13 +1,13 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-mod support;
+use crate::support;
 
 use serde_json::json;
 use support::Workspace;
 
 fn search(root: &str, extra: serde_json::Value) -> serde_json::Value {
     let mut query =
-        json!({"path":root,"searchText":"needle","mainGoal": "test", "reasoning":"Find needles."});
+        json!({"path":root,"matchString":"needle","mainGoal": "test", "reasoning":"Find needles."});
     for (key, value) in extra.as_object().unwrap() {
         query[key] = value.clone();
     }
@@ -42,7 +42,6 @@ async fn invalid_rows_become_error_rows_while_valid_rows_execute() {
         hints.contains("query 2") || hints.contains("serchText"),
         "{hints}"
     );
-    assert!(hints.contains("searchText"), "{hints}");
     assert_ne!(rows[2]["status"], "error");
     assert!(!outcome.all_failed);
     octocode_native::contracts::validate_output("localSearch", &outcome.structured_content)
@@ -105,7 +104,7 @@ async fn oversized_cli_output_pages_by_whole_rows_with_an_executable_continuatio
         .execute(
             "auto-page".into(),
             "localSearch".into(),
-            search(&root, json!({"pageSize":20,"matchContentLength":2000})),
+            json!({"queries":[search(&root, json!({"pageSize":20,"matchContentLength":2000}))]}),
         )
         .await
         .unwrap();
@@ -125,7 +124,7 @@ async fn oversized_cli_output_pages_by_whole_rows_with_an_executable_continuatio
     assert_eq!(envelope["results"][0]["rowPart"]["part"], 1);
     let next = pagination["next"]["query"].clone();
     assert_eq!(next["responseScope"], "rows");
-    assert_eq!(next["responseCharOffset"], 1);
+    assert_eq!(next["responseOffset"], 1);
     let mut files_seen = files_on_first;
     let mut next = Some(next);
     let mut pages = 1;
@@ -162,7 +161,7 @@ async fn small_output_is_not_paginated_and_mcp_auto_pages_by_whole_rows() {
         .execute(
             "small".into(),
             "localSearch".into(),
-            search(&root, json!({})),
+            json!({"queries":[search(&root, json!({}))]}),
         )
         .await
         .unwrap();

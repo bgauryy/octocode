@@ -10,7 +10,7 @@ describe('canonical localSearch lexical contract', () => {
   const base = {
     mainGoal: 'test goal',
     reasoning: 'exercise lexical contract',
-    searchText: 'foo',
+    matchString: 'foo',
     path: 'src',
   };
 
@@ -36,7 +36,7 @@ describe('canonical localSearch lexical contract', () => {
       LocalSearchQuerySchema.safeParse({ ...base, mode: 'discovery' }).success
     ).toBe(false);
     expect(
-      LocalSearchQuerySchema.safeParse({ ...base, langType: 'ts' }).success
+      LocalSearchQuerySchema.safeParse({ ...base, language: 'ts' }).success
     ).toBe(true);
   });
 });
@@ -49,7 +49,7 @@ describe('structureSearch owns filesystem layout', () => {
         reasoning: 'exercise filesystem contract',
         operation: 'files',
         path: 'src',
-        names: ['*.ts'],
+        include: ['*.ts'],
         entryType: 'f',
         sort: 'path',
       }).success
@@ -98,7 +98,7 @@ describe('astSearch carries no filesystem operations', () => {
       }).success
     ).toBe(true);
     for (const retired of [
-      { operation: 'files', path: 'src', names: ['*.ts'] },
+      { operation: 'files', path: 'src', include: ['*.ts'] },
       { operation: 'tree', treeKind: 'syntax', path: 'src/index.ts' },
       { operation: 'tree', path: 'src' },
     ]) {

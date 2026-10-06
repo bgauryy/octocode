@@ -38,36 +38,41 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         let mut url = self.endpoint().rest(&segments)?;
         url.query_pairs_mut().append_pair("ref", reference);
         let response = self.execute(RequestSpec::get(url), context).await?;
-        let value: serde_json::Value = serde_json::from_slice(&response.body).map_err(|_| {
-            ProviderError::new(
+        parse_contents_listing(&response.body)
+    }
+}
+
+/// A contents response: an array listing, or one entry for a file path.
+pub(super) fn parse_contents_listing(body: &[u8]) -> Result<ContentsListing, ProviderError> {
+    let value: serde_json::Value = serde_json::from_slice(body).map_err(|_| {
+        ProviderError::new(
+            ProviderErrorKind::Decode,
+            "invalid GitHub repository contents response",
+        )
+    })?;
+    let raw_entry_count = value.as_array().map_or(1, Vec::len);
+    let raw_entries = match value {
+        serde_json::Value::Array(entries) => entries,
+        entry @ serde_json::Value::Object(_) => vec![entry],
+        _ => {
+            return Err(ProviderError::new(
                 ProviderErrorKind::Decode,
                 "invalid GitHub repository contents response",
+            ));
+        }
+    };
+    let entries = raw_entries
+        .into_iter()
+        .map(serde_json::from_value)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| {
+            ProviderError::new(
+                ProviderErrorKind::Decode,
+                "invalid GitHub repository contents entry",
             )
         })?;
-        let raw_entry_count = value.as_array().map_or(1, Vec::len);
-        let raw_entries = match value {
-            serde_json::Value::Array(entries) => entries,
-            entry @ serde_json::Value::Object(_) => vec![entry],
-            _ => {
-                return Err(ProviderError::new(
-                    ProviderErrorKind::Decode,
-                    "invalid GitHub repository contents response",
-                ));
-            }
-        };
-        let entries = raw_entries
-            .into_iter()
-            .map(serde_json::from_value)
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|_| {
-                ProviderError::new(
-                    ProviderErrorKind::Decode,
-                    "invalid GitHub repository contents entry",
-                )
-            })?;
-        Ok(ContentsListing {
-            entries,
-            raw_entry_count,
-        })
-    }
+    Ok(ContentsListing {
+        entries,
+        raw_entry_count,
+    })
 }

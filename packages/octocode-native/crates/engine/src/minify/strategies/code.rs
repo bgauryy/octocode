@@ -15,8 +15,8 @@ pub fn minify_javascript_core(content: &str) -> String {
     // delimiters, so a single literal-range scan protects string, template,
     // and regex literals from the whitespace/punctuation passes below.
     let rules = crate::minify::comment_remover::rules_for("c-style");
-    let s = super::collapse_whitespace(&s, rules.as_ref());
-    let s = re_tighten_punct_js(&s, rules.as_ref());
+    let s = super::collapse_whitespace(&s, rules);
+    let s = re_tighten_punct_js(&s, rules);
     // Split back to lines, drop empty
     s.lines()
         .map(str::trim)
@@ -29,37 +29,9 @@ fn re_tighten_punct_js(
     s: &str,
     rules: Option<&crate::minify::comment_remover::CommentRules>,
 ) -> String {
-    let ranges = rules
-        .map(|r| crate::minify::comment_remover::literal_ranges(s, r))
-        .unwrap_or_default();
-    let mut ri = 0usize;
-    let bytes = s.as_bytes();
-    let mut result = String::with_capacity(s.len());
-    let mut i = 0;
-    while i < bytes.len() {
-        if let Some((_, end)) = super::in_literal_at(&ranges, &mut ri, i) {
-            result.push_str(&s[i..end]);
-            i = end;
-            continue;
-        }
-        let b = bytes[i];
-        if b == b' '
-            && matches!(
-                bytes.get(i + 1).copied(),
-                Some(b'{' | b'}' | b'(' | b')' | b';' | b',' | b':')
-            )
-        {
-            i += 1;
-            continue;
-        }
-        if matches!(b, b'{' | b'}' | b'(' | b')' | b';' | b',') && bytes.get(i + 1) == Some(&b' ') {
-            result.push(b as char);
-            i += 2;
-            continue;
-        }
-        i = super::copy_seq(s, i, &mut result);
-    }
-    result
+    super::rewrite_outside_literals(s, rules, |bytes, i, result| {
+        super::drop_punct_space(bytes, i, result, b"{}();,:", b"{}();,")
+    })
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────

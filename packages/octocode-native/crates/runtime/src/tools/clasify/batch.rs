@@ -2,12 +2,12 @@
 //! into one provider request when size limits allow, reducing round-trips.
 //! The per-vendor wire format is delegated to [`ClassificationProvider`].
 use super::{
-    project, request_error,
-    transport::{ClassificationError, check_budget, endpoint, post},
+    request_error,
+    transport::{ClassificationError, check_budget, check_key, endpoint, post, project},
 };
 use crate::providers::RequestBudget;
 use crate::providers::classification::gate::GateLease;
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use serde_json::{Value, json};
 
 // Conservative serialized-byte headroom for shared-state requests. This is
@@ -52,8 +52,9 @@ fn response_error(message: impl Into<String>) -> ClassificationError {
     }
 }
 
+/// Judge several provider questions over one state with a single request.
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn execute(
+pub(crate) async fn judge(
     state: &Value,
     questions: &[(usize, &Value)],
     key: &SecretString,
@@ -71,14 +72,7 @@ pub(crate) async fn execute(
             "Shared classification request exceeds the batching headroom policy.",
         ));
     }
-    if key.expose_secret().chars().any(char::is_control) {
-        return Err(ClassificationError {
-            code: "invalidClassificationConfiguration".into(),
-            message: "OCTOCODE_CLASSIFICATION_API contains invalid control characters.".into(),
-            hints: vec!["Replace the configured key.".into()],
-            ..Default::default()
-        });
-    }
+    check_key(key)?;
     let req = request(state, questions, model, provider);
     let (response, provider_calls) = post(
         &req,

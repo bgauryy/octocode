@@ -1,6 +1,7 @@
 'use strict';
 const assert = require('node:assert/strict');
-const { getPlatformSuffix } = require('../bin/platform.cjs');
+const { PLATFORMS, getPlatformSuffix } = require('../bin/platform.cjs');
+const { optionalDependencies } = require('../package.json');
 for (const [platform, arch, musl, expected] of [
   ['darwin', 'arm64', false, 'darwin-arm64'],
   ['darwin', 'x64', false, 'darwin-x64'],
@@ -13,8 +14,9 @@ for (const [platform, arch, musl, expected] of [
 ]) {
   assert.equal(getPlatformSuffix({ platform, arch, musl }), expected);
 }
-assert.match(
-  getPlatformSuffix() ?? '',
-  /^(darwin-(arm64|x64)|linux-(arm64-gnu|x64-(gnu|musl))|win32-x64-msvc)$/
+assert.ok(Object.hasOwn(PLATFORMS, getPlatformSuffix()));
+assert.deepEqual(
+  Object.keys(optionalDependencies).sort(),
+  Object.keys(PLATFORMS).map(suffix => `@octocodeai/octocode-native-${suffix}`).sort()
 );
 console.log('platform detection ok');

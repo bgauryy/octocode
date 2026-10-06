@@ -1,7 +1,7 @@
 // Integration test crate — assertions use unwrap/expect/panic freely.
 #![allow(clippy::expect_used)]
 
-mod support;
+use crate::support;
 
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::json;
@@ -31,7 +31,7 @@ async fn github_cache_survives_runtime_close_until_explicitly_cleared() {
         .await;
     let workspace = Workspace::new();
     let settings = [("GITHUB_API_URL", format!("{}/api/v3", server.uri()))];
-    let query = json!({"owner":"a", "repo":"b", "path":"source.rs", "branch":"a".repeat(40)});
+    let query = json!({"owner":"a", "repo":"b", "path":"source.rs", "ref":"a".repeat(40)});
     let first = workspace.runtime(&settings);
     let outcome = call(&first, "ghGetFileContent", query.clone())
         .await
@@ -44,10 +44,7 @@ async fn github_cache_survives_runtime_close_until_explicitly_cleared() {
         .await
         .unwrap();
     assert_eq!(row_status(&outcome), "success");
-    assert_eq!(
-        row_data(&outcome)["files"][0]["content"],
-        "1\tsource body\n"
-    );
+    assert_eq!(row_data(&outcome)["content"], "1\tsource body\n");
     let requests = server.received_requests().await.unwrap();
     let contents: Vec<_> = requests
         .iter()
@@ -110,7 +107,7 @@ async fn memory_storage_mode_does_not_persist_github_content_to_disk() {
     let query = json!({
         "owner": "c", "repo": "d",
         "path": "readme.md",
-        "branch": sha,
+        "ref": sha,
     });
 
     // First runtime: fetches and stores in memory (not on disk).
@@ -132,10 +129,7 @@ async fn memory_storage_mode_does_not_persist_github_content_to_disk() {
     let second = workspace.runtime(&settings);
     let outcome = call(&second, "ghGetFileContent", query).await.unwrap();
     assert_eq!(row_status(&outcome), "success");
-    assert_eq!(
-        row_data(&outcome)["files"][0]["content"],
-        "1\tmem-only body\n"
-    );
+    assert_eq!(row_data(&outcome)["content"], "1\tmem-only body\n");
     // Verify neither request sent If-None-Match (no cached ETag from disk).
     let requests = server.received_requests().await.unwrap();
     let content_requests: Vec<_> = requests

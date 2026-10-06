@@ -16,10 +16,7 @@ use artifact::validate_artifact_queries;
 use ast_rewrite::{validate_ast_rewrite_queries, validate_ast_rewrite_rules};
 use defaults::apply_observed_defaults;
 use github_search::{GithubSearchKind, validate_github_search_queries};
-use history::{
-    validate_history_content_selection, validate_history_keyword_scope,
-    validate_history_repository_scope,
-};
+use history::{validate_history_keyword_scope, validate_history_repository_scope};
 use local_search::validate_local_search_queries;
 use lsp::{validate_lsp_queries, validate_operation_controls};
 use schema::validate_schema;
@@ -146,8 +143,15 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, mcp:
                     .flatten()
                     .filter_map(|v| v.as_str())
                     .collect();
-                if is_root_brief(&issue.path) && sibling_requirement(issue).is_none() {
-                    return root_brief_message(field);
+                match sibling_requirement(issue) {
+                    Some(requires) => {
+                        return format!(
+                            "Remove '{field}' from {}: it applies only with {requires}.",
+                            query_label(&issue.path)
+                        );
+                    }
+                    None if is_root_brief(&issue.path) => return root_brief_message(field),
+                    None => {}
                 }
                 let base = if path.is_empty() {
                     issue.message.clone()
@@ -185,16 +189,17 @@ fn required_guidance(tool_name: &str, issue: &ValidationIssue) -> Option<&'stati
         ("ghSearchCode", "owner") => {
             "Set owner: code search cannot span all of GitHub (add repo to narrow further)."
         }
+        ("astRewrite", "rewrite") => "pattern takes rewrite; rule takes fix.",
+        ("astRewrite", "fix") => "rule takes fix; pattern takes rewrite.",
         ("localFetch", "path") => "Set path to a local file.",
         ("ghGetFileContent", "path") => "Set path to a repository-relative file.",
         _ => return None,
     })
 }
 
-/// `mainGoal`/`reasoning` (or the legacy `goal`) sent beside `queries`
-/// instead of inside each row.
+/// `mainGoal`/`reasoning` sent beside `queries` instead of inside each row.
 fn is_root_brief(path: &[String]) -> bool {
-    matches!(path, [field] if field == "mainGoal" || field == "goal" || field == "reasoning")
+    matches!(path, [field] if field == "mainGoal" || field == "reasoning")
 }
 
 fn root_brief_message(field: &str) -> String {
@@ -459,11 +464,13 @@ pub fn validate(tool_name: &str, mut input: Value) -> Result<Value, ContractVali
 /// validation: a JSON-encoded `queries` array, JSON-encoded or bare-scalar
 /// values in list-only fields, exact integer/boolean strings in
 /// integer/boolean-only fields, line-range spellings, near-miss members of
-/// closed string sets, and blank optional values dropped (see `coerce`). The input keeps its shape (flat
-/// query, query array, or envelope); nothing is validated or defaulted, and
-/// an unknown tool is returned unchanged.
+/// closed string sets, and blank optional values dropped (see `coerce`). A
+/// bare query row runs as a one-row `queries` (see [`one_row_envelope`]); any
+/// other shape without `queries` is returned unchanged for validation to
+/// reject. Nothing is validated or defaulted, and an unknown tool is returned
+/// unchanged.
 #[must_use]
-pub fn normalize_input(tool_name: &str, mut input: Value) -> Value {
+pub fn normalize_input(tool_name: &str, input: Value) -> Value {
     let Some(Ok(tool)) = super::tool_contract_named(tool_name) else {
         return input;
     };
@@ -474,43 +481,51 @@ pub fn normalize_input(tool_name: &str, mut input: Value) -> Value {
         (&tool["querySchema"], &tool["querySchema"]),
         (&tool["inputSchema"], item_schema),
     ];
-    let envelope = input.get("queries").is_some();
-    if envelope {
-        coerce::coerce_lossless(&[(&tool["inputSchema"], &tool["inputSchema"])], &mut input);
+    let mut input = one_row_envelope(&tool["inputSchema"], input);
+    if input.get("queries").is_none() {
+        return input;
     }
+    coerce::coerce_lossless(&[(&tool["inputSchema"], &tool["inputSchema"])], &mut input);
     let rows: Vec<&mut Value> = match &mut input {
-        Value::Object(object) if envelope => object
+        Value::Object(object) => object
             .get_mut("queries")
             .and_then(Value::as_array_mut)
             .map(|queries| queries.iter_mut().collect())
             .unwrap_or_default(),
-        Value::Array(queries) => queries.iter_mut().collect(),
-        flat => vec![flat],
+        _ => Vec::new(),
     };
     for row in rows {
         coerce::coerce_lossless(&typed, row);
-        normalize_row(&tool["rules"], row);
         coerce::drop_blank_optionals(&typed, row);
     }
     input
 }
 
-/// The row-level normalizers hosts share before validation: legacy field
-/// renames (`goal` → `mainGoal`) and blank optional fields dropped. Trimming
-/// and every other normalizer run with validation.
-fn normalize_row(rules: &Value, row: &mut Value) {
-    for rule in rules
-        .as_array()
+/// A bare query row (an object without `queries`) as `{"queries":[row]}`: the
+/// envelope fields it carries (`responseLength`, …) stay on the envelope. An
+/// object with only envelope fields is not a row and is returned unchanged.
+fn one_row_envelope(input_schema: &Value, input: Value) -> Value {
+    let Value::Object(mut row) = input else {
+        return input;
+    };
+    if row.contains_key("queries") {
+        return Value::Object(row);
+    }
+    let mut envelope = serde_json::Map::new();
+    for key in input_schema["properties"]
+        .as_object()
         .into_iter()
-        .flatten()
-        .filter(|rule| rule["phase"] == "normalize")
+        .flat_map(|p| p.keys())
     {
-        match rule["opcode"].as_str() {
-            Some("rename_fields") => rename_fields(row, &rule["args"]),
-            Some("drop_blank_fields") => drop_blank_fields(row, &rule["args"]),
-            _ => {}
+        if let Some(value) = row.remove(key) {
+            envelope.insert(key.clone(), value);
         }
     }
+    if row.is_empty() {
+        return Value::Object(envelope);
+    }
+    envelope.insert("queries".into(), Value::Array(vec![Value::Object(row)]));
+    Value::Object(envelope)
 }
 
 /// Validates a single flat query object and returns the validated, defaulted
@@ -552,7 +567,7 @@ pub fn validate_output(tool_name: &str, output: &Value) -> Result<(), ContractVa
     let tool = contract_tool(tool_name)?;
     let schema = &tool["outputSchema"];
     let mut candidate = output.clone();
-    crate::runtime::response::restore_shared_fields(&mut candidate);
+    super::shared_fields::restore(&mut candidate);
     validate_schema(schema, schema, &mut candidate, &mut Vec::new())
 }
 
@@ -567,7 +582,6 @@ fn apply_normalization_rules(
         let opcode = rule["opcode"].as_str();
         let row_normalizer: Option<fn(&mut Value, &Value)> = match opcode {
             Some("trim_fields") => Some(trim_fields),
-            Some("rename_fields") => Some(rename_fields),
             Some("drop_blank_fields") => Some(drop_blank_fields),
             _ => None,
         };
@@ -614,20 +628,6 @@ fn trim_fields(query: &mut Value, args: &Value) {
             && let Some(text) = value.as_str()
         {
             *value = Value::String(text.trim().to_owned());
-        }
-    }
-}
-
-/// Moves each legacy field to its canonical name; a canonical value the row
-/// already carries wins and the legacy one is dropped.
-fn rename_fields(query: &mut Value, args: &Value) {
-    let (Some(fields), Some(row)) = (args["fields"].as_object(), query.as_object_mut()) else {
-        return;
-    };
-    for (from, to) in fields {
-        let Some(to) = to.as_str() else { continue };
-        if let Some(value) = row.remove(from) {
-            row.entry(to.to_owned()).or_insert(value);
         }
     }
 }
@@ -685,7 +685,6 @@ fn apply_validation_rules(rules: &Value, input: &Value) -> Result<(), ContractVa
                 &rule["args"],
             ),
             Some("ast_rewrite_rule") => validate_ast_rewrite_rules(input),
-            Some("history_content_selection") => validate_history_content_selection(input),
             Some(opcode) => {
                 return Err(issue(
                     "contract.unsupported-validator",
@@ -748,48 +747,10 @@ fn internal(message: String) -> ContractValidationError {
     issue("contract.generated-json", vec![], message)
 }
 
-/// Legacy or commonly guessed field names agents send (observed in blind
-/// evals and recorded sessions), mapped to the canonical field when the query
-/// accepts it. A name may map to several fields; the first one the query
-/// accepts wins.
-const FIELD_ALIASES: [(&str, &str); 23] = [
-    ("type", "operation"),
-    ("path", "uri"),
-    ("filePath", "uri"),
-    ("keywordsToSearch", "keywords"),
-    ("matchStringContextLines", "contextLines"),
-    ("pattern", "searchText"),
-    ("pattern", "names"),
-    ("filesOnly", "resultView"),
-    ("filePath", "path"),
-    ("maxResults", "pageSize"),
-    ("limit", "pageSize"),
-    ("depth", "maxDepth"),
-    ("lineStart", "startLine"),
-    ("lineEnd", "endLine"),
-    ("searchText", "matchString"),
-    ("filePattern", "include"),
-    ("fileFilter", "include"),
-    ("includePattern", "include"),
-    ("glob", "include"),
-    ("useRegex", "regex"),
-    ("isRegex", "regex"),
-    ("includeHidden", "hidden"),
-    ("showHidden", "hidden"),
-];
-
-/// The field `known` most likely meant by `unknown`: an alias, a known field
-/// that prefixes it, or the nearest spelling. The edit budget scales with the
+/// The field `known` most likely meant by `unknown`: a known field that
+/// prefixes it, or the nearest spelling. The edit budget scales with the
 /// name so a short guess (`depth`, `mode`) never lands on an unrelated field.
 fn suggest_field<'a>(unknown: &str, known: &[&'a str]) -> Option<&'a str> {
-    let accepted = |name: &str| known.iter().copied().find(|k| *k == name);
-    if let Some(target) = FIELD_ALIASES
-        .iter()
-        .filter(|(alias, _)| *alias == unknown)
-        .find_map(|(_, target)| accepted(target))
-    {
-        return Some(target);
-    }
     // `keywordsToSearch` → `keywords`: a known field that prefixes the guess.
     if let Some(prefix) = known
         .iter()
@@ -799,8 +760,23 @@ fn suggest_field<'a>(unknown: &str, known: &[&'a str]) -> Option<&'a str> {
     {
         return Some(prefix);
     }
-    let max_dist = (unknown.chars().count() / 3).clamp(2, 3);
     let lowered = unknown.to_lowercase();
+    // `depth` → `maxDepth`, `isRegex` → `regex`: one name ends with the
+    // other (a qualifier word added or dropped in front).
+    if let Some(suffix) = known
+        .iter()
+        .copied()
+        .filter(|k| {
+            let k = k.to_lowercase();
+            k != lowered
+                && k.len().min(lowered.len()) >= 4
+                && (k.ends_with(&lowered) || lowered.ends_with(&k))
+        })
+        .min_by_key(|k| k.len().abs_diff(unknown.len()))
+    {
+        return Some(suffix);
+    }
+    let max_dist = (unknown.chars().count() / 3).clamp(2, 3);
     known
         .iter()
         .filter_map(|&k| {
@@ -838,22 +814,14 @@ pub(crate) fn levenshtein(a: &str, b: &str) -> usize {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn guessed_legacy_fields_point_at_the_accepted_field() {
+    fn guessed_fields_point_at_a_field_the_schema_accepts() {
         let known = ["operation", "keywords", "contextLines", "reasoning"];
-        assert_eq!(super::suggest_field("type", &known), Some("operation"));
         assert_eq!(
             super::suggest_field("keywordsToSearch", &known),
             Some("keywords")
         );
-        assert_eq!(
-            super::suggest_field("matchStringContextLines", &known),
-            Some("contextLines")
-        );
-        assert_eq!(
-            super::suggest_field("pattern", &known),
-            None,
-            "searchText not accepted here"
-        );
+        assert_eq!(super::suggest_field("operaton", &known), Some("operation"));
+        assert_eq!(super::suggest_field("pattern", &known), None);
     }
 
     use super::{format_input_error, normalize_input, validate};
@@ -862,8 +830,8 @@ mod tests {
 
     #[test]
     fn pure_clasify_requires_correlation_and_preserves_provider_entries() {
-        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","mainGoal":"Files that decide the next read.","resources":[{"id":"source","context": {"value": {"observation": true}},"maxChars":80000}], "questions":[{"id":"answer",
-            "type": "noul", "instructions": {"prompt":"Assess supplied state"}, "criteria":{"true":null,"false":null}
+        let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","mainGoal":"Files that decide the next read.","resources":[{"id":"source","value": {"observation": true}}], "questions":[{"id":"answer",
+            "type": "yesno", "ask": {"prompt":"Assess supplied state"}, "labels":{"true":null,"false":null}
         }]});
         let prepared = prepare_and_validate("clasify", query.clone(), PrepareOptions::default())
             .expect("pure semantic query needs no workflow fields");
@@ -939,10 +907,10 @@ mod tests {
     fn rejects_local_fetch_relations_and_unknown_fields() {
         let relation = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","fullContent":true,"chunkSize":2,"mainGoal": "test", "reasoning":"Read the complete fixture."}]}),
+            json!({"queries":[{"path":"/tmp/a","fullContent":true,"length":2,"mainGoal": "test", "reasoning":"Read the complete fixture."}]}),
         )
         .expect_err("invalid relation");
-        // `chunkSize` is a valid chunk control, mutually exclusive with
+        // `length` is a valid window control, mutually exclusive with
         // fullContent, so the relation is rejected as a field conflict rather
         // than an unknown field.
         assert_eq!(
@@ -951,7 +919,7 @@ mod tests {
                 "kind":"octocode.toolError", "version":1, "tool":"localFetch",
                 "error":"Check the query fields.",
                 "details":[
-                    "queries.0.fullContent: Choose fullContent or chunk controls."
+                    "queries.0.fullContent: Remove unit, offset, and length when fullContent is true."
                 ]
             })
         );
@@ -971,7 +939,7 @@ mod tests {
             json!({
                 "queries": [
                     {"wat": true, "alsoWat": 1},
-                    {"path": 7, "startLine": "bad", "fullContent": "bad"}
+                    {"path": 7, "offset": "bad", "fullContent": "bad"}
                 ]
             }),
         )
@@ -985,7 +953,7 @@ mod tests {
         assert!(keys.contains(&("schema.unknown-field", "queries.0.alsoWat".into())));
         assert!(keys.contains(&("schema.required", "queries.0.path".into())));
         assert!(keys.contains(&("schema.type", "queries.1.path".into())));
-        assert!(keys.contains(&("schema.type", "queries.1.startLine".into())));
+        assert!(keys.contains(&("schema.type", "queries.1.offset".into())));
         assert!(keys.contains(&("schema.type", "queries.1.fullContent".into())));
     }
 
@@ -993,14 +961,14 @@ mod tests {
     fn formats_stable_cli_input_errors() {
         let range = validate(
             "localFetch",
-            json!({"queries":[{"path":"/tmp/a","startLine":5,"endLine":2,"mainGoal": "test", "reasoning":"Exercise range validation."}]}),
+            json!({"queries":[{"path":"/tmp/a","ranges":["5-2"],"mainGoal": "test", "reasoning":"Exercise range validation."}]}),
         )
         .expect_err("range");
         assert_eq!(
             format_input_error("localFetch", &range, false),
             json!({
                 "kind":"octocode.toolError","version":1,"tool":"localFetch","error":"Check the query fields.",
-                "details":["queries.0.endLine: Set endLine greater than or equal to startLine."]
+                "details":["queries.0.ranges.0: Set each range as start-end with end >= start."]
             })
         );
         // A blank brief carries nothing: it is dropped, not rejected.
@@ -1058,26 +1026,26 @@ mod tests {
         let accepted = validate(
             "localFetch",
             json!({"queries":[
-                {"path":"/tmp/a","startLine":"2","endLine":"10","mainGoal":"test","reasoning":"Coerce."},
+                {"path":"/tmp/a","offset":"2","length":"10","mainGoal":"test","reasoning":"Coerce."},
                 {"path":"/tmp/a","fullContent":"false","mainGoal":"test","reasoning":"Coerce."}
             ]}),
         )
         .expect("lossless strings coerce");
-        assert_eq!(accepted["queries"][0]["startLine"], 2);
-        assert_eq!(accepted["queries"][0]["endLine"], 10);
+        assert_eq!(accepted["queries"][0]["offset"], 2);
+        assert_eq!(accepted["queries"][0]["length"], 10);
         assert_eq!(accepted["queries"][1]["fullContent"], false);
         let search = validate(
             "localSearch",
-            json!({"queries":[{"path":"/tmp","searchText":"10","pageSize":"5","mainGoal":"test","reasoning":"Coerce."}]}),
+            json!({"queries":[{"path":"/tmp","matchString":"10","pageSize":"5","mainGoal":"test","reasoning":"Coerce."}]}),
         )
         .expect("string fields keep their string");
-        assert_eq!(search["queries"][0]["searchText"], "10");
+        assert_eq!(search["queries"][0]["matchString"], "10");
         assert_eq!(search["queries"][0]["pageSize"], 5);
         let union = validate(
             "lspSearch",
             json!({"queries":[
-                {"uri":"/tmp/a.rs","position":{"line":"3","character":"0"},"mainGoal":"test","reasoning":"Coerce."},
-                {"uri":"/tmp/a.rs","symbolName":"main","lineHint":"4","mainGoal":"test","reasoning":"Coerce."}
+                {"path":"/tmp/a.rs","position":{"line":"3","character":"0"},"mainGoal":"test","reasoning":"Coerce."},
+                {"path":"/tmp/a.rs","symbolName":"main","lineHint":"4","mainGoal":"test","reasoning":"Coerce."}
             ]}),
         )
         .expect("union branches coerce their own typed fields");
@@ -1098,7 +1066,7 @@ mod tests {
             assert!(
                 validate(
                     "localFetch",
-                    json!({"queries":[{"path":"/tmp/a","startLine":bad,"endLine":10,"mainGoal":"test","reasoning":"No coercion."}]}),
+                    json!({"queries":[{"path":"/tmp/a","offset":bad,"length":10,"mainGoal":"test","reasoning":"No coercion."}]}),
                 )
                 .is_err(),
                 "{bad:?} must not coerce"
@@ -1126,9 +1094,9 @@ mod tests {
                 .extend(extra.as_object().expect("extra").clone());
             row
         };
-        let search = row(json!({"path":"/tmp","searchText":"x",
+        let search = row(json!({"path":"/tmp","matchString":"x",
             "include":"[\"*.go\"]","exclude":"[\"*_test.go\"]",
-            "excludeDir":"[\"node_modules\",\"dist\"]","contextLines":"2"}));
+            "contextLines":"2"}));
         let normalized = normalize_input(
             "localSearch",
             json!({"queries": serde_json::to_string(&json!([search])).expect("encode")}),
@@ -1136,15 +1104,20 @@ mod tests {
         let query = &normalized["queries"][0];
         assert_eq!(query["include"], json!(["*.go"]));
         assert_eq!(query["exclude"], json!(["*_test.go"]));
-        assert_eq!(query["excludeDir"], json!(["node_modules", "dist"]));
         assert_eq!(query["contextLines"], 2);
         validate("localSearch", normalized).expect("repaired input validates");
 
         let structure = normalize_input(
             "structureSearch",
-            row(json!({"path":"/tmp","extensions":"[\"go\"]"})),
+            json!({"queries":[row(json!({"path":"/tmp","extensions":"[\"go\"]"}))]}),
         );
-        assert_eq!(structure["extensions"], json!(["go"]));
+        assert_eq!(structure["queries"][0]["extensions"], json!(["go"]));
+        let fetch = normalize_input(
+            "localFetch",
+            json!({"queries":[row(json!({"path":"/tmp/a.rs","ranges":r#"[\"749-775\"]"#}))]}),
+        );
+        assert_eq!(fetch["queries"][0]["ranges"], json!(["749-775"]));
+        validate("localFetch", fetch).expect("a double-encoded list validates");
         let code = normalize_input(
             "ghSearchCode",
             json!({"queries":[row(json!({"owner":"o","keywords":"wrap_app_handling_exceptions"}))]}),
@@ -1153,20 +1126,15 @@ mod tests {
             code["queries"][0]["keywords"],
             json!(["wrap_app_handling_exceptions"])
         );
-        let rows = normalize_input(
-            "ghSearchCode",
-            json!([row(json!({"owner":"o","keywords":"k"}))]),
-        );
-        assert_eq!(rows[0]["keywords"], json!(["k"]));
 
         // A field that also accepts a string keeps it; unknown tools pass through.
         let lsp = normalize_input(
             "lspSearch",
-            row(
-                json!({"uri":"/tmp/a.rs","symbolName":"main","lineHint":1,"rustContext":{"features":"all"}}),
-            ),
+            json!({"queries":[row(
+                json!({"path":"/tmp/a.rs","symbolName":"main","lineHint":1,"rustContext":{"features":"all"}}),
+            )]}),
         );
-        assert_eq!(lsp["rustContext"]["features"], "all");
+        assert_eq!(lsp["queries"][0]["rustContext"]["features"], "all");
         let untouched = json!({"queries":"[\"*.go\"]"});
         assert_eq!(normalize_input("noSuchTool", untouched.clone()), untouched);
     }
@@ -1220,16 +1188,16 @@ mod tests {
             ),
             (
                 "lspSearch",
-                with(json!({"operation":"reference","uri":"a.ts","symbolName":"a","lineHint":1})),
+                with(json!({"operation":"reference","path":"a.ts","symbolName":"a","lineHint":1})),
                 "/queries/0/operation",
                 json!("references"),
             ),
             (
                 "ghGetHistoryItem",
                 with(
-                    json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,"include":["patch"]}),
+                    json!({"operation":"pullRequest","owner":"o","repo":"r","number":1,"sections":["patch"]}),
                 ),
-                "/queries/0/include",
+                "/queries/0/sections",
                 json!(["patches"]),
             ),
             (
@@ -1249,7 +1217,7 @@ mod tests {
         );
         assert!(blank["queries"][0].get("version").is_none(), "{blank}");
         validate("artifactSearch", blank).expect("blank optional dropped");
-        let required = normalize_input("localSearch", with(json!({"path":" ","searchText":"x"})));
+        let required = normalize_input("localSearch", with(json!({"path":" ","matchString":"x"})));
         assert_eq!(required["queries"][0]["path"], " ");
         assert!(validate("localSearch", required).is_err());
     }
@@ -1259,7 +1227,7 @@ mod tests {
         let reject = |include: Value| {
             let error = validate(
                 "localSearch",
-                json!({"queries":[{"path":"/tmp","searchText":"x","include":include,"mainGoal":"test","reasoning":"Hint."}]}),
+                json!({"queries":[{"path":"/tmp","matchString":"x","include":include,"mainGoal":"test","reasoning":"Hint."}]}),
             )
             .expect_err("not an array");
             error.issues[0].message.clone()
@@ -1275,7 +1243,7 @@ mod tests {
     fn names_the_selector_a_sibling_branch_needs_for_a_rejected_literal() {
         let error = validate(
             "localSearch",
-            json!({"queries":[{"path":"/tmp","searchText":"foo","unique":"list","mainGoal": "test", "reasoning":"List values."}]}),
+            json!({"queries":[{"path":"/tmp","matchString":"foo","unique":"list","mainGoal": "test", "reasoning":"List values."}]}),
         )
         .expect_err("unique:list needs matchOnly");
         let formatted = format_input_error("localSearch", &error, false);
@@ -1312,11 +1280,6 @@ mod tests {
             "{symbols}"
         );
         assert!(!symbols.contains("localSearch"), "in-tool field: {symbols}");
-        let lsp = details(
-            "lspSearch",
-            json!({"path":"a.ts","symbolName":"x","lineHint":1}),
-        );
-        assert!(lsp.contains("did you mean 'uri'?"), "{lsp}");
         let owner = details("ghSearchCode", json!({"keywords":["x"]}));
         assert!(
             owner.contains(
@@ -1324,11 +1287,19 @@ mod tests {
             ),
             "{owner}"
         );
+        let swapped = details(
+            "astRewrite",
+            json!({"path":"/r","language":"typescript","pattern":"a($A)","fix":"b($A)"}),
+        );
+        assert!(
+            swapped.contains("Missing required field: rewrite (pattern takes rewrite"),
+            "{swapped}"
+        );
         let history = details(
             "ghSearchHistory",
-            json!({"operation":"pullRequest","owner":"a","repo":"b","mergedAt":"2026-01-01"}),
+            json!({"operation":"pullRequest","owner":"a","repo":"b","qualifers":"author:x"}),
         );
-        assert!(history.contains("did you mean 'merged-at'?"), "{history}");
+        assert!(history.contains("did you mean 'qualifiers'?"), "{history}");
     }
 
     #[test]
@@ -1351,28 +1322,18 @@ mod tests {
 
     #[test]
     fn names_the_operation_that_declares_a_field_of_another_operation() {
-        for (field, value, expected) in [
-            (
-                "review",
-                json!("approved"),
-                "Remove 'review' from queries[0]: it applies only with operation:\"pullRequest\".",
-            ),
-            (
-                "state",
-                json!("open"),
-                "Remove 'state' from queries[0]: it applies only with operation:\"pullRequest\" or operation:\"issue\".",
-            ),
-        ] {
-            let mut query = json!({
-                "mainGoal":"g","reasoning":"r","operation":"commit",
-                "owner":"octocat","repo":"Hello-World"
-            });
-            query[field] = value;
-            let error = validate("ghSearchHistory", json!({ "queries": [query] }))
-                .expect_err("the field belongs to another operation");
-            let formatted = format_input_error("ghSearchHistory", &error, false);
-            assert_eq!(formatted["details"][0], expected, "{formatted}");
-        }
+        let query = json!({
+            "mainGoal":"g","reasoning":"r","operation":"commit",
+            "owner":"octocat","repo":"Hello-World","state":"open"
+        });
+        let error = validate("ghSearchHistory", json!({ "queries": [query] }))
+            .expect_err("the field belongs to another operation");
+        let formatted = format_input_error("ghSearchHistory", &error, false);
+        assert_eq!(
+            formatted["details"][0],
+            "Remove 'state' from queries[0]: it applies only with operation one of \"pullRequest\", \"issue\".",
+            "{formatted}"
+        );
     }
 
     #[test]
@@ -1392,7 +1353,7 @@ mod tests {
                 .find(|fixture| {
                     fixture["tool"] == *name && fixture["accepted"] == Value::Bool(true)
                 })
-                .expect("accepted fixture for every tool")["input"]
+                .expect("accepted fixture for every tool")["input"]["queries"][0]
                 .clone();
             let object = query.as_object_mut().expect("query example");
             object.remove("reasoning");
@@ -1407,50 +1368,25 @@ mod tests {
         }
     }
 
-    /// Core authors the wording of cross-field clasify rejections; native
-    /// must render the same text for the same input (fixture `messages`).
     #[test]
-    fn renders_core_rejection_wording_for_parity_fixtures() {
+    fn matches_generated_reference_corpus() {
         let fixtures: Value =
             serde_json::from_str(crate::contracts::generated::CONTRACT_FIXTURES_JSON)
                 .expect("generated fixture JSON");
-        let mut checked = 0;
+        // Clasify's batch relation rules run at engine admission; its
+        // fixtures are checked there (`tools::clasify::admission`).
         for fixture in fixtures.as_array().expect("fixture array") {
-            let Some(expected) = fixture.get("messages") else {
+            if fixture["tool"] == "clasify" {
                 continue;
-            };
-            let error = crate::contracts::prepare_many_and_validate(
+            }
+            let result = crate::contracts::prepare_many_and_validate(
                 fixture["tool"].as_str().expect("tool"),
                 fixture["input"].clone(),
                 PrepareOptions {
                     source_label: "fixture",
                 },
             )
-            .expect_err("a fixture with messages is rejected");
-            let messages = error
-                .issues
-                .iter()
-                .map(|issue| Value::String(issue.message.clone()))
-                .collect::<Vec<_>>();
-            assert_eq!(&Value::Array(messages), expected, "{}", fixture["id"]);
-            checked += 1;
-        }
-        assert!(checked >= 5, "clasify wording fixtures: {checked}");
-    }
-
-    #[test]
-    fn matches_generated_reference_corpus() {
-        let fixtures: Value =
-            serde_json::from_str(crate::contracts::generated::CONTRACT_FIXTURES_JSON)
-                .expect("generated fixture JSON");
-        for fixture in fixtures.as_array().expect("fixture array") {
-            let result = prepare_and_validate(
-                fixture["tool"].as_str().expect("tool"),
-                fixture["input"].clone(),
-                PrepareOptions {
-                    source_label: "fixture",
-                },
-            );
+            .map(|mut queries| queries.swap_remove(0));
             assert_eq!(
                 result.is_ok(),
                 fixture["accepted"].as_bool().expect("accepted"),
@@ -1468,80 +1404,46 @@ mod tests {
         }
     }
 
-    /// Field names agents sent in real sessions point at the accepted field,
-    /// never at an unrelated near-spelling.
+    /// A guessed field points at the accepted field the schema names, never
+    /// at an unrelated near-spelling.
     #[test]
-    fn observed_wrong_field_names_suggest_the_accepted_field() {
-        let local_fetch = [
-            "path",
-            "startLine",
-            "endLine",
-            "matchString",
-            "contextLines",
-        ];
+    fn guessed_field_names_suggest_the_accepted_field() {
+        let local_search = ["matchString", "include", "regex", "hidden", "page"];
         assert_eq!(
-            super::suggest_field("lineStart", &local_fetch),
-            Some("startLine")
+            super::suggest_field("includes", &local_search),
+            Some("include")
         );
+        assert_eq!(super::suggest_field("regexp", &local_search), Some("regex"));
+        assert_eq!(super::suggest_field("mode", &local_search), None);
+        let structure = ["path", "maxDepth", "debug", "include", "detail"];
         assert_eq!(
-            super::suggest_field("lineEnd", &local_fetch),
-            Some("endLine")
+            super::suggest_field("maxdepth", &structure),
+            Some("maxDepth")
         );
-        assert_eq!(
-            super::suggest_field("searchText", &local_fetch),
-            Some("matchString")
-        );
-        let local_search = [
-            "searchText",
-            "include",
-            "regex",
-            "hidden",
-            "page",
-            "mainGoal",
-        ];
-        for (guess, field) in [
-            ("filePattern", "include"),
-            ("fileFilter", "include"),
-            ("includePattern", "include"),
-            ("useRegex", "regex"),
-            ("isRegex", "regex"),
-            ("includeHidden", "hidden"),
-        ] {
-            assert_eq!(
-                super::suggest_field(guess, &local_search),
-                Some(field),
-                "{guess}"
-            );
-        }
-        assert_eq!(
-            super::suggest_field("mode", &local_search),
-            None,
-            "not 'goal'"
-        );
-        let structure = ["path", "maxDepth", "debug", "names", "detail"];
-        assert_eq!(super::suggest_field("depth", &structure), Some("maxDepth"));
-        assert_eq!(super::suggest_field("pattern", &structure), Some("names"));
         assert_eq!(
             super::suggest_field("depth", &["debug", "detail"]),
             None,
             "a short name never matches an unrelated field three edits away"
         );
+        // One name ends with the other: a qualifier word added or dropped.
+        assert_eq!(super::suggest_field("depth", &structure), Some("maxDepth"));
+        assert_eq!(
+            super::suggest_field("isRegex", &local_search),
+            Some("regex")
+        );
+        assert_eq!(super::suggest_field("filePattern", &local_search), None);
     }
 
     #[test]
     fn a_row_sent_to_the_wrong_tool_names_the_tool_that_owns_its_fields() {
         let error = validate(
             "localFetch",
-            json!({"queries":[{"path":"package.json","searchText":"name","pageSize":3,"mainGoal":"g","reasoning":"r"}]}),
+            json!({"queries":[{"path":"package.json","matchString":"name","multiline":"on","resultView":"files","mainGoal":"g","reasoning":"r"}]}),
         )
         .expect_err("localSearch fields");
         let formatted = format_input_error("localFetch", &error, false).to_string();
         assert!(
-            formatted.contains("did you mean 'matchString'?"),
-            "{formatted}"
-        );
-        assert!(
-            formatted.contains("pageSize, searchText are localSearch fields"),
+            formatted.contains("multiline, resultView are localSearch fields"),
             "{formatted}"
         );
 
@@ -1589,7 +1491,7 @@ mod tests {
     fn a_top_level_brief_is_moved_into_each_row() {
         let error = crate::contracts::prepare_many_and_validate(
             "localSearch",
-            json!({"mainGoal":"g","queries":[{"path":".","searchText":"x","mainGoal":"g","reasoning":"r"}]}),
+            json!({"mainGoal":"g","queries":[{"path":".","matchString":"x","mainGoal":"g","reasoning":"r"}]}),
             PrepareOptions { source_label: "test" },
         )
         .expect_err("mainGoal is per row");

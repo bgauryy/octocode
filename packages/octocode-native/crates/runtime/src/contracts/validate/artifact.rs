@@ -30,23 +30,14 @@ pub(super) fn validate_artifact_queries(input: &Value) -> Result<(), ContractVal
             ));
         }
         if exact
-            && ["pageSize", "cursor"]
+            && ["pageSize", "page"]
                 .iter()
                 .any(|field| query.get(field).is_some())
         {
             return Err(issue(
                 "artifact.exact-pagination",
                 prefix,
-                "pageSize and cursor apply only to keyword discovery",
-            ));
-        }
-        if let Some(cursor) = query.get("cursor").and_then(Value::as_str)
-            && cursor.trim().is_empty()
-        {
-            return Err(issue(
-                "artifact.blank-cursor",
-                prefix,
-                "cursor must not be blank",
+                "pageSize and page apply only to keyword discovery",
             ));
         }
         if let Some(registry) = query.get("registry").and_then(Value::as_str) {

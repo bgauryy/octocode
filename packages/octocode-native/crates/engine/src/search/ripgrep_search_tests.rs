@@ -5,6 +5,17 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 static COUNTER: AtomicU32 = AtomicU32::new(0);
 
+struct AllowAll;
+impl RipgrepPathFilter for AllowAll {
+    fn allows(&self, _: &Path, _: bool) -> bool {
+        true
+    }
+}
+
+pub(crate) fn search(opts: RipgrepSearchOptions) -> Result<RipgrepParseResult> {
+    search_cancellable(opts, Arc::new(AllowAll), &|| false)
+}
+
 /// Unique temp dir per test (no Date/rand needed): pid + atomic counter.
 struct TmpDir(PathBuf);
 impl TmpDir {
@@ -397,6 +408,19 @@ fn exclude_dir_prunes_directory() {
     let r = search(o).expect("ok");
     assert_eq!(r.files.len(), 1);
     assert!(r.files[0].path.contains("keep"));
+    // A pruned directory is disclosed, root-relative: absence there is unproven.
+    assert_eq!(r.stats.pruned_dirs, Some(vec!["skip".to_owned()]));
+}
+
+#[test]
+fn the_search_root_itself_is_never_pruned() {
+    let t = TmpDir::new();
+    t.write("build/a.txt", "target\n");
+    let mut o = opts(format!("{}/build", t.path()), "target");
+    o.exclude_dir = Some(vec!["build".to_owned()]);
+    let r = search(o).expect("ok");
+    assert_eq!(r.files.len(), 1);
+    assert_eq!(r.stats.pruned_dirs, None);
 }
 
 #[test]
@@ -528,7 +552,6 @@ fn binary_quit_file_is_flagged_not_silently_absent() {
     );
 }
 
-#[cfg(feature = "pcre2")]
 #[test]
 fn pcre2_worker_slots_are_bounded_and_released() {
     // The worker-slot bound rejects new acquisitions once saturated and
@@ -684,34 +707,6 @@ fn only_matching_enumerates_every_hit_on_one_minified_line() {
 }
 
 #[test]
-fn only_matching_window_widens_span_with_surrounding_context() {
-    let t = TmpDir::new();
-    t.write("a.txt", "leftcontext_HIT_rightcontext\n");
-    let mut o = opts(t.path(), "HIT");
-    o.only_matching = Some(true);
-    o.match_window = Some(4);
-    let r = search(o).expect("ok");
-    let v = &r.files[0].matches[0].value;
-    assert!(v.contains("HIT"), "{v}");
-    assert!(v.contains("ext_") && v.contains("_rig"), "{v}");
-    // window trims both sides, so ellipsis markers are present.
-    assert!(v.starts_with('…') && v.ends_with('…'), "{v}");
-}
-
-#[test]
-fn only_matching_window_is_char_boundary_safe_on_multibyte() {
-    let t = TmpDir::new();
-    // Multibyte chars on both sides of the hit: window slicing must never
-    // panic by cutting a codepoint in half.
-    t.write("u.txt", "café→HIT←déjà\n");
-    let mut o = opts(t.path(), "HIT");
-    o.only_matching = Some(true);
-    o.match_window = Some(2);
-    let r = search(o).expect("ok");
-    assert!(r.files[0].matches[0].value.contains("HIT"));
-}
-
-#[test]
 fn only_matching_unique_keeps_distinct_values_in_first_occurrence_order() {
     let t = TmpDir::new();
     t.write("a.txt", "ab ab cd ab cd ef\n");
@@ -764,18 +759,6 @@ fn only_matching_default_off_keeps_whole_line_value() {
     let r = search(opts(t.path(), "NEEDLE")).expect("ok");
     // Without only_matching the value is the full line, unchanged.
     assert_eq!(r.files[0].matches[0].value, "prefix_NEEDLE_suffix");
-}
-
-#[test]
-fn exclude_dir_trailing_slash_prunes_directory() {
-    let t = TmpDir::new();
-    t.write("keep/a.txt", "target\n");
-    t.write("skip/b.txt", "target\n");
-    let mut o = opts(t.path(), "target");
-    o.exclude_dir = Some(vec!["skip/".to_owned()]);
-    let r = search(o).expect("ok");
-    assert_eq!(r.files.len(), 1);
-    assert!(r.files[0].path.contains("keep"));
 }
 
 #[test]
@@ -876,6 +859,18 @@ fn opaque_binary_files_are_skipped_not_a_coverage_gap() {
     assert!(search(o).expect("ok").files.is_empty());
 }
 
+/// Bytes of a binary header that happen to match are not text hits: the
+/// file is skipped and counted, never returned with rows a text read fails on.
+#[test]
+fn a_match_inside_an_opaque_binary_header_is_not_a_hit() {
+    let t = TmpDir::new();
+    fs::write(t.0.join("logo.png"), b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").expect("png");
+    let r = search(opts(t.path(), "PNG")).expect("ok");
+    assert!(r.files.is_empty(), "{:?}", r.files);
+    assert_eq!(r.stats.skipped_binary_count, Some(1), "{:?}", r.stats);
+    assert_eq!(r.stats.files_matched, Some(0), "{:?}", r.stats);
+}
+
 #[test]
 fn binary_quit_keeps_matches_before_the_nul() {
     let t = TmpDir::new();
@@ -927,6 +922,17 @@ fn a_printable_magic_before_a_leading_nul_is_opaque_binary() {
         "{:?}",
         r.stats
     );
+    // Only the extensionless group names its files.
+    let names = |extension: &str| {
+        r.stats
+            .skipped_binary_extensions
+            .iter()
+            .flatten()
+            .find(|group| group.extension == extension)
+            .map(|group| group.names.clone())
+    };
+    assert_eq!(names(""), Some(vec!["store".to_owned()]));
+    assert_eq!(names("woff2"), Some(Vec::new()));
 }
 
 /// Text lines before a NUL are searchable text the cut leaves unread: a
@@ -1148,7 +1154,10 @@ fn relevance_ranks_generated_files_after_hand_written_ones() {
         .iter()
         .map(|f| f.path.rsplit('/').next().unwrap_or_default().to_owned())
         .collect::<Vec<_>>();
-    assert_eq!(names, ["two_test.c", "one.c", "commands.def", "api.generated.ts"]);
+    assert_eq!(
+        names,
+        ["two_test.c", "one.c", "commands.def", "api.generated.ts"]
+    );
     // Every hit is still returned; only the order changes.
     let total: usize = r.files.iter().map(|f| f.matches.len()).sum();
     assert_eq!(total, 8);
@@ -1244,14 +1253,12 @@ fn cancellation_stops_the_walk_mid_tree() {
 
 /// Test filter that stalls inside the walk on the Nth file it sees, standing in
 /// for one uninterruptible PCRE2 match.
-#[cfg(feature = "pcre2")]
 struct StallOnNth {
     seen: AtomicU32,
     nth: u32,
     stall: std::time::Duration,
 }
 
-#[cfg(feature = "pcre2")]
 impl RipgrepPathFilter for StallOnNth {
     fn allows(&self, _: &Path, is_dir: bool) -> bool {
         if !is_dir && self.seen.fetch_add(1, Ordering::SeqCst) + 1 == self.nth {
@@ -1261,7 +1268,6 @@ impl RipgrepPathFilter for StallOnNth {
     }
 }
 
-#[cfg(feature = "pcre2")]
 #[test]
 fn pcre2_hard_deadline_returns_files_finished_so_far() {
     use std::time::{Duration, Instant};
@@ -1299,7 +1305,6 @@ fn pcre2_hard_deadline_returns_files_finished_so_far() {
     assert_eq!(r.stats.cap_reason.as_deref(), Some("pcre2Deadline"));
 }
 
-#[cfg(feature = "pcre2")]
 #[test]
 fn pcre2_driver_honours_cancellation_while_the_worker_is_stuck() {
     use std::time::{Duration, Instant};

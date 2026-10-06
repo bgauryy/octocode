@@ -1,7 +1,7 @@
 //! Syntactic `extends` / `implements` facts for the tree-sitter lane.
 //!
 //! Each base type named in a class/interface/struct/trait/impl header becomes
-//! a `GraphEdge` from the declaring declaration id to the base type name as
+//! a `GraphFactEdge` from the declaring declaration id to the base type name as
 //! written in source, with type arguments removed (`Base`, `pkg.Base`,
 //! `std::fmt::Display`). Syntax only (`resolution: "syntax"`): `to` is not a
 //! resolved declaration.
@@ -26,7 +26,8 @@
 use tree_sitter::Node;
 
 use super::super::nodes::node_text;
-use super::{GraphAccumulator, GraphEdge, LineIndex};
+use super::{GraphAccumulator, LineIndex};
+use crate::graph::GraphFactEdge;
 
 pub(super) fn collect_heritage(
     node: Node<'_>,
@@ -136,14 +137,14 @@ pub(super) fn collect_heritage(
             continue;
         };
         let line = line_index.range(base).start.line + 1;
-        acc.edges.push(GraphEdge {
+        acc.edges.push(GraphFactEdge {
             id: format!("{from}->{to}:{relation}:{line}:{}", acc.edges.len()),
             from: from.to_owned(),
             to,
-            relation,
-            source: "tree-sitter",
+            relation: relation.to_owned(),
+            source: "tree-sitter".to_owned(),
             line,
-            resolution: "syntax",
+            resolution: "syntax".to_owned(),
         });
     }
 }

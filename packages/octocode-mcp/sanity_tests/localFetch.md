@@ -2,7 +2,7 @@
 
 Use the built CLI or MCP tool with the same queries.
 
-- Inspect full and compact schemas: the name is `localFetch`; fields include `chunkType`, `offset`, and `chunkSize`.
+- Inspect full and compact schemas: the name is `localFetch`; fields include `unit`, `offset`, and `length`.
 - Read a UTF-8 fixture containing emoji, CRLF, blank lines, and a long line. Walk every `next.continue` unchanged in both chunk modes and concatenate content; compare with the exact source.
 - Request an inclusive line range. Its pages stop at the selected end and contain no injected line numbers.
 - Request literal and regex matches with overlapping context. Walk small line/byte chunks; check selected ranges, page-local matching anchors, and no duplicated content.
@@ -12,5 +12,5 @@ Use the built CLI or MCP tool with the same queries.
 - Inspect both structured and text output: executable hints and typed fallback reasons survive rendering.
 
 ```json
-{"queries":[{"path":"/ABS/repo/README.md","chunkType":"bytes","offset":0,"chunkSize":1024}]}
+{"queries":[{"path":"/ABS/repo/README.md","unit":"bytes","offset":0,"length":1024}]}
 ```

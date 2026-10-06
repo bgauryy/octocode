@@ -13,9 +13,9 @@
 //! `noCompileDatabase` and the same fallback.
 
 use super::LspSearchQuery;
-use super::failure::push_reason;
+use super::failure::flag_partial;
 use super::importers::{MAX_CANDIDATE_FILES, SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED};
-use crate::tools::id::ToolId;
+use super::render::TS_LANGUAGE_IDS;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -26,15 +26,8 @@ pub(super) const CAPPED_REASON: &str = "importerScanCapped";
 pub(super) const FAILED_REASON: &str = "importerScanFailed";
 const INFERRED_WARNING: &str = "No tsconfig.json or jsconfig.json covers this file, so the TypeScript server used an inferred project that sees only opened files and their imports; results from other files are missing. Add a tsconfig.json/jsconfig.json at the workspace root, or confirm with hints.textSearch.";
 
-pub(super) const TS_LANGUAGE_IDS: [&str; 4] = [
-    "typescript",
-    "typescriptreact",
-    "javascript",
-    "javascriptreact",
-];
-
 /// Operations whose answer depends on files the server has not opened.
-fn is_incoming(operation: &str) -> bool {
+pub(super) fn is_incoming(operation: &str) -> bool {
     matches!(
         operation,
         "references"
@@ -59,19 +52,6 @@ pub(super) fn lacks_project_config(start: &Path) -> bool {
             .iter()
             .any(|name| dir.join(name).is_file())
     })
-}
-
-/// A word-bounded literal regex for `name` in the default (`rust`) engine.
-pub(super) fn word_pattern(name: &str) -> String {
-    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
-    let mut pattern = regex::escape(name);
-    if word(name.chars().next()) {
-        pattern.insert_str(0, "\\b");
-    }
-    if word(name.chars().last()) {
-        pattern.push_str("\\b");
-    }
-    pattern
 }
 
 /// Flag an incoming-direction TS/JS row answered by an inferred project.
@@ -111,48 +91,6 @@ pub(super) fn annotate(
         _ => return,
     };
     flag_partial(row, query, reason, &warning, workspace_root);
-}
-
-/// Mark an incoming-direction row partial: coverage reason, a warning, and
-/// (when the query names its symbol) a lexical `localSearch` fallback.
-pub(super) fn flag_partial(
-    row: &mut Value,
-    query: &LspSearchQuery,
-    reason: &str,
-    warning: &str,
-    workspace_root: &str,
-) {
-    if let Some(payload) = row.get_mut("payload").and_then(Value::as_object_mut) {
-        let coverage = payload
-            .entry("coverage")
-            .or_insert_with(|| json!({"scope":"languageServer","exhaustive":false}));
-        coverage["exhaustive"] = json!(false);
-        coverage["reason"] = json!(reason);
-    }
-    // A warning, not a hint: the hint policy keeps hints for empty/error rows
-    // only, and this caveat matters most when the row looks complete.
-    let name = query.symbol_name().filter(|name| !name.trim().is_empty());
-    match name {
-        // Partial only with an executable recovery.
-        Some(name) => {
-            push_reason(row, reason, &[warning.to_owned()]);
-            row["next"]["textSearch"] = json!({
-                "tool": ToolId::LocalSearch.as_str(),
-                "confidence": "medium",
-                "why": "Find textual uses the language server's project cannot see.",
-                "query": {
-                    "path": workspace_root,
-                    "searchText": word_pattern(name)
-                }
-            });
-        }
-        // A position anchor has no name to search for: coverage reason and
-        // warning only.
-        None => match row.get_mut("warnings").and_then(Value::as_array_mut) {
-            Some(warnings) => warnings.push(json!(warning)),
-            None => row["warnings"] = json!([warning]),
-        },
-    }
 }
 
 const CLANGD_LANGUAGE_IDS: [&str; 4] = ["c", "cpp", "objective-c", "objective-cpp"];
@@ -216,14 +154,14 @@ mod tests {
 
     fn refs_query(uri: &str) -> LspSearchQuery {
         serde_json::from_value(json!({
-            "operation":"references","mainGoal": "test", "reasoning":"test","uri":uri,
+            "operation":"references","mainGoal": "test", "reasoning":"test","path":uri,
             "symbolName":"greet","lineHint":1
         }))
         .expect("references query")
     }
 
     fn refs_row() -> Value {
-        json!({"payload":{"kind":"references","locations":[],
+        json!({"payload":{"kind":"references","matches":[],
             "coverage":{"scope":"languageServer","exhaustive":false}}})
     }
 
@@ -259,10 +197,10 @@ mod tests {
         );
         let next = &row["next"]["textSearch"];
         assert_eq!(next["tool"], "localSearch");
-        assert_eq!(next["query"]["path"], root.as_str());
-        assert_eq!(next["query"]["searchText"], "\\bgreet\\b");
+        assert_eq!(next["query"]["queries"][0]["path"], root.as_str());
+        assert_eq!(next["query"]["queries"][0]["matchString"], "\\bgreet\\b");
         // The engine copies the input row's brief onto emitted continuations.
-        let mut replay = next["query"].clone();
+        let mut replay = next["query"]["queries"][0].clone();
         replay["mainGoal"] = serde_json::json!("Find greet's references.");
         replay["reasoning"] = serde_json::json!("Fall back to text search.");
         crate::contracts::validate_query("localSearch", replay)
@@ -300,7 +238,7 @@ mod tests {
 
         let definition: LspSearchQuery = serde_json::from_value(json!({
             "operation":"definition","mainGoal": "test", "reasoning":"test",
-            "uri":format!("file://{}", file.display()),"symbolName":"greet","lineHint":1
+            "path":format!("file://{}", file.display()),"symbolName":"greet","lineHint":1
         }))
         .expect("definition query");
         let mut row = refs_row();
@@ -330,7 +268,7 @@ mod tests {
         assert_eq!(row["hints"][0], COMPILE_DATABASE_HINT);
         // References found only in the opened file look complete: flag them.
         let mut found = refs_row();
-        found["payload"]["locations"] = json!([{"uri":"a.hpp","line":1}]);
+        found["payload"]["matches"] = json!([{"path":"a.hpp","line":1}]);
         annotate_compile_database(&mut found, &query, Some("cpp"), &path, &root);
         assert_eq!(
             found["payload"]["coverage"]["reason"],
@@ -354,6 +292,7 @@ mod tests {
 
     #[test]
     fn word_pattern_bounds_only_word_edges() {
+        use super::super::render::word_pattern;
         assert_eq!(word_pattern("greet"), "\\bgreet\\b");
         assert_eq!(word_pattern("$store"), "\\$store\\b");
     }

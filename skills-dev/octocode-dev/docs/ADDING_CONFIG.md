@@ -93,7 +93,7 @@ One edit in `config-contract.json` plus regeneration. Hypothetical example: `out
 | `url` | HTTP(S) URL string | `default` |
 | `path` | absolute/home path string | `default` |
 | `stringArray` | string array or nullable array | `default`, optional `itemFormat: "path"` |
-| `enum` | generated literal union / Rust string | `values`, optional `defaultFrom` |
+| `enum` | generated literal union / Rust string | `values` |
 | `schemaVersion` | schema version | reserved for the root version field |
 
 A `null` input means “unset; use the next source.” A `null` generated default becomes an optional string or nullable array where appropriate.
@@ -115,20 +115,7 @@ Bindings are keyed by variable; lower `priority` wins. Every binding must be in 
 | `normalize: "lower"` | Trims and lowercases. |
 | `invalid: "skip"` (default) | Ignores an invalid environment value and tries the next source. |
 | `invalid: "default"` | An invalid environment value selects the generated default, not file config. Use only when invalid environment input is intentionally authoritative (as with output format). |
-
-### Inherited defaults
-
-Use `defaultFrom`; do not copy another default:
-
-```json
-"extension.storage.mode": {
-  "type": "enum",
-  "values": ["persistent", "memory"],
-  "defaultFrom": "storage.mode"
-}
-```
-
-Both generators reject unresolved or cyclic inheritance. At runtime inheritance uses the already-resolved source field, so an environment or file override of `storage.mode` flows into extension storage.
+| `workspaceNarrowsTo: "<value>"` | On a `dotenv: "home"` binding: a workspace `.env` or `.octocoderc` may still set this one narrowing value (as `storage.mode: memory`). |
 
 ### Add a new section
 

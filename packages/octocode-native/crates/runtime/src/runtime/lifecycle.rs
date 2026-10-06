@@ -33,6 +33,10 @@ pub enum ExecutionError {
     InvalidLimits,
     Cancelled,
     Timeout,
+    /// The rendered or serialized response exceeds the pager's byte cap.
+    ResponseTooLarge,
+    /// A tool reached a dispatcher that has no route for it.
+    UnroutedTool,
     WorkerFailed,
 }
 
@@ -44,9 +48,10 @@ pub struct ExecutionContext {
     /// This query's share of the cores for parallel directory walks, set by
     /// the batch budget when several queries walk at once. `None` = all cores.
     pub walk_threads: Option<u32>,
-    /// The automatic response window (`output.pagination.defaultCharLength`)
-    /// a streamed listing page must fit, set by the domain dispatcher.
-    /// `None` = no window; pages take their default size.
+    /// This row's share of the response page (an explicit `responseLength`,
+    /// else `output.pagination.defaultCharLength`) that a streamed page must
+    /// fit, set by the engine per row. `None` = no window; pages take their
+    /// default size.
     pub response_window: Option<usize>,
 }
 

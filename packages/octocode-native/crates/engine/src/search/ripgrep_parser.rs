@@ -1,79 +1,7 @@
-/// Ripgrep `--json` NDJSON output parser.
-///
-/// A single streaming pass with `serde_json`, grouping match/context lines by file and assembling context windows in one go.
-use std::collections::{HashMap, hash_map::Entry};
+//! Assembles ripgrep-style match and context lines into per-file snippets.
+use std::collections::HashMap;
 
-use serde::Deserialize;
-
-use crate::text::utf8_offsets::byte_to_char_offset_inner;
-use crate::types::{
-    RipgrepFile, RipgrepMatch, RipgrepParseOptions, RipgrepParseResult, RipgrepStats,
-};
-
-// ── ripgrep --json wire types ─────────────────────────────────────────────────
-
-#[derive(Deserialize, Debug)]
-struct RgTextPath {
-    text: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct RgTextLines {
-    text: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct RgSubmatch {
-    start: usize,
-}
-
-#[derive(Deserialize, Debug)]
-struct RgMatchData {
-    path: RgTextPath,
-    lines: RgTextLines,
-    line_number: u32,
-    submatches: Vec<RgSubmatch>,
-}
-
-#[derive(Deserialize, Debug)]
-struct RgContextData {
-    path: RgTextPath,
-    lines: RgTextLines,
-    line_number: u32,
-}
-
-#[derive(Deserialize, Debug)]
-struct RgElapsed {
-    human: String,
-}
-
-#[derive(Deserialize, Debug)]
-struct RgStatsData {
-    matches: u32,
-    matched_lines: u32,
-    searches_with_match: u32,
-    searches: u32,
-    bytes_searched: i64,
-    elapsed: RgElapsed,
-}
-
-#[derive(Deserialize, Debug)]
-struct RgSummaryData {
-    stats: RgStatsData,
-}
-
-#[derive(Deserialize, Debug)]
-#[serde(tag = "type", content = "data", rename_all = "lowercase")]
-enum RgMessage {
-    Match(RgMatchData),
-    Context(RgContextData),
-    Summary(RgSummaryData),
-    // rg emits an object for begin/end `data`; accept and ignore it so these
-    // lines parse cleanly. That keeps the `Err` arm below meaning genuine
-    // corruption rather than swallowing every begin/end line.
-    Begin(serde::de::IgnoredAny),
-    End(serde::de::IgnoredAny),
-}
+use crate::types::{RipgrepFile, RipgrepMatch};
 
 // ── intermediate state ────────────────────────────────────────────────────────
 
@@ -182,24 +110,9 @@ pub(crate) fn truncate_unicode(s: &str, max_chars: usize) -> String {
     s.to_owned()
 }
 
-fn entry_for_path<'a>(
-    file_map: &'a mut HashMap<String, FileEntry>,
-    file_order: &mut Vec<String>,
-    path: String,
-) -> &'a mut FileEntry {
-    match file_map.entry(path) {
-        Entry::Occupied(entry) => entry.into_mut(),
-        Entry::Vacant(entry) => {
-            file_order.push(entry.key().clone());
-            entry.insert(FileEntry::new())
-        }
-    }
-}
-
 /// Assembles a single file's matches into the final `RipgrepFile`, joining each
 /// match line with its surrounding `context_lines` and truncating the resulting
-/// snippet to `max_snippet` chars. Shared by the `--json` parser and the native
-/// in-process searcher so both produce byte-identical output.
+/// snippet to `max_snippet` chars.
 pub(crate) fn assemble_file(
     path: String,
     entry: &FileEntry,
@@ -303,149 +216,39 @@ pub(crate) fn assemble_file(
     }
 }
 
-pub(crate) fn parse_ripgrep_json_inner(
-    stdout: &str,
-    options: Option<RipgrepParseOptions>,
-) -> RipgrepParseResult {
-    let context_lines = options.as_ref().and_then(|o| o.context_lines).unwrap_or(0);
-    let max_snippet = options
-        .as_ref()
-        .and_then(|o| o.max_snippet_chars)
-        .unwrap_or(500) as usize;
-
-    let mut file_map: HashMap<String, FileEntry> = HashMap::new();
-    let mut stats = RipgrepStats::default();
-    // Track insertion order for deterministic output
-    let mut file_order: Vec<String> = Vec::new();
-
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || !trimmed.starts_with('{') {
-            continue;
-        }
-
-        let msg: RgMessage = match serde_json::from_str(trimmed) {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-
-        match msg {
-            RgMessage::Match(m) => {
-                let path = m.path.text;
-                let line_text = strip_trailing_newline(m.lines.text);
-                // rg reports submatch start as a BYTE offset; convert to a 0-based
-                // UTF-16 char column so multibyte lines align with JS string indices
-                // (and match the structural-search engine's column convention).
-                let byte_col = m.submatches.first().map(|s| s.start).unwrap_or(0);
-                let column = byte_to_char_offset_inner(&line_text, byte_col) as u32;
-
-                let entry = entry_for_path(&mut file_map, &mut file_order, path);
-                entry.raw_matches.push(RawMatch {
-                    line_text,
-                    line_number: m.line_number,
-                    column,
-                });
-            }
-            RgMessage::Context(c) => {
-                let path = c.path.text;
-                let line_text = strip_trailing_newline(c.lines.text);
-                let entry = entry_for_path(&mut file_map, &mut file_order, path);
-                entry.contexts.insert(c.line_number, line_text);
-            }
-            RgMessage::Summary(s) => {
-                stats = RipgrepStats {
-                    match_count: Some(s.stats.matches),
-                    matched_lines: Some(s.stats.matched_lines),
-                    files_matched: Some(s.stats.searches_with_match),
-                    files_searched: Some(s.stats.searches),
-                    bytes_searched: Some(s.stats.bytes_searched),
-                    search_time: Some(s.stats.elapsed.human),
-                    capped: Some(false),
-                    cap_reason: None,
-                    ..Default::default()
-                };
-            }
-            RgMessage::Begin(_) | RgMessage::End(_) => {}
-        }
-    }
-
-    let files: Vec<RipgrepFile> = file_order
-        .into_iter()
-        .filter_map(|path| {
-            let entry = file_map.remove(&path)?;
-            Some(assemble_file(path, &entry, context_lines, max_snippet))
-        })
-        .collect();
-
-    RipgrepParseResult { files, stats }
-}
-
 // ── unit tests ────────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn make_match_line(path: &str, line_text: &str, line_number: u32, col: usize) -> String {
-        serde_json::json!({
-            "type": "match",
-            "data": {
-                "path": { "text": path },
-                "lines": { "text": line_text },
-                "line_number": line_number,
-                "absolute_offset": 0,
-                "submatches": [{ "match": { "text": "x" }, "start": col, "end": col + 1 }]
-            }
-        })
-        .to_string()
-    }
-
-    fn make_context_line(path: &str, line_text: &str, line_number: u32) -> String {
-        serde_json::json!({
-            "type": "context",
-            "data": {
-                "path": { "text": path },
-                "lines": { "text": line_text },
-                "line_number": line_number,
-                "absolute_offset": 0
-            }
-        })
-        .to_string()
-    }
-
-    fn make_summary(matches: u32, matched_lines: u32) -> String {
-        serde_json::json!({
-            "type": "summary",
-            "data": {
-                "elapsed": { "human": "0.001s", "nanos": 1000000, "secs": 0 },
-                "stats": {
-                    "bytes_printed": 100,
-                    "bytes_searched": 500,
-                    "elapsed": { "human": "0.001s", "nanos": 1000000, "secs": 0 },
-                    "matched_lines": matched_lines,
-                    "matches": matches,
-                    "searches": 1,
-                    "searches_with_match": 1
+    /// Assembles `f.ts` from `(line_number, text, Some(column))` matches and
+    /// `(line_number, text, None)` context lines.
+    fn assemble(
+        lines: &[(u32, &str, Option<u32>)],
+        context_lines: u32,
+        max_snippet: usize,
+    ) -> RipgrepFile {
+        let mut entry = FileEntry::new();
+        for &(line_number, text, column) in lines {
+            match column {
+                Some(column) => entry.raw_matches.push(RawMatch {
+                    line_text: text.to_owned(),
+                    line_number,
+                    column,
+                }),
+                None => {
+                    entry.contexts.insert(line_number, text.to_owned());
                 }
             }
-        })
-        .to_string()
+        }
+        assemble_file("f.ts".to_owned(), &entry, context_lines, max_snippet)
     }
 
     #[test]
-    fn empty_stdout_returns_empty_result() {
-        let r = parse_ripgrep_json_inner("", None);
-        assert!(r.files.is_empty());
-        assert!(r.stats.match_count.is_none());
-    }
-
-    #[test]
-    fn parses_single_match() {
-        let stdout = make_match_line("src/foo.ts", "  const x = 1;\n", 10, 8);
-        let r = parse_ripgrep_json_inner(&stdout, None);
-        assert_eq!(r.files.len(), 1);
-        let f = &r.files[0];
-        assert_eq!(f.path, "src/foo.ts");
+    fn assembles_single_match() {
+        let f = assemble(&[(10, "  const x = 1;", Some(8))], 0, 500);
+        assert_eq!(f.path, "f.ts");
         assert_eq!(f.match_count, 1);
         assert_eq!(f.matches[0].line, 10);
         assert_eq!(f.matches[0].column, 8);
@@ -454,81 +257,38 @@ mod tests {
 
     #[test]
     fn each_match_carries_its_lexical_hit_rank() {
-        let stdout = [
-            make_match_line("f.java", "   * see maximumSize\n", 1, 9),
-            make_match_line("f.java", "    check(maximumSize);\n", 2, 10),
-            make_match_line("f.java", "    this.maximumSize = maximumSize;\n", 3, 9),
-        ]
-        .join("\n");
-        let r = parse_ripgrep_json_inner(&stdout, None);
-        let ranks = r.files[0]
-            .matches
-            .iter()
-            .map(|m| m.rank)
-            .collect::<Vec<_>>();
+        let f = assemble(
+            &[
+                (1, "   * see maximumSize", Some(9)),
+                (2, "    check(maximumSize);", Some(10)),
+                (3, "    this.maximumSize = maximumSize;", Some(9)),
+            ],
+            0,
+            500,
+        );
+        let ranks = f.matches.iter().map(|m| m.rank).collect::<Vec<_>>();
         assert_eq!(ranks, vec![Some(0), Some(1), Some(2)]);
     }
 
     #[test]
-    fn match_column_is_utf16_char_offset_not_byte() {
-        // "café = bar": 'b' is at BYTE 8 but UTF-16 char index 7 (é is 2 bytes).
-        // rg reports the byte start; we must surface the char column.
-        let stdout = make_match_line("f.ts", "café = bar\n", 1, 8);
-        let r = parse_ripgrep_json_inner(&stdout, None);
-        assert_eq!(r.files[0].matches[0].column, 7);
-    }
-
-    #[test]
-    fn parses_begin_and_end_events_without_dropping_matches() {
-        // begin/end `data` is an object; those lines must parse and be ignored.
-        let begin = serde_json::json!({
-            "type": "begin", "data": { "path": { "text": "f.ts" } }
-        })
-        .to_string();
-        let end = serde_json::json!({
-            "type": "end", "data": { "path": { "text": "f.ts" }, "stats": {} }
-        })
-        .to_string();
-        let stdout = [begin, make_match_line("f.ts", "x\n", 1, 0), end].join("\n");
-        let r = parse_ripgrep_json_inner(&stdout, None);
-        assert_eq!(r.files.len(), 1);
-        assert_eq!(r.files[0].matches[0].line, 1);
-    }
-
-    #[test]
-    fn strips_trailing_newline_from_match_line() {
-        let stdout = make_match_line("f.ts", "line\n", 1, 0);
-        let r = parse_ripgrep_json_inner(&stdout, None);
-        assert_eq!(r.files[0].matches[0].value, "line");
-    }
-
-    #[test]
-    fn parses_summary_stats() {
-        let stdout = [make_match_line("f.ts", "x\n", 1, 0), make_summary(2, 2)].join("\n");
-        let r = parse_ripgrep_json_inner(&stdout, None);
-        assert_eq!(r.stats.match_count, Some(2));
-        assert_eq!(r.stats.search_time, Some("0.001s".to_owned()));
+    fn strips_one_trailing_newline() {
+        assert_eq!(strip_trailing_newline("line\n".to_owned()), "line");
+        assert_eq!(strip_trailing_newline("line\r\n".to_owned()), "line");
+        assert_eq!(strip_trailing_newline("line\n\n".to_owned()), "line\n");
     }
 
     #[test]
     fn assembles_context_window() {
-        let stdout = [
-            make_context_line("f.ts", "before\n", 9),
-            make_match_line("f.ts", "match\n", 10, 0),
-            make_context_line("f.ts", "after\n", 11),
-        ]
-        .join("\n");
-        let r = parse_ripgrep_json_inner(
-            &stdout,
-            Some(RipgrepParseOptions {
-                context_lines: Some(1),
-                max_snippet_chars: None,
-            }),
+        let f = assemble(
+            &[
+                (9, "before", None),
+                (10, "match", Some(0)),
+                (11, "after", None),
+            ],
+            1,
+            500,
         );
-        let val = &r.files[0].matches[0].value;
-        assert!(val.contains("before"));
-        assert!(val.contains("match"));
-        assert!(val.contains("after"));
+        assert_eq!(f.matches[0].value, "before\nmatch\nafter");
     }
 
     /// Regression: a blank leading context line (or blank match line) was
@@ -536,42 +296,28 @@ mod tests {
     /// still empty, shifting every later line off its line number.
     #[test]
     fn blank_leading_context_lines_keep_their_line_slot() {
-        let stdout = [
-            make_context_line("f.ts", "\n", 8),
-            make_context_line("f.ts", "\n", 9),
-            make_match_line("f.ts", "match\n", 10, 0),
-            make_context_line("f.ts", "\n", 11),
-            make_match_line("f.ts", "\n", 12, 0),
-        ]
-        .join("\n");
-        let r = parse_ripgrep_json_inner(
-            &stdout,
-            Some(RipgrepParseOptions {
-                context_lines: Some(2),
-                max_snippet_chars: None,
-            }),
+        let f = assemble(
+            &[
+                (8, "", None),
+                (9, "", None),
+                (10, "match", Some(0)),
+                (11, "", None),
+                (12, "", Some(0)),
+            ],
+            2,
+            500,
         );
-        assert_eq!(r.files[0].matches[0].value, "\n\nmatch\n\n");
-        assert_eq!(r.files[0].matches[1].value, "match\n\n");
+        assert_eq!(f.matches[0].value, "\n\nmatch\n\n");
+        assert_eq!(f.matches[1].value, "match\n\n");
     }
 
     /// Regression: a match at `u32::MAX` with forward context lines must not
-    /// overflow on `line_number + i` (release has no overflow checks). The
-    /// `saturating_add` keeps the computation bounded and simply yields no
-    /// forward context, mirroring the backward `saturating_sub`.
+    /// overflow on `line_number + i` (release has no overflow checks).
     #[test]
     fn forward_context_does_not_overflow_at_u32_max() {
-        let stdout = make_match_line("f.ts", "match\n", u32::MAX, 0);
-        let r = parse_ripgrep_json_inner(
-            &stdout,
-            Some(RipgrepParseOptions {
-                context_lines: Some(3),
-                max_snippet_chars: None,
-            }),
-        );
-        // Reachable only if no overflow/abort occurred.
-        assert_eq!(r.files[0].matches[0].line, u32::MAX);
-        assert!(r.files[0].matches[0].value.contains("match"));
+        let f = assemble(&[(u32::MAX, "match", Some(0))], 3, 500);
+        assert_eq!(f.matches[0].line, u32::MAX);
+        assert!(f.matches[0].value.contains("match"));
     }
 
     #[test]
@@ -579,37 +325,26 @@ mod tests {
         // A clipped content-view snippet carries the pre-truncation
         // Unicode length so callers can surface a truncation indicator.
         let long = "a".repeat(600);
-        let stdout = make_match_line("f.ts", &format!("{long}\n"), 1, 0);
-        let r = parse_ripgrep_json_inner(
-            &stdout,
-            Some(RipgrepParseOptions {
-                context_lines: None,
-                max_snippet_chars: Some(500),
-            }),
-        );
-        assert_eq!(r.files[0].matches[0].original_chars, Some(600));
+        let f = assemble(&[(1, &long, Some(0))], 0, 500);
+        assert_eq!(f.matches[0].original_chars, Some(600));
     }
 
     #[test]
     fn oversized_context_drops_far_leading_lines_before_the_match() {
         let far = "f".repeat(60);
         let near = "n".repeat(20);
-        let stdout = [
-            make_context_line("f.rs", &format!("{far}\n"), 8),
-            make_context_line("f.rs", &format!("{near}\n"), 9),
-            make_match_line("f.rs", "fn target() {\n", 10, 3),
-            make_context_line("f.rs", "    body();\n", 11),
-            make_context_line("f.rs", &format!("{far}\n"), 12),
-        ]
-        .join("\n");
-        let r = parse_ripgrep_json_inner(
-            &stdout,
-            Some(RipgrepParseOptions {
-                context_lines: Some(2),
-                max_snippet_chars: Some(80),
-            }),
+        let f = assemble(
+            &[
+                (8, &far, None),
+                (9, &near, None),
+                (10, "fn target() {", Some(3)),
+                (11, "    body();", None),
+                (12, &far, None),
+            ],
+            2,
+            80,
         );
-        let val = &r.files[0].matches[0].value;
+        let val = &f.matches[0].value;
         assert!(val.starts_with(&near), "{val}");
         assert!(val.contains("fn target() {\n    body();"), "{val}");
         assert!(val.chars().count() <= 80, "{val}");
@@ -617,58 +352,29 @@ mod tests {
 
     #[test]
     fn untruncated_content_snippet_has_no_original_char_length() {
-        let stdout = make_match_line("f.ts", "short line\n", 1, 0);
-        let r = parse_ripgrep_json_inner(
-            &stdout,
-            Some(RipgrepParseOptions {
-                context_lines: None,
-                max_snippet_chars: Some(500),
-            }),
-        );
-        assert_eq!(r.files[0].matches[0].original_chars, None);
+        let f = assemble(&[(1, "short line", Some(0))], 0, 500);
+        assert_eq!(f.matches[0].original_chars, None);
     }
 
     #[test]
     fn truncates_long_snippets() {
         let long = "a".repeat(600);
-        let stdout = make_match_line("f.ts", &format!("{long}\n"), 1, 0);
-        let r = parse_ripgrep_json_inner(
-            &stdout,
-            Some(RipgrepParseOptions {
-                context_lines: None,
-                max_snippet_chars: Some(10),
-            }),
-        );
-        let val = &r.files[0].matches[0].value;
+        let f = assemble(&[(1, &long, Some(0))], 0, 10);
+        let val = &f.matches[0].value;
         assert!(val.ends_with("..."));
-        // actual char count including "..." is 10
         assert!(val.chars().count() <= 10);
     }
 
     #[test]
     fn groups_multiple_matches_per_file() {
-        let stdout = [
-            make_match_line("f.ts", "line1\n", 1, 0),
-            make_match_line("f.ts", "line2\n", 5, 0),
-        ]
-        .join("\n");
-        let r = parse_ripgrep_json_inner(&stdout, None);
-        assert_eq!(r.files.len(), 1);
-        assert_eq!(r.files[0].match_count, 2);
-    }
-
-    #[test]
-    fn ignores_non_json_lines() {
-        let stdout = "not json\n\n  \n".to_owned() + &make_match_line("f.ts", "x\n", 1, 0);
-        let r = parse_ripgrep_json_inner(&stdout, None);
-        assert_eq!(r.files.len(), 1);
+        let f = assemble(&[(1, "line1", Some(0)), (5, "line2", Some(0))], 0, 500);
+        assert_eq!(f.match_count, 2);
     }
 
     #[test]
     fn preserves_unicode_content() {
-        let stdout = make_match_line("f.ts", "café → naïve\n", 1, 0);
-        let r = parse_ripgrep_json_inner(&stdout, None);
-        assert_eq!(r.files[0].matches[0].value, "café → naïve");
+        let f = assemble(&[(1, "café → naïve", Some(0))], 0, 500);
+        assert_eq!(f.matches[0].value, "café → naïve");
     }
 
     #[test]

@@ -1,14 +1,8 @@
 /// Canonical JavaScript/TypeScript family extensions (lowercase, no leading
 /// dot). Single source of truth for every JS/TS dispatch in the crate — native
-/// oxc symbols/references, the oxc minify fast path, and the
-/// `getSupportedJsTsExtensions` napi export all read this, so the set never
-/// drifts between modules.
+/// oxc symbols/references and the oxc minify fast path both read this, so the
+/// set never drifts between modules.
 pub const JS_TS_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
-
-/// True when `ext` (lowercase, no leading dot) is a JS/TS family extension.
-pub fn is_js_ts_extension(ext: &str) -> bool {
-    JS_TS_EXTENSIONS.contains(&ext)
-}
 
 /// Extract the file extension from a path, handling dotfiles correctly.
 pub fn get_extension_internal(file_path: &str, lowercase: bool, fallback: &str) -> String {

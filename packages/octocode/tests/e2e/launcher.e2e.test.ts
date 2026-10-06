@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -70,19 +70,23 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
     }
   );
 
-  it('serves --version with launcher and native versions', () => {
+  it('serves --version as the one package version', () => {
     const result = runLauncher(['--version']);
     expect(result.status).toBe(0);
-    expect(result.stdout).toMatch(
-      /^octocode \d+\.\d+\.\d+ \(native \d+\.\d+\.\d+\)/
+    expect(result.stdout).toBe(
+      `octocode ${JSON.parse(readFileSync(resolve(__dirname, '..', '..', 'package.json'), 'utf8')).version}\n`
     );
   });
 
   it('executes a real tool call end-to-end with exit 0 and structured JSON', () => {
     const query = JSON.stringify({
-      path: resolve(__dirname, '..', '..', 'src'),
-      searchText: 'delegateToNative',
-      pageSize: 5,
+      queries: [
+        {
+          path: resolve(__dirname, '..', '..', 'src'),
+          matchString: 'delegateToNative',
+          pageSize: 5,
+        },
+      ],
     });
     const result = runLauncher(['localSearch', query]);
     expect(result.status).toBe(0);

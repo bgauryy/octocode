@@ -43,7 +43,7 @@ try {
     timeoutMs: 60_000,
   });
   const entry = await client.call('lspSearch', {
-    uri: source,
+    path: source,
     symbolName: name,
     lineHint: 1,
     operation: 'references',
@@ -55,12 +55,12 @@ try {
     !entry.isError && !entry.rowErrors,
     data?.errorCode ?? entry.text
   );
-  const consumer = data?.payload?.byFile?.find(
+  const consumer = data?.payload?.files?.find(
     file => path.basename(file.path) === 'consumer.cjs'
   );
   check(
     'call after five comment mentions is included',
-    consumer?.refs?.some(ref => typeof ref === 'string' && /^7:/.test(ref)),
+    consumer?.matches?.some(ref => typeof ref === 'string' && /^7:/.test(ref)),
     JSON.stringify(data?.payload)
   );
   check(

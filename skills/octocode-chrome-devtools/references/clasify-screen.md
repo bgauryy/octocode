@@ -7,16 +7,16 @@ Load when a saved artifact is unread and a literal search or small read will not
 3. Save `.octocode/clasify-request.json` (all questions must apply to every resource; at most 25 cells):
 
 ```json
-{
+{"queries": [{
   "mainGoal": "Find the page facts the next browser action depends on.",
   "reasoning": "Locate facts in an unread retained artifact before loading it.",
-  "resources": [{"id": "artifact", "context": {"tool": "localFetch", "query": {
+  "resources": [{"id": "artifact", "tool": "localFetch", "query": {
     "path": "/abs/.octocode/tmp/chrome-devtools/<run>/page-snapshot.json", "fullContent": true
-  }}}],
+  }}],
   "questions": [
-    {"id": "search", "questionType": "locate", "target": "The accessibility ref for the site search control."}
+    {"id": "search", "type": "locate", "ask": "The accessibility ref for the site search control."}
   ]
-}
+}]}
 ```
 
 4. Run `octocode clasify --input .octocode/clasify-request.json` (monorepo: `node packages/octocode/out/octocode.js`; else `npx -y octocode`). MCP `clasify` takes the same JSON.

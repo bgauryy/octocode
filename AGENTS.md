@@ -27,7 +27,7 @@ $OCTO scheme <name> --compact
 $OCTO <toolName> '{"queries":[…]}'
 ```
 
-Check the live schema before calling. Add `mainGoal` and `reasoning` only in multi-call research on unknowns; omit them on simple lookups. `localSearch` uses `path` + `searchText`, with `pageSize`/`maxMatchesPerFile`; it has no `operation`, `directory`, `maxResults`, `limit`, or `maxFiles`. For file discovery, `structureSearch` requires `operation:"files"` with `names` (basename or path globs) and/or `extensions`; its default operation is `tree`.
+Check the live schema before calling. Add `mainGoal` and `reasoning` only in multi-call research on unknowns; omit them on simple lookups. `localSearch` uses `path` + `matchString`, with `pageSize`/`matchPageSize`; it has no `operation`, `directory`, `maxResults`, `limit`, or `maxFiles`. For file discovery, `structureSearch` requires `operation:"files"` with `include` (basename or path globs) and/or `extensions`; its default operation is `tree`.
 
 Skills are the default entry point for research, architecture, and eval work:
 
@@ -71,7 +71,7 @@ $DEV verify
 $DEV docs:verify
 ```
 
-Root package.json has no task wrappers. Use the dev skill runner for repo-wide tasks; `yarn workspace <package> <script>` remains valid for one package. Default local build is `build:dev` (debug native + TS, no clean/lint). Use `build` for release/performance artifacts. Verify exit codes, not target paths. Never lower coverage floors. Rust tests: `yarn workspace @octocodeai/octocode-native test:rust`. Do not commit local lld/sccache Cargo configuration.
+Root package.json has no task wrappers. Use the dev skill runner for repo-wide tasks; `yarn workspace <package> <script>` remains valid for one package. Default local build is `build:dev` (debug native + TS, no clean/lint). Use `build` for release/performance artifacts. Verify exit codes, not target paths. Never lower coverage floors. Rust tests: `yarn workspace @octocodeai/octocode-native test:rust`; integration tests are one binary per crate (`tests/main.rs` declares each `tests/*.rs` as a `mod`). Do not commit local lld/sccache Cargo configuration. A private `CARGO_TARGET_DIR` goes in your scratchpad (never `target/<name>`), one per agent, deleted when done; reset a bloated `target/` with `$DEV clean:cache` (stale native copies) or `$DEV clean` (all build outputs).
 
 After native changes, rebuild native and affected interfaces, then exercise `$OCTO config --json`, `$OCTO scheme`, and actual tool calls. Setup, dedupe, prepublish, six-platform build, and publication gates are owned by the [dev skill](skills-dev/octocode-dev/SKILL.md) and [release guide](skills-dev/octocode-dev/docs/RELEASE.md); do not publish as a side effect of local verification.
 

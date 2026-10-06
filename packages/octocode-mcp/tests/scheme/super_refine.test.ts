@@ -25,26 +25,24 @@ describe('LocalFetchContentQuerySchema mutual-exclusion', () => {
     }
   });
 
-  it('rejects fullContent=true together with startLine/endLine', () => {
+  it('rejects fullContent=true together with ranges', () => {
     const result = LocalFetchContentQuerySchema.safeParse({
       ...baseQuery,
       fullContent: true,
-      startLine: 10,
-      endLine: 20,
+      ranges: ['10-20'],
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map(i => i.message).join('\n');
-      expect(messages.toLowerCase()).toMatch(/startline\/endline/);
+      expect(messages.toLowerCase()).toMatch(/ranges/);
     }
   });
 
-  it('rejects matchString together with startLine/endLine', () => {
+  it('rejects matchString together with ranges', () => {
     const result = LocalFetchContentQuerySchema.safeParse({
       ...baseQuery,
       matchString: 'foo',
-      startLine: 10,
-      endLine: 20,
+      ranges: ['10-20'],
     });
     expect(result.success).toBe(false);
     if (!result.success) {
@@ -69,11 +67,10 @@ describe('LocalFetchContentQuerySchema mutual-exclusion', () => {
     expect(result.success).toBe(true);
   });
 
-  it('accepts startLine+endLine alone', () => {
+  it('accepts ranges alone', () => {
     const result = LocalFetchContentQuerySchema.safeParse({
       ...baseQuery,
-      startLine: 10,
-      endLine: 20,
+      ranges: ['10-20'],
     });
     expect(result.success).toBe(true);
   });
@@ -112,30 +109,20 @@ describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () 
     }
   });
 
-  it('rejects fullContent=true together with startLine', () => {
+  it('rejects fullContent=true together with ranges', () => {
     const result = FileContentQueryLocalSchema.safeParse({
       ...baseQuery,
       fullContent: true,
-      startLine: 10,
+      ranges: ['10-20'],
     });
     expect(result.success).toBe(false);
   });
 
-  it('rejects fullContent=true together with endLine', () => {
-    const result = FileContentQueryLocalSchema.safeParse({
-      ...baseQuery,
-      fullContent: true,
-      endLine: 20,
-    });
-    expect(result.success).toBe(false);
-  });
-
-  it('rejects matchString together with startLine/endLine', () => {
+  it('rejects matchString together with ranges', () => {
     const result = FileContentQueryLocalSchema.safeParse({
       ...baseQuery,
       matchString: 'foo',
-      startLine: 10,
-      endLine: 20,
+      ranges: ['10-20'],
     });
     expect(result.success).toBe(false);
   });
@@ -156,27 +143,23 @@ describe('FileContentQueryLocalSchema (github) three-mode mutual exclusion', () 
     expect(result.success).toBe(true);
   });
 
-  it('accepts startLine+endLine alone', () => {
+  it('accepts ranges alone', () => {
     const result = FileContentQueryLocalSchema.safeParse({
       ...baseQuery,
-      startLine: 10,
-      endLine: 20,
+      ranges: ['10-20'],
     });
     expect(result.success).toBe(true);
   });
 
-  it('rejects an inverted startLine/endLine range', () => {
+  it('rejects an inverted range', () => {
     const result = FileContentQueryLocalSchema.safeParse({
       ...baseQuery,
-      startLine: 20,
-      endLine: 10,
+      ranges: ['20-10'],
     });
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map(i => i.message).join('\n');
-      expect(messages).toContain('endLine');
-      expect(messages).toContain('startLine');
-      expect(messages).toContain('greater than or equal');
+      expect(messages).toContain('end >= start');
       expect(messages.length).toBeLessThanOrEqual(90);
     }
   });
@@ -186,7 +169,7 @@ describe('LocalSearchQuerySchema enum contract', () => {
   const baseQuery = {
     mainGoal: 'test goal',
     reasoning: 'exercise enum contract',
-    searchText: 'foo',
+    matchString: 'foo',
     path: '/repo',
   };
 
@@ -220,7 +203,7 @@ describe('LocalSearchQuerySchema enum contract', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       const messages = result.error.issues.map(i => i.message).join('\n');
-      expect(messages).toMatch(/require resultView:"matchOnly"/);
+      expect(messages).toMatch(/requires? resultView:"matchOnly"/);
     }
   });
 

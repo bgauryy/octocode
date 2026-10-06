@@ -50,7 +50,7 @@ pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> 
         // JS/TS: comment-strip + whitespace tighten preserves declarations,
         // identifier uses, and per-line structure (file:line citation). Any
         // optimizing/mangling minification is reserved for the full-minify API.
-        if crate::text::file_extension::is_js_ts_extension(&ext) {
+        if crate::text::file_extension::JS_TS_EXTENSIONS.contains(&ext.as_str()) {
             return minify_javascript_core(content);
         }
 

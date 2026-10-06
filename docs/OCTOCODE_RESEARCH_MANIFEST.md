@@ -16,7 +16,7 @@ node packages/octocode/out/octocode.js scheme ghGetHistoryItem --view query
 
 The catalog shows available tools and configuration gates; a compact schema shows fields, operation variants, and conditional relations. Read the full schema when a nested selector is abbreviated — for example, selected PR patches accept both file selection and added/deleted line ranges.
 
-Execute with `TOOL_NAME 'JSON'` — one query object or a batch of up to five same-tool queries. Batch only independent work; sequence calls when a later query needs an identity, path, source line, snapshot, cursor, or continuation from an earlier one.
+Execute with `TOOL_NAME '{"queries":[...]}'` — one to five same-tool queries; a bare query object runs as one query. Batch only independent work; sequence calls when a later query needs an identity, path, source line, snapshot, cursor, or continuation from an earlier one.
 
 `mainGoal` and `reasoning` are optional decision context for multi-call research on an unknown (each batch row states its own); omit them on simple lookups. They are not ranking controls or proof. A `next.*` page or `hints.*` lead carries the brief only when the query that produced it sent one. Result `index` maps to the zero-based input position, and one row can fail while siblings succeed; `hints` (prose tips in `hints.text`, plus optional leads) suggest recovery or follow-ups, not result data. Do not mix fields across operations or assume a former tool name still aliases. Follow executable `next.*` pages across collection, content, diagnostic, and whole-response pagination — a first page, bounded scan, empty result, or bare cursor is not a completeness claim. See [How every tool call works](OCTOCODE_TOOLS.md#how-every-tool-call-works) for the full shared envelope.
 
@@ -24,10 +24,10 @@ Execute with `TOOL_NAME 'JSON'` — one query object or a batch of up to five sa
 
 | Tool | Question it answers | Evidence boundary |
 |---|---|---|
-| `localSearch` | Where does this text or regex occur? | Lexical occurrence within the searched scope; literal, Rust regex (default) or PCRE2. |
+| `localSearch` | Where does this text or regex occur? | Lexical occurrence within the searched scope; literal (default without regex operators), Rust regex or PCRE2. |
 | `structureSearch` | Which directories and files exist, by name or metadata? | Filesystem layout within the walked scope; no parsing. |
 | `astSearch` | Which declarations, syntax trees, or structural matches are present? | Structural syntax within the scanned scope; comments and strings never match. |
-| `astTopology` (beta) | Which files depend on one another, form paths and cycles, or are unreachable? | Syntactic file topology; unresolved imports, dynamic loading and excluded files limit coverage. |
+| `astTopology` (beta, CLI only) | Which files depend on one another, form paths and cycles, or are unreachable? | Syntactic file topology; unresolved imports, dynamic loading and excluded files limit coverage. |
 | `astRewrite` (beta, CLI only) | How would a structural codemod change these files? | Preview first; apply only if files are unchanged since the preview. |
 | `localFetch` | What does a known local file contain? | `none` (the default) preserves source apart from security redaction; transformed views are lossy. |
 | `lspSearch` | Which definition, references, callers, or types does the server resolve? | Server and project scope limit semantic evidence. |
@@ -47,37 +47,37 @@ Tool availability, a recognized extension, a parser fixture, and a running langu
 
 Start at the cheapest step that resolves the missing evidence; a known path needs no repository-wide search.
 
-1. **Orient when the area is unfamiliar.** `structureSearch` `operation:"tree"` (default) for layout, `operation:"files"` for names and metadata. Supply an absolute `path`; use `names` for file patterns and `extensions`/`entryType` for filtering.
-2. **Locate an anchor.** `localSearch` has no `operation` field: set `searchText` and choose `regex:"literal"`, `"rust"` (default) or `"pcre2"` explicitly when the text has metacharacters. When code shape matters, use `astSearch` `operation:"match"` with exactly one nonblank `pattern` or `rule`; set `langType` for directory searches (a single file selects its grammar from the extension). `operation:"symbols"` gives a declaration outline; `operation:"syntaxTree"` pages one file's nodes (`nodeOffset`/`nodeLimit`/`namedOnly`).
+1. **Orient when the area is unfamiliar.** `structureSearch` `operation:"tree"` (default) for layout, `operation:"files"` for names and metadata. `path` is workspace-relative or absolute; use `include` globs for file patterns and `extensions`/`entryType` for filtering.
+2. **Locate an anchor.** `localSearch` has no `operation` field: set `matchString` and leave `regex` unset (literal text unless it has a regex operator such as `|` `\` `[` `*`) or set `regex:"literal"`, `"rust"` or `"pcre2"`. When code shape matters, use `astSearch` `operation:"match"` with exactly one nonblank `pattern` or `rule`; set `language` for directory searches (a single file selects its grammar from the extension). `operation:"symbols"` gives a declaration outline; `operation:"syntaxTree"` pages one file's nodes (`page`/`pageSize`/`namedOnly`).
 3. **Read the relevant source.** `localFetch` with a returned line range or `matchString`; `path` alone is valid. Omitted `minify` means exact source. Choose `minify:"standard"` for compact source or `"symbols"` for an outline; security redaction still applies.
-4. **Map topology when needed** (beta). `astTopology` `analysis:` `dependencies`, `dependents`, `path`, `cycles`, `reachability`, `deadCode`, or `drift`. Review diagnostics for skipped files, unresolved edges and bounded results, and keep `entrypoints`, `includeTests`, exclusions and caps fixed when comparing runs.
-5. **Resolve identity when needed.** `lspSearch` with an observed `uri` and either `symbolName` plus 1-based `lineHint` (`orderHint` picks among repeats on that line) or a zero-based UTF-16 `position`. An `astSearch` `symbols` row's `name`+`line`, or an identifier capture's `text`+`line`, is `symbolName`+`lineHint` as-is. `documentSymbols` and `diagnostic` need only `uri`; `workspaceSymbol` needs `symbolName` plus `uri` or `workspaceRoot`. Re-read and re-anchor when the tool reports drift.
+4. **Map topology when needed** (beta, CLI only). `octocode astTopology` `operation:` `dependencies`, `dependents`, `path`, `cycles`, `reachability`, `deadCode`, or `drift`. Review diagnostics for skipped files, unresolved edges and bounded results, and keep `entrypoints`, `includeTests`, exclusions and caps fixed when comparing runs.
+5. **Resolve identity when needed.** `lspSearch` with an observed `path` and either `symbolName` plus 1-based `lineHint` (`orderHint` picks among repeats on that line) or a zero-based UTF-16 `position`. An `astSearch` `symbols` row's `name`+`line`, or an identifier capture's `text`+`line`, is `symbolName`+`lineHint` as-is. `documentSymbols` and `diagnostic` need only `uri`; `workspaceSymbol` needs `symbolName` plus `uri` or `workspaceRoot`. Re-read and re-anchor when the tool reports drift.
 6. **Validate the conclusion.** Read callers and imports, check lexical wiring outside the language project, and run affected tests and the real CLI, MCP or build path before deleting code or asserting changed behavior.
 
 Graph analysis selects candidates; it does not prove safe deletion or runtime reachability. AST patterns establish shape, not server-resolved identity, and a zero-match pattern can mean a grammar or pattern mismatch. An empty LSP result can reflect server capability or project scope; a syntactic fallback does not establish cross-file identity. None of these proves no usage. Investigate local runtime behavior against the installed dependency version: inspect installed package metadata and entrypoints if access rules permit, otherwise the lockfile and in-scope source; do not substitute the upstream default branch without checking the relationship.
 
 ## External workflow
 
-For an unknown repository, start with `artifactSearch` or `ghSearchRepo`. Package queries require an ecosystem `type` and exactly one of `packageName` or `keywords` (PyPI is exact-only); keyword discovery uses opaque `cursor` and `pageSize` — copy the complete `next.nextPage`. Preserve the repository subdirectory for monorepo packages.
+For an unknown repository, start with `artifactSearch` or `ghSearchRepo`. Package queries require an ecosystem `type` and exactly one of `packageName` or `keywords` (PyPI is exact-only); keyword discovery uses `page` and `pageSize` — copy the complete `next.nextPage`. Preserve the repository subdirectory for monorepo packages.
 
 Use `ghStructure` for layout and path case, and `ghSearchCode` for indexed candidates (`match:"path"` searches paths, `match:"file"` searches content). Snippets can be transformed — not an exact-source substitute — and an empty result does not prove absence on another branch or outside the provider index.
 
-Read a selected path with `ghGetFileContent`; supply an observed commit SHA in `branch` for revision-dependent claims and record the resolved identity, since a branch name can move. Fetch exact source before quoting a snippet or interpreting a diff in isolation: use `minify:"none"` and preserve the returned `commitSha`, and match or line metadata. `standard` and `symbols` are transformed views and do not prove omitted text was absent.
+Read a selected path with `ghGetFileContent`; supply an observed commit SHA in `ref` for revision-dependent claims and record the resolved identity, since a branch name can move. Fetch exact source before quoting a snippet or interpreting a diff in isolation: use `minify:"none"` and preserve the returned `commitSha`, and match or line metadata. `standard` and `symbols` are transformed views and do not prove omitted text was absent.
 
-For repeated reads, AST queries, graph analysis, or semantic verification, use `ghCloneRepo` then the local tools on its returned `localPath` (`sparsePath` narrows the checkout). Cloning requires persistent storage and its availability gate — inspect catalog diagnostics rather than assuming it is enabled. A fresh clone reports verification for its checkout; a cache reuse can report `verified:false`, so a cached path plus HEAD identity does not prove the working tree is unchanged. A sparse clone is complete only within its subtree. Materialization installs no dependencies or language servers, and reading or cloning source does not authorize executing it.
+For repeated reads, AST queries, graph analysis, or semantic verification, use `ghCloneRepo` then the local tools on its returned `localPath` (`path` narrows the checkout). Cloning requires persistent storage and its availability gate — inspect catalog diagnostics rather than assuming it is enabled. A fresh clone reports verification for its checkout; a cache reuse can report `verified:false`, so a cached path plus HEAD identity does not prove the working tree is unchanged. A sparse clone is complete only within its subtree. Materialization installs no dependencies or language servers, and reading or cloning source does not authorize executing it.
 
 ## History workflow
 
-`ghSearchHistory` uses singular operations `pullRequest`, `issue`, or `commit`. PR discovery can be global; issue and commit queries require `owner` and `repo`; commit discovery supports path, time, author, and branch constraints. Fields are not interchangeable across operations. Pass the returned identity to `ghGetHistoryItem`:
+`ghSearchHistory` uses singular operations `pullRequest`, `issue`, or `commit`. PR discovery can be global; issue and commit queries require `owner` and `repo`; commit discovery supports path, time, author, and ref constraints. Fields are not interchangeable across operations. Pass the returned identity to `ghGetHistoryItem`:
 
 | Operation | Identity | Detail selection |
 |---|---|---|
-| `pullRequest` | `owner`, `repo`, `number` | `content` selects body, files, patches, comments, reviews, and commits. |
-| `issue` | `owner`, `repo`, `number` | `content` selects body and discussion comments. |
-| `commit` | `owner`, `repo`, `ref` | `includeDiff` requests patches; `path` can narrow files. |
-| `compare` | `owner`, `repo`, `base`, `head` | `includeDiff` requests patches; commit and file pages are separate. |
+| `pullRequest` | `owner`, `repo`, `number` | `sections` selects body, files, patches, comments, review comments, reviews, commits, and commit files. |
+| `issue` | `owner`, `repo`, `number` | `sections` selects body and discussion comments. |
+| `commit` | `owner`, `repo`, `ref` | `sections:["patches"]` requests patches; `include` narrows files. |
+| `compare` | `owner`, `repo`, `base`, `head` | `sections:["patches"]` requests patches; commit and file pages are separate. |
 
-For a PR, request only the surfaces the question needs; selected patches use `mode:"selected"` with `files` or `ranges` (read the schema for the range object). Follow each continuation independently — finishing the changed-file list does not finish a long patch, PR body, comment body, review collection, or commit list; preserve selectors and immutable identities. Provider-omitted patches and terminal caps persist after reachable pages are consumed. Review comments explain intent; source at the relevant revision establishes implementation.
+For a PR, request only the surfaces the question needs; selected patches use `sections:["patches"]` with `include` globs or `patchRanges` (`{file, additions, deletions}`). Follow each continuation independently — finishing the changed-file list does not finish a long patch, PR body, comment body, review collection, or commit list; preserve selectors and immutable identities. Provider-omitted patches and terminal caps persist after reachable pages are consumed. Review comments explain intent; source at the relevant revision establishes implementation.
 
 ## Content views and smart output
 

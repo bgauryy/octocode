@@ -8,7 +8,7 @@ Core publishes before the packages that embed its contracts: the native binary e
 
 1. **Core** (`octocode-mcp-host` repo): commit a clean tree. Publish `@octocodeai/octocode-core` at the version pinned in `packages/octocode-config/package.json` `dependencies`. Check it with `npm view`.
 2. **Switch to the registry**: `node skills-dev/octocode-dev/scripts/prepublish.mjs --fix`, `yarn install`, `node skills-dev/octocode-dev/scripts/dev.mjs prepublish`, then `yarn workspace @octocodeai/config check:core-contract-sync:published`.
-3. **Config** (`@octocodeai/config`) at a **new** version. npm never accepts a version twice; an already-published number ships the old build.
+3. **Config** (`@octocodeai/config`) at a **new** version. npm never accepts a version twice; an already-published number ships the old build. Config is 20.1.0 while every other package is 20.0.0: `@octocodeai/config@20.0.0` is already on npm as an old build, so a version alignment never moves config back to 20.0.0.
 4. **Native platform packages** (`packages/octocode-native/npm/*`), after `yarn build:native:all` and `yarn platforms:check`.
 5. **Native** (`@octocodeai/octocode-native`).
 6. **MCP** (`octocode-mcp`).

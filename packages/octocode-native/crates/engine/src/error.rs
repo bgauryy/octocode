@@ -1,18 +1,11 @@
 use serde_json::Value;
 use std::fmt::{self, Display, Formatter};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Status {
-    InvalidArg,
-    GenericFailure,
-}
-
-/// Engine error. `status` and `reason` are the stable, rendered surface (napi
-/// and the runtime display `reason`); `kind` keeps the machine-readable cause so
+/// Engine error. `reason` is the stable, rendered surface (the
+/// runtime displays `reason`); `kind` keeps the machine-readable cause so
 /// callers branch on a typed value instead of parsing `reason` text.
 #[derive(Clone, Debug)]
 pub struct Error {
-    pub status: Status,
     pub reason: String,
     kind: ErrorKind,
 }
@@ -149,9 +142,8 @@ impl Display for ErrorCode {
 }
 
 impl Error {
-    pub fn new(status: Status, reason: impl Into<String>) -> Self {
+    pub fn new(reason: impl Into<String>) -> Self {
         Self {
-            status,
             reason: reason.into(),
             kind: ErrorKind::Other,
         }
@@ -165,7 +157,6 @@ impl Error {
             reason.push_str(&format!(" (data: {data})"));
         }
         Self {
-            status: Status::GenericFailure,
             reason,
             kind: ErrorKind::Rpc(Box::new(error)),
         }
@@ -173,7 +164,6 @@ impl Error {
 
     pub fn timeout(reason: impl Into<String>) -> Self {
         Self {
-            status: Status::GenericFailure,
             reason: reason.into(),
             kind: ErrorKind::Timeout,
         }
@@ -181,7 +171,6 @@ impl Error {
 
     pub fn connection_closed(reason: impl Into<String>) -> Self {
         Self {
-            status: Status::GenericFailure,
             reason: reason.into(),
             kind: ErrorKind::ConnectionClosed,
         }
@@ -198,10 +187,6 @@ impl Error {
             _ => None,
         }
     }
-
-    pub fn rpc_code(&self) -> Option<ErrorCode> {
-        self.rpc_error().map(|error| error.code)
-    }
 }
 
 impl Display for Error {
@@ -213,17 +198,6 @@ impl Display for Error {
 impl std::error::Error for Error {}
 
 pub type Result<T> = std::result::Result<T, Error>;
-
-#[cfg(feature = "napi-addon")]
-impl From<Error> for napi::Error {
-    fn from(error: Error) -> Self {
-        let status = match error.status {
-            Status::InvalidArg => napi::Status::InvalidArg,
-            Status::GenericFailure => napi::Status::GenericFailure,
-        };
-        Self::new(status, error.reason)
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -257,7 +231,10 @@ mod tests {
         let error = Error::rpc(RpcError::from_value(json!({
             "code": -32801, "message": "content modified", "data": {"x": 1}
         })));
-        assert_eq!(error.rpc_code(), Some(ErrorCode::ContentModified));
+        assert_eq!(
+            error.rpc_error().map(|error| error.code),
+            Some(ErrorCode::ContentModified)
+        );
         assert!(error.reason.contains("-32801"));
         assert!(error.reason.contains("content modified"));
         assert!(error.reason.contains("\"x\":1"));
@@ -285,7 +262,7 @@ mod tests {
         let missing = RpcError::from_value(json!({"message": "no code"}));
         assert_eq!(missing.code, ErrorCode::InternalError);
         // A plain error whose text merely looks like an RPC error is not typed.
-        let stringly = Error::new(Status::GenericFailure, "LSP error: {\"code\":-32801}");
-        assert_eq!(stringly.rpc_code(), None);
+        let stringly = Error::new("LSP error: {\"code\":-32801}");
+        assert_eq!(stringly.rpc_error().map(|error| error.code), None);
     }
 }

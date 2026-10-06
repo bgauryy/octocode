@@ -1,9 +1,6 @@
 #![allow(clippy::expect_used)]
 
-use octocode_engine::graph::{
-    CodeGraphBuilder, FileGraphNode, reachable_files, shortest_file_path,
-    strongly_connected_components,
-};
+use octocode_engine::graph::{CodeGraphBuilder, FileGraphNode, reachable, scc, shortest_path};
 use std::collections::{BTreeMap, BTreeSet};
 use std::time::Instant;
 
@@ -36,12 +33,12 @@ fn frozen_graph(files: usize, fanout: usize) -> BTreeMap<String, FileGraphNode> 
 fn frozen_graph_correctness_receipt_is_stable() {
     let graph = frozen_graph(500, 3);
     assert_eq!(
-        reachable_files(&graph, &["src/file-00000.rs".to_owned()], false).len(),
+        reachable(&graph, &["src/file-00000.rs".to_owned()], false).len(),
         500
     );
-    assert_eq!(strongly_connected_components(&graph, false).len(), 500);
-    let path = shortest_file_path(&graph, "src/file-00000.rs", "src/file-00499.rs");
-    assert_eq!(path["found"], true);
+    assert_eq!(scc(&graph, false).len(), 500);
+    let path = shortest_path(&graph, "src/file-00000.rs", "src/file-00499.rs");
+    assert!(path.is_some());
 
     let mut builder = CodeGraphBuilder::new("/fixture", 1);
     for index in (0..500).rev() {
@@ -100,13 +97,13 @@ fn measure_frozen_graph_baseline() {
     let snapshot_build_ms = snapshot_started.elapsed().as_secs_f64() * 1_000.0;
 
     let query_started = Instant::now();
-    let reachable = reachable_files(&graph, &["src/file-00000.rs".to_owned()], false).len();
-    let components = strongly_connected_components(&graph, false).len();
+    let reachable_count = reachable(&graph, &["src/file-00000.rs".to_owned()], false).len();
+    let components = scc(&graph, false).len();
     let query_ms = query_started.elapsed().as_secs_f64() * 1_000.0;
     let estimated_edge_count: usize = graph.values().map(|node| node.edges.len()).sum();
 
     let report = format!(
-        "{{\"implementation\":\"btree\",\"files\":{files},\"edges\":{estimated_edge_count},\"reachable\":{reachable},\"components\":{components},\"buildMs\":{build_ms:.3},\"snapshotBuildMs\":{snapshot_build_ms:.3},\"snapshotEdges\":{},\"queryMs\":{query_ms:.3}}}",
+        "{{\"implementation\":\"btree\",\"files\":{files},\"edges\":{estimated_edge_count},\"reachable\":{reachable_count},\"components\":{components},\"buildMs\":{build_ms:.3},\"snapshotBuildMs\":{snapshot_build_ms:.3},\"snapshotEdges\":{},\"queryMs\":{query_ms:.3}}}",
         snapshot_receipt.metrics.edges
     );
     let report_path = std::env::var_os("OCTOCODE_GRAPH_BENCH_REPORT")

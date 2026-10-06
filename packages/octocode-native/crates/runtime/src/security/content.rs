@@ -6,7 +6,7 @@ use serde_json::{Map, Value};
 use crate::policy::{PolicyError, PolicyErrorCode};
 
 const MAX_STRING_LENGTH: usize = 10_000;
-/// clasify `context.value` is evidence to judge, not a tool parameter; the
+/// clasify `resources[].value` is evidence to judge, not a tool parameter; the
 /// 4 MiB request cap bounds it, so its subtree gets an evidence-sized limit
 /// (self-review drafts and supplied excerpts routinely exceed 10k chars).
 /// Secret redaction still applies to every leaf.
@@ -264,9 +264,29 @@ pub struct ValidationResult {
     pub has_secrets: bool,
     pub warnings: Vec<String>,
     /// Dotted paths of the string leaves whose value sanitization rewrote
-    /// (`searchText`, `keywords[]`, `outer.key`).
+    /// (`matchString`, `keywords[]`, `outer.key`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub secret_fields: Vec<String>,
+}
+
+impl ValidationResult {
+    /// Fold a nested object's verdict into this one, naming its secret
+    /// fields with `field` and its warnings with `warning`; returns its
+    /// sanitized object.
+    fn absorb(
+        &mut self,
+        nested: ValidationResult,
+        field: impl Fn(&str) -> String,
+        warning: impl Fn(&str) -> String,
+    ) -> Map<String, Value> {
+        self.has_secrets |= nested.has_secrets;
+        self.is_valid &= nested.is_valid;
+        self.secret_fields
+            .extend(nested.secret_fields.iter().map(|name| field(name)));
+        self.warnings
+            .extend(nested.warnings.iter().map(|text| warning(text)));
+        nested.sanitized_params
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -370,8 +390,8 @@ impl ContentSecurity {
         self.validate_object(object, 0, MAX_STRING_LENGTH, false)
     }
 
-    /// `in_context` is true only for an object held under a `context` key
-    /// (clasify's `resources[].context`); its `value` child is evidence and
+    /// `in_context` is true only for an item of a `resources` list
+    /// (clasify's `resources[]`); its `value` child is evidence and
     /// gets the evidence-sized limit. A `value` key anywhere else keeps the
     /// parameter limit.
     fn validate_object(
@@ -390,11 +410,13 @@ impl ContentSecurity {
                 secret_fields: Vec::new(),
             };
         }
-        let mut sanitized = Map::new();
-        let mut warnings = Vec::new();
-        let mut valid = true;
-        let mut has_secrets = false;
-        let mut secret_fields = Vec::new();
+        let mut out = ValidationResult {
+            sanitized_params: Map::new(),
+            is_valid: true,
+            has_secrets: false,
+            warnings: Vec::new(),
+            secret_fields: Vec::new(),
+        };
         for (key, value) in object {
             let limit = if in_context && key == "value" {
                 MAX_EVIDENCE_STRING_LENGTH
@@ -402,125 +424,126 @@ impl ContentSecurity {
                 limit
             };
             if key.trim().is_empty() {
-                warnings.push(format!("Invalid parameter key: {key}"));
-                valid = false;
+                out.warnings.push(format!("Invalid parameter key: {key}"));
+                out.is_valid = false;
                 continue;
             }
             if matches!(key.as_str(), "__proto__" | "constructor" | "prototype") {
-                warnings.push(format!("Dangerous parameter key blocked: {key}"));
-                valid = false;
+                out.warnings
+                    .push(format!("Dangerous parameter key blocked: {key}"));
+                out.is_valid = false;
                 continue;
             }
             match value {
                 Value::String(text) => {
                     if text.encode_utf16().count() > limit {
-                        warnings.push(format!(
+                        out.warnings.push(format!(
                             "Parameter {key} exceeds maximum length ({limit} characters)"
                         ));
-                        valid = false;
+                        out.is_valid = false;
                         continue;
                     }
                     let result = self.sanitize_text(text, None);
                     if result.has_secrets {
-                        has_secrets = true;
-                        secret_fields.push(key.clone());
+                        out.has_secrets = true;
+                        out.secret_fields.push(key.clone());
                         for secret in result.secrets_detected {
-                            warnings.push(format!("Secrets detected in {key}: {secret}"));
+                            out.warnings
+                                .push(format!("Secrets detected in {key}: {secret}"));
                         }
                     }
-                    sanitized.insert(key.clone(), Value::String(result.content));
+                    out.sanitized_params
+                        .insert(key.clone(), Value::String(result.content));
                 }
                 Value::Array(values) => {
-                    if values.len() > MAX_ARRAY_LENGTH {
-                        warnings.push(format!(
-                            "Parameter {key} array exceeds maximum length (100 items)"
-                        ));
-                        valid = false;
-                        continue;
+                    if let Some(array) = self.validate_array(key, values, depth, limit, &mut out) {
+                        out.sanitized_params
+                            .insert(key.clone(), Value::Array(array));
                     }
-                    let mut array = Vec::new();
-                    let mut item_secrets = false;
-                    for item in values {
-                        match item {
-                            Value::String(text) if text.encode_utf16().count() > limit => {
-                                warnings.push(format!(
-                                    "Parameter {key}[] exceeds maximum length ({limit} characters)"
-                                ));
-                                valid = false;
-                            }
-                            Value::String(text) => {
-                                let result = self.sanitize_text(text, None);
-                                item_secrets |= result.has_secrets;
-                                array.push(Value::String(result.content));
-                            }
-                            Value::Object(nested) => {
-                                let result = self.validate_object(nested, depth + 1, limit, false);
-                                has_secrets |= result.has_secrets;
-                                secret_fields.extend(
-                                    result
-                                        .secret_fields
-                                        .iter()
-                                        .map(|field| format!("{key}[].{field}")),
-                                );
-                                valid &= result.is_valid;
-                                warnings.extend(
-                                    result
-                                        .warnings
-                                        .into_iter()
-                                        .map(|warning| format!("{key}[]: {warning}")),
-                                );
-                                array.push(Value::Object(result.sanitized_params));
-                            }
-                            // Nested arrays would otherwise be cloned verbatim,
-                            // leaving `{"x":[["ghp_…"]]}` unscanned. Recurse so
-                            // string leaves at any array depth are sanitized.
-                            Value::Array(inner) => {
-                                array.push(Value::Array(self.sanitize_nested_array(
-                                    inner,
-                                    depth + 1,
-                                    &mut item_secrets,
-                                )));
-                            }
-                            _ => array.push(item.clone()),
-                        }
-                    }
-                    if item_secrets {
-                        has_secrets = true;
-                        secret_fields.push(format!("{key}[]"));
-                    }
-                    sanitized.insert(key.clone(), Value::Array(array));
                 }
                 Value::Object(nested) => {
-                    let result = self.validate_object(nested, depth + 1, limit, key == "context");
-                    has_secrets |= result.has_secrets;
-                    secret_fields.extend(
-                        result
-                            .secret_fields
-                            .iter()
-                            .map(|field| format!("{key}.{field}")),
+                    let result = self.validate_object(nested, depth + 1, limit, false);
+                    let nested = out.absorb(
+                        result,
+                        |field| format!("{key}.{field}"),
+                        |warning| format!("Invalid nested object in parameter {key}: {warning}"),
                     );
-                    valid &= result.is_valid;
-                    warnings.extend(result.warnings.iter().map(|warning| {
-                        format!("Invalid nested object in parameter {key}: {warning}")
-                    }));
-                    sanitized.insert(key.clone(), Value::Object(result.sanitized_params));
+                    out.sanitized_params
+                        .insert(key.clone(), Value::Object(nested));
                 }
                 _ => {
-                    sanitized.insert(key.clone(), value.clone());
+                    out.sanitized_params.insert(key.clone(), value.clone());
                 }
             }
         }
-        warnings.sort();
-        warnings.dedup();
-        secret_fields.sort();
-        secret_fields.dedup();
-        ValidationResult {
-            sanitized_params: sanitized,
-            is_valid: valid,
-            has_secrets,
-            warnings,
-            secret_fields,
+        out.warnings.sort();
+        out.warnings.dedup();
+        out.secret_fields.sort();
+        out.secret_fields.dedup();
+        out
+    }
+
+    /// The sanitized items of parameter `key`'s array, or `None` (with a
+    /// warning in `out`) when it holds too many items.
+    fn validate_array(
+        &self,
+        key: &str,
+        values: &[Value],
+        depth: usize,
+        limit: usize,
+        out: &mut ValidationResult,
+    ) -> Option<Vec<Value>> {
+        if values.len() > MAX_ARRAY_LENGTH {
+            out.warnings.push(format!(
+                "Parameter {key} array exceeds maximum length (100 items)"
+            ));
+            out.is_valid = false;
+            return None;
         }
+        let mut array = Vec::new();
+        let mut item_secrets = false;
+        for item in values {
+            match item {
+                Value::String(text) if text.encode_utf16().count() > limit => {
+                    out.warnings.push(format!(
+                        "Parameter {key}[] exceeds maximum length ({limit} characters)"
+                    ));
+                    out.is_valid = false;
+                }
+                Value::String(text) => {
+                    let result = self.sanitize_text(text, None);
+                    item_secrets |= result.has_secrets;
+                    array.push(Value::String(result.content));
+                }
+                Value::Object(nested) => {
+                    // A clasify resource's `value` is supplied
+                    // evidence, exempt from the parameter cap.
+                    let result = self.validate_object(nested, depth + 1, limit, key == "resources");
+                    let nested = out.absorb(
+                        result,
+                        |field| format!("{key}[].{field}"),
+                        |warning| format!("{key}[]: {warning}"),
+                    );
+                    array.push(Value::Object(nested));
+                }
+                // Nested arrays would otherwise be cloned verbatim,
+                // leaving `{"x":[["ghp_…"]]}` unscanned. Recurse so
+                // string leaves at any array depth are sanitized.
+                Value::Array(inner) => {
+                    array.push(Value::Array(self.sanitize_nested_array(
+                        inner,
+                        depth + 1,
+                        &mut item_secrets,
+                    )));
+                }
+                _ => array.push(item.clone()),
+            }
+        }
+        if item_secrets {
+            out.has_secrets = true;
+            out.secret_fields.push(format!("{key}[]"));
+        }
+        Some(array)
     }
 
     /// Recursively sanitize the string leaves of a (possibly deeply) nested
@@ -667,11 +690,11 @@ mod tests {
     fn clasify_evidence_values_may_exceed_the_parameter_length_cap() {
         let policy = ContentSecurity::new();
         let long = "x".repeat(20_000);
-        let evidence = serde_json::json!({"resources":[{"context":{"value":{"draft":long}}}]});
+        let evidence = serde_json::json!({"resources":[{"value":{"draft":long}}]});
         assert!(policy.validate_input_parameters(&evidence).is_valid);
-        let parameter = serde_json::json!({"searchText":"y".repeat(20_000)});
+        let parameter = serde_json::json!({"matchString":"y".repeat(20_000)});
         assert!(!policy.validate_input_parameters(&parameter).is_valid);
-        // A `value` key outside `context` keeps the parameter cap.
+        // A `value` key outside `resources[]` keeps the parameter cap.
         let stray = serde_json::json!({"filter":{"value":"z".repeat(20_000)}});
         assert!(!policy.validate_input_parameters(&stray).is_valid);
     }
@@ -774,7 +797,7 @@ mod tests {
         let policy = ContentSecurity::new();
         let token = format!("ghp_{}", "a".repeat(36));
         let result = policy.validate_input_parameters(&serde_json::json!({
-            "searchText": token,
+            "matchString": token,
             "keywords": ["safe", token],
             "outer": {"key": token},
             "grid": [[token]],
@@ -787,12 +810,12 @@ mod tests {
             [
                 "grid[]",
                 "keywords[]",
+                "matchString",
                 "outer.key",
-                "rows[].inner",
-                "searchText"
+                "rows[].inner"
             ]
         );
-        let clean = policy.validate_input_parameters(&serde_json::json!({"searchText": "needle"}));
+        let clean = policy.validate_input_parameters(&serde_json::json!({"matchString": "needle"}));
         assert!(clean.secret_fields.is_empty());
     }
 

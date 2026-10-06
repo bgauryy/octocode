@@ -63,6 +63,36 @@ describe('storage policy', () => {
     expect(isPersistentStorageEnabled()).toBe(true);
   });
 
+  it('honors the home .env and lets a workspace only narrow to memory', () => {
+    delete process.env['OCTOCODE_STORAGE_MODE'];
+    const workspace = mkdtempSync(join(tmpdir(), 'octo-storage-ws-'));
+    mkdirSync(join(workspace, '.octocode'));
+    writeFileSync(join(tmpDir, '.env'), 'OCTOCODE_STORAGE_MODE=memory\n');
+    expect(isPersistentStorageEnabled(process.env, workspace)).toBe(false);
+
+    writeFileSync(join(tmpDir, '.env'), '');
+    writeFileSync(
+      join(tmpDir, '.octocoderc'),
+      JSON.stringify({ storage: { mode: 'memory' } })
+    );
+    writeFileSync(
+      join(workspace, '.octocode', '.env'),
+      'OCTOCODE_STORAGE_MODE=persistent\n'
+    );
+    writeFileSync(
+      join(workspace, '.octocode', '.octocoderc'),
+      JSON.stringify({ storage: { mode: 'persistent' } })
+    );
+    expect(isPersistentStorageEnabled(process.env, workspace)).toBe(false);
+
+    writeFileSync(join(tmpDir, '.octocoderc'), JSON.stringify({}));
+    writeFileSync(
+      join(workspace, '.octocode', '.octocoderc'),
+      JSON.stringify({ storage: { mode: 'memory' } })
+    );
+    expect(isPersistentStorageEnabled(process.env, workspace)).toBe(false);
+  });
+
   it('env var wins over .octocoderc storage.mode', () => {
     process.env['OCTOCODE_STORAGE_MODE'] = 'memory';
     writeFileSync(
@@ -203,7 +233,6 @@ describe('PROTECTED_KEYS', () => {
       'OCTOCODE_TRUST_PROJECT_LSP_CONFIG',
       // Storage mode decides what persists on disk: home-trusted only.
       'OCTOCODE_STORAGE_MODE',
-      'OCTOCODE_EXTENSION_STORAGE_MODE',
       'OCTOCODE_CARGO',
       'GITHUB_API_URL',
       'OCTOCODE_BETA',
@@ -300,23 +329,11 @@ describe('applyOctocodeEnv', () => {
   it('lets a workspace .env only opt out of persistence, never in', () => {
     const widen: Record<string, string | undefined> = {};
     const skipped = applyOctocodeEnv(
-      {
-        OCTOCODE_STORAGE_MODE: 'persistent',
-        OCTOCODE_EXTENSION_STORAGE_MODE: 'persistent',
-      },
-      {
-        env: widen,
-        sources: {
-          OCTOCODE_STORAGE_MODE: 'project',
-          OCTOCODE_EXTENSION_STORAGE_MODE: 'project',
-        },
-      }
+      { OCTOCODE_STORAGE_MODE: 'persistent' },
+      { env: widen, sources: { OCTOCODE_STORAGE_MODE: 'project' } }
     );
     expect(widen).toEqual({});
-    expect(skipped.skippedProtected.sort()).toEqual([
-      'OCTOCODE_EXTENSION_STORAGE_MODE',
-      'OCTOCODE_STORAGE_MODE',
-    ]);
+    expect(skipped.skippedProtected).toEqual(['OCTOCODE_STORAGE_MODE']);
 
     const narrow: Record<string, string | undefined> = {};
     const applied = applyOctocodeEnv(
@@ -1070,18 +1087,6 @@ describe('loadConfigSync', () => {
     expect(nullResult.error).toContain('must be a JSON object');
   });
 
-  it('async loadConfig delegates to sync loader', async () => {
-    writeFileSync(
-      join(tmpDir, '.octocoderc'),
-      '{ "network": { "timeout": 5000 } }'
-    );
-    const { loadConfig } = await import('../src/config/loader.js');
-    await expect(loadConfig(tmpDir)).resolves.toMatchObject({
-      success: true,
-      config: { network: { timeout: 5000 } },
-    });
-  });
-
   it('getConfigFilePath uses getOctocodeHome default when home is omitted', async () => {
     const oldHome = process.env['OCTOCODE_HOME'];
     try {
@@ -1532,191 +1537,6 @@ describe('isStatsEnabled', () => {
   it('returns false for any other string', () => {
     expect(isStatsEnabled({ OCTOCODE_ENABLE_STATS: 'yes' })).toBe(false);
     expect(isStatsEnabled({ OCTOCODE_ENABLE_STATS: 'on' })).toBe(false);
-  });
-});
-
-// ─── extension config (validateExtension / resolveExtensionStorage) ──────────
-
-import { resolveExtensionStorage } from '../src/config/resolverSections.js';
-import { isPersistentStorageEnabledForExtension } from '../src/index.js';
-
-describe('validateConfig extension section', () => {
-  it('rejects a non-object extension section', () => {
-    const arr = validateConfig({ extension: [] });
-    expect(arr.valid).toBe(false);
-    expect(arr.errors).toContain('extension: Must be an object');
-
-    const str = validateConfig({ extension: 'persistent' });
-    expect(str.valid).toBe(false);
-    expect(str.errors).toContain('extension: Must be an object');
-  });
-
-  it('prefixes nested storage errors with extension.', () => {
-    const badShape = validateConfig({ extension: { storage: 'memory' } });
-    expect(badShape.valid).toBe(false);
-    expect(badShape.errors).toContain('extension.storage: Must be an object');
-
-    const badMode = validateConfig({
-      extension: { storage: { mode: 'disk' } },
-    });
-    expect(badMode.valid).toBe(false);
-    expect(badMode.errors).toContain(
-      'extension.storage.mode: Must be "persistent" or "memory"'
-    );
-  });
-
-  it('accepts a valid extension storage mode', () => {
-    expect(
-      validateConfig({ extension: { storage: { mode: 'persistent' } } }).valid
-    ).toBe(true);
-    expect(
-      validateConfig({ extension: { storage: { mode: 'memory' } } }).valid
-    ).toBe(true);
-    expect(validateConfig({ extension: {} }).valid).toBe(true);
-  });
-
-  it('warns on unknown extension keys, including nested storage keys', () => {
-    const r = validateConfig({
-      extension: { storag: {}, storage: { mode: 'memory', mod: 'typo' } },
-    });
-    expect(r.valid).toBe(true);
-    expect(r.warnings).toEqual(
-      expect.arrayContaining([
-        'Unknown configuration key: extension.storag',
-        'Unknown configuration key: extension.storage.mod',
-      ])
-    );
-  });
-});
-
-describe('resolveExtensionStorage', () => {
-  const previousExtMode = process.env['OCTOCODE_EXTENSION_STORAGE_MODE'];
-  const previousMode = process.env['OCTOCODE_STORAGE_MODE'];
-
-  afterEach(() => {
-    if (previousExtMode === undefined)
-      delete process.env['OCTOCODE_EXTENSION_STORAGE_MODE'];
-    else process.env['OCTOCODE_EXTENSION_STORAGE_MODE'] = previousExtMode;
-    if (previousMode === undefined) delete process.env['OCTOCODE_STORAGE_MODE'];
-    else process.env['OCTOCODE_STORAGE_MODE'] = previousMode;
-  });
-
-  it('OCTOCODE_EXTENSION_STORAGE_MODE env var wins', () => {
-    process.env['OCTOCODE_EXTENSION_STORAGE_MODE'] = ' Persistent ';
-    expect(resolveExtensionStorage({ storage: { mode: 'memory' } })).toEqual({
-      storage: { mode: 'persistent' },
-    });
-
-    process.env['OCTOCODE_EXTENSION_STORAGE_MODE'] = 'memory';
-    expect(
-      resolveExtensionStorage({
-        extension: { storage: { mode: 'persistent' } },
-      })
-    ).toEqual({ storage: { mode: 'memory' } });
-  });
-
-  it('falls back to extension.storage.mode from the file config', () => {
-    delete process.env['OCTOCODE_EXTENSION_STORAGE_MODE'];
-    delete process.env['OCTOCODE_STORAGE_MODE'];
-    expect(
-      resolveExtensionStorage({
-        extension: { storage: { mode: 'persistent' } },
-      })
-    ).toEqual({ storage: { mode: 'persistent' } });
-    expect(
-      resolveExtensionStorage({ extension: { storage: { mode: 'memory' } } })
-    ).toEqual({ storage: { mode: 'memory' } });
-  });
-
-  it('invalid env and absent extension fall back to global storage', () => {
-    process.env['OCTOCODE_EXTENSION_STORAGE_MODE'] = 'bogus';
-    delete process.env['OCTOCODE_STORAGE_MODE'];
-    expect(resolveExtensionStorage({ storage: { mode: 'memory' } })).toEqual({
-      storage: { mode: 'memory' },
-    });
-    expect(resolveExtensionStorage()).toEqual({
-      storage: { mode: 'persistent' },
-    });
-  });
-});
-
-describe('isPersistentStorageEnabledForExtension', () => {
-  const previousHome = process.env['OCTOCODE_HOME'];
-  const previousExtMode = process.env['OCTOCODE_EXTENSION_STORAGE_MODE'];
-  const previousMode = process.env['OCTOCODE_STORAGE_MODE'];
-  let tmpDir: string;
-
-  beforeEach(() => {
-    tmpDir = mkdtempSync(join(tmpdir(), 'octo-ext-'));
-    process.env['OCTOCODE_HOME'] = tmpDir;
-  });
-
-  afterEach(() => {
-    if (previousHome === undefined) delete process.env['OCTOCODE_HOME'];
-    else process.env['OCTOCODE_HOME'] = previousHome;
-    if (previousExtMode === undefined)
-      delete process.env['OCTOCODE_EXTENSION_STORAGE_MODE'];
-    else process.env['OCTOCODE_EXTENSION_STORAGE_MODE'] = previousExtMode;
-    if (previousMode === undefined) delete process.env['OCTOCODE_STORAGE_MODE'];
-    else process.env['OCTOCODE_STORAGE_MODE'] = previousMode;
-  });
-
-  it('reflects the resolved extension storage mode via OCTOCODE_EXTENSION_STORAGE_MODE', () => {
-    process.env['OCTOCODE_EXTENSION_STORAGE_MODE'] = 'persistent';
-    expect(isPersistentStorageEnabledForExtension()).toBe(true);
-
-    process.env['OCTOCODE_EXTENSION_STORAGE_MODE'] = 'memory';
-    expect(isPersistentStorageEnabledForExtension()).toBe(false);
-  });
-
-  it('falls back to OCTOCODE_STORAGE_MODE when extension env is absent', () => {
-    delete process.env['OCTOCODE_EXTENSION_STORAGE_MODE'];
-    process.env['OCTOCODE_STORAGE_MODE'] = 'memory';
-    expect(isPersistentStorageEnabledForExtension()).toBe(false);
-
-    process.env['OCTOCODE_STORAGE_MODE'] = 'persistent';
-    expect(isPersistentStorageEnabledForExtension()).toBe(true);
-  });
-
-  it('reads extension.storage.mode from .octocoderc when env vars are absent', () => {
-    delete process.env['OCTOCODE_EXTENSION_STORAGE_MODE'];
-    delete process.env['OCTOCODE_STORAGE_MODE'];
-    writeFileSync(
-      join(tmpDir, '.octocoderc'),
-      JSON.stringify({ extension: { storage: { mode: 'memory' } } })
-    );
-    expect(isPersistentStorageEnabledForExtension()).toBe(false);
-
-    writeFileSync(
-      join(tmpDir, '.octocoderc'),
-      JSON.stringify({ extension: { storage: { mode: 'persistent' } } })
-    );
-    expect(isPersistentStorageEnabledForExtension()).toBe(true);
-  });
-
-  it('falls back to storage.mode in .octocoderc when extension section is absent', () => {
-    delete process.env['OCTOCODE_EXTENSION_STORAGE_MODE'];
-    delete process.env['OCTOCODE_STORAGE_MODE'];
-    writeFileSync(
-      join(tmpDir, '.octocoderc'),
-      JSON.stringify({ storage: { mode: 'memory' } })
-    );
-    expect(isPersistentStorageEnabledForExtension()).toBe(false);
-  });
-
-  it('defaults to persistent when no env vars and no rc file', () => {
-    delete process.env['OCTOCODE_EXTENSION_STORAGE_MODE'];
-    delete process.env['OCTOCODE_STORAGE_MODE'];
-    expect(isPersistentStorageEnabledForExtension()).toBe(true);
-  });
-
-  it('OCTOCODE_EXTENSION_STORAGE_MODE wins over .octocoderc storage.mode', () => {
-    process.env['OCTOCODE_EXTENSION_STORAGE_MODE'] = 'memory';
-    writeFileSync(
-      join(tmpDir, '.octocoderc'),
-      JSON.stringify({ extension: { storage: { mode: 'persistent' } } })
-    );
-    expect(isPersistentStorageEnabledForExtension()).toBe(false);
   });
 });
 

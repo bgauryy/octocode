@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+# Resolve symlinks (npm/yarn bin links, PATH shims) to the runtime package.
+self=$0
+case $self in */*) ;; *) self=./$self ;; esac
+while [ -L "$self" ]; do
+  link=$(readlink "$self")
+  case $link in /*) self=$link ;; *) self=${self%/*}/$link ;; esac
+done
+base=${self%/*}
+if [ ! -f "$base/communication.py" ]; then
+  echo 'Communication scripts missing. Reinstall the communication runtime package.' >&2
+  exit 1
+fi
+exec "${OCTOCODE_PYTHON:-python3}" -B "$base/communication.py" "$@"

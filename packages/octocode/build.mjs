@@ -1,5 +1,4 @@
 import * as esbuild from 'esbuild';
-import { execFileSync } from 'node:child_process';
 import { builtinModules } from 'module';
 import { chmodSync, readFileSync, writeFileSync } from 'fs';
 import { rm } from 'fs/promises';
@@ -24,11 +23,26 @@ const runtimeExternals = Object.keys(pkg.dependencies ?? {});
 
 const external = [...nodeExternals, ...runtimeExternals];
 
+// Vite's `?raw` convention, so tests and the bundle share one asset import:
+// config-view browser assets ship inlined as strings.
+const rawText = {
+  name: 'raw-text',
+  setup(build) {
+    build.onResolve({ filter: /\?raw$/ }, args => ({
+      path: resolve(args.resolveDir, args.path.slice(0, -'?raw'.length)),
+      namespace: 'raw-text',
+    }));
+    build.onLoad({ filter: /.*/, namespace: 'raw-text' }, args => ({
+      contents: readFileSync(args.path, 'utf8'),
+      loader: 'text',
+    }));
+  },
+};
+
 await rm('out', { recursive: true, force: true });
 
 const monorepoSkillsDir = resolve(__dirname, '..', '..', 'skills');
 const packageSkillsDir = resolve(__dirname, 'skills');
-execFileSync(process.execPath, [resolve(monorepoSkillsDir, 'octocode-agents-communication/src/build-skill.mjs')], { stdio: 'inherit' });
 stageSkills(monorepoSkillsDir, packageSkillsDir);
 console.log('✓ skills staged → skills/');
 
@@ -46,6 +60,7 @@ const buildResult = await esbuild.build({
   treeShaking: true,
   metafile: true,
   external,
+  plugins: [rawText],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
     'process.env.NODE_ENV': '"production"',

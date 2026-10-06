@@ -159,8 +159,14 @@ pub(super) enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Inspect configuration or edit global .env keys. Values are never printed.
+    /// Inspect configuration, edit keys, or open the local configuration view.
+    #[command(args_conflicts_with_subcommands = true)]
     Config {
+        #[command(subcommand)]
+        command: Option<ConfigCommand>,
+        /// Private JSON management transport used by the local config view.
+        #[arg(long, hide = true, conflicts_with_all = ["check", "add", "remove", "value_stdin"])]
+        manage: bool,
         /// Test whether a specific configuration key is set (prints set/unset, never the value). Exit 0 means set; exit 1 means unset.
         #[arg(long, value_name = "KEY", conflicts_with_all = ["add", "remove"])]
         check: Option<String>,
@@ -226,10 +232,7 @@ pub(super) enum Command {
         /// Installation runner: "npx" (default), "bunx", or "pnpm".
         #[arg(long, value_parser = ["npx", "bunx", "pnpm"])]
         method: Option<String>,
-        /// Write a .bak backup of the existing config before overwriting.
-        #[arg(long)]
-        backup: bool,
-        /// Restore config from a .bak backup file written by a previous --backup install.
+        /// Restore an agent config from the .bak backup an earlier install left beside it.
         #[arg(long)]
         rollback: Option<String>,
     },
@@ -262,5 +265,18 @@ pub(super) enum Command {
         /// Emit JSON output.
         #[arg(long)]
         json: bool,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+pub(super) enum ConfigCommand {
+    /// Open the local settings, API keys, and agent configuration view.
+    View {
+        /// Print the local session URL without opening a browser.
+        #[arg(long)]
+        no_open: bool,
+        /// Close the local server after this many seconds without an authenticated request.
+        #[arg(long, default_value_t = 900, value_parser = clap::value_parser!(u64).range(30..=3600))]
+        idle_timeout: u64,
     },
 }

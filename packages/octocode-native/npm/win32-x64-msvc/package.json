@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-native-win32-x64-msvc",
-  "description": "Octocode CLI, runtime addon, and engine addon — win32-x64-msvc",
+  "description": "Octocode CLI and runtime addon — win32-x64-msvc",
   "version": "20.0.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "cpu": [
@@ -13,8 +13,7 @@
     "octocode.exe",
     "octocode-regex-worker.exe",
     "README.md",
-    "octocode-native.win32-x64-msvc.node",
-    "octocode-engine.win32-x64-msvc.node"
+    "octocode-native.win32-x64-msvc.node"
   ],
   "license": "MIT",
   "publishConfig": {
@@ -32,7 +31,6 @@
   "exports": {
     ".": "./octocode-native.win32-x64-msvc.node",
     "./runtime": "./octocode-native.win32-x64-msvc.node",
-    "./engine": "./octocode-engine.win32-x64-msvc.node",
     "./package.json": "./package.json"
   }
 }

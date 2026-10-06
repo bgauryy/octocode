@@ -1,26 +1,19 @@
 import { describe, it, expect, vi } from 'vitest';
+import { runScheme, useCompactJson } from '../../../src/cli/commands/scheme.js';
 import {
   project,
-  projectSelected,
-  runScheme,
-  useCompactJson,
-} from '../../../src/cli/commands/scheme.js';
-import {
   usageLines,
-  type JsonObject,
 } from '../../../src/cli/commands/scheme-projection.js';
 import {
   getPublicToolCatalog,
   getNativeContractFingerprint,
+  type SchemeJsonObject,
 } from '@octocodeai/config/schema';
-import {
-  buildMcpInstructions,
-  publishedInputSchema,
-} from '@octocodeai/config/mcp';
+import { buildMcpInstructions } from '@octocodeai/config/mcp';
 
 const catalog = getPublicToolCatalog();
-const tools = catalog.tools as unknown as readonly JsonObject[];
-const toolNamed = (name: string): JsonObject => {
+const tools = catalog.tools as unknown as readonly SchemeJsonObject[];
+const toolNamed = (name: string): SchemeJsonObject => {
   const tool = tools.find(candidate => candidate.name === name);
   if (!tool) throw new Error(`missing tool ${name}`);
   return { ...tool };
@@ -254,10 +247,10 @@ describe('usageLines', () => {
   });
 
   it('labels branches by the const that varies, not one shared by every branch', () => {
-    // Topology branches select their operation through analysis.
+    // Topology branches select their analysis through operation.
     const lines = usageLines(toolNamed('astTopology')).slice(1);
     expect(lines.length).toBeGreaterThan(1);
-    expect(lines.every(line => line.startsWith('analysis='))).toBe(true);
+    expect(lines.every(line => line.startsWith('operation='))).toBe(true);
     expect(new Set(lines.map(line => line.split(' ')[0])).size).toBe(
       lines.length
     );
@@ -271,16 +264,16 @@ describe('usageLines', () => {
 });
 
 describe('compact query view', () => {
-  const isObject = (value: unknown): value is JsonObject =>
+  const isObject = (value: unknown): value is SchemeJsonObject =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
-  const branchesOf = (schema: JsonObject): JsonObject[] =>
+  const branchesOf = (schema: SchemeJsonObject): SchemeJsonObject[] =>
     ((schema.oneOf ?? schema.anyOf ?? [schema]) as unknown[]).filter(isObject);
   // Every `$ref` expanded in place (bounded for recursion); a reference to a
   // summarized definition expands to the view's summary on both sides.
   const expand = (
-    root: JsonObject,
+    root: SchemeJsonObject,
     value: unknown,
-    summaries: JsonObject,
+    summaries: SchemeJsonObject,
     depth = 0
   ): unknown => {
     if (Array.isArray(value))
@@ -293,17 +286,17 @@ describe('compact query view', () => {
       if (name in summaries || depth > 6)
         return {
           ...((summaries[name] ??
-            (root.$defs as JsonObject)[name]) as JsonObject),
+            (root.$defs as SchemeJsonObject)[name]) as SchemeJsonObject),
           ...siblings,
         };
       return {
         ...(expand(
           root,
-          (root.$defs as JsonObject)[name],
+          (root.$defs as SchemeJsonObject)[name],
           summaries,
           depth + 1
-        ) as JsonObject),
-        ...(expand(root, siblings, summaries, depth + 1) as JsonObject),
+        ) as SchemeJsonObject),
+        ...(expand(root, siblings, summaries, depth + 1) as SchemeJsonObject),
       };
     }
     return Object.fromEntries(
@@ -314,32 +307,15 @@ describe('compact query view', () => {
     );
   };
 
-  // The compact view shows each optional brief with its published MCP note
-  // (no non-blank pattern: a blank brief is dropped before validation).
-  // CLI-only tools have no published view; they share the default notes.
-  const briefNotes = (tool: JsonObject): Record<string, string> => {
-    const published = tool.cliOnly === true ? toolNamed('localSearch') : tool;
-    const notes: Record<string, string> = {};
-    const walk = (value: unknown): void => {
-      if (Array.isArray(value)) return value.forEach(walk);
-      if (!isObject(value)) return;
-      const properties = value.properties;
-      if (isObject(properties))
-        for (const name of ['mainGoal', 'reasoning']) {
-          const field = properties[name];
-          if (isObject(field) && typeof field.description === 'string')
-            notes[name] ??= field.description;
-        }
-      Object.values(value).forEach(walk);
-    };
-    walk(
-      publishedInputSchema(
-        String(published.name),
-        published.inputSchema as Parameters<typeof publishedInputSchema>[1]
-      )
-    );
-    return notes;
-  };
+  // CLI compact views retain optional research briefs even when MCP omits them.
+  const briefNotes = (tool: SchemeJsonObject): Record<string, string> => ({
+    mainGoal:
+      tool.name === 'clasify'
+        ? 'Research question; sent to the judge.'
+        : 'Multi-call research only.',
+    reasoning:
+      tool.name === 'clasify' ? 'Sent to the judge.' : 'Research only.',
+  });
 
   // Every brief field, nested ones included (a clasify resource's tool query).
   const shortenBriefs = (
@@ -367,29 +343,32 @@ describe('compact query view', () => {
         'mainGoal',
         'reasoning',
       ]);
-      const full = tool.querySchema as JsonObject;
-      const view = project({ ...tool }, 'query').querySchema as JsonObject;
+      const full = tool.querySchema as SchemeJsonObject;
+      const view = project({ ...tool }, 'query')
+        .querySchema as SchemeJsonObject;
       expect(view.$schema, String(tool.name)).toBeUndefined();
       const summaries = Object.fromEntries(
-        Object.entries((view.$defs ?? {}) as JsonObject).filter(
+        Object.entries((view.$defs ?? {}) as SchemeJsonObject).filter(
           ([, definition]) =>
             isObject(definition) &&
             String(definition.$comment ?? '').includes('--view full')
         )
       );
       for (const [name, summary] of Object.entries(summaries)) {
-        const original = (full.$defs as JsonObject)[name] as JsonObject;
+        const original = (full.$defs as SchemeJsonObject)[
+          name
+        ] as SchemeJsonObject;
         expect(JSON.stringify(original).length, name).toBeGreaterThan(300);
-        expect((summary as JsonObject).description).toEqual(
+        expect((summary as SchemeJsonObject).description).toEqual(
           original.description
         );
       }
       // A root `$ref` (clasify's matrix) reads through to its definition.
-      const rooted = (schema: JsonObject): JsonObject =>
+      const rooted = (schema: SchemeJsonObject): SchemeJsonObject =>
         typeof schema.$ref === 'string'
-          ? ((schema.$defs as JsonObject)[
+          ? ((schema.$defs as SchemeJsonObject)[
               schema.$ref.slice('#/$defs/'.length)
-            ] as JsonObject)
+            ] as SchemeJsonObject)
           : schema;
       const fullBranches = branchesOf(rooted(full));
       const viewBranches = branchesOf(rooted(view));
@@ -399,13 +378,13 @@ describe('compact query view', () => {
         expect(compact.required, String(tool.name)).toEqual(original.required);
         const hoisted =
           fullBranches.length > 1
-            ? ((rooted(view).properties ?? {}) as JsonObject)
+            ? ((rooted(view).properties ?? {}) as SchemeJsonObject)
             : {};
         const shown = {
           ...hoisted,
-          ...((compact.properties ?? {}) as JsonObject),
+          ...((compact.properties ?? {}) as SchemeJsonObject),
         };
-        const fields = (original.properties ?? {}) as JsonObject;
+        const fields = (original.properties ?? {}) as SchemeJsonObject;
         expect(Object.keys(shown).sort(), String(tool.name)).toEqual(
           Object.keys(fields).sort()
         );
@@ -421,7 +400,7 @@ describe('compact query view', () => {
         for (const [name, field] of Object.entries(fields)) {
           const expected = unguarded(
             expand(full, field, summaries)
-          ) as JsonObject;
+          ) as SchemeJsonObject;
           shortenBriefs({ properties: { [name]: expected } }, notes);
           expect(
             expand(view, shown[name], summaries),
@@ -444,88 +423,82 @@ describe('compact query view', () => {
   });
 });
 
-describe('projectSelected', () => {
+describe('project with --select', () => {
   it('passes through when no selection is given', () => {
-    const projected = projectSelected(
-      toolNamed('ghSearchHistory'),
-      'query',
-      undefined
-    );
+    const projected = project(toolNamed('ghSearchHistory'), 'query', undefined);
     expect(projected.name).toBe('ghSearchHistory');
   });
 
   it('rejects selection outside query view', () => {
     expect(() =>
-      projectSelected(toolNamed('ghSearchHistory'), 'full', 'operation=commit')
+      project(toolNamed('ghSearchHistory'), 'full', 'operation=commit')
     ).toThrow('--select requires --view query');
   });
 
   it('rejects malformed selections', () => {
     expect(() =>
-      projectSelected(toolNamed('ghSearchHistory'), 'query', 'operation')
+      project(toolNamed('ghSearchHistory'), 'query', 'operation')
     ).toThrow('FIELD=VALUE');
   });
 
   it('isolates exactly one union branch and prunes unreachable defs', () => {
-    const projected = projectSelected(
+    const projected = project(
       toolNamed('ghSearchHistory'),
       'query',
       'operation=commit'
     );
-    const schema = projected.querySchema as JsonObject;
+    const schema = projected.querySchema as SchemeJsonObject;
     const union = (schema.oneOf ?? schema.anyOf) as unknown[];
     expect(union).toHaveLength(1);
     const serialized = JSON.stringify(schema);
-    const defs = (schema.$defs ?? {}) as JsonObject;
+    const defs = (schema.$defs ?? {}) as SchemeJsonObject;
     for (const name of Object.keys(defs)) {
       expect(serialized).toContain(`#/$defs/${name}`);
     }
   });
 
   it('selects a named nested astTopology variant in one step', () => {
-    const projected = projectSelected(
+    const projected = project(
       toolNamed('astTopology'),
       'query',
       'variant=dependencies'
     );
-    const schema = projected.querySchema as JsonObject;
-    const union = (schema.oneOf ?? schema.anyOf) as JsonObject[];
+    const schema = projected.querySchema as SchemeJsonObject;
+    const union = (schema.oneOf ?? schema.anyOf) as SchemeJsonObject[];
     expect(union).toHaveLength(1);
-    const properties = union[0]!.properties as JsonObject;
-    expect(properties).not.toHaveProperty('operation');
-    expect((properties.analysis as JsonObject).const).toBe('dependencies');
+    const properties = union[0]!.properties as SchemeJsonObject;
+    expect(properties).not.toHaveProperty('analysis');
+    expect((properties.operation as SchemeJsonObject).const).toBe(
+      'dependencies'
+    );
   });
 
   it('keeps both valid match shapes when selecting the match variant', () => {
-    const projected = projectSelected(
-      toolNamed('astSearch'),
-      'query',
-      'variant=match'
-    );
-    const schema = projected.querySchema as JsonObject;
-    const union = (schema.oneOf ?? schema.anyOf) as JsonObject[];
+    const projected = project(toolNamed('astSearch'), 'query', 'variant=match');
+    const schema = projected.querySchema as SchemeJsonObject;
+    const union = (schema.oneOf ?? schema.anyOf) as SchemeJsonObject[];
     expect(union).toHaveLength(2);
   });
 
   it('keeps every branch sharing the selected const (operation=match)', () => {
-    const projected = projectSelected(
+    const projected = project(
       toolNamed('astSearch'),
       'query',
       'operation=match'
     );
-    const schema = projected.querySchema as JsonObject;
-    const union = (schema.oneOf ?? schema.anyOf) as JsonObject[];
+    const schema = projected.querySchema as SchemeJsonObject;
+    const union = (schema.oneOf ?? schema.anyOf) as SchemeJsonObject[];
     expect(union).toHaveLength(2);
   });
 
   it('accepts a catalog label such as operation=match(pattern)', () => {
-    const projected = projectSelected(
+    const projected = project(
       toolNamed('astSearch'),
       'query',
       'operation=match(pattern)'
     );
-    const schema = projected.querySchema as JsonObject;
-    const union = (schema.oneOf ?? schema.anyOf) as JsonObject[];
+    const schema = projected.querySchema as SchemeJsonObject;
+    const union = (schema.oneOf ?? schema.anyOf) as SchemeJsonObject[];
     expect(union).toHaveLength(1);
     expect(union[0]!.required).toContain('pattern');
   });
@@ -534,17 +507,17 @@ describe('projectSelected', () => {
     ['definition', ['anchored', 'position']],
     ['references', ['anchored', 'position']],
     ['diagnostic', ['document']],
-    ['workspaceSymbol', ['workspace:uri', 'workspace:root']],
+    ['workspaceSymbol', ['workspace:path', 'workspace:root']],
   ])('selects all LSP shapes accepting operation=%s', (operation, titles) => {
-    const projected = projectSelected(
+    const projected = project(
       toolNamed('lspSearch'),
       'query',
       `operation=${operation}`
     );
-    const schema = projected.querySchema as JsonObject;
-    expect((schema.anyOf as JsonObject[]).map(branch => branch.title)).toEqual(
-      titles
-    );
+    const schema = projected.querySchema as SchemeJsonObject;
+    expect(
+      (schema.anyOf as SchemeJsonObject[]).map(branch => branch.title)
+    ).toEqual(titles);
     expect(JSON.stringify(schema)).not.toContain('outputSchema');
   });
 
@@ -552,25 +525,25 @@ describe('projectSelected', () => {
     'anchored',
     'position',
     'document',
-    'workspace:uri',
+    'workspace:path',
     'workspace:root',
   ])('selects the exact named LSP variant %s', variant => {
-    const schema = projectSelected(
+    const schema = project(
       toolNamed('lspSearch'),
       'query',
       `variant=${variant}`
-    ).querySchema as JsonObject;
-    expect((schema.anyOf as JsonObject[]).map(branch => branch.title)).toEqual([
-      variant,
-    ]);
+    ).querySchema as SchemeJsonObject;
+    expect(
+      (schema.anyOf as SchemeJsonObject[]).map(branch => branch.title)
+    ).toEqual([variant]);
   });
 
   it('follows chained local refs but never treats a default as an enum', () => {
-    const branch = (operation: JsonObject): JsonObject => ({
+    const branch = (operation: SchemeJsonObject): SchemeJsonObject => ({
       type: 'object',
       properties: { operation },
     });
-    const tool: JsonObject = {
+    const tool: SchemeJsonObject = {
       name: 'fixture',
       querySchema: {
         anyOf: [
@@ -583,11 +556,11 @@ describe('projectSelected', () => {
         },
       },
     };
-    const schema = projectSelected(tool, 'query', 'operation=references')
-      .querySchema as JsonObject;
+    const schema = project(tool, 'query', 'operation=references')
+      .querySchema as SchemeJsonObject;
     expect(schema.anyOf).toHaveLength(1);
-    expect(schema.$defs).toEqual((tool.querySchema as JsonObject).$defs);
-    expect(() => projectSelected(tool, 'query', 'operation=missing')).toThrow(
+    expect(schema.$defs).toEqual((tool.querySchema as SchemeJsonObject).$defs);
+    expect(() => project(tool, 'query', 'operation=missing')).toThrow(
       'matched 0'
     );
   });
@@ -598,7 +571,7 @@ describe('projectSelected', () => {
       properties: { operation: { const: 'references' } },
       required: ['operation'],
     };
-    const tool: JsonObject = {
+    const tool: SchemeJsonObject = {
       name: 'fixture',
       querySchema: {
         oneOf: [
@@ -611,15 +584,15 @@ describe('projectSelected', () => {
         ],
       },
     };
-    const schema = projectSelected(tool, 'query', 'operation=definition')
-      .querySchema as JsonObject;
+    const schema = project(tool, 'query', 'operation=definition')
+      .querySchema as SchemeJsonObject;
     expect(schema.oneOf).toHaveLength(1);
     expect(schema.allOf).toEqual([{ not: { anyOf: [sibling] } }]);
   });
 
   it('rejects selections matching no branch', () => {
     expect(() =>
-      projectSelected(toolNamed('ghSearchHistory'), 'query', 'operation=nope')
+      project(toolNamed('ghSearchHistory'), 'query', 'operation=nope')
     ).toThrow('matched 0');
   });
 });

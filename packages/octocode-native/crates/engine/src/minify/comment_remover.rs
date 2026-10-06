@@ -19,227 +19,218 @@ pub struct LineRule {
 
 #[derive(Clone, Default)]
 pub struct CommentRules {
-    pub block: Vec<BlockRule>,
-    pub line: Vec<LineRule>,
+    pub block: &'static [BlockRule],
+    pub line: &'static [LineRule],
     pub regex: bool,
     pub powershell_here_strings: bool,
     pub quote_delimiters: &'static [&'static str],
 }
 
-/// Return the CommentRules for the named CommentPatternGroup.
-pub fn rules_for(group: &str) -> Option<CommentRules> {
-    match group {
-        "c-style" => Some(CommentRules {
-            block: vec![BlockRule {
-                start: "/*",
-                end: "*/",
-                nested: false,
-            }],
-            line: vec![LineRule {
-                token: "//",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
+const NO_RULES: CommentRules = CommentRules {
+    block: &[],
+    line: &[],
+    regex: false,
+    powershell_here_strings: false,
+    quote_delimiters: &[],
+};
+
+/// A boundary-delimited line comment that does not protect a shebang.
+const fn line(token: &'static str) -> LineRule {
+    LineRule {
+        token,
+        require_boundary: true,
+        preserve_shebang: false,
+    }
+}
+
+/// A non-nesting block comment.
+const fn block(start: &'static str, end: &'static str) -> BlockRule {
+    BlockRule {
+        start,
+        end,
+        nested: false,
+    }
+}
+
+const HASH_LINE: LineRule = LineRule {
+    token: "#",
+    require_boundary: true,
+    preserve_shebang: true,
+};
+
+/// Comment rules per `CommentPatternGroup`.
+static COMMENT_GROUPS: &[(&str, CommentRules)] = &[
+    (
+        "c-style",
+        CommentRules {
+            block: &[block("/*", "*/")],
+            line: &[line("//")],
             regex: true,
-            ..Default::default()
-        }),
-        "hash" => Some(CommentRules {
-            line: vec![LineRule {
-                token: "#",
-                require_boundary: true,
-                preserve_shebang: true,
-            }],
-            ..Default::default()
-        }),
-        "html" => Some(CommentRules {
-            block: vec![BlockRule {
-                start: "<!--",
-                end: "-->",
-                nested: false,
-            }],
-            ..Default::default()
-        }),
-        "sql" => Some(CommentRules {
-            block: vec![BlockRule {
-                start: "/*",
-                end: "*/",
-                nested: false,
-            }],
-            line: vec![LineRule {
+            ..NO_RULES
+        },
+    ),
+    (
+        "hash",
+        CommentRules {
+            line: &[HASH_LINE],
+            ..NO_RULES
+        },
+    ),
+    (
+        "html",
+        CommentRules {
+            block: &[block("<!--", "-->")],
+            ..NO_RULES
+        },
+    ),
+    (
+        "sql",
+        CommentRules {
+            block: &[block("/*", "*/")],
+            line: &[LineRule {
                 token: "--",
                 require_boundary: false,
                 preserve_shebang: false,
             }],
-            ..Default::default()
-        }),
-        "haskell" => Some(CommentRules {
-            block: vec![BlockRule {
-                start: "{-",
-                end: "-}",
-                nested: false,
-            }],
-            line: vec![LineRule {
-                token: "--",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
-            ..Default::default()
-        }),
-        "semicolon" => Some(CommentRules {
-            line: vec![LineRule {
-                token: ";",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
-            ..Default::default()
-        }),
-        // Clojure/ClojureScript: `'` and `` ` `` are quote/syntax-quote prefixes,
-        // never string delimiters (strings are `"..."` only) — unlike the
-        // `DEFAULT_QUOTE_DELIMITERS` fallback, which would treat a stray `'foo`
-        // as an unterminated string and swallow everything after it, including
-        // real string literals, so their whitespace never gets protected from
-        // the aggressive strategy's collapse/tighten passes.
-        "clojure" => Some(CommentRules {
-            line: vec![LineRule {
-                token: ";",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
+            ..NO_RULES
+        },
+    ),
+    (
+        "haskell",
+        CommentRules {
+            block: &[block("{-", "-}")],
+            line: &[line("--")],
+            ..NO_RULES
+        },
+    ),
+    (
+        "semicolon",
+        CommentRules {
+            line: &[line(";")],
+            ..NO_RULES
+        },
+    ),
+    // Clojure/ClojureScript: `'` and `` ` `` are quote/syntax-quote prefixes,
+    // never string delimiters (strings are `"..."` only) — unlike the
+    // `DEFAULT_QUOTE_DELIMITERS` fallback, which would treat a stray `'foo`
+    // as an unterminated string and swallow everything after it, including
+    // real string literals, so their whitespace never gets protected from
+    // the aggressive strategy's collapse/tighten passes.
+    (
+        "clojure",
+        CommentRules {
+            line: &[line(";")],
             quote_delimiters: &["\"\"\"", "\""],
-            ..Default::default()
-        }),
-        "wasm-text" => Some(CommentRules {
-            block: vec![BlockRule {
-                start: "(;",
-                end: ";)",
-                nested: false,
-            }],
-            line: vec![LineRule {
-                token: ";;",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
-            ..Default::default()
-        }),
-        "percent" => Some(CommentRules {
-            line: vec![LineRule {
-                token: "%",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
-            ..Default::default()
-        }),
-        "haml" => Some(CommentRules {
-            line: vec![LineRule {
-                token: "-#",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
-            ..Default::default()
-        }),
-        "slim" => Some(CommentRules {
-            line: vec![LineRule {
-                token: "/",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
-            ..Default::default()
-        }),
-        "powershell" => Some(CommentRules {
-            block: vec![BlockRule {
-                start: "<#",
-                end: "#>",
-                nested: false,
-            }],
-            line: vec![LineRule {
-                token: "#",
-                require_boundary: true,
-                preserve_shebang: true,
-            }],
+            ..NO_RULES
+        },
+    ),
+    (
+        "wasm-text",
+        CommentRules {
+            block: &[block("(;", ";)")],
+            line: &[line(";;")],
+            ..NO_RULES
+        },
+    ),
+    (
+        "percent",
+        CommentRules {
+            line: &[line("%")],
+            ..NO_RULES
+        },
+    ),
+    (
+        "haml",
+        CommentRules {
+            line: &[line("-#")],
+            ..NO_RULES
+        },
+    ),
+    (
+        "slim",
+        CommentRules {
+            line: &[line("/")],
+            ..NO_RULES
+        },
+    ),
+    (
+        "powershell",
+        CommentRules {
+            block: &[block("<#", "#>")],
+            line: &[HASH_LINE],
             powershell_here_strings: true,
-            ..Default::default()
-        }),
-        "bang" => Some(CommentRules {
-            line: vec![LineRule {
-                token: "!",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
-            ..Default::default()
-        }),
-        "apostrophe" => Some(CommentRules {
-            line: vec![LineRule {
-                token: "'",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
+            ..NO_RULES
+        },
+    ),
+    (
+        "bang",
+        CommentRules {
+            line: &[line("!")],
+            ..NO_RULES
+        },
+    ),
+    (
+        "apostrophe",
+        CommentRules {
+            line: &[line("'")],
             quote_delimiters: &["\"\"\"", "\"", "`"],
-            ..Default::default()
-        }),
-        "double-dash" => Some(CommentRules {
-            line: vec![LineRule {
-                token: "--",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
-            ..Default::default()
-        }),
-        "fsharp-block" => Some(CommentRules {
-            block: vec![BlockRule {
+            ..NO_RULES
+        },
+    ),
+    (
+        "double-dash",
+        CommentRules {
+            line: &[line("--")],
+            ..NO_RULES
+        },
+    ),
+    (
+        "fsharp-block",
+        CommentRules {
+            block: &[BlockRule {
                 start: "(*",
                 end: "*)",
                 nested: true,
             }],
-            ..Default::default()
-        }),
-        "pascal" => Some(CommentRules {
-            block: vec![
+            ..NO_RULES
+        },
+    ),
+    (
+        "pascal",
+        CommentRules {
+            block: &[
                 BlockRule {
                     start: "(*",
                     end: "*)",
                     nested: true,
                 },
-                BlockRule {
-                    start: "{",
-                    end: "}",
-                    nested: false,
-                },
+                block("{", "}"),
             ],
-            line: vec![LineRule {
-                token: "//",
-                require_boundary: true,
-                preserve_shebang: false,
-            }],
+            line: &[line("//")],
             quote_delimiters: &["'", "\""],
-            ..Default::default()
-        }),
-        "template" => Some(CommentRules {
-            block: vec![
-                BlockRule {
-                    start: "{{!--",
-                    end: "--}}",
-                    nested: false,
-                },
-                BlockRule {
-                    start: "{{!",
-                    end: "}}",
-                    nested: false,
-                },
-                BlockRule {
-                    start: "<%#",
-                    end: "%>",
-                    nested: false,
-                },
-                BlockRule {
-                    start: "{#",
-                    end: "#}",
-                    nested: false,
-                },
+            ..NO_RULES
+        },
+    ),
+    (
+        "template",
+        CommentRules {
+            block: &[
+                block("{{!--", "--}}"),
+                block("{{!", "}}"),
+                block("<%#", "%>"),
+                block("{#", "#}"),
             ],
-            ..Default::default()
-        }),
-        _ => None,
-    }
+            ..NO_RULES
+        },
+    ),
+];
+
+/// Return the CommentRules for the named CommentPatternGroup.
+pub fn rules_for(group: &str) -> Option<&'static CommentRules> {
+    COMMENT_GROUPS
+        .iter()
+        .find(|(name, _)| *name == group)
+        .map(|(_, rules)| rules)
 }
 
 const DEFAULT_QUOTE_DELIMITERS: &[&str] = &["\"\"\"", "'''", "\"", "'", "`"];
@@ -363,7 +354,7 @@ pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> Strin
 
                 // 6. Block comment
                 if let Some((end_pos, preserve_newlines)) =
-                    find_block_comment(content, pos, &rules.block)
+                    find_block_comment(content, pos, rules.block)
                 {
                     if preserve_newlines {
                         for ch in content[pos..end_pos].chars() {
@@ -377,7 +368,7 @@ pub fn strip_string_aware_comments(content: &str, rules: &CommentRules) -> Strin
                 }
 
                 // 7. Line comment
-                if let Some(()) = find_line_comment(content, pos, &rules.line) {
+                if let Some(()) = find_line_comment(content, pos, rules.line) {
                     let skip_to = content[pos..].find('\n').map(|i| pos + i).unwrap_or(len);
                     pos = skip_to;
                     continue;
@@ -804,7 +795,7 @@ pub fn remove_comments(content: &str, groups: &[&str]) -> String {
             continue;
         }
         if let Some(rules) = rules_for(group) {
-            result = strip_string_aware_comments(&result, &rules);
+            result = strip_string_aware_comments(&result, rules);
         }
         // Unknown group → skip silently (matches TS behaviour)
     }
@@ -855,7 +846,7 @@ mod tests {
     fn literal_ranges_finds_quoted_strings() {
         let rules = rules_for("c-style").unwrap();
         let content = r#"a = "hello world"; b = 1;"#;
-        let ranges = literal_ranges(content, &rules);
+        let ranges = literal_ranges(content, rules);
         assert_eq!(ranges.len(), 1);
         let (start, end) = ranges[0];
         assert_eq!(&content[start..end], "\"hello world\"");
@@ -865,7 +856,7 @@ mod tests {
     fn literal_ranges_finds_js_regex_literal() {
         let rules = rules_for("c-style").unwrap();
         let content = "const re = /a\\/b*c/g;";
-        let ranges = literal_ranges(content, &rules);
+        let ranges = literal_ranges(content, rules);
         assert_eq!(ranges.len(), 1);
         let (start, end) = ranges[0];
         assert_eq!(&content[start..end], "/a\\/b*c/g");
@@ -874,6 +865,6 @@ mod tests {
     #[test]
     fn literal_ranges_ignores_content_with_no_strings() {
         let rules = rules_for("hash").unwrap();
-        assert!(literal_ranges("x = 1\ny = 2", &rules).is_empty());
+        assert!(literal_ranges("x = 1\ny = 2", rules).is_empty());
     }
 }

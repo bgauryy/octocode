@@ -1,29 +1,17 @@
+//! One cache store for the runtime: a byte-bounded LRU memory tier plus an
+//! optional byte-bounded disk tier. The writer picks a [`CacheClass`] per
+//! entry, so pinned facts never expire while movable ones age out or
+//! revalidate.
 pub mod evictions;
 
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
-use std::path::Path;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
-
-/// Create or truncate `path` with owner-only (0600) permissions on Unix, for
-/// state files that hold keys or lock metadata.
-#[cfg(unix)]
-pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let mut file = std::fs::OpenOptions::new()
-        .create(true)
-        .truncate(true)
-        .write(true)
-        .mode(0o600)
-        .open(path)?;
-    file.write_all(bytes)
-}
-
-#[cfg(not(unix))]
-pub(crate) fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    std::fs::write(path, bytes)
-}
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Create `path` (and missing parents) owner-only (0700) on Unix, and tighten
 /// an existing directory, for caches that hold private repository content.
@@ -55,402 +43,393 @@ pub struct CacheKey {
     pub partition: CachePartition,
 }
 
+/// How an entry ages; the writer chooses it at `put`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum CacheClass {
+    /// Keyed by a content digest or a commit SHA: never expires and is always
+    /// fresh. Only the byte budget evicts it.
+    Immutable,
+    /// Fresh for [`CacheConfig::fresh`], then returned stale so the caller
+    /// revalidates it (ETag; a 304 costs no rate limit). Only the byte budget
+    /// evicts it.
+    Revalidate,
+    /// Expires after [`CacheConfig::ttl`].
+    Volatile,
+}
+
 #[derive(Clone, Debug)]
 pub struct CacheConfig {
     pub max_entries: usize,
+    /// Memory budget; also the largest single entry either tier accepts.
     pub max_bytes: usize,
+    /// Disk budget, pruned oldest-first by modification time.
+    pub disk_bytes: u64,
+    /// How long a [`CacheClass::Revalidate`] entry is served without a check.
+    pub fresh: Duration,
+    /// Lifetime of a [`CacheClass::Volatile`] entry.
     pub ttl: Duration,
 }
 
 impl Default for CacheConfig {
     fn default() -> Self {
         Self {
-            max_entries: 1_000,
-            max_bytes: 32 * 1024 * 1024,
-            ttl: Duration::from_secs(300),
+            max_entries: 4_096,
+            max_bytes: 64 * 1024 * 1024,
+            disk_bytes: 512 * 1024 * 1024,
+            fresh: Duration::from_secs(60),
+            ttl: Duration::from_secs(60),
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct CacheStats {
-    pub entries: usize,
-    pub bytes: usize,
-    pub hits: u64,
-    pub misses: u64,
-    pub expirations: u64,
-    pub evictions: u64,
-    pub invalidations: u64,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CacheSnapshot {
-    pub generation: u64,
-    pub config_revision: u64,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CacheMiss {
-    Absent,
-    Expired,
-    ConfigRevisionChanged,
-    StaleSnapshot,
-}
-
+/// A hit. `fresh` is false only for a [`CacheClass::Revalidate`] entry past
+/// its fresh window: the caller must revalidate before serving it.
 #[derive(Clone, Debug)]
-pub enum CacheLookup<V> {
-    Hit {
-        value: Arc<V>,
-        snapshot: CacheSnapshot,
-    },
-    Miss(CacheMiss),
+pub struct Cached<V> {
+    pub value: Arc<V>,
+    pub fresh: bool,
 }
 
 struct Entry<V> {
     value: Arc<V>,
     bytes: usize,
-    expires_at: Instant,
-    config_revision: u64,
-    generation: u64,
+    class: CacheClass,
+    stored_at: Instant,
 }
 
-pub struct BoundedCache<V> {
-    config: CacheConfig,
+struct Memory<V> {
     entries: HashMap<CacheKey, Entry<V>>,
     order: VecDeque<CacheKey>,
-    stats: CacheStats,
-    generation: u64,
+    bytes: usize,
 }
 
-impl<V> BoundedCache<V> {
-    pub fn new(config: CacheConfig) -> Self {
+impl<V> Memory<V> {
+    fn remove(&mut self, key: &CacheKey) {
+        if let Some(entry) = self.entries.remove(key) {
+            self.bytes = self.bytes.saturating_sub(entry.bytes);
+            self.order.retain(|candidate| candidate != key);
+        }
+    }
+}
+
+/// Freshness of an entry `age` old, or `None` once it expired.
+fn freshness(config: &CacheConfig, class: CacheClass, age: Duration) -> Option<bool> {
+    match class {
+        CacheClass::Immutable => Some(true),
+        CacheClass::Revalidate => Some(age < config.fresh),
+        CacheClass::Volatile => (age < config.ttl).then_some(true),
+    }
+}
+
+pub struct Store<V> {
+    config: CacheConfig,
+    memory: Mutex<Memory<V>>,
+    disk: Option<Disk>,
+}
+
+impl<V: Clone + Serialize + DeserializeOwned> Store<V> {
+    /// `disk: None` keeps the store in this process only.
+    pub fn new(config: CacheConfig, disk: Option<PathBuf>) -> Self {
         Self {
+            disk: disk.map(Disk::new),
+            memory: Mutex::new(Memory {
+                entries: HashMap::new(),
+                order: VecDeque::new(),
+                bytes: 0,
+            }),
             config,
-            entries: HashMap::new(),
-            order: VecDeque::new(),
-            stats: CacheStats::default(),
-            generation: 0,
         }
     }
 
-    pub fn insert(
-        &mut self,
+    pub fn get(&self, key: &CacheKey) -> Option<Cached<V>> {
+        let now = Instant::now();
+        {
+            let mut memory = self.memory.lock().unwrap_or_else(|p| p.into_inner());
+            if let Some(entry) = memory.entries.get(key) {
+                let age = now.saturating_duration_since(entry.stored_at);
+                match freshness(&self.config, entry.class, age) {
+                    Some(fresh) => {
+                        let value = Arc::clone(&entry.value);
+                        memory.order.retain(|candidate| candidate != key);
+                        memory.order.push_back(key.clone());
+                        return Some(Cached { value, fresh });
+                    }
+                    None => memory.remove(key),
+                }
+            }
+        }
+        let (value, class, age, bytes) = self.disk.as_ref()?.read::<V>(key, &self.config)?;
+        let fresh = freshness(&self.config, class, age)?;
+        // Promote, backdated so the memory copy ages like the disk copy.
+        let stored_at = now.checked_sub(age).unwrap_or(now);
+        let value = self.insert_memory(key.clone(), value, bytes, class, stored_at);
+        Some(Cached { value, fresh })
+    }
+
+    /// Store `value` (about `bytes` large) in memory and, when configured, on
+    /// disk. An entry larger than the memory budget is not stored at all.
+    pub fn put(&self, key: CacheKey, value: V, bytes: usize, class: CacheClass) {
+        if self.config.max_entries == 0 || bytes > self.config.max_bytes {
+            return;
+        }
+        if let Some(disk) = &self.disk {
+            disk.write(&key, &value, class, &self.config);
+        }
+        self.insert_memory(key, value, bytes, class, Instant::now());
+    }
+
+    /// Drop `key` from both tiers.
+    pub fn remove(&self, key: &CacheKey) {
+        self.memory
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(key);
+        if let Some(disk) = &self.disk {
+            let _ = fs::remove_file(disk.file(key));
+        }
+    }
+
+    pub fn clear_memory(&self) {
+        let mut memory = self.memory.lock().unwrap_or_else(|p| p.into_inner());
+        memory.entries.clear();
+        memory.order.clear();
+        memory.bytes = 0;
+    }
+
+    pub fn clear(&self) {
+        self.clear_memory();
+        if let Some(disk) = &self.disk {
+            disk.clear();
+        }
+    }
+
+    fn insert_memory(
+        &self,
         key: CacheKey,
         value: V,
         bytes: usize,
-        config_revision: u64,
-        now: Instant,
-    ) -> Option<CacheSnapshot> {
+        class: CacheClass,
+        stored_at: Instant,
+    ) -> Arc<V> {
+        let value = Arc::new(value);
         if self.config.max_entries == 0 || bytes > self.config.max_bytes {
-            return None;
+            return value;
         }
-        self.remove(&key, false);
-        self.generation = self.generation.wrapping_add(1);
-        let snapshot = CacheSnapshot {
-            generation: self.generation,
-            config_revision,
-        };
-        self.entries.insert(
+        let mut memory = self.memory.lock().unwrap_or_else(|p| p.into_inner());
+        memory.remove(&key);
+        memory.entries.insert(
             key.clone(),
             Entry {
-                value: Arc::new(value),
+                value: Arc::clone(&value),
                 bytes,
-                expires_at: now + self.config.ttl,
-                config_revision,
-                generation: snapshot.generation,
+                class,
+                stored_at,
             },
         );
-        self.order.push_back(key);
-        self.recount();
-        self.evict_to_budget();
-        Some(snapshot)
-    }
-
-    pub fn get(
-        &mut self,
-        key: &CacheKey,
-        config_revision: u64,
-        expected: Option<CacheSnapshot>,
-        now: Instant,
-    ) -> CacheLookup<V> {
-        let reason = match self.entries.get(key) {
-            None => Some(CacheMiss::Absent),
-            Some(entry) if now >= entry.expires_at => Some(CacheMiss::Expired),
-            Some(entry) if entry.config_revision != config_revision => {
-                Some(CacheMiss::ConfigRevisionChanged)
-            }
-            Some(entry)
-                if expected.is_some_and(|snapshot| {
-                    snapshot.generation != entry.generation
-                        || snapshot.config_revision != entry.config_revision
-                }) =>
-            {
-                Some(CacheMiss::StaleSnapshot)
-            }
-            Some(_) => None,
-        };
-        if let Some(reason) = reason {
-            self.stats.misses += 1;
-            if matches!(
-                reason,
-                CacheMiss::Expired | CacheMiss::ConfigRevisionChanged
-            ) {
-                self.remove(key, true);
-                if reason == CacheMiss::Expired {
-                    self.stats.expirations += 1;
-                } else {
-                    self.stats.invalidations += 1;
-                }
-            }
-            return CacheLookup::Miss(reason);
-        }
-        self.touch(key);
-        self.stats.hits += 1;
-        // Presence was established by the miss checks above before `touch`.
-        #[allow(clippy::expect_used)]
-        let entry = self.entries.get(key).expect("entry checked above");
-        CacheLookup::Hit {
-            value: Arc::clone(&entry.value),
-            snapshot: CacheSnapshot {
-                generation: entry.generation,
-                config_revision: entry.config_revision,
-            },
-        }
-    }
-
-    pub fn invalidate_all(&mut self) {
-        let count = self.entries.len();
-        self.entries.clear();
-        self.order.clear();
-        self.stats.invalidations += count as u64;
-        self.recount();
-    }
-
-    pub fn stats(&self) -> CacheStats {
-        self.stats
-    }
-
-    fn touch(&mut self, key: &CacheKey) {
-        self.order.retain(|candidate| candidate != key);
-        self.order.push_back(key.clone());
-    }
-
-    fn remove(&mut self, key: &CacheKey, recount: bool) {
-        self.entries.remove(key);
-        self.order.retain(|candidate| candidate != key);
-        if recount {
-            self.recount();
-        }
-    }
-
-    fn recount(&mut self) {
-        self.stats.entries = self.entries.len();
-        self.stats.bytes = self.entries.values().map(|entry| entry.bytes).sum();
-    }
-
-    fn evict_to_budget(&mut self) {
-        while self.entries.len() > self.config.max_entries
-            || self.stats.bytes > self.config.max_bytes
+        memory.order.push_back(key);
+        memory.bytes = memory.bytes.saturating_add(bytes);
+        while memory.entries.len() > self.config.max_entries || memory.bytes > self.config.max_bytes
         {
-            let Some(key) = self.order.pop_front() else {
+            let Some(oldest) = memory.order.pop_front() else {
                 break;
             };
-            if self.entries.remove(&key).is_some() {
-                self.stats.evictions += 1;
+            if let Some(entry) = memory.entries.remove(&oldest) {
+                memory.bytes = memory.bytes.saturating_sub(entry.bytes);
             }
-            self.recount();
         }
+        value
+    }
+}
+
+/// Disk scans are O(files); amortize them across writes.
+const PRUNE_EVERY_WRITES: usize = 64;
+/// Cross-process throttle: one-shot CLI processes each write a few entries, so
+/// a marker file bounds pruning to once per interval across processes.
+const PRUNE_INTERVAL: Duration = Duration::from_secs(60);
+const PRUNE_MARKER: &str = ".last-prune";
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DiskEntryRef<'a, V> {
+    class: CacheClass,
+    stored_at_unix: u64,
+    value: &'a V,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DiskEntry<V> {
+    class: CacheClass,
+    stored_at_unix: u64,
+    value: V,
+}
+
+fn now_unix() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs())
+}
+
+struct Disk {
+    dir: PathBuf,
+    /// Writes by this process: pruning runs on the first and then every
+    /// [`PRUNE_EVERY_WRITES`] writes instead of scanning per write.
+    writes: AtomicUsize,
+}
+
+impl Disk {
+    fn new(dir: PathBuf) -> Self {
+        let _ = create_private_dir_all(&dir);
+        Self {
+            dir,
+            writes: AtomicUsize::new(0),
+        }
+    }
+
+    fn file(&self, key: &CacheKey) -> PathBuf {
+        let mut digest = Sha256::new();
+        // Domain separation: files of an older layout are never read.
+        digest.update(b"octocode-cache-store-v1");
+        for value in [
+            &key.namespace,
+            &key.partition.endpoint,
+            &key.partition.credential_fingerprint,
+            &key.resource,
+        ] {
+            digest.update((value.len() as u64).to_le_bytes());
+            digest.update(value.as_bytes());
+        }
+        self.dir
+            .join(format!("{}.json", hex::encode(digest.finalize())))
+    }
+
+    fn read<V: DeserializeOwned>(
+        &self,
+        key: &CacheKey,
+        config: &CacheConfig,
+    ) -> Option<(V, CacheClass, Duration, usize)> {
+        let path = self.file(key);
+        // An entry is only a regular file this store could have written: a
+        // FIFO, device, symlink, or file past the entry bound is evicted.
+        let read = crate::private_file::open_no_follow(&path, false).and_then(|file| {
+            let bytes = crate::private_file::read_limited(&file, config.max_bytes as u64)?;
+            Ok((file, bytes))
+        });
+        let (file, bytes) = match read {
+            Ok(read) => read,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::NotFound {
+                    let _ = fs::remove_file(&path);
+                }
+                return None;
+            }
+        };
+        let Ok(entry) = serde_json::from_slice::<DiskEntry<V>>(&bytes) else {
+            let _ = fs::remove_file(&path);
+            return None;
+        };
+        let age = Duration::from_secs(now_unix().saturating_sub(entry.stored_at_unix));
+        if freshness(config, entry.class, age).is_none() {
+            let _ = fs::remove_file(&path);
+            return None;
+        }
+        // A read counts as use for the oldest-first pruning. A read-only
+        // handle may not set times (Windows), so a writer is the fallback.
+        let now = SystemTime::now();
+        if file.set_modified(now).is_err()
+            && let Ok(writer) = fs::File::options().write(true).open(&path)
+        {
+            let _ = writer.set_modified(now);
+        }
+        Some((entry.value, entry.class, age, bytes.len()))
+    }
+
+    fn write<V: Serialize>(
+        &self,
+        key: &CacheKey,
+        value: &V,
+        class: CacheClass,
+        config: &CacheConfig,
+    ) {
+        let path = self.file(key);
+        let entry = DiskEntryRef {
+            class,
+            stored_at_unix: now_unix(),
+            value,
+        };
+        let Ok(bytes) = serde_json::to_vec(&entry) else {
+            return;
+        };
+        if bytes.len() > config.max_bytes {
+            return;
+        }
+        // Owner-only replacement: values may be private source, and an
+        // in-place rewrite would keep a pre-existing file's loose mode.
+        let _ = crate::private_file::write_atomic(&path, &bytes, false);
+        if self
+            .writes
+            .fetch_add(1, Ordering::Relaxed)
+            .is_multiple_of(PRUNE_EVERY_WRITES)
+            && self.prune_due()
+        {
+            self.prune(config.disk_bytes);
+        }
+    }
+
+    /// True when no process pruned within [`PRUNE_INTERVAL`]; claims the slot
+    /// by touching the marker.
+    fn prune_due(&self) -> bool {
+        let marker = self.dir.join(PRUNE_MARKER);
+        let recent = fs::metadata(&marker)
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|modified| SystemTime::now().duration_since(modified).ok())
+            .is_some_and(|elapsed| elapsed < PRUNE_INTERVAL);
+        if recent {
+            return false;
+        }
+        let _ = fs::write(&marker, b"");
+        true
+    }
+
+    /// Keep the directory within `budget` bytes, removing the least recently
+    /// used files first.
+    fn prune(&self, budget: u64) {
+        let Ok(read_dir) = fs::read_dir(&self.dir) else {
+            return;
+        };
+        let mut files: Vec<(SystemTime, u64, PathBuf)> = read_dir
+            .flatten()
+            .filter_map(|entry| {
+                let path = entry.path();
+                if path.extension().is_none_or(|ext| ext != "json") {
+                    return None;
+                }
+                let meta = entry.metadata().ok()?;
+                Some((meta.modified().ok()?, meta.len(), path))
+            })
+            .collect();
+        let mut total: u64 = files.iter().map(|(_, len, _)| len).sum();
+        if total <= budget {
+            return;
+        }
+        files.sort_by_key(|(mtime, _, _)| *mtime);
+        for (_, len, path) in files {
+            if total <= budget {
+                break;
+            }
+            if fs::remove_file(path).is_ok() {
+                total = total.saturating_sub(len);
+            }
+        }
+    }
+
+    fn clear(&self) {
+        let _ = fs::remove_dir_all(&self.dir);
+        let _ = create_private_dir_all(&self.dir);
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn key(resource: &str, credential: &str) -> CacheKey {
-        CacheKey {
-            namespace: "github".into(),
-            resource: resource.into(),
-            partition: CachePartition {
-                endpoint: "https://api.github.com".into(),
-                credential_fingerprint: credential.into(),
-            },
-        }
-    }
-
-    #[test]
-    fn enforces_byte_and_entry_lru_budgets() {
-        let mut cache = BoundedCache::new(CacheConfig {
-            max_entries: 2,
-            max_bytes: 5,
-            ttl: Duration::from_secs(60),
-        });
-        let now = Instant::now();
-        cache.insert(key("a", "x"), 1, 2, 1, now);
-        cache.insert(key("b", "x"), 2, 2, 1, now);
-        let _ = cache.get(&key("a", "x"), 1, None, now);
-        cache.insert(key("c", "x"), 3, 2, 1, now);
-        assert!(matches!(
-            cache.get(&key("b", "x"), 1, None, now),
-            CacheLookup::Miss(CacheMiss::Absent)
-        ));
-        assert_eq!(cache.stats().evictions, 1);
-        assert_eq!(cache.stats().bytes, 4);
-    }
-
-    #[test]
-    fn expires_and_invalidates_revision_without_mixing_snapshots() {
-        let mut cache = BoundedCache::new(CacheConfig {
-            ttl: Duration::from_secs(1),
-            ..Default::default()
-        });
-        let now = Instant::now();
-        let snapshot = cache
-            .insert(key("a", "x"), 1, 1, 7, now)
-            .expect("cacheable");
-        assert!(matches!(
-            cache.get(&key("a", "x"), 7, Some(snapshot), now),
-            CacheLookup::Hit { .. }
-        ));
-        assert!(matches!(
-            cache.get(&key("a", "x"), 8, None, now),
-            CacheLookup::Miss(CacheMiss::ConfigRevisionChanged)
-        ));
-        let old = cache
-            .insert(key("a", "x"), 2, 1, 8, now)
-            .expect("cacheable");
-        let _new = cache
-            .insert(key("a", "x"), 3, 1, 8, now)
-            .expect("cacheable");
-        assert!(matches!(
-            cache.get(&key("a", "x"), 8, Some(old), now),
-            CacheLookup::Miss(CacheMiss::StaleSnapshot)
-        ));
-        assert!(matches!(
-            cache.get(&key("a", "x"), 8, None, now + Duration::from_secs(2)),
-            CacheLookup::Miss(CacheMiss::Expired)
-        ));
-    }
-
-    #[test]
-    fn partitions_by_endpoint_and_credential() {
-        let mut cache = BoundedCache::new(CacheConfig::default());
-        let now = Instant::now();
-        cache.insert(key("a", "first"), 1, 1, 1, now);
-        cache.insert(key("a", "second"), 2, 1, 1, now);
-        assert!(matches!(
-            cache.get(&key("a", "first"), 1, None, now),
-            CacheLookup::Hit { .. }
-        ));
-        assert!(matches!(
-            cache.get(&key("a", "second"), 1, None, now),
-            CacheLookup::Hit { .. }
-        ));
-    }
-
-    /// `max_entries: 0` is the programmatic "cache disabled" signal.
-    /// `insert` must return `None` (refused) and every `get` must be `Absent`.
-    #[test]
-    fn max_entries_zero_disables_all_inserts_and_reads() {
-        let mut cache = BoundedCache::<u32>::new(CacheConfig {
-            max_entries: 0,
-            ..Default::default()
-        });
-        let now = Instant::now();
-        let snapshot = cache.insert(key("a", "x"), 99, 4, 1, now);
-        assert!(snapshot.is_none(), "max_entries=0 must refuse inserts");
-        assert!(
-            matches!(
-                cache.get(&key("a", "x"), 1, None, now),
-                CacheLookup::Miss(CacheMiss::Absent)
-            ),
-            "refused insert must leave nothing readable"
-        );
-        assert_eq!(cache.stats().entries, 0);
-        assert_eq!(cache.stats().bytes, 0);
-    }
-
-    /// Hits, misses, expirations, and evictions must each increment only their
-    /// own counter; no counter should bleed into another.
-    #[test]
-    fn stats_counters_increment_independently() {
-        let mut cache = BoundedCache::<u32>::new(CacheConfig {
-            max_entries: 1,
-            max_bytes: 100,
-            ttl: Duration::from_secs(60),
-        });
-        let now = Instant::now();
-
-        // Miss on empty cache.
-        let _ = cache.get(&key("missing", "x"), 1, None, now);
-        assert_eq!(cache.stats().misses, 1);
-        assert_eq!(cache.stats().hits, 0);
-
-        // Insert and hit.
-        cache.insert(key("a", "x"), 1, 4, 1, now);
-        let _ = cache.get(&key("a", "x"), 1, None, now);
-        assert_eq!(cache.stats().hits, 1);
-        assert_eq!(cache.stats().misses, 1); // unchanged
-
-        // Revision change → miss + invalidation (not expiration).
-        let _ = cache.get(&key("a", "x"), 2, None, now);
-        assert_eq!(cache.stats().invalidations, 1);
-        assert_eq!(cache.stats().expirations, 0);
-
-        // Expired entry → miss + expiration counter.
-        cache.insert(key("b", "x"), 2, 4, 1, now);
-        let future = now + Duration::from_secs(400);
-        let _ = cache.get(&key("b", "x"), 1, None, future);
-        assert_eq!(cache.stats().expirations, 1);
-
-        // Eviction: new insert exceeds max_entries=1, oldest is evicted.
-        cache.insert(key("c", "x"), 3, 4, 1, now);
-        cache.insert(key("d", "x"), 4, 4, 1, now);
-        assert_eq!(cache.stats().evictions, 1);
-    }
-
-    /// A `get()` call re-orders the accessed entry to the back of the LRU queue.
-    /// After a hit, filling the budget must evict the un-touched entry, not the
-    /// recently accessed one.
-    #[test]
-    fn lru_touch_on_hit_protects_accessed_entry_from_eviction() {
-        let mut cache = BoundedCache::<u32>::new(CacheConfig {
-            max_entries: 2,
-            max_bytes: 1000,
-            ttl: Duration::from_secs(60),
-        });
-        let now = Instant::now();
-
-        // Insert two entries; "a" is older (front of LRU queue).
-        cache.insert(key("a", "x"), 1, 4, 1, now);
-        cache.insert(key("b", "x"), 2, 4, 1, now);
-
-        // Touch "a" → moves it to the back; "b" is now the eviction candidate.
-        let _ = cache.get(&key("a", "x"), 1, None, now);
-
-        // Insert "c" → budget exceeded, LRU entry ("b") is evicted.
-        cache.insert(key("c", "x"), 3, 4, 1, now);
-
-        assert!(
-            matches!(
-                cache.get(&key("a", "x"), 1, None, now),
-                CacheLookup::Hit { .. }
-            ),
-            "touched entry 'a' must survive eviction"
-        );
-        assert!(
-            matches!(
-                cache.get(&key("b", "x"), 1, None, now),
-                CacheLookup::Miss(CacheMiss::Absent)
-            ),
-            "un-touched entry 'b' must be evicted"
-        );
-        assert!(
-            matches!(
-                cache.get(&key("c", "x"), 1, None, now),
-                CacheLookup::Hit { .. }
-            ),
-            "newest entry 'c' must survive"
-        );
-    }
-}
+mod tests;

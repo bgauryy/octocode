@@ -1,10 +1,8 @@
-use crate::error::{Error, Result, Status};
+use crate::error::{Error, Result};
 use crate::lsp::grammar::grammar_for_file;
 use crate::lsp::types::{JsExactPosition, JsFuzzyPosition, JsResolvedSymbol};
 use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
 use crate::text::utf8_offsets::{byte_to_char_offset_inner, hide_bom_in_line};
-use std::fs;
-use std::io::Read;
 use std::time::Instant;
 use tree_sitter::Node;
 
@@ -13,7 +11,6 @@ const MAX_POSITION_SOURCE_BYTES: usize = super::MAX_LSP_SOURCE_BYTES as usize;
 
 fn budget_error() -> Error {
     Error::new(
-        Status::GenericFailure,
         "[lspPositionTimeout] Symbol position analysis exceeded its time budget; narrow the source.",
     )
 }
@@ -28,12 +25,9 @@ fn check_budget(deadline: Instant) -> Result<()> {
 
 fn check_source_size(size: usize) -> Result<()> {
     if size > MAX_POSITION_SOURCE_BYTES {
-        Err(Error::new(
-            Status::GenericFailure,
-            format!(
-                "[lspSourceTooLarge] Symbol position source exceeds {MAX_POSITION_SOURCE_BYTES} bytes; narrow the source."
-            ),
-        ))
+        Err(Error::new(format!(
+            "[lspSourceTooLarge] Symbol position source exceeds {MAX_POSITION_SOURCE_BYTES} bytes; narrow the source."
+        )))
     } else {
         Ok(())
     }
@@ -71,48 +65,7 @@ impl QuoteState {
     }
 }
 
-pub fn resolve_position(file_path: String, fuzzy: JsFuzzyPosition) -> Result<JsResolvedSymbol> {
-    let metadata = fs::metadata(&file_path).map_err(|err| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Failed to read {file_path}: {err}"),
-        )
-    })?;
-    if !metadata.is_file() {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "Symbol position source must be a regular file",
-        ));
-    }
-    check_source_size(metadata.len().try_into().unwrap_or(usize::MAX))?;
-    let file = fs::File::open(&file_path).map_err(|err| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Failed to read {file_path}: {err}"),
-        )
-    })?;
-    let metadata = file
-        .metadata()
-        .map_err(|err| Error::new(Status::GenericFailure, err.to_string()))?;
-    if !metadata.is_file() {
-        return Err(Error::new(
-            Status::InvalidArg,
-            "Symbol position source must be a regular file",
-        ));
-    }
-    check_source_size(metadata.len().try_into().unwrap_or(usize::MAX))?;
-    let mut content = String::new();
-    file.take((MAX_POSITION_SOURCE_BYTES + 1) as u64)
-        .read_to_string(&mut content)
-        .map_err(|err| {
-            Error::new(
-                Status::GenericFailure,
-                format!("Failed to read {file_path}: {err}"),
-            )
-        })?;
-    resolve_position_with_path(&file_path, &content, &fuzzy)
-}
-
+#[cfg(test)]
 pub fn resolve_position_from_content(
     content: String,
     fuzzy: JsFuzzyPosition,
@@ -123,7 +76,7 @@ pub fn resolve_position_from_content(
     resolve_position_from_lines(&lines, &fuzzy, deadline)
 }
 
-/// [`resolve_position`] over `content` already read for `file_path` (the path
+/// [`resolve_position_from_content`] over `content` already read for `file_path` (the path
 /// only selects the grammar; the file is not read). Lets a caller resolve the
 /// anchor on exactly the text it synchronized with `didOpen`.
 pub fn resolve_position_in_file_content(
@@ -132,14 +85,6 @@ pub fn resolve_position_in_file_content(
     fuzzy: &JsFuzzyPosition,
 ) -> Result<JsResolvedSymbol> {
     check_source_size(content.len())?;
-    resolve_position_with_path(file_path, content, fuzzy)
-}
-
-fn resolve_position_with_path(
-    file_path: &str,
-    content: &str,
-    fuzzy: &JsFuzzyPosition,
-) -> Result<JsResolvedSymbol> {
     resolve_position_before(
         file_path,
         content,
@@ -174,13 +119,10 @@ fn resolve_position_from_lines(
     match fuzzy.line_hint {
         None | Some(0) => scan_whole_file(lines, &fuzzy.symbol_name, order_hint, deadline)?
             .ok_or_else(|| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!(
-                        "Could not find symbol '{}' anywhere in the file",
-                        fuzzy.symbol_name
-                    ),
-                )
+                Error::new(format!(
+                    "Could not find symbol '{}' anywhere in the file",
+                    fuzzy.symbol_name
+                ))
             }),
         Some(line_hint) => {
             let result = scan_near_line(lines, &fuzzy.symbol_name, line_hint, order_hint);
@@ -591,13 +533,10 @@ fn scan_near_line(
 ) -> Result<JsResolvedSymbol> {
     let target = line_hint as i32 - 1;
     if target < 0 || target as usize >= lines.len() {
-        return Err(Error::new(
-            Status::InvalidArg,
-            format!(
-                "Line {line_hint} is out of range (file has {} lines)",
-                lines.len()
-            ),
-        ));
+        return Err(Error::new(format!(
+            "Line {line_hint} is out of range (file has {} lines)",
+            lines.len()
+        )));
     }
 
     if let Some(hit) = find_symbol_in_line(lines[target as usize], symbol_name, order_hint) {
@@ -621,10 +560,9 @@ fn scan_near_line(
         }
     }
 
-    Err(Error::new(
-        Status::GenericFailure,
-        format!("Could not find symbol '{symbol_name}' at or near line {line_hint}"),
-    ))
+    Err(Error::new(format!(
+        "Could not find symbol '{symbol_name}' at or near line {line_hint}"
+    )))
 }
 
 fn scan_whole_file(
@@ -793,7 +731,7 @@ fn strip_line_comment(line: &str) -> &str {
 
 #[cfg(test)]
 mod tests {
-    use super::{LineIndex, resolve_position_with_path};
+    use super::{LineIndex, resolve_position_in_file_content};
     use crate::lsp::types::JsFuzzyPosition;
 
     fn fuzzy(name: &str, line_hint: Option<u32>) -> JsFuzzyPosition {
@@ -844,7 +782,7 @@ mod tests {
         // Tree-sitter rows count only `\n`; with lone `\r` breaks the whole
         // file is one tree-sitter row, but the server sees three lines.
         let source = "const a = 1;\rconst b = 2;\rfunction target() {}\r";
-        let hit = resolve_position_with_path("demo.ts", source, &fuzzy("target", None))
+        let hit = resolve_position_in_file_content("demo.ts", source, &fuzzy("target", None))
             .expect("target resolves");
         assert_eq!(hit.position.line, 2);
         assert_eq!(hit.position.character, 9);
@@ -852,7 +790,7 @@ mod tests {
         assert_eq!(hit.line_content, "function target() {}");
 
         let crlf = "const a = 1;\r\nfunction target() {}\r\n";
-        let hit = resolve_position_with_path("demo.ts", crlf, &fuzzy("target", Some(2)))
+        let hit = resolve_position_in_file_content("demo.ts", crlf, &fuzzy("target", Some(2)))
             .expect("target resolves");
         assert_eq!((hit.position.line, hit.position.character), (1, 9));
     }
@@ -861,7 +799,7 @@ mod tests {
     fn grammar_resolution_reports_utf16_columns_after_non_ascii_and_emoji() {
         // "é" is 2 UTF-8 bytes / 1 UTF-16 unit; "😀" is 4 bytes / 2 units.
         let source = "const a = 1;\r\nconst s = 'é😀'; const target = 2;\r\n";
-        let hit = resolve_position_with_path("demo.ts", source, &fuzzy("target", Some(2)))
+        let hit = resolve_position_in_file_content("demo.ts", source, &fuzzy("target", Some(2)))
             .expect("target resolves");
         assert_eq!(hit.position.line, 1);
         let expected = "const s = 'é😀'; const ".encode_utf16().count() as u32;
@@ -881,7 +819,7 @@ mod tests {
             "const target = 1;\n{}",
             " ".repeat(crate::lsp::MAX_LSP_SOURCE_BYTES as usize)
         );
-        let result = resolve_position_with_path(
+        let result = resolve_position_in_file_content(
             "demo.ts",
             &source,
             &JsFuzzyPosition {
@@ -957,7 +895,7 @@ mod tests {
             "(".repeat(10_000),
             ")".repeat(10_000)
         );
-        let result = super::resolve_position_with_path(
+        let result = super::resolve_position_in_file_content(
             "demo.ts",
             &source,
             &JsFuzzyPosition {
@@ -977,7 +915,7 @@ mod tests {
     }
 
     fn resolve_char(file_name: &str, source: &str, symbol_name: &str, line_hint: u32) -> u32 {
-        resolve_position_with_path(
+        resolve_position_in_file_content(
             file_name,
             source,
             &JsFuzzyPosition {
@@ -1015,7 +953,7 @@ mod tests {
             let source = format!("const {identifier} = 1;\n");
             for file_name in ["demo.ts", "demo.unknown"] {
                 assert!(
-                    resolve_position_with_path(
+                    resolve_position_in_file_content(
                         file_name,
                         &source,
                         &JsFuzzyPosition {
@@ -1056,7 +994,7 @@ mod tests {
     }
 
     fn resolve(file_name: &str, source: &str, symbol_name: &str, line_hint: u32) -> u32 {
-        let result = resolve_position_with_path(
+        let result = resolve_position_in_file_content(
             file_name,
             source,
             &JsFuzzyPosition {
@@ -1072,7 +1010,7 @@ mod tests {
     }
 
     fn resolve_with_order(source: &str, symbol_name: &str, line_hint: u32, order: u32) -> u32 {
-        resolve_position_with_path(
+        resolve_position_in_file_content(
             "demo.ts",
             source,
             &JsFuzzyPosition {
@@ -1148,7 +1086,7 @@ mod tests {
         symbol_name: &str,
         line_hint: Option<u32>,
     ) -> u32 {
-        resolve_position_with_path(file_name, source, &fuzzy(symbol_name, line_hint))
+        resolve_position_in_file_content(file_name, source, &fuzzy(symbol_name, line_hint))
             .unwrap_or_else(|err| panic!("{file_name}: {err}"))
             .found_at_line
     }
@@ -1286,7 +1224,7 @@ mod tests {
         // Line 3 is the hint; the use (line 2, inside a method body) and the
         // declaration (line 4) are equally near, so the declaration must win.
         let source = "class A {\n  run() { return helper(); }\n}\nfunction helper() {}\n";
-        let hit = resolve_position_with_path("demo.ts", source, &fuzzy("helper", Some(3)))
+        let hit = resolve_position_in_file_content("demo.ts", source, &fuzzy("helper", Some(3)))
             .expect("resolves");
         assert_eq!(hit.found_at_line, 4);
         assert_eq!(hit.position.character, 9);
@@ -1298,8 +1236,9 @@ mod tests {
     fn leading_bom_is_hidden_from_row_zero_columns_and_text() {
         for file_name in ["demo.ts", "demo.unknown"] {
             let source = "\u{feff}const target = 1;\nconst other = target;\n";
-            let hit = resolve_position_with_path(file_name, source, &fuzzy("target", Some(1)))
-                .expect("resolves");
+            let hit =
+                resolve_position_in_file_content(file_name, source, &fuzzy("target", Some(1)))
+                    .expect("resolves");
             assert_eq!(
                 (hit.position.line, hit.position.character),
                 (0, 6),
@@ -1307,8 +1246,9 @@ mod tests {
             );
             assert_eq!(hit.line_content, "const target = 1;", "{file_name}");
             // Later rows are unaffected by the BOM.
-            let hit = resolve_position_with_path(file_name, source, &fuzzy("target", Some(2)))
-                .expect("resolves");
+            let hit =
+                resolve_position_in_file_content(file_name, source, &fuzzy("target", Some(2)))
+                    .expect("resolves");
             assert_eq!(
                 (hit.position.line, hit.position.character),
                 (1, 14),
@@ -1316,9 +1256,12 @@ mod tests {
             );
         }
         // A symbol at column 0 right after the BOM.
-        let hit =
-            resolve_position_with_path("demo.py", "\u{feff}target = 1\n", &fuzzy("target", None))
-                .expect("resolves");
+        let hit = resolve_position_in_file_content(
+            "demo.py",
+            "\u{feff}target = 1\n",
+            &fuzzy("target", None),
+        )
+        .expect("resolves");
         assert_eq!((hit.position.line, hit.position.character), (0, 0));
     }
 }

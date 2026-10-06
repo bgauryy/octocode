@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
-pub struct Node {
+pub struct FileGraphNode {
     pub edges: BTreeMap<String, BTreeSet<String>>,
     pub dynamic_only: BTreeSet<String>,
 }
@@ -29,7 +28,7 @@ struct Successor<'g> {
 }
 
 impl<'g> Indexed<'g> {
-    fn build(graph: &'g BTreeMap<String, Node>) -> Self {
+    fn build(graph: &'g BTreeMap<String, FileGraphNode>) -> Self {
         let mut ids = BTreeMap::new();
         let mut names = Vec::with_capacity(graph.len());
         for key in graph.keys() {
@@ -70,10 +69,24 @@ impl<'g> Indexed<'g> {
     fn name(&self, id: u32) -> &'g str {
         self.names[id as usize]
     }
+
+    /// The `from → to` edge; a pair the successor lists lack (never built by
+    /// the algorithms here) carries no kinds.
+    fn edge(&self, from: u32, to: u32) -> FileEdge {
+        FileEdge {
+            from: self.name(from).to_owned(),
+            to: self.name(to).to_owned(),
+            edge_kinds: self.successors[from as usize]
+                .iter()
+                .find(|successor| successor.id == to)
+                .map(|successor| successor.kinds.clone())
+                .unwrap_or_default(),
+        }
+    }
 }
 
 pub fn reachable(
-    graph: &BTreeMap<String, Node>,
+    graph: &BTreeMap<String, FileGraphNode>,
     roots: &[String],
     static_only: bool,
 ) -> BTreeSet<String> {
@@ -105,9 +118,11 @@ pub fn reachable(
     out
 }
 
-pub fn reverse(graph: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
-    let mut out: BTreeMap<String, Node> =
-        graph.keys().map(|k| (k.clone(), Node::default())).collect();
+pub fn reverse(graph: &BTreeMap<String, FileGraphNode>) -> BTreeMap<String, FileGraphNode> {
+    let mut out: BTreeMap<String, FileGraphNode> = graph
+        .keys()
+        .map(|k| (k.clone(), FileGraphNode::default()))
+        .collect();
     for (from, node) in graph {
         for (to, kinds) in &node.edges {
             if let Some(n) = out.get_mut(to) {
@@ -121,7 +136,36 @@ pub fn reverse(graph: &BTreeMap<String, Node>) -> BTreeMap<String, Node> {
     out
 }
 
-pub fn traverse(graph: &BTreeMap<String, Node>, source: &str, depth: u32) -> Vec<Value> {
+/// One file a breadth-first traversal reached: its distance from the source,
+/// the file it was reached from, and the kinds of that edge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TraversalStep {
+    pub file: String,
+    pub distance: u32,
+    pub via: String,
+    pub edge_kinds: BTreeSet<String>,
+}
+
+/// One directed file edge of a path or cycle witness, with its kinds.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FileEdge {
+    pub from: String,
+    pub to: String,
+    pub edge_kinds: BTreeSet<String>,
+}
+
+/// A shortest path: its files in order (source first) and their edges.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FilePath {
+    pub files: Vec<String>,
+    pub edges: Vec<FileEdge>,
+}
+
+pub fn traverse(
+    graph: &BTreeMap<String, FileGraphNode>,
+    source: &str,
+    depth: u32,
+) -> Vec<TraversalStep> {
     let indexed = Indexed::build(graph);
     let Some(&source_id) = indexed.ids.get(source) else {
         return Vec::new();
@@ -139,25 +183,34 @@ pub fn traverse(graph: &BTreeMap<String, Node>, source: &str, depth: u32) -> Vec
                 seen[successor.id as usize] = true;
                 let d = distance + 1;
                 queue.push_back((successor.id, d));
-                out.push(json!({"file":indexed.name(successor.id),"distance":d,"via":indexed.name(id),"edgeKinds":successor.kinds,"confidence":"syntactic"}));
+                out.push(TraversalStep {
+                    file: indexed.name(successor.id).to_owned(),
+                    distance: d,
+                    via: indexed.name(id).to_owned(),
+                    edge_kinds: successor.kinds.clone(),
+                });
             }
         }
     }
     out
 }
 
-pub fn shortest_path(graph: &BTreeMap<String, Node>, source: &str, target: &str) -> Value {
-    let not_found = || json!({"found":false,"files":[],"edges":[]});
+/// The shortest `source → target` path; `None` when either is not a graph
+/// file or the target is unreachable. A file reaches itself in one hop.
+pub fn shortest_path(
+    graph: &BTreeMap<String, FileGraphNode>,
+    source: &str,
+    target: &str,
+) -> Option<FilePath> {
     if source == target {
-        return json!({"found":true,"files":[source],"edges":[],"length":1,"complete":true,"confidence":"syntactic"});
+        return Some(FilePath {
+            files: vec![source.to_owned()],
+            edges: Vec::new(),
+        });
     }
     let indexed = Indexed::build(graph);
-    let Some(&source_id) = indexed.ids.get(source) else {
-        return not_found();
-    };
-    let Some(&target_id) = indexed.ids.get(target) else {
-        return not_found();
-    };
+    let source_id = *indexed.ids.get(source)?;
+    let target_id = *indexed.ids.get(target)?;
     const UNSET: u32 = u32::MAX;
     let mut seen = vec![false; indexed.names.len()];
     let mut previous = vec![UNSET; indexed.names.len()];
@@ -176,116 +229,43 @@ pub fn shortest_path(graph: &BTreeMap<String, Node>, source: &str, target: &str)
         }
     }
     if !seen[target_id as usize] {
-        return not_found();
+        return None;
     }
     let mut path = vec![target_id];
     while path[0] != source_id {
         path.insert(0, previous[path[0] as usize]);
     }
-    let files = path
-        .iter()
-        .map(|id| indexed.name(*id).to_owned())
-        .collect::<Vec<_>>();
-    let edges = path
-        .windows(2)
-        .map(|pair| {
-            let kinds = indexed.successors[pair[0] as usize]
-                .iter()
-                .find(|successor| successor.id == pair[1])
-                .map(|successor| successor.kinds);
-            json!({"from":indexed.name(pair[0]),"to":indexed.name(pair[1]),"edgeKinds":kinds,"confidence":"syntactic"})
-        })
-        .collect::<Vec<_>>();
-    json!({"found":true,"files":files,"edges":edges,"length":files.len(),"complete":true,"confidence":"syntactic"})
+    Some(FilePath {
+        files: path.iter().map(|id| indexed.name(*id).to_owned()).collect(),
+        edges: path
+            .windows(2)
+            .map(|pair| indexed.edge(pair[0], pair[1]))
+            .collect(),
+    })
 }
 
-pub fn scc(graph: &BTreeMap<String, Node>, real_only: bool) -> Vec<Vec<String>> {
+pub fn scc(graph: &BTreeMap<String, FileGraphNode>, real_only: bool) -> Vec<Vec<String>> {
     scc_inner(graph, real_only, true)
 }
 
-pub fn scc_unsorted(graph: &BTreeMap<String, Node>) -> Vec<Vec<String>> {
+pub fn scc_unsorted(graph: &BTreeMap<String, FileGraphNode>) -> Vec<Vec<String>> {
     scc_inner(graph, true, false)
 }
 
 fn scc_inner(
-    graph: &BTreeMap<String, Node>,
+    graph: &BTreeMap<String, FileGraphNode>,
     real_only: bool,
     sort_members: bool,
 ) -> Vec<Vec<String>> {
-    struct Frame {
-        node: u32,
-        offset: usize,
-    }
-    const UNVISITED: u32 = u32::MAX;
     let indexed = Indexed::build(graph);
-    let node_count = indexed.names.len();
-    let mut index = 0_u32;
-    let mut indices = vec![UNVISITED; node_count];
-    let mut low = vec![0_u32; node_count];
-    let mut stack: Vec<u32> = Vec::new();
-    let mut on = vec![false; node_count];
-    let mut out: Vec<Vec<u32>> = Vec::new();
     // Graph keys hold ids 0..key_count in sorted order, matching the original
     // root iteration over `graph.keys()`.
-    for root in 0..indexed.key_count as u32 {
-        if indices[root as usize] != UNVISITED {
-            continue;
-        }
-        indices[root as usize] = index;
-        low[root as usize] = index;
-        index += 1;
-        stack.push(root);
-        on[root as usize] = true;
-        let mut frames = vec![Frame {
-            node: root,
-            offset: 0,
-        }];
-        while let Some(frame) = frames.last_mut() {
-            if let Some(successor) = indexed.successors[frame.node as usize]
-                .get(frame.offset)
+    let out =
+        strongly_connected_components(0..indexed.key_count as u32, indexed.names.len(), |id| {
+            indexed.successors[id as usize]
+                .iter()
                 .map(|successor| successor.id)
-            {
-                frame.offset += 1;
-                if indices[successor as usize] == UNVISITED {
-                    indices[successor as usize] = index;
-                    low[successor as usize] = index;
-                    index += 1;
-                    stack.push(successor);
-                    on[successor as usize] = true;
-                    frames.push(Frame {
-                        node: successor,
-                        offset: 0,
-                    });
-                } else if on[successor as usize] {
-                    let node = frame.node as usize;
-                    low[node] = low[node].min(indices[successor as usize]);
-                }
-                continue;
-            }
-            // Loop invariant: this branch runs only with a frame on the stack.
-            #[allow(clippy::expect_used)]
-            let completed = frames.pop().expect("frame exists").node as usize;
-            if let Some(parent) = frames.last() {
-                let parent = parent.node as usize;
-                low[parent] = low[parent].min(low[completed]);
-            }
-            if low[completed] == indices[completed] {
-                let mut component = Vec::new();
-                loop {
-                    // Tarjan invariant: the SCC's members are on the stack until
-                    // its root is popped, so this never underflows.
-                    #[allow(clippy::expect_used)]
-                    let member = stack.pop().expect("Tarjan stack contains component");
-                    on[member as usize] = false;
-                    component.push(member);
-                    if member as usize == completed {
-                        break;
-                    }
-                }
-                out.push(component);
-            }
-        }
-    }
+        });
     let mut out = out
         .into_iter()
         .map(|component| {
@@ -313,13 +293,78 @@ fn scc_inner(
     out
 }
 
+/// Iterative Tarjan over ids `0..node_count`, starting a search from each
+/// unvisited id of `roots` in order. Components come in completion order,
+/// members in stack-pop order (the root last).
+pub fn strongly_connected_components<I, F>(
+    roots: impl IntoIterator<Item = u32>,
+    node_count: usize,
+    mut successors: F,
+) -> Vec<Vec<u32>>
+where
+    F: FnMut(u32) -> I,
+    I: IntoIterator<Item = u32>,
+{
+    const UNVISITED: u32 = u32::MAX;
+    let mut index = 0_u32;
+    let mut indices = vec![UNVISITED; node_count];
+    let mut low = vec![0_u32; node_count];
+    let mut stack: Vec<u32> = Vec::new();
+    let mut on = vec![false; node_count];
+    let mut out: Vec<Vec<u32>> = Vec::new();
+    for root in roots {
+        if indices[root as usize] != UNVISITED {
+            continue;
+        }
+        indices[root as usize] = index;
+        low[root as usize] = index;
+        index += 1;
+        stack.push(root);
+        on[root as usize] = true;
+        let mut frames = vec![(root, successors(root).into_iter())];
+        while let Some((node, next)) = frames.last_mut() {
+            let node = *node as usize;
+            if let Some(successor) = next.next() {
+                if indices[successor as usize] == UNVISITED {
+                    indices[successor as usize] = index;
+                    low[successor as usize] = index;
+                    index += 1;
+                    stack.push(successor);
+                    on[successor as usize] = true;
+                    frames.push((successor, successors(successor).into_iter()));
+                } else if on[successor as usize] {
+                    low[node] = low[node].min(indices[successor as usize]);
+                }
+                continue;
+            }
+            frames.pop();
+            if let Some((parent, _)) = frames.last() {
+                let parent = *parent as usize;
+                low[parent] = low[parent].min(low[node]);
+            }
+            if low[node] == indices[node] {
+                let mut component = Vec::new();
+                while let Some(member) = stack.pop() {
+                    on[member as usize] = false;
+                    component.push(member);
+                    if member as usize == node {
+                        break;
+                    }
+                }
+                out.push(component);
+            }
+        }
+    }
+    out
+}
+
 pub struct Condensed {
     pub components: Vec<Vec<String>>,
     pub component: BTreeMap<String, usize>,
     pub edges: BTreeMap<usize, BTreeSet<usize>>,
     pub layers: Vec<Vec<usize>>,
 }
-pub fn condense(graph: &BTreeMap<String, Node>) -> Condensed {
+pub fn condense(graph: &BTreeMap<String, FileGraphNode>) -> Condensed {
     let components = scc(graph, false);
     let mut component = BTreeMap::new();
     for (i, c) in components.iter().enumerate() {
@@ -490,11 +535,13 @@ fn transitive_edges_by_search(
 pub struct CycleWitnesses<'g>(Indexed<'g>);
 
 impl<'g> CycleWitnesses<'g> {
-    pub fn new(graph: &'g BTreeMap<String, Node>) -> Self {
+    pub fn new(graph: &'g BTreeMap<String, FileGraphNode>) -> Self {
         Self(Indexed::build(graph))
     }
 
-    pub fn witness(&self, members: &BTreeSet<String>) -> Vec<Value> {
+    /// One cycle through `members` as its edges; empty when none is found.
+    /// An edge the graph lacks (never produced here) defaults to a static import.
+    pub fn witness(&self, members: &BTreeSet<String>) -> Vec<FileEdge> {
         struct Frame {
             node: u32,
             offset: usize,
@@ -566,16 +613,15 @@ impl<'g> CycleWitnesses<'g> {
                             .collect::<Vec<_>>();
                         witness.push((cycle_end, successor));
                         return witness
-                        .into_iter()
-                        .map(|(from, to)| {
-                            let edge_kinds = indexed.successors[from as usize]
-                                .iter()
-                                .find(|successor| successor.id == to)
-                                .map(|successor| successor.kinds.clone())
-                                .unwrap_or_else(|| BTreeSet::from(["static-import".to_owned()]));
-                            json!({"from":indexed.name(from),"to":indexed.name(to),"edgeKinds":edge_kinds})
-                        })
-                        .collect();
+                            .into_iter()
+                            .map(|(from, to)| {
+                                let mut edge = indexed.edge(from, to);
+                                if edge.edge_kinds.is_empty() {
+                                    edge.edge_kinds = BTreeSet::from(["static-import".to_owned()]);
+                                }
+                                edge
+                            })
+                            .collect();
                     }
                     _ => {}
                 }
@@ -617,8 +663,8 @@ mod tests {
         assert_eq!(transitive_edges(&edges), BTreeSet::from([(0, 3)]));
     }
 
-    fn node(edges: &[&str]) -> Node {
-        Node {
+    fn node(edges: &[&str]) -> FileGraphNode {
+        FileGraphNode {
             edges: edges
                 .iter()
                 .map(|target| {
@@ -641,14 +687,21 @@ mod tests {
             ("shared.ts".into(), node(&["deep.ts"])),
             ("deep.ts".into(), node(&[])),
         ]);
+        let path = shortest_path(&graph, "entry.ts", "deep.ts").expect("path");
+        assert_eq!(path.files, ["entry.ts", "left.ts", "shared.ts", "deep.ts"]);
+        assert_eq!(path.edges.len(), 3);
+        assert_eq!(path.edges[0].from, "entry.ts");
         assert_eq!(
-            shortest_path(&graph, "entry.ts", "deep.ts")["files"],
-            json!(["entry.ts", "left.ts", "shared.ts", "deep.ts"])
+            path.edges[0].edge_kinds,
+            BTreeSet::from(["static-import".to_owned()])
         );
+        assert_eq!(shortest_path(&graph, "deep.ts", "entry.ts"), None);
         let rows = traverse(&graph, "entry.ts", 4);
         assert_eq!(rows.len(), 4);
         assert_eq!(
-            rows.last().expect("traversal should produce four rows")["distance"],
+            rows.last()
+                .expect("traversal should produce four rows")
+                .distance,
             3
         );
     }

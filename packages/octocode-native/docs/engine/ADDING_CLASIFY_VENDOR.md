@@ -19,8 +19,7 @@ Every method is documented in [`mod.rs`](../../crates/runtime/src/providers/clas
 
 ```rust
 // src/providers/classification/myvendor.rs
-use super::ClassificationProvider;
-use octocode_engine::jev::JevError;
+use super::{ClassificationProvider, ProviderContractError};
 use serde_json::{Value, json};
 
 pub struct MyVendor;
@@ -69,10 +68,22 @@ impl ClassificationProvider for MyVendor {
     }
 
     // ── Validation ───────────────────────────────────────────────────────────
-    // If your vendor uses the Jev schema, delegate; otherwise write your own.
+    // Reject malformed or request-incompatible responses. `request: true`
+    // marks a request-side violation; vendor names never reach error codes.
 
-    fn validate_response(&self, request: &Value, response: &Value) -> Result<(), JevError> {
-        octocode_engine::jev::validate_response(request, response)
+    fn validate_response(
+        &self,
+        _request: &Value,
+        response: &Value,
+    ) -> Result<(), ProviderContractError> {
+        if response.get("result").is_some() {
+            Ok(())
+        } else {
+            Err(ProviderContractError {
+                request: false,
+                message: "response.result is missing".to_owned(),
+            })
+        }
     }
 }
 ```
@@ -124,8 +135,8 @@ yarn contracts:regen   # repo root: regenerates packages/octocode-config/contrac
 | Transport | `tools/clasify/transport.rs` | HTTP POST, retries, budget, error codes |
 | Single call | `tools/clasify/mod.rs` | Preflight → `build_request` → `extract_answer` → project |
 | Batching | `tools/clasify/batch.rs` | Groups questions → `build_batch_request` → `batch_answer_key` |
-| Paging | `runtime/clasify_batch.rs` | Resource-major paging, concurrency semaphore |
-| Context | `runtime/clasify_context.rs` | Context capture, receipt, continuation logic |
+| Paging | `tools/clasify/run/mod.rs` | Resource-major paging, concurrency semaphore |
+| Context | `tools/clasify/context.rs` | Context capture, receipt, continuation logic |
 
 None of those files need touching.  The only vendor-specific code lives in your
 new `providers/classification/myvendor.rs`.

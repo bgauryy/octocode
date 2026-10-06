@@ -43,7 +43,9 @@ known-key lists.
 - `env` owns parsing, precedence, propagation, and diagnostics.
 - `config` owns structured `.octocoderc` loading.
 - `policy` owns protected keys and project-level override restrictions.
-- The CLI exposes inspection only; it does not add a second configuration model.
+- The root export exposes generated `CONFIG_FIELDS` for configuration editors.
+- Native management uses the same metadata to validate edits and redact secret values.
+- The CLI transports management requests without adding a second configuration model.
 - `@octocodeai/octocode-core` authors every tool contract, Zod schema,
   description, and capability-gated schema variants. The `./schema` and `./mcp` subpaths re-export it so
   interfaces import contracts from one place; the root `.` entry never imports

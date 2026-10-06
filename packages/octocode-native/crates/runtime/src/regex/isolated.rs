@@ -1,6 +1,6 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
@@ -156,30 +156,7 @@ impl IsolatedRegexEngine {
                 "Regex worker request exceeds its byte limit",
             ));
         }
-        let mut command = Command::new(&self.worker_path);
-        // Start from an empty environment so the worker (which processes
-        // untrusted regex input) never inherits octocode's secrets
-        // (GITHUB_TOKEN, OCTOCODE_CLASSIFICATION_API, AWS_*, …). The resource
-        // limits are parent-owned arguments, not user configuration.
-        command
-            .env_clear()
-            .arg(self.limits.max_memory_bytes.to_string())
-            .arg(self.limits.max_cpu_seconds.to_string())
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null());
-        // Windows resolves some system DLLs via SystemRoot; preserve it so the
-        // worker binary still launches under a cleared environment.
-        #[cfg(windows)]
-        if let Some(root) = std::env::var_os("SystemRoot") {
-            command.env("SystemRoot", root);
-        }
-        let mut child = command.spawn().map_err(|failure| {
-            error(
-                RegexErrorCode::RequiresIsolatedEngine,
-                format!("Unable to start regex worker: {failure}"),
-            )
-        })?;
+        let mut child = self.spawn_worker()?;
         let mut stdin = child.stdin.take().ok_or_else(|| {
             error(
                 RegexErrorCode::RequiresIsolatedEngine,
@@ -202,58 +179,7 @@ impl IsolatedRegexEngine {
                 .read_to_end(&mut bytes)
                 .map(|_| bytes)
         });
-        // Sampled only where the worker's RSS is readable (macOS).
-        #[cfg(target_os = "macos")]
-        let mut peak_rss_bytes = None;
-        #[cfg(not(target_os = "macos"))]
-        let peak_rss_bytes: Option<u64> = None;
-        loop {
-            if self.shutdown.load(Ordering::Acquire) {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(error(
-                    RegexErrorCode::RequiresIsolatedEngine,
-                    "Regex worker cancelled during shutdown",
-                ));
-            }
-            #[cfg(target_os = "macos")]
-            {
-                let rss = darwin_rss(child.id()).map_err(|failure| {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    error(RegexErrorCode::RequiresIsolatedEngine, failure)
-                })?;
-                peak_rss_bytes = Some(peak_rss_bytes.map_or(rss, |peak: u64| peak.max(rss)));
-                if rss > self.limits.max_memory_bytes as u64 {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(error(
-                        RegexErrorCode::RequiresIsolatedEngine,
-                        format!("Regex worker exceeded sampled RSS limit (peak {rss} bytes)"),
-                    ));
-                }
-            }
-            match child.try_wait() {
-                Ok(Some(_)) => break,
-                Ok(None) if started.elapsed() < self.limits.deadline => {
-                    thread::sleep(Duration::from_millis(1))
-                }
-                Ok(None) => {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    return Err(error(
-                        RegexErrorCode::RequiresIsolatedEngine,
-                        "Regex worker exceeded its execution deadline",
-                    ));
-                }
-                Err(failure) => {
-                    return Err(error(
-                        RegexErrorCode::RequiresIsolatedEngine,
-                        format!("Unable to wait for regex worker: {failure}"),
-                    ));
-                }
-            }
-        }
+        let peak_rss_bytes = self.supervise(&mut child, started)?;
         input_writer
             .join()
             .map_err(|_| {
@@ -303,6 +229,93 @@ impl IsolatedRegexEngine {
             },
         ))
     }
+
+    /// Start the worker with a cleared environment and piped stdio.
+    fn spawn_worker(&self) -> Result<Child, RegexError> {
+        let mut command = Command::new(&self.worker_path);
+        // Start from an empty environment so the worker (which processes
+        // untrusted regex input) never inherits octocode's secrets
+        // (GITHUB_TOKEN, OCTOCODE_CLASSIFICATION_API, AWS_*, …). The resource
+        // limits are parent-owned arguments, not user configuration.
+        command
+            .env_clear()
+            .arg(self.limits.max_memory_bytes.to_string())
+            .arg(self.limits.max_cpu_seconds.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        // Windows resolves some system DLLs via SystemRoot; preserve it so the
+        // worker binary still launches under a cleared environment.
+        #[cfg(windows)]
+        if let Some(root) = std::env::var_os("SystemRoot") {
+            command.env("SystemRoot", root);
+        }
+        command.spawn().map_err(|failure| {
+            error(
+                RegexErrorCode::RequiresIsolatedEngine,
+                format!("Unable to start regex worker: {failure}"),
+            )
+        })
+    }
+
+    /// Poll the worker until it exits, stopping it on shutdown, on its
+    /// deadline, or (macOS) past the RSS limit. Returns the sampled peak RSS.
+    fn supervise(&self, child: &mut Child, started: Instant) -> Result<Option<u64>, RegexError> {
+        // Sampled only where the worker's RSS is readable (macOS).
+        #[cfg(target_os = "macos")]
+        let mut peak_rss_bytes = None;
+        #[cfg(not(target_os = "macos"))]
+        let peak_rss_bytes: Option<u64> = None;
+        loop {
+            if self.shutdown.load(Ordering::Acquire) {
+                stop(child);
+                return Err(error(
+                    RegexErrorCode::RequiresIsolatedEngine,
+                    "Regex worker cancelled during shutdown",
+                ));
+            }
+            #[cfg(target_os = "macos")]
+            {
+                let rss = darwin_rss(child.id()).map_err(|failure| {
+                    stop(child);
+                    error(RegexErrorCode::RequiresIsolatedEngine, failure)
+                })?;
+                peak_rss_bytes = Some(peak_rss_bytes.map_or(rss, |peak: u64| peak.max(rss)));
+                if rss > self.limits.max_memory_bytes as u64 {
+                    stop(child);
+                    return Err(error(
+                        RegexErrorCode::RequiresIsolatedEngine,
+                        format!("Regex worker exceeded sampled RSS limit (peak {rss} bytes)"),
+                    ));
+                }
+            }
+            match child.try_wait() {
+                Ok(Some(_)) => return Ok(peak_rss_bytes),
+                Ok(None) if started.elapsed() < self.limits.deadline => {
+                    thread::sleep(Duration::from_millis(1))
+                }
+                Ok(None) => {
+                    stop(child);
+                    return Err(error(
+                        RegexErrorCode::RequiresIsolatedEngine,
+                        "Regex worker exceeded its execution deadline",
+                    ));
+                }
+                Err(failure) => {
+                    return Err(error(
+                        RegexErrorCode::RequiresIsolatedEngine,
+                        format!("Unable to wait for regex worker: {failure}"),
+                    ));
+                }
+            }
+        }
+    }
+}
+
+/// Kill the worker and reap it.
+fn stop(child: &mut Child) {
+    let _ = child.kill();
+    let _ = child.wait();
 }
 
 const fn platform_memory_confinement() -> MemoryConfinement {

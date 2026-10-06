@@ -4,6 +4,9 @@ use std::time::Instant;
 use tree_sitter::{Language, Node, Tree};
 
 use crate::signatures::extractor::{AST_EXECUTION_TIMEOUT, ParseFailure, parse_with_deadline};
+use crate::structural::macro_bodies::{
+    MAX_MACRO_DEPTH, MacroBodies, is_body_candidate, parse_body,
+};
 use crate::structural::types::StructuralMatch;
 
 use super::line_index_support::to_structural_match_with_index;
@@ -20,7 +23,7 @@ impl ExecutionError {
         let detail = message.strip_prefix("[structural.parse.interrupted] ")?;
         Some(Self::limit("structural.parse.interrupted", "parse", detail))
     }
-    pub(super) fn check(deadline: Instant) -> Result<(), Self> {
+    pub(in crate::structural) fn check(deadline: Instant) -> Result<(), Self> {
         if Instant::now() >= deadline {
             Err(Self::limit(
                 "structural.match.deadline",
@@ -157,23 +160,75 @@ pub(super) fn visit_named<'tree>(
     }
 }
 
-/// [`visit_named`] that also hands each named node its ancestor chain
-/// (root first, parent last). The chain is the cursor path, so it costs O(1)
-/// per step instead of an O(depth) `Node::parent()` search per ancestor.
-pub(super) fn visit_named_with_ancestors<'tree>(
-    node: Node<'tree>,
+/// A candidate callback that works on the file tree and on every re-parsed
+/// macro body: `(candidate, ancestors root-first, root of candidate's tree)`.
+pub(super) type CandidateVisitor<'f> =
+    dyn for<'n> FnMut(Node<'n>, &[Node<'n>], Node<'n>) -> Result<(), ExecutionError> + 'f;
+
+/// [`visit_named`] that also hands each named node its ancestor chain (the
+/// cursor path: O(1) per step, not an O(depth) `Node::parent()` search) and
+/// walks Rust macro bodies: an expandable token tree is visited itself, then re-parsed and walked in
+/// place of its flat tokens. Ancestors of a body node continue the chain of
+/// its invocation, so `inside` rules see the enclosing items.
+pub(super) fn visit_named_expanding_macros(
+    root: Node<'_>,
+    content: &str,
+    language: &Language,
+    macros: Option<&MacroBodies>,
     deadline: Instant,
-    f: &mut impl FnMut(Node<'tree>, &[Node<'tree>]) -> Result<(), ExecutionError>,
+    f: &mut CandidateVisitor<'_>,
 ) -> Result<(), ExecutionError> {
-    let mut cursor = node.walk();
-    let mut ancestors: Vec<Node<'tree>> = Vec::new();
+    walk_expanding(root, &[], None, 0, content, language, macros, deadline, f)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn walk_expanding<'tree>(
+    root: Node<'tree>,
+    prefix: &[Node<'tree>],
+    body: Option<&tree_sitter::Range>,
+    depth: usize,
+    content: &str,
+    language: &Language,
+    macros: Option<&MacroBodies>,
+    deadline: Instant,
+    f: &mut CandidateVisitor<'_>,
+) -> Result<(), ExecutionError> {
+    let mut cursor = root.walk();
+    let mut ancestors: Vec<Node<'tree>> = prefix.to_vec();
     loop {
         ExecutionError::check(deadline)?;
         let current = cursor.node();
-        if current.is_named() {
-            f(current, &ancestors)?;
+        let candidate = match body {
+            None => true,
+            Some(body) => current.id() != root.id() && is_body_candidate(current, body),
+        };
+        if current.is_named() && candidate {
+            f(current, &ancestors, root)?;
         }
-        if cursor.goto_first_child() {
+        let mut descend = true;
+        if let Some(macros) = macros
+            && depth < MAX_MACRO_DEPTH
+            && macros.is_expandable(current, ancestors.last().copied(), content)
+        {
+            let range = current.range();
+            if let Some(tree) = parse_body(content, language, range, deadline)? {
+                let mut chain: Vec<Node<'_>> = ancestors.clone();
+                chain.push(current);
+                walk_expanding(
+                    tree.root_node(),
+                    &chain,
+                    Some(&range),
+                    depth + 1,
+                    content,
+                    language,
+                    Some(macros),
+                    deadline,
+                    f,
+                )?;
+                descend = false;
+            }
+        }
+        if descend && cursor.goto_first_child() {
             ancestors.push(current);
             continue;
         }
@@ -217,25 +272,34 @@ pub(super) fn collect_kind_matches(
     root: Node<'_>,
     kind: &str,
     content: &str,
+    language: &Language,
+    macros: Option<&MacroBodies>,
     deadline: Instant,
 ) -> Result<Vec<MatchWithKind>, ExecutionError> {
     let line_index = LineIndex::new(content);
     let mut matches = Vec::new();
-    visit_named(root, deadline, &mut |candidate| {
-        if candidate.kind() == kind {
-            matches.push(MatchWithKind::new(
-                candidate,
-                to_structural_match_with_index(
+    visit_named_expanding_macros(
+        root,
+        content,
+        language,
+        macros,
+        deadline,
+        &mut |candidate, _, _| {
+            if candidate.kind() == kind {
+                matches.push(MatchWithKind::new(
                     candidate,
-                    content,
-                    &line_index,
-                    HashMap::new(),
-                    HashMap::new(),
-                ),
-            ));
-        }
-        Ok(())
-    })?;
+                    to_structural_match_with_index(
+                        candidate,
+                        content,
+                        &line_index,
+                        HashMap::new(),
+                        HashMap::new(),
+                    ),
+                ));
+            }
+            Ok(())
+        },
+    )?;
     Ok(matches)
 }
 

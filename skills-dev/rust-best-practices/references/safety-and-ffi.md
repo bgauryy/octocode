@@ -1,6 +1,6 @@
 # Safety, security, and FFI
 
-Load when you review `unsafe`, validate untrusted input, build a Node addon (napi-rs), a C-ABI library (`cdylib`), a language binding, or wrap a C library (tree-sitter grammars, `cc`-built deps). UB and aliasing authority: **The Rustonomicon** (`references/sources-and-crates.md`); cite it, do not reason about UB from memory. Allocation-level `unsafe` and memory across FFI: `references/performance-and-memory.md`. napi TS types and npm packaging: `references/napi.md`.
+Load when you review `unsafe`, validate untrusted input, build a Node addon (napi-rs), a C-ABI library (`cdylib`), a language binding, or wrap a C library (tree-sitter grammars, `cc`-built deps). Why: UB or a panic across a boundary crashes the host process, not just your crate. UB and aliasing authority: **The Rustonomicon** (`references/sources-and-crates.md`); cite it, do not reason about UB from memory. Allocation-level `unsafe` and memory across FFI: `references/performance-and-memory.md`. napi TS types and npm packaging: `references/napi.md`.
 
 ## unsafe
 - Default to `#![forbid(unsafe_code)]` at the crate root. Otherwise `#![deny(unsafe_code)]` with `#[allow]` on the few audited modules.

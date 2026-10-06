@@ -17,16 +17,16 @@ Never create one memory entry per checkpoint.
 
 ## Hook Entrypoint
 
-`scripts/brainstorm-run.mjs hook` reads JSON on stdin. `hooks/hooks.json` wires these Claude-compatible events; Pi uses its extension adapter and other hosts need their native hook surface.
+`scripts/brainstorm-run.mjs hook` reads the host hook JSON on stdin (`session_id`, `stop_hook_active`). `hooks/hooks.json` wires two Claude-compatible events; other hosts need their native hook surface.
 
-| Event | Behavior with a matching active workspace run |
+A run belongs to the session that started it: `start --session-id <id>`, else `CLAUDE_CODE_SESSION_ID`.
+
+| Event | Behavior with the newest unfinished run of this session |
 |---|---|
-| UserPromptSubmit | emits bounded context: run, stage, latest summary, missing pieces |
-| Stop | exits 2 until finish; `OCTOCODE_BRAINSTORM_NO_STOP_GATE=1` bypasses |
-| SubagentStop | records completion; the main agent still checkpoints useful claims |
-| SessionEnd | records an unfinished session |
+| UserPromptSubmit | emits bounded context: run, stage, latest summary |
+| Stop | exits 2 once per stop until `finish`; never for another session, an unowned run, or a run idle for 24h; `OCTOCODE_BRAINSTORM_NO_STOP_GATE=1` bypasses |
 
-Hooks stay fast, deterministic, workspace-scoped, and fail-open except the deliberate Stop reminder. They never search, call models, or inspect secrets.
+Hooks stay fast, deterministic, workspace-scoped, and fail-open except the deliberate Stop reminder. They never search, call models, load `.env`, or create folders.
 
 ## Self-test
 

@@ -1,6 +1,6 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-mod support;
+use crate::support;
 
 use serde_json::{Value, json};
 use support::Workspace;
@@ -32,7 +32,7 @@ async fn credential_shaped_search_text_is_rejected_not_rewritten() {
         .execute(
             "secret-single".into(),
             "localSearch".into(),
-            json!({"queries":[row(json!({"path":root,"searchText":TOKEN}))]}),
+            json!({"queries":[row(json!({"path":root,"matchString":TOKEN}))]}),
         )
         .await
         .expect_err("a credential-shaped query must not execute");
@@ -40,14 +40,14 @@ async fn credential_shaped_search_text_is_rejected_not_rewritten() {
     let payload = error.payload.as_deref().unwrap();
     assert_no_rewrite(payload);
     let details = payload["details"].to_string();
-    assert!(details.contains("queries.0.searchText"), "{details}");
+    assert!(details.contains("queries.0.matchString"), "{details}");
     assert!(details.contains("credential"), "{details}");
 
     let mcp = runtime
         .execute_mcp(
             "secret-mcp".into(),
             "localSearch".into(),
-            json!({"queries":[row(json!({"path":root,"searchText":TOKEN}))]}),
+            json!({"queries":[row(json!({"path":root,"matchString":TOKEN}))]}),
         )
         .await
         .expect("MCP reports the rejection in-band");
@@ -65,8 +65,8 @@ async fn a_credential_row_is_isolated_and_never_reaches_continuations() {
     let root = file.parent().unwrap().to_string_lossy().into_owned();
     let runtime = workspace.runtime(&[]);
     let input = json!({"queries":[
-        row(json!({"path":root,"searchText":"needle","pageSize":1})),
-        row(json!({"path":root,"searchText":TOKEN})),
+        row(json!({"path":root,"matchString":"needle","pageSize":1})),
+        row(json!({"path":root,"matchString":TOKEN})),
     ]});
     let outcome = runtime
         .execute("secret-batch".into(), "localSearch".into(), input)
@@ -80,7 +80,7 @@ async fn a_credential_row_is_isolated_and_never_reaches_continuations() {
     assert_eq!(rows[1]["status"], "error");
     assert_eq!(rows[1]["data"]["errorCode"], "invalidInput");
     let hints = rows[1]["data"]["hints"].to_string();
-    assert!(hints.contains("queries.1.searchText"), "{hints}");
+    assert!(hints.contains("queries.1.matchString"), "{hints}");
     assert!(hints.contains("credential"), "{hints}");
     assert_no_rewrite(&outcome.structured_content);
     assert!(!outcome.all_failed);
@@ -92,7 +92,7 @@ async fn a_credential_row_is_isolated_and_never_reaches_continuations() {
             "secret-fetch".into(),
             "localFetch".into(),
             json!({"queries":[
-                row(json!({"path":file,"startLine":1,"endLine":2})),
+                row(json!({"path":file,"ranges":["1-2"]})),
                 row(json!({"path":file,"matchString":TOKEN})),
             ]}),
         )
@@ -117,8 +117,8 @@ async fn an_oversized_row_fails_in_band_while_other_rows_run() {
     let root = file.parent().unwrap().to_string_lossy().into_owned();
     let runtime = workspace.runtime(&[]);
     let input = json!({"queries":[
-        row(json!({"path":root,"searchText":"x".repeat(10_001)})),
-        row(json!({"path":root,"searchText":"needle"})),
+        row(json!({"path":root,"matchString":"x".repeat(10_001)})),
+        row(json!({"path":root,"matchString":"needle"})),
     ]});
     let mcp = runtime
         .execute_mcp("oversized".into(), "localSearch".into(), input.clone())
@@ -129,7 +129,7 @@ async fn an_oversized_row_fails_in_band_while_other_rows_run() {
     assert_eq!(rows[0]["status"], "error");
     assert_eq!(rows[0]["data"]["errorCode"], "invalidInput");
     let hints = rows[0]["data"]["hints"].to_string();
-    assert!(hints.contains("searchText"), "{hints}");
+    assert!(hints.contains("matchString"), "{hints}");
     assert!(hints.contains("10000"), "{hints}");
     assert_ne!(rows[1]["status"], "error");
 
@@ -137,7 +137,7 @@ async fn an_oversized_row_fails_in_band_while_other_rows_run() {
         .execute(
             "oversized-single".into(),
             "localSearch".into(),
-            json!({"queries":[row(json!({"path":root,"searchText":"x".repeat(10_001)}))]}),
+            json!({"queries":[row(json!({"path":root,"matchString":"x".repeat(10_001)}))]}),
         )
         .await
         .expect_err("no valid row to run");
@@ -146,13 +146,13 @@ async fn an_oversized_row_fails_in_band_while_other_rows_run() {
         .execute_mcp(
             "oversized-single-mcp".into(),
             "localSearch".into(),
-            json!({"queries":[row(json!({"path":root,"searchText":"x".repeat(10_001)}))]}),
+            json!({"queries":[row(json!({"path":root,"matchString":"x".repeat(10_001)}))]}),
         )
         .await
         .expect("MCP reports the reason in-band");
     let text = mcp["content"][0]["text"].as_str().unwrap();
     assert!(
-        text.contains("searchText") && text.contains("10000"),
+        text.contains("matchString") && text.contains("10000"),
         "{text}"
     );
     runtime.close().await;
@@ -168,7 +168,7 @@ async fn numeric_and_boolean_strings_are_coerced_for_typed_fields() {
             "coerce".into(),
             "localFetch".into(),
             json!({"queries":[
-                row(json!({"path":file,"startLine":"2","endLine":"3"})),
+                row(json!({"path":file,"matchString":"two","contextLines":"0"})),
                 row(json!({"path":file,"fullContent":"true"})),
             ]}),
         )
@@ -184,7 +184,7 @@ async fn numeric_and_boolean_strings_are_coerced_for_typed_fields() {
             .execute(
                 "coerce-bad".into(),
                 "localFetch".into(),
-                json!({"queries":[row(json!({"path":file,"startLine":bad,"endLine":3}))]}),
+                json!({"queries":[row(json!({"path":file,"matchString":"two","contextLines":bad}))]}),
             )
             .await
             .expect_err("only exact integer strings coerce");
@@ -194,7 +194,7 @@ async fn numeric_and_boolean_strings_are_coerced_for_typed_fields() {
 }
 
 #[tokio::test]
-async fn clasify_redacts_evidence_but_rejects_a_credential_in_a_context_read() {
+async fn clasify_redacts_evidence_but_rejects_a_credential_in_a_resource_read() {
     let server = wiremock::MockServer::start().await;
     wiremock::Mock::given(wiremock::matchers::method("POST"))
         .respond_with(wiremock::ResponseTemplate::new(500))
@@ -207,21 +207,21 @@ async fn clasify_redacts_evidence_but_rejects_a_credential_in_a_context_read() {
         ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
         ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
     ]);
-    let input = json!({
+    let input = json!({"queries":[{
         "id":"decision",
         "mainGoal":"Decide whether the file states the fact.",
-        "reasoning":"Exercise the context-read input guard.",
-        "resources":[{"id":"source","context":{"tool":"localFetch","query":{"path":file,"matchString":TOKEN}}}],
-        "questions":[{"id":"relevant","type":"noul","instructions":"Is evidence present?"}]
-    });
+        "reasoning":"Exercise the resource-read input guard.",
+        "resources":[{"id":"source","tool":"localFetch","query":{"path":file,"matchString":TOKEN}}],
+        "questions":[{"id":"relevant","type":"yesno","ask":"Is evidence present?"}]
+    }]});
     let error = runtime
         .execute("clasify-secret".into(), "clasify".into(), input)
         .await
-        .expect_err("a context read must not run a rewritten query");
+        .expect_err("a resource read must not run a rewritten query");
     assert_eq!(error.code, "invalidInput");
     let details = error.payload.as_deref().unwrap()["details"].to_string();
     assert!(
-        details.contains("context.query.matchString") && details.contains("credential"),
+        details.contains("resources[].query.matchString") && details.contains("credential"),
         "{details}"
     );
     assert!(!details.contains(TOKEN), "{details}");

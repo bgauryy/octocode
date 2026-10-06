@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-native-darwin-arm64",
-  "description": "Octocode CLI, runtime addon, and engine addon — darwin-arm64",
+  "description": "Octocode CLI and runtime addon — darwin-arm64",
   "version": "20.0.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "cpu": [
@@ -13,8 +13,7 @@
     "octocode",
     "octocode-regex-worker",
     "README.md",
-    "octocode-native.darwin-arm64.node",
-    "octocode-engine.darwin-arm64.node"
+    "octocode-native.darwin-arm64.node"
   ],
   "license": "MIT",
   "publishConfig": {
@@ -32,7 +31,6 @@
   "exports": {
     ".": "./octocode-native.darwin-arm64.node",
     "./runtime": "./octocode-native.darwin-arm64.node",
-    "./engine": "./octocode-engine.darwin-arm64.node",
     "./package.json": "./package.json"
   }
 }

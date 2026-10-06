@@ -14,12 +14,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { contentFreshness, type Freshness } from './freshness.js';
 import { getSkillsHome } from './home.js';
-import {
-  ALL_PLATFORMS,
-  getPlatformSkillsDir,
-  type Platform,
-} from './platforms.js';
+import { ALL_PLATFORMS, getPlatformSkillsDir } from './platforms.js';
 import { getSkill } from './registry.js';
+import type { SkillPlatform } from '@octocodeai/octocode-skill-installer';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -47,7 +44,7 @@ export interface SkillCheckResult {
 
 // ─── All platforms to scan by default ────────────────────────────────────────
 
-export const SCAN_PLATFORMS: Platform[] = [...ALL_PLATFORMS];
+export const SCAN_PLATFORMS: SkillPlatform[] = [...ALL_PLATFORMS];
 
 // ─── Internals ────────────────────────────────────────────────────────────────
 
@@ -91,7 +88,7 @@ function probe(label: string, p: string): CheckedLocation {
 /** Check every known installation location for one skill. */
 export function checkSkill(
   skillName: string,
-  platforms: Platform[] = SCAN_PLATFORMS
+  platforms: SkillPlatform[] = SCAN_PLATFORMS
 ): SkillCheckResult {
   const homePath = path.join(getSkillsHome(), skillName);
   const wsPath = path.join(process.cwd(), '.agents', 'skills', skillName);
@@ -142,7 +139,7 @@ function annotateFreshness(result: SkillCheckResult): void {
 /** Check a list of skills. */
 export function checkSkills(
   skillNames: string[],
-  platforms?: Platform[]
+  platforms?: SkillPlatform[]
 ): SkillCheckResult[] {
   return skillNames.map(n => checkSkill(n, platforms));
 }

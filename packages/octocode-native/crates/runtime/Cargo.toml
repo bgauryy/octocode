@@ -5,6 +5,7 @@ publish = false
 edition.workspace = true
 rust-version.workspace = true
 autobins = false
+autotests = false
 autoexamples = false
 license.workspace = true
 repository.workspace = true
@@ -13,48 +14,64 @@ description = "Native Octocode tool execution library"
 [lib]
 crate-type = ["rlib"]
 
+[[test]]
+name = "integration"
+path = "tests/main.rs"
+
+[features]
+# Dev-loop feature unification, enabled by `build:dev` and `test:rust` but never
+# by release builds. wiremock and tempfile (dev-dependencies) turn these features
+# on in test builds; without the same set in `build:dev`, every `cargo test`
+# recompiled hyper → reqwest → this crate → cli under new hashes (47 extra units,
+# measured with `cargo --unit-graph`). Off in release: always-on cost +1.2% CLI
+# binary size. Keep in sync with test deps; napi's `noop` is deliberately excluded.
+dev-unify = ["dep:hyper", "dep:hyper-util", "dep:bitflags", "dep:fastrand", "dep:slab", "tokio-util/codec"]
+
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-toml = { version = "0.9", features = ["preserve_order"] }
+toml = { workspace = true }
 serde_yaml_ng = { workspace = true }
 regex = { workspace = true }
 # Generated contract types use ECMAScript pattern validation.
-regress = "0.12"
+regress = { workspace = true }
 url = { workspace = true }
-base64 = "0.23"
+base64 = { workspace = true }
 sha2 = { workspace = true }
-moka = { workspace = true }
-hmac = "0.13"
-getrandom = "0.3"
+getrandom = { workspace = true }
 aes-gcm = { version = "0.11.1", default-features = false, features = ["aes", "alloc", "zeroize"] }
-# http2 is intentionally omitted: it links the `h2` stack (HPACK tables, ~0.2 MB)
-# and no code path relies on HTTP/2 semantics — GitHub's REST/raw endpoints all
-# serve over HTTP/1.1. Re-add "http2" if a future endpoint requires h2.
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "query", "system-proxy"] }
-bytes = "1"
-futures-util = "0.3"
-secrecy = "0.10"
+reqwest = { workspace = true }
+# Optional: only for the `dev-unify` feature below (not used by code).
+hyper = { version = "1", features = ["full"], optional = true }
+hyper-util = { version = "0.1", features = ["server", "http2"], optional = true }
+bitflags = { version = "2", features = ["std"], optional = true }
+fastrand = { version = "2", optional = true }
+slab = { version = "0.4", optional = true }
+bytes = { workspace = true }
+futures-util = { workspace = true }
+secrecy = { workspace = true }
 keyring-core = "1"
 hex = { workspace = true }
 # `.gitignore` matching for graph ingest scans (already in the tree via the engine).
-ignore = "0.4"
-# PR changed-file `fileFilter.paths` globs (already in the tree via `ignore`).
-globset = "0.4"
+ignore = { workspace = true }
+# PR changed-file `include` globs (already in the tree via `ignore`).
+globset = { workspace = true }
 # artifactSearch `version` ranges (already in the lockfile via the toolchain crates).
 semver = "1"
-octocode-engine = { path = "../engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }
+# artifactSearch reads `.cargo_vcs_info.json` from a `.crate` archive (already in the lockfile via the CLI).
+flate2 = { workspace = true }
+octocode-engine = { path = "../engine" }
 octocode-github = { path = "../github" }
 tokio = { workspace = true, features = ["fs", "rt-multi-thread", "macros", "sync", "time", "signal", "process", "io-util"] }
-tokio-util = { version = "0.7", default-features = false }
+tokio-util = { workspace = true }
 
 [build-dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3"
-wiremock = "0.6"
+tempfile = { workspace = true }
+wiremock = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

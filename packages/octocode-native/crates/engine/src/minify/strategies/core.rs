@@ -1,17 +1,6 @@
 use crate::minify::comment_remover::remove_comments;
 
-// ── Conservative ─────────────────────────────────────────────────────────────
-
-/// Strip comments then collapse ≥3 blank lines to 2, trim trailing whitespace.
-/// Preserves indentation (agents need structural context).
-pub fn minify_conservative(content: &str, comments: Option<&[&str]>) -> String {
-    let s = if let Some(groups) = comments {
-        remove_comments(content, groups)
-    } else {
-        content.to_owned()
-    };
-    compact_lines(&s, comments, 2, Indent::Keep)
-}
+// ── Brace code ───────────────────────────────────────────────────────────────
 
 /// Brace-delimited code (Rust, Go, Java, C-family, …) where indentation is not
 /// syntax: strip comments, indentation, and blank lines like the JS/TS view,
@@ -89,23 +78,6 @@ fn compact_lines(s: &str, comments: Option<&[&str]>, max_blanks: u32, indent: In
     } else {
         result.trim_end_matches('\n').to_owned()
     }
-}
-
-// ── Aggressive ───────────────────────────────────────────────────────────────
-
-pub fn minify_aggressive(content: &str, comments: Option<&[&str]>) -> String {
-    let s = if let Some(groups) = comments {
-        remove_comments(content, groups)
-    } else {
-        content.to_owned()
-    };
-    // Merge the comment groups' quote/regex rules so the whitespace and
-    // punctuation passes below can skip string/regex literal spans instead
-    // of mutating their contents (see comment_remover::literal_ranges).
-    let merged_rules = comments.map(merge_comment_rules);
-    let s = super::collapse_whitespace(&s, merged_rules.as_ref());
-    let s = super::re_tighten_punct(&s, merged_rules.as_ref());
-    s.trim().to_owned()
 }
 
 /// Combine the `CommentRules` for a set of comment groups into one, so a

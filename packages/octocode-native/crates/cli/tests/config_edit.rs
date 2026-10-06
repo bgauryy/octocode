@@ -1,5 +1,5 @@
 #![allow(clippy::expect_used)]
-mod support;
+use crate::support;
 use support::Workspace;
 
 #[test]
@@ -162,9 +162,12 @@ fn config_refuses_symlinks_and_concurrent_edits() {
     assert!(!output.status.success());
     assert_eq!(std::fs::read_to_string(&target).unwrap(), "KEEP=original\n");
     std::fs::remove_file(&path).unwrap();
+    // A refused edit need not leave the lock behind; hold it as a concurrent editor would.
     let lock = std::fs::OpenOptions::new()
         .read(true)
         .write(true)
+        .create(true)
+        .truncate(false)
         .open(workspace.home.join(".env.lock"))
         .unwrap();
     lock.try_lock().unwrap();
@@ -202,4 +205,64 @@ fn json_auth_failures_exit_nonzero() {
             false
         );
     }
+}
+
+fn manage(
+    workspace: &Workspace,
+    mut request: serde_json::Value,
+) -> (Option<i32>, serde_json::Value) {
+    use std::io::Write;
+    use std::process::Stdio;
+    let scheme = workspace.cli().arg("scheme").output().expect("scheme");
+    request["expectedFingerprint"] = serde_json::from_slice::<serde_json::Value>(&scheme.stdout)
+        .expect("catalog")["fingerprint"]
+        .clone();
+    let mut child = workspace
+        .cli()
+        .args(["config", "--manage"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("spawn");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(request.to_string().as_bytes())
+        .expect("request");
+    let output = child.wait_with_output().expect("output");
+    (
+        output.status.code(),
+        serde_json::from_slice(&output.stdout).expect("management response"),
+    )
+}
+
+#[test]
+fn managed_edits_type_a_missing_revision_as_invalid_input_and_a_stale_one_as_conflict() {
+    let workspace = Workspace::new();
+    let edit = serde_json::json!({"operation": "setEnv", "scope": "home", "key": "TEST_KEY", "value": "v"});
+    let (code, missing) = manage(&workspace, edit.clone());
+    assert_eq!(code, Some(2));
+    assert_eq!(missing["error"]["code"], "INVALID_INPUT", "{missing}");
+    let mut stale = edit;
+    stale["revision"] = "stale".into();
+    let (code, stale) = manage(&workspace, stale);
+    assert_eq!(code, Some(2));
+    assert_eq!(stale["error"]["code"], "CONFLICT", "{stale}");
+    assert!(!workspace.home.join(".env").exists());
+}
+
+#[test]
+fn login_normalizes_the_public_github_host_before_requiring_a_client_id() {
+    let workspace = Workspace::new();
+    let output = workspace
+        .cli()
+        .args(["auth", "login", "--hostname", "GitHub.com", "--json"])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("login");
+    let body: serde_json::Value = serde_json::from_slice(&output.stdout).expect("json");
+    let error = body["error"].as_str().expect("error");
+    assert!(!error.contains("OCTOCODE_GITHUB_CLIENT_ID"), "{error}");
+    assert!(error.contains("interactive terminal"), "{error}");
 }

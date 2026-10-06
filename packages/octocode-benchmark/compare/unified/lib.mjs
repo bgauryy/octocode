@@ -116,7 +116,7 @@ export function buildPrompt(q) {
  *   familySelector   "checkout" (optional): per-session OCTOCODE_TOOL_FAMILY from sessionServerEnv
  *
  * mcpServers.octocode.env reaches the evaluator-owned native MCP server (isolation.mjs upstreamEnv),
- * so a catalog-shape arm is a profile env switch, e.g. OCTOCODE_PUBLISHED_VIEW=flat.
+ * so a catalog-shape arm is a profile env switch, e.g. OCTOCODE_DEFER_TOOLS=<tools>.
  */
 export function loadWorkers(filter) {
   const ids = fs.readdirSync(WORKERS_DIR).filter((d) => fs.existsSync(path.join(WORKERS_DIR, d, 'profile.json'))).sort();
@@ -492,8 +492,10 @@ export function applyCounters(counters = [], toolCalls) {
   return out;
 }
 
-/** Isolation check against the worker profile, using what the session actually offered and called. */
-export function isolationCheck(profile, m) {
+/** Isolation check against the worker profile, using what the session actually offered and called.
+ * `ownDirs` are the session's own directories (its native home): a tree the
+ * session materialized there is its own data, not a benchmark file. */
+export function isolationCheck(profile, m, { ownDirs = [] } = {}) {
   const iso = profile.isolation ?? {};
   const problems = [];
   const offered = m.init?.tools ?? [];
@@ -512,7 +514,8 @@ export function isolationCheck(profile, m) {
   if (iso.forbidMcpServers && servers.length) problems.push(`MCP servers present: ${servers.map((s) => s.name)}`);
   if ((m.init?.skills ?? []).length) problems.push(`skills offered: ${m.init.skills.length}`);
   // Contamination: any tool input that touches the benchmark package (references, results, questions).
-  const touched = m.toolCalls.filter((c) => /octocode-benchmark|compare\/unified|references\/[GL]\d/.test(JSON.stringify(c.input)));
+  const outsideOwn = (text) => ownDirs.reduce((rest, dir) => rest.split(dir).join('<session>'), text);
+  const touched = m.toolCalls.filter((c) => /octocode-benchmark|compare\/unified|references\/[GL]\d/.test(outsideOwn(JSON.stringify(c.input))));
   if (touched.length) problems.push(`tool input touched benchmark files: ${touched.map((c) => c.name).join(',')}`);
   return { ok: problems.length === 0, problems, offeredTools: offered, mcpServers: servers };
 }
@@ -595,6 +598,13 @@ function selfTest() {
   assert(applyCounters([{ label: 'ms', inputKey: 'matchString' }, { label: 'a', tool: '__a$' }], m.toolCalls).ms === 2, 'counter');
   assert(isolationCheck({ isolation: { allowedToolPattern: '^mcp__x__', requiredMcpServers: ['x'] } }, m).ok, 'isolation ok');
   assert(!isolationCheck({ isolation: { allowedToolPattern: '^Bash$', forbidMcpServers: true } }, m).ok, 'isolation catches');
+  {
+    const home = '/r/packages/octocode-benchmark/compare/unified/results/x/runs/G12/octocode/native-home';
+    const own = { ...m, toolCalls: [{ name: 'mcp__x__localSearch', input: { queries: [{ path: `${home}/tmp/tree/o/r/sha/src` }] } }] };
+    const profile = { isolation: { allowedToolPattern: '^mcp__x__' } };
+    assert(isolationCheck(profile, own, { ownDirs: [home] }).problems.every((p) => !p.startsWith('tool input touched')), 'a session-materialized tree is not a benchmark file');
+    assert(isolationCheck(profile, own).problems.some((p) => p.startsWith('tool input touched')), 'other benchmark paths still count');
+  }
   assert(buildPrompt({ question: 'Q?', repos: [{ repo: 'o/r', sha: 's', path: '/x' }] }).includes('/x'), 'prompt');
   console.log('lib self-test: ok');
 }

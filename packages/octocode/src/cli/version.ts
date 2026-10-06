@@ -3,9 +3,9 @@ import { createRequire } from 'node:module';
 declare const __APP_VERSION__: string | undefined;
 
 /**
- * `--version` names both layers: the installed `octocode` package and the
- * native runtime it pins. The native binary alone reports only its own crate
- * version, which differs from the npm package users install.
+ * `--version` prints the one release version, read from the installed
+ * `octocode` package.json. The native runtime ships at the same version; a
+ * mismatched install also names the native version it loaded.
  */
 export function versionLine(): string | null {
   const launcher =
@@ -22,7 +22,14 @@ export function versionLine(): string | null {
   } catch {
     native = undefined;
   }
-  return native
+  return formatVersion(launcher, native);
+}
+
+export function formatVersion(
+  launcher: string,
+  native: string | undefined
+): string {
+  return native && native !== launcher
     ? `octocode ${launcher} (native ${native})`
     : `octocode ${launcher}`;
 }

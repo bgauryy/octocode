@@ -83,34 +83,38 @@ pub fn prepare(
             return Err(ContractInputError::new("tool input must be an object"));
         }
     };
-    if tool_name != ToolId::Clasify.as_str() {
+    // The contract's `debug` default (a tool without one gets none).
+    if let Some(default) = ToolId::from_name(tool_name)
+        .and_then(|tool| super::schema_facts::query_schema_value(tool, None, "debug", "default"))
+    {
         object
             .entry("debug".to_owned())
-            .or_insert(Value::Bool(false));
-    }
-    if tool_name == ToolId::ArtifactSearch.as_str() {
-        trim_string(&mut object, "packageName");
-        if let Some(Value::Array(keywords)) = object.get_mut("keywords") {
-            for keyword in keywords {
-                if let Value::String(value) = keyword {
-                    *value = value.trim().to_owned();
-                }
-            }
-        }
+            .or_insert_with(|| default.clone());
     }
     Ok(PreparedQuery { query: object })
-}
-
-fn trim_string(object: &mut Map<String, Value>, field: &str) {
-    if let Some(Value::String(value)) = object.get_mut(field) {
-        *value = value.trim().to_owned();
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{PrepareOptions, prepare};
     use serde_json::json;
+
+    /// Artifact coordinates are trimmed once, by the contract's own
+    /// normalization rule, on every validated path.
+    #[test]
+    fn artifact_coordinates_are_trimmed_by_the_contract() {
+        let validated = crate::contracts::prepare_many_and_validate(
+            "artifactSearch",
+            json!({"queries": [
+                {"type": "npm", "packageName": "  express \n"},
+                {"type": "npm", "keywords": [" http ", "server"]}
+            ]}),
+            PrepareOptions::default(),
+        )
+        .expect("valid artifact queries");
+        assert_eq!(validated[0]["packageName"], "express");
+        assert_eq!(validated[1]["keywords"], json!(["http", "server"]));
+    }
 
     #[test]
     fn pure_clasify_preparation_preserves_exactly_the_supplied_values() {

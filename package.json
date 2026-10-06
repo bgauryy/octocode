@@ -1,7 +1,7 @@
 {
   "name": "octocode-monorepo",
   "description": "Monorepo for Octocode MCP and related packages - Model Context Protocol server for advanced GitHub repository analysis and code discovery.",
-  "version": "19.1.0",
+  "version": "20.0.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "devDependencies": {
@@ -46,7 +46,6 @@
   "workspaces": [
     "packages/*",
     "packages/octocode-native/npm/*",
-    "skills",
-    "skills/octocode-agents-communication"
+    "skills"
   ]
 }

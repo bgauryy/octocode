@@ -1,6 +1,6 @@
 # Workspace: crates and root manifest
 
-Load when you add a crate to a workspace, map a Node monorepo habit to Cargo, write or review a workspace root `Cargo.toml`, centralize versions/lints, or audit feature and version hygiene. Whether and where to split: `references/crate-structure.md`. Profiles: `references/build-profiles.md`.
+Load when you add a crate to a workspace, map a Node monorepo habit to Cargo, write or review a workspace root `Cargo.toml`, centralize versions/lints, or audit feature and version hygiene. Why: the root manifest centralizes versions, lints, and features that otherwise drift per crate. Whether and where to split: `references/crate-structure.md`. Profiles: `references/build-profiles.md`.
 
 ## npm → Cargo map
 | Node / npm | Cargo |
@@ -60,7 +60,7 @@ Members: `edition.workspace = true`, `serde = { workspace = true }`, `tokio = { 
 
 ## Split mechanics and hygiene
 - **Crates are not free**: each adds a link/metadata step and blocks cross-crate inlining without `#[inline]`/LTO. Tens of meaningful crates beat hundreds of 50-line ones; a file-sized concern stays a module.
-- **Features unify across a combined build**: one member enabling `tokio/full` turns it on for all; `cargo-hakari` stops rebuild churn when members differ.
+- **Features unify per command, not per workspace**: one member enabling `tokio/full` turns it on for that build only. A different `-p` selection, `--all-features`, or dev-dependency features (test builds) produce separate compiled copies. Align selections, and mirror dev-dep features in an opt-in `dev-unify` feature (`references/build-profiles.md`). `cargo-hakari` exists, but vet what it unifies into shipped builds (it pulled a napi test stub into an addon here).
 - Heavy deps: `default-features = false` + only what you use (smaller graph, faster builds, less attack surface).
 - Publishing: internal path deps also need `version = "x.y"`; publish leaves first (release-plz orders it).
 - Commit `Cargo.lock` for apps and libraries (current Cargo guidance); CI builds with `--locked`; never hand-edit it.

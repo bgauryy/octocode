@@ -18,8 +18,16 @@ const TOOL_PAGINATION_CONTRACT: Record<
 > = {
   ghSearchRepo: { controls: ['page', 'pageSize'] },
   ghSearchCode: { controls: ['page', 'pageSize'] },
-  ghStructure: { controls: ['page', 'pageSize', 'metadataPage'] },
-  ghGetFileContent: { controls: ['chunkType', 'offset', 'chunkSize'] },
+  ghStructure: {
+    controls: [
+      'page',
+      'pageSize',
+      'materializeOffset',
+      'responseOffset',
+      'responseLength',
+    ],
+  },
+  ghGetFileContent: { controls: ['unit', 'offset', 'length'] },
   ghSearchHistory: { controls: ['page', 'pageSize'] },
   ghGetHistoryItem: {
     controls: [
@@ -27,12 +35,11 @@ const TOOL_PAGINATION_CONTRACT: Record<
       'commentPage',
       'commitPage',
       'pageSize',
-      'charOffset',
-      'commentBodyOffset',
-      'charLength',
+      'offset',
+      'length',
     ],
   },
-  artifactSearch: { controls: ['cursor', 'pageSize'] },
+  artifactSearch: { controls: ['page', 'pageSize'] },
   ghCloneRepo: {
     controls: [],
     exemption: 'bounded clone/materialization operation',
@@ -44,7 +51,7 @@ const TOOL_PAGINATION_CONTRACT: Record<
     controls: ['page', 'pageSize', 'diagnosticPage', 'diagnosticPageSize'],
   },
   astRewrite: { controls: ['page', 'pageSize'] },
-  localFetch: { controls: ['chunkType', 'offset', 'chunkSize'] },
+  localFetch: { controls: ['unit', 'offset', 'length'] },
   lspSearch: { controls: ['page', 'pageSize'] },
   clasify: {
     controls: [],
@@ -52,7 +59,11 @@ const TOOL_PAGINATION_CONTRACT: Record<
   },
 };
 
-const TOTAL_CAP_TOOLS = new Set(['structureSearch', 'astTopology']);
+/** Scan ceilings that report partial results, by tool. */
+const SCAN_CAPS: Record<string, string> = {
+  structureSearch: 'maxEntries',
+  astTopology: 'maxFiles',
+};
 
 describe('all-tools pagination contract', () => {
   it('covers every tool in the live catalog', () => {
@@ -76,14 +87,12 @@ describe('all-tools pagination contract', () => {
         }
       });
 
-      it('reserves limit for explicit total caps and chunkSize for content windows', () => {
-        if (TOTAL_CAP_TOOLS.has(toolName)) {
-          expect(schemaText).toContain('"limit"');
-        } else {
-          expect(schemaText).not.toContain('"limit"');
-        }
+      it('names scan caps explicitly and windows content with length', () => {
+        expect(schemaText).not.toContain('"limit"');
+        const cap = SCAN_CAPS[toolName];
+        if (cap) expect(schemaText).toContain(`"${cap}"`);
         if (['localFetch', 'ghGetFileContent'].includes(toolName)) {
-          expect(schemaText).toContain('"chunkSize"');
+          expect(schemaText).toContain('"length"');
         }
       });
 

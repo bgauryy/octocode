@@ -23,45 +23,34 @@ function loadedAddons(entry: string): string[] {
 }
 
 describe('consolidated native distribution', () => {
-  it('keeps runtime and engine addon loading independent', () => {
+  it('loads only the runtime addon', () => {
     const runtimeAddons = loadedAddons(resolve(packageRoot, 'js/runtime.cjs'));
-    const engineAddons = loadedAddons(resolve(packageRoot, 'js/engine.cjs'));
 
-    expect(runtimeAddons.some(name => name.startsWith('octocode-native.'))).toBe(true);
-    expect(runtimeAddons.some(name => name.startsWith('octocode-engine.'))).toBe(false);
-    expect(engineAddons.some(name => name.startsWith('octocode-engine.'))).toBe(true);
-    expect(engineAddons.some(name => name.startsWith('octocode-native.'))).toBe(false);
+    expect(runtimeAddons).toHaveLength(1);
+    expect(runtimeAddons[0]).toMatch(/^octocode-native\./);
   });
 
-  it('preserves root, runtime, legacy-loader, and engine identities', () => {
+  it('preserves root and runtime identities', () => {
     const root = require(resolve(packageRoot));
     const runtime = require(resolve(packageRoot, 'js/runtime.cjs'));
-    const legacy = require(resolve(packageRoot, 'native.cjs'));
-    const engine = require(resolve(packageRoot, 'js/engine.cjs'));
 
     expect(root.NativeRuntime).toBe(runtime.NativeRuntime);
-    expect(legacy.NativeRuntime).toBe(runtime.NativeRuntime);
-    expect(engine.minifyContent).toBeTypeOf('function');
     expect(existsSync(resolve(packageRoot, '../octocode-engine'))).toBe(false);
     const runtimeInstance = new runtime.NativeRuntime();
     expect(runtimeInstance.abiVersion).toBe(NATIVE_ABI_VERSION);
     runtimeInstance.close();
   });
 
-  it('loads the exact staged host addons and verifies Darwin signatures', () => {
+  it('loads the exact staged host addon and verifies Darwin signatures', () => {
     const { getPlatformSuffix } = require(resolve(packageRoot, 'bin/platform.cjs')) as {
       getPlatformSuffix(): string;
     };
     const suffix = getPlatformSuffix();
     const runtimePath = resolve(packageRoot, 'npm', suffix, `octocode-native.${suffix}.node`);
-    const enginePath = resolve(packageRoot, 'npm', suffix, `octocode-engine.${suffix}.node`);
 
-    for (const addonPath of [runtimePath, enginePath]) {
-      expect(existsSync(addonPath)).toBe(true);
-      expect(() => require(addonPath)).not.toThrow();
-      if (process.platform === 'darwin') {
-        expect(() => execFileSync('codesign', ['--verify', '--strict', addonPath])).not.toThrow();
-      }
+    expect(existsSync(runtimePath)).toBe(true);
+    if (process.platform === 'darwin') {
+      expect(() => execFileSync('codesign', ['--verify', '--strict', runtimePath])).not.toThrow();
     }
     const runtime = require(runtimePath) as { NativeRuntime: new () => { abiVersion: number; close(): void } };
     const instance = new runtime.NativeRuntime();
@@ -69,17 +58,20 @@ describe('consolidated native distribution', () => {
     instance.close();
   });
 
-  it('declares four-artifact platform contracts', () => {
+  it('declares three-artifact platform contracts', () => {
     const manifest = require(resolve(packageRoot, 'package.json')) as {
       optionalDependencies: Record<string, string>;
       exports: Record<string, unknown>;
       version: string;
     };
 
-    expect(Object.keys(manifest.optionalDependencies)).toHaveLength(6);
+    const { PLATFORMS } = require(resolve(packageRoot, 'bin/platform.cjs')) as {
+      PLATFORMS: Record<string, unknown>;
+    };
+
+    expect(Object.keys(manifest.optionalDependencies)).toHaveLength(Object.keys(PLATFORMS).length);
     expect(manifest.exports).toHaveProperty('.');
     expect(manifest.exports).toHaveProperty('./runtime');
-    expect(manifest.exports).toHaveProperty('./engine');
 
     for (const packageName of Object.keys(manifest.optionalDependencies)) {
       const suffix = packageName.replace('@octocodeai/octocode-native-', '');
@@ -89,7 +81,6 @@ describe('consolidated native distribution', () => {
       };
       expect(platformManifest.version).toBe(manifest.version);
       expect(platformManifest.exports).toHaveProperty('./runtime');
-      expect(platformManifest.exports).toHaveProperty('./engine');
     }
   });
 });

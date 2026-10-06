@@ -1,5 +1,5 @@
 use super::*;
-use crate::policy::path::PathPolicyConfig;
+use crate::tools::ast_graph::test_support::write_files;
 use crate::tools::cancel::NeverCancel;
 
 fn fixture() -> tempfile::TempDir {
@@ -32,11 +32,7 @@ fn fixture() -> tempfile::TempDir {
 }
 
 fn policy(root: &Path) -> PathPolicy {
-    PathPolicy::new(PathPolicyConfig {
-        workspace_root: Some(root.to_path_buf()),
-        ..Default::default()
-    })
-    .expect("path policy")
+    crate::tools::test_support::workspace_policy(root)
 }
 
 fn ingest_fixture(dir: &Path, keep: Option<usize>) -> GraphOutput {
@@ -51,6 +47,7 @@ fn ingest_fixture(dir: &Path, keep: Option<usize>) -> GraphOutput {
         &policy(dir),
         &ContentSecurity::new(),
         &NeverCancel,
+        None,
     )
 }
 
@@ -793,18 +790,18 @@ fn impact_lists_inline_rust_test_functions() {
 
 // ── Quality plan acceptance tests (CODE_GRAPH_QUALITY_PLAN.md) ─────────────
 
-fn write_all(root: &Path, files: &[(&str, &str)]) {
-    for (path, text) in files {
-        let path = root.join(path);
-        std::fs::create_dir_all(path.parent().expect("parent")).expect("dirs");
-        std::fs::write(path, text).expect("write");
-    }
+/// A repository root (a `.git` marker) holding `files` under `app/`.
+fn git_app(files: &[(&str, &str)]) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("dir");
+    std::fs::create_dir_all(dir.path().join(".git")).expect("git");
+    write_files(&dir.path().join("app"), files);
+    dir
 }
 
 #[test]
 fn plan_1_call_answers_report_coverage() {
     let dir = fixture();
-    write_all(
+    write_files(
         &dir.path().join("app/src"),
         &[(
             "opener.ts",
@@ -832,7 +829,7 @@ fn plan_1_call_answers_report_coverage() {
 #[test]
 fn plan_2_string_referenced_files_are_low_tier_and_hidden_by_default() {
     let dir = issues_fixture();
-    write_all(
+    write_files(
         &dir.path().join("app"),
         &[
             ("src/worker.ts", "export const work = () => 1;\n"),
@@ -915,29 +912,24 @@ fn plan_2_string_referenced_files_are_low_tier_and_hidden_by_default() {
 
 #[test]
 fn plan_3_type_qualified_calls_and_scoped_disambiguation_link() {
-    let dir = tempfile::tempdir().expect("dir");
-    std::fs::create_dir_all(dir.path().join(".git")).expect("git");
-    write_all(
-        &dir.path().join("app"),
-        &[
-            (
-                "com/shop/Cart.java",
-                "package com.shop;\npublic class Cart {\n  public static Cart empty() { return new Cart(); }\n  public void add() {}\n}\n",
-            ),
-            (
-                "com/shop/Checkout.java",
-                "package com.shop;\npublic class Checkout {\n  public void run() {\n    Cart c = Cart.empty();\n    Helper.assist();\n  }\n}\n",
-            ),
-            (
-                "com/shop/Helper.java",
-                "package com.shop;\npublic class Helper {\n  public static void assist() {}\n}\n",
-            ),
-            (
-                "com/other/Helper.java",
-                "package com.other;\npublic class Helper {\n  public static void assist() {}\n}\n",
-            ),
-        ],
-    );
+    let dir = git_app(&[
+        (
+            "com/shop/Cart.java",
+            "package com.shop;\npublic class Cart {\n  public static Cart empty() { return new Cart(); }\n  public void add() {}\n}\n",
+        ),
+        (
+            "com/shop/Checkout.java",
+            "package com.shop;\npublic class Checkout {\n  public void run() {\n    Cart c = Cart.empty();\n    Helper.assist();\n  }\n}\n",
+        ),
+        (
+            "com/shop/Helper.java",
+            "package com.shop;\npublic class Helper {\n  public static void assist() {}\n}\n",
+        ),
+        (
+            "com/other/Helper.java",
+            "package com.other;\npublic class Helper {\n  public static void assist() {}\n}\n",
+        ),
+    ]);
     assert_eq!(ingest_fixture(dir.path(), None).exit, 0);
     let callees = ask(
         dir.path(),
@@ -963,43 +955,38 @@ fn plan_3_type_qualified_calls_and_scoped_disambiguation_link() {
 
 #[test]
 fn plan_5_impact_defaults_to_depth_three_and_passes_through_barrels() {
-    let dir = tempfile::tempdir().expect("dir");
-    std::fs::create_dir_all(dir.path().join(".git")).expect("git");
-    write_all(
-        &dir.path().join("app"),
-        &[
-            ("src/a.ts", "export const a = () => 1;\n"),
-            ("src/b.ts", "export const b = () => 2;\n"),
-            (
-                "src/index.ts",
-                "export { a } from './a';\nexport { b } from './b';\n",
-            ),
-            (
-                "src/useA.ts",
-                "import { a } from './index';\nexport const ua = () => a();\n",
-            ),
-            (
-                "src/useB.ts",
-                "import { b } from './index';\nexport const ub = () => b();\n",
-            ),
-            (
-                "src/c1.ts",
-                "import { ua } from './useA';\nexport const c1 = () => ua();\n",
-            ),
-            (
-                "src/c2.ts",
-                "import { c1 } from './c1';\nexport const c2 = () => c1();\n",
-            ),
-            (
-                "src/c3.ts",
-                "import { c2 } from './c2';\nexport const c3 = () => c2();\n",
-            ),
-            (
-                "src/c4.ts",
-                "import { c3 } from './c3';\nexport const c4 = () => c3();\n",
-            ),
-        ],
-    );
+    let dir = git_app(&[
+        ("src/a.ts", "export const a = () => 1;\n"),
+        ("src/b.ts", "export const b = () => 2;\n"),
+        (
+            "src/index.ts",
+            "export { a } from './a';\nexport { b } from './b';\n",
+        ),
+        (
+            "src/useA.ts",
+            "import { a } from './index';\nexport const ua = () => a();\n",
+        ),
+        (
+            "src/useB.ts",
+            "import { b } from './index';\nexport const ub = () => b();\n",
+        ),
+        (
+            "src/c1.ts",
+            "import { ua } from './useA';\nexport const c1 = () => ua();\n",
+        ),
+        (
+            "src/c2.ts",
+            "import { c1 } from './c1';\nexport const c2 = () => c1();\n",
+        ),
+        (
+            "src/c3.ts",
+            "import { c2 } from './c2';\nexport const c3 = () => c2();\n",
+        ),
+        (
+            "src/c4.ts",
+            "import { c3 } from './c3';\nexport const c4 = () => c3();\n",
+        ),
+    ]);
     assert_eq!(ingest_fixture(dir.path(), None).exit, 0);
     let out = ask(dir.path(), "impact", Some("src/a.ts"), |_| {});
     let files = impacted(&out);
@@ -1049,40 +1036,36 @@ fn plan_9_unchanged_tree_reuses_the_latest_snapshot() {
         &policy(dir.path()),
         &ContentSecurity::new(),
         &NeverCancel,
+        None,
     );
     assert_ne!(forced.value["reused"], true);
 }
 
 #[test]
 fn plan_4_receiver_typed_member_calls_link() {
-    let dir = tempfile::tempdir().expect("dir");
-    std::fs::create_dir_all(dir.path().join(".git")).expect("git");
-    write_all(
-        &dir.path().join("app"),
-        &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
-            ),
-            ("src/lib.rs", "pub mod store;\npub mod service;\n"),
-            (
-                "src/store.rs",
-                "pub struct Store;\nimpl Store {\n    pub fn new() -> Self { Store }\n    pub fn save(&self) {}\n}\npub struct Other;\nimpl Other {\n    pub fn save(&self) {}\n}\n",
-            ),
-            (
-                "src/service.rs",
-                "use crate::store::Store;\npub fn run() {\n    let s = Store::new();\n    s.save();\n}\npub fn typed(s: &Store) {\n    s.save();\n}\n",
-            ),
-            (
-                "web/store.ts",
-                "export class Cart {\n  save() { return 1; }\n}\nexport class Box {\n  save() { return 2; }\n}\n",
-            ),
-            (
-                "web/app.ts",
-                "import { Cart } from './store';\nexport function go() {\n  const c = new Cart();\n  c.save();\n}\n",
-            ),
-        ],
-    );
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        ("src/lib.rs", "pub mod store;\npub mod service;\n"),
+        (
+            "src/store.rs",
+            "pub struct Store;\nimpl Store {\n    pub fn new() -> Self { Store }\n    pub fn save(&self) {}\n}\npub struct Other;\nimpl Other {\n    pub fn save(&self) {}\n}\n",
+        ),
+        (
+            "src/service.rs",
+            "use crate::store::Store;\npub fn run() {\n    let s = Store::new();\n    s.save();\n}\npub fn typed(s: &Store) {\n    s.save();\n}\n",
+        ),
+        (
+            "web/store.ts",
+            "export class Cart {\n  save() { return 1; }\n}\nexport class Box {\n  save() { return 2; }\n}\n",
+        ),
+        (
+            "web/app.ts",
+            "import { Cart } from './store';\nexport function go() {\n  const c = new Cart();\n  c.save();\n}\n",
+        ),
+    ]);
     assert_eq!(ingest_fixture(dir.path(), None).exit, 0);
     let rust = ask(dir.path(), "callees", Some("src/service.rs#run"), |_| {});
     let rows = rust.value["results"].as_array().expect("rows");
@@ -1112,7 +1095,7 @@ fn plan_4_receiver_typed_member_calls_link() {
 fn plan_4_typed_this_field_calls_are_member_calls_not_local_matches() {
     let dir = tempfile::tempdir().expect("dir");
     std::fs::create_dir_all(dir.path().join(".git")).expect("git");
-    write_all(
+    write_files(
         &dir.path().join("app/src"),
         &[
             (
@@ -1141,23 +1124,18 @@ fn plan_4_typed_this_field_calls_are_member_calls_not_local_matches() {
 
 #[test]
 fn plan_3_rust_module_path_calls_link() {
-    let dir = tempfile::tempdir().expect("dir");
-    std::fs::create_dir_all(dir.path().join(".git")).expect("git");
-    write_all(
-        &dir.path().join("app"),
-        &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
-            ),
-            ("src/lib.rs", "pub mod portable;\npub mod api;\n"),
-            ("src/portable.rs", "pub fn sanitize(x: u8) -> u8 { x }\n"),
-            (
-                "src/api.rs",
-                "pub fn handle() -> u8 {\n    crate::portable::sanitize(1)\n}\npub fn nested() -> u8 {\n    super::portable::sanitize(2)\n}\n",
-            ),
-        ],
-    );
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        ("src/lib.rs", "pub mod portable;\npub mod api;\n"),
+        ("src/portable.rs", "pub fn sanitize(x: u8) -> u8 { x }\n"),
+        (
+            "src/api.rs",
+            "pub fn handle() -> u8 {\n    crate::portable::sanitize(1)\n}\npub fn nested() -> u8 {\n    super::portable::sanitize(2)\n}\n",
+        ),
+    ]);
     assert_eq!(ingest_fixture(dir.path(), None).exit, 0);
     for caller in ["src/api.rs#handle", "src/api.rs#nested"] {
         let out = ask(dir.path(), "callees", Some(caller), |_| {});
@@ -1185,6 +1163,7 @@ fn topology(dir: &Path, query: Value) -> Value {
         &policy(dir),
         &ContentSecurity::new(),
         &NeverCancel,
+        None,
     )
     .expect("topology")
 }
@@ -1215,7 +1194,7 @@ fn assert_parity(dir: &Path, from: &str, to: &str) {
         ("dependents", "dependents", to),
     ] {
         let graph = ask(dir, op, Some(file), |_| {});
-        let topo = topology(dir, json!({"analysis":analysis,"file":file}));
+        let topo = topology(dir, json!({"operation":analysis,"source":file}));
         assert!(!file_ids(&graph).is_empty(), "{op} {file}: {}", graph.value);
         assert_eq!(
             file_ids(&graph),
@@ -1225,7 +1204,7 @@ fn assert_parity(dir: &Path, from: &str, to: &str) {
         );
     }
     let graph = ask(dir, "path", Some(from), |o| o.to = Some(to.into()));
-    let topo = topology(dir, json!({"analysis":"path","file":from,"target":to}));
+    let topo = topology(dir, json!({"operation":"path","source":from,"target":to}));
     let hops = graph.value["path"]
         .as_array()
         .expect("graph path")
@@ -1234,7 +1213,7 @@ fn assert_parity(dir: &Path, from: &str, to: &str) {
         .collect::<Vec<_>>();
     assert_eq!(json!(hops), topo["results"][0]["files"], "{topo}");
     let graph = ask(dir, "cycles", None, |_| {});
-    let topo = topology(dir, json!({"analysis":"cycles"}));
+    let topo = topology(dir, json!({"operation":"cycles"}));
     let graph_cycles = graph.value["results"]
         .as_array()
         .into_iter()
@@ -1258,23 +1237,18 @@ fn graph_query_and_ast_topology_agree_on_typescript_files() {
 
 #[test]
 fn graph_query_and_ast_topology_agree_on_rust_files() {
-    let dir = tempfile::tempdir().expect("dir");
-    std::fs::create_dir_all(dir.path().join(".git")).expect("git");
-    write_all(
-        &dir.path().join("app"),
-        &[
-            (
-                "Cargo.toml",
-                "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
-            ),
-            ("src/lib.rs", "pub mod a;\npub mod b;\npub mod api;\n"),
-            ("src/a.rs", "use crate::b::bee;\npub fn ay() { bee() }\n"),
-            ("src/b.rs", "use crate::a::ay;\npub fn bee() { ay() }\n"),
-            (
-                "src/api.rs",
-                "use crate::a::ay;\npub fn handle() { ay() }\n",
-            ),
-        ],
-    );
+    let dir = git_app(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        ),
+        ("src/lib.rs", "pub mod a;\npub mod b;\npub mod api;\n"),
+        ("src/a.rs", "use crate::b::bee;\npub fn ay() { bee() }\n"),
+        ("src/b.rs", "use crate::a::ay;\npub fn bee() { ay() }\n"),
+        (
+            "src/api.rs",
+            "use crate::a::ay;\npub fn handle() { ay() }\n",
+        ),
+    ]);
     assert_parity(dir.path(), "src/api.rs", "src/a.rs");
 }

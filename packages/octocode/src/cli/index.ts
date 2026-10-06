@@ -54,10 +54,10 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   }
 
   // A bare `octocode` (no command, no help/version flag) is the agent overview:
-  // the same catalog `scheme` emits — short tool descriptions, availability, the
+  // the same catalog `scheme` emits — enabled tools' short descriptions, the
   // `scheme <name>` route to a tool's params, and the canonical instructions.
   // Root help appends the same instructions to the native command reference;
-  // a bare `--version` prints launcher and native versions (see version.ts).
+  // a bare `--version` prints the release version (see version.ts).
   if (args.command === null && !hasHelpFlag(args) && !hasVersionFlag(args)) {
     await enterNodeOwnedSurface();
     const { schemeCommand } = await import('./commands/scheme.js');
@@ -96,6 +96,16 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     );
     process.exitCode = EXIT.TOOL;
     return false;
+  }
+
+  if (
+    args.command === 'config' &&
+    rawArgv[rawArgv.indexOf('config') + 1] === 'view' &&
+    !hasHelpFlag(args)
+  ) {
+    const { configViewCommand } = await import('./commands/config-view.js');
+    process.exitCode = await configViewCommand(bin, rawArgv);
+    return true;
   }
 
   const hasExplicitIde = rawArgv.some(

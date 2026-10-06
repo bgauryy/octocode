@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::index::content_digest;
+use crate::digest::sha256;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 pub struct GraphPosition {
@@ -153,12 +153,6 @@ pub struct GraphFactsDocument {
     pub modules: Vec<GraphFactRustModule>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rust_root_unsupported: Option<bool>,
-}
-
-impl GraphFactsDocument {
-    pub fn from_json(json: &str) -> Result<Self, String> {
-        serde_json::from_str(json).map_err(|error| error.to_string())
-    }
 }
 
 #[derive(Clone, Debug)]
@@ -433,39 +427,10 @@ pub struct SemanticObservation {
     pub truncation_reason: Option<String>,
 }
 
-/// Builder-facing input for a semantic observation. The builder fills the
-/// content-addressed `id` and validates `generation` against the snapshot.
-#[derive(Clone, Debug)]
-pub struct SemanticObservationInput {
-    pub generation: String,
-    pub candidate: NodeId,
-    pub provider: ServerReceipt,
-    pub operation: SemanticOperation,
-    pub anchor: SymbolAnchor,
-    pub document_version: Option<i64>,
-    pub outcome: SemanticOutcome,
-    pub result_count: u64,
-    pub complete: bool,
-    pub truncation_reason: Option<String>,
-}
-
-#[derive(Clone, Debug)]
-pub struct SemanticRelationInput {
-    pub generation: String,
-    pub from: NodeId,
-    pub to: NodeId,
-    pub kind: EdgeKind,
-    pub method: String,
-    pub server: ServerReceipt,
-    pub document_version: Option<i64>,
-    pub range: Option<GraphRange>,
-}
-
 #[derive(Clone, Debug, Default)]
 pub struct CodeGraphBuilder {
     graph: CodeGraphSnapshot,
     metrics: GraphBuildMetrics,
-    semantic_started: bool,
 }
 
 impl CodeGraphBuilder {
@@ -490,7 +455,6 @@ impl CodeGraphBuilder {
                 ..Default::default()
             },
             metrics: GraphBuildMetrics::default(),
-            semantic_started: false,
         }
     }
 
@@ -509,9 +473,6 @@ impl CodeGraphBuilder {
         path: impl AsRef<str>,
         digest: impl Into<String>,
     ) -> Result<NodeId, String> {
-        if self.semantic_started {
-            return Err("source files cannot change after semantic enrichment begins".to_owned());
-        }
         let path = normalize_path(path.as_ref());
         self.graph
             .snapshot
@@ -610,11 +571,6 @@ impl CodeGraphBuilder {
         relation: impl AsRef<str>,
         line: u32,
     ) -> Result<(), String> {
-        if self.semantic_started {
-            return Err(
-                "syntax relations cannot change after semantic enrichment begins".to_owned(),
-            );
-        }
         let from_path = normalize_path(from.as_ref());
         let to_path = normalize_path(to.as_ref());
         let from_id = self.ensure_file(&from_path);
@@ -648,99 +604,6 @@ impl CodeGraphBuilder {
         Ok(())
     }
 
-    pub fn add_semantic_relation(&mut self, input: SemanticRelationInput) -> Result<(), String> {
-        let generation = self.generation();
-        if input.generation != generation {
-            return Err("semantic evidence generation does not match graph snapshot".to_owned());
-        }
-        self.graph.snapshot.generation = generation;
-        self.semantic_started = true;
-        self.ensure_node(input.from.clone());
-        self.ensure_node(input.to.clone());
-        let source = EvidenceSource::Lsp {
-            method: input.method,
-            server_family: input.server.family,
-            server_version: input.server.version,
-            configuration_digest: input.server.configuration_digest,
-            capabilities: input.server.capabilities,
-            document_version: input.document_version,
-        };
-        self.add_edge_with_evidence(input.from, input.to, input.kind, source, None, input.range)?;
-        Ok(())
-    }
-
-    /// Record a semantic observation, including negative evidence. Rejects
-    /// stale evidence whose generation no longer matches the snapshot and
-    /// returns the content-addressed observation id. Observations are stored
-    /// separately from graph edges so an absence is never encoded as an edge.
-    pub fn add_semantic_observation(
-        &mut self,
-        input: SemanticObservationInput,
-    ) -> Result<String, String> {
-        let generation = self.generation();
-        if input.generation != generation {
-            return Err("semantic observation generation does not match graph snapshot".to_owned());
-        }
-        self.graph.snapshot.generation = generation.clone();
-        self.semantic_started = true;
-        let key = serde_json::to_vec(&(
-            &input.candidate,
-            &input.provider,
-            &input.operation,
-            &input.anchor,
-            &input.document_version,
-            &input.outcome,
-            input.result_count,
-            input.complete,
-            &input.truncation_reason,
-        ))
-        .map_err(|error| error.to_string())?;
-        let id = content_digest(&key);
-        self.graph.observations.insert(
-            id.clone(),
-            SemanticObservation {
-                id: id.clone(),
-                generation,
-                candidate: input.candidate,
-                provider: input.provider,
-                operation: input.operation,
-                anchor: input.anchor,
-                document_version: input.document_version,
-                outcome: input.outcome,
-                result_count: input.result_count,
-                complete: input.complete,
-                truncation_reason: input.truncation_reason,
-            },
-        );
-        Ok(id)
-    }
-
-    /// Whole-graph semantic completeness. Only call when every semantic
-    /// candidate has been enriched by a complete provider scope; a single
-    /// successful relation must never reach this.
-    pub fn mark_semantic_complete(&mut self) {
-        self.graph.completeness.semantic_complete = true;
-        self.graph
-            .completeness
-            .reasons
-            .remove("semantic-incomplete");
-    }
-
-    /// Scope-aware finalization: mark that the selected candidates of a single
-    /// scope (e.g. `deadCode`) were completed, without asserting whole-graph
-    /// completeness.
-    pub fn mark_semantic_scope_complete(&mut self, scope: impl Into<String>) {
-        self.graph
-            .completeness
-            .semantic_scopes_complete
-            .insert(scope.into());
-    }
-
-    pub fn mark_semantic_incomplete(&mut self, reason: impl Into<String>) {
-        self.graph.completeness.semantic_complete = false;
-        self.graph.completeness.reasons.insert(reason.into());
-    }
-
     pub fn mark_incomplete(&mut self, reason: impl Into<String>, skipped_files: u32) {
         self.graph.completeness.scan_complete = false;
         self.graph.completeness.skipped_files = skipped_files;
@@ -750,7 +613,7 @@ impl CodeGraphBuilder {
     pub fn finish(self) -> CodeGraphSnapshot {
         let mut graph = self.finish_without_digest();
         let encoded = serde_json::to_vec(&graph).unwrap_or_default();
-        graph.snapshot.digest = content_digest(&encoded);
+        graph.snapshot.digest = sha256(&encoded);
         graph
     }
 
@@ -847,7 +710,7 @@ impl CodeGraphBuilder {
         // `EvidenceSource` clone per edge — `source` is moved into `Evidence` below.
         let evidence_key = serde_json::to_vec(&(&from, &to, &kind, &source, &file, &range))
             .map_err(|error| error.to_string())?;
-        let evidence_id = EvidenceId(content_digest(&evidence_key));
+        let evidence_id = EvidenceId(sha256(&evidence_key));
         self.graph
             .evidence
             .entry(evidence_id.clone())
@@ -859,7 +722,7 @@ impl CodeGraphBuilder {
             });
         let edge_key =
             serde_json::to_vec(&(&from, &to, &kind)).map_err(|error| error.to_string())?;
-        let edge_id = content_digest(&edge_key);
+        let edge_id = sha256(&edge_key);
         self.graph
             .edges
             .entry(edge_id.clone())
@@ -903,7 +766,7 @@ impl CodeGraphBuilder {
 
 fn generation_digest(root: &str, schema: u32, files: &BTreeMap<String, String>) -> String {
     let encoded = serde_json::to_vec(&(root, schema, files)).unwrap_or_default();
-    content_digest(&encoded)
+    sha256(&encoded)
 }
 
 fn normalize_path(path: &str) -> String {
@@ -924,254 +787,11 @@ fn normalize_path(path: &str) -> String {
 mod tests {
     use super::*;
 
-    fn semantic(generation: String) -> SemanticRelationInput {
-        SemanticRelationInput {
-            generation,
-            from: NodeId::file("src/main.rs"),
-            to: NodeId::file("src/lib.rs"),
-            kind: EdgeKind::Imports,
-            method: "textDocument/definition".to_owned(),
-            server: ServerReceipt {
-                family: "rust-analyzer".to_owned(),
-                version: Some("test".to_owned()),
-                configuration_digest: "config".to_owned(),
-                capabilities: ["referencesProvider".to_owned()].into_iter().collect(),
-            },
-            document_version: Some(7),
-            range: None,
-        }
-    }
-
     #[test]
     fn path_normalization_preserves_filesystem_roots() {
         assert_eq!(normalize_path("/"), "/");
         assert_eq!(normalize_path("C:\\"), "C:/");
         assert_eq!(normalize_path("/workspace/"), "/workspace");
-    }
-
-    #[test]
-    fn graph_snapshot_merges_independent_ast_and_lsp_evidence_deterministically() {
-        let mut builder = CodeGraphBuilder::new("/workspace", 1);
-        builder.add_file("src/main.rs", "aaa").expect("main file");
-        builder.add_file("src/lib.rs", "bbb").expect("lib file");
-        builder
-            .add_file_relation("src/main.rs", "src/lib.rs", "rust-use", 1)
-            .expect("AST relation");
-        builder
-            .add_semantic_relation(semantic(builder.generation()))
-            .expect("LSP relation");
-        let first = builder.finish();
-
-        let mut rebuilt = CodeGraphBuilder::new("/workspace", 1);
-        rebuilt.add_file("src/lib.rs", "bbb").expect("lib file");
-        rebuilt.add_file("src/main.rs", "aaa").expect("main file");
-        rebuilt
-            .add_file_relation("src/main.rs", "src/lib.rs", "rust-use", 1)
-            .expect("AST relation");
-        rebuilt
-            .add_semantic_relation(semantic(rebuilt.generation()))
-            .expect("LSP relation");
-        let second = rebuilt.finish();
-
-        assert_eq!(first.snapshot.digest, second.snapshot.digest);
-        assert_eq!(first.evidence.len(), 2);
-        assert_eq!(first.edges.len(), 1);
-        assert_eq!(first.edges.values().next().expect("edge").evidence.len(), 2);
-        let ast_evidence = first
-            .evidence
-            .values()
-            .find(|evidence| matches!(evidence.source, EvidenceSource::Ast { .. }))
-            .expect("AST evidence");
-        assert_eq!(ast_evidence.range.as_ref().expect("range").start.line, 0);
-    }
-
-    #[test]
-    fn contradictory_semantic_evidence_remains_separate_and_inspectable() {
-        let mut builder = CodeGraphBuilder::new("/workspace", 1);
-        builder.add_file("src/main.rs", "aaa").expect("main file");
-        builder.add_file("src/lib.rs", "bbb").expect("lib file");
-        builder
-            .add_file_relation("src/main.rs", "src/lib.rs", "rust-use", 1)
-            .expect("syntax relation");
-        let mut relation = semantic(builder.generation());
-        relation.to = NodeId::external("crate:other");
-        builder
-            .add_semantic_relation(relation)
-            .expect("semantic relation");
-        builder.mark_semantic_incomplete("selective-budget");
-        let snapshot = builder.finish();
-
-        assert_eq!(snapshot.edges.len(), 2);
-        assert_eq!(snapshot.evidence.len(), 2);
-        assert!(!snapshot.completeness.semantic_complete);
-        assert!(snapshot.completeness.reasons.contains("selective-budget"));
-    }
-
-    #[test]
-    fn semantic_unavailability_is_explicit_in_snapshot_completeness() {
-        let mut builder = CodeGraphBuilder::new("/workspace", 1);
-        builder.add_file("src/main.rs", "aaa").expect("main file");
-        builder.mark_semantic_incomplete("definitionProvider unavailable");
-        let snapshot = builder.finish();
-
-        assert!(!snapshot.completeness.semantic_complete);
-        assert!(
-            snapshot
-                .completeness
-                .reasons
-                .contains("definitionProvider unavailable")
-        );
-    }
-
-    #[test]
-    fn stale_semantic_generation_is_rejected() {
-        let mut builder = CodeGraphBuilder::new("/workspace", 1);
-        builder.add_file("src/main.rs", "aaa").expect("main file");
-        let mut relation = semantic("stale".to_owned());
-        relation.to = NodeId::external("crate:item");
-        let error = builder
-            .add_semantic_relation(relation)
-            .expect_err("stale evidence must fail");
-        assert!(error.contains("generation"));
-    }
-
-    #[test]
-    fn source_generation_does_not_claim_provider_configuration_identity() {
-        let mut first = CodeGraphBuilder::new("/workspace", 1);
-        first.add_file("src/main.rs", "aaa").expect("source");
-        let mut second = CodeGraphBuilder::new("/workspace", 1);
-        second.add_file("src/main.rs", "aaa").expect("source");
-        let generation = first.generation();
-        let a = semantic(generation.clone());
-        let mut b = semantic(generation.clone());
-        b.server.configuration_digest = "different-config".to_owned();
-        first.add_semantic_relation(a).expect("first producer");
-        second.add_semantic_relation(b).expect("second producer");
-        let a = first.finish();
-        let b = second.finish();
-        assert_eq!(a.snapshot.generation, b.snapshot.generation);
-        assert_ne!(a.snapshot.digest, b.snapshot.digest);
-    }
-
-    fn observation(generation: String, outcome: SemanticOutcome) -> SemanticObservationInput {
-        SemanticObservationInput {
-            generation,
-            candidate: NodeId::symbol("src/lib.rs", "unused_fn"),
-            provider: ServerReceipt {
-                family: "rust-analyzer".to_owned(),
-                version: Some("test".to_owned()),
-                configuration_digest: "config".to_owned(),
-                capabilities: ["referencesProvider".to_owned()].into_iter().collect(),
-            },
-            operation: SemanticOperation::References,
-            anchor: SymbolAnchor {
-                file: "src/lib.rs".to_owned(),
-                range: GraphRange::default(),
-                display_name: Some("unused_fn".to_owned()),
-            },
-            document_version: Some(7),
-            outcome,
-            result_count: 0,
-            complete: false,
-            truncation_reason: None,
-        }
-    }
-
-    #[test]
-    fn negative_semantic_observation_is_stored_separately_from_edges() {
-        let mut builder = CodeGraphBuilder::new("/workspace", 1);
-        builder.add_file("src/lib.rs", "bbb").expect("lib file");
-        let id = builder
-            .add_semantic_observation(observation(builder.generation(), SemanticOutcome::NoResult))
-            .expect("observation recorded");
-        let snapshot = builder.finish();
-
-        // A zero-result query is recorded as an observation, never as an edge.
-        assert!(snapshot.edges.is_empty());
-        assert_eq!(snapshot.observations.len(), 1);
-        let stored = snapshot.observations.get(&id).expect("observation");
-        assert_eq!(stored.outcome, SemanticOutcome::NoResult);
-        assert!(!stored.complete, "incomplete scope cannot prove absence");
-        // Whole-graph completeness is not implied by a single observation.
-        assert!(!snapshot.completeness.semantic_complete);
-    }
-
-    #[test]
-    fn semantic_observations_produce_deterministic_digests() {
-        let mut first = CodeGraphBuilder::new("/workspace", 1);
-        first.add_file("src/lib.rs", "bbb").expect("lib file");
-        first
-            .add_semantic_observation(observation(first.generation(), SemanticOutcome::NoResult))
-            .expect("first observation");
-        first
-            .add_semantic_observation(observation(first.generation(), SemanticOutcome::Unresolved))
-            .expect("second observation");
-        let a = first.finish();
-
-        // Reverse insertion order; content-addressed ids keep the digest stable.
-        let mut second = CodeGraphBuilder::new("/workspace", 1);
-        second.add_file("src/lib.rs", "bbb").expect("lib file");
-        second
-            .add_semantic_observation(observation(
-                second.generation(),
-                SemanticOutcome::Unresolved,
-            ))
-            .expect("second observation");
-        second
-            .add_semantic_observation(observation(second.generation(), SemanticOutcome::NoResult))
-            .expect("first observation");
-        let b = second.finish();
-
-        assert_eq!(a.observations.len(), 2);
-        assert_eq!(a.snapshot.digest, b.snapshot.digest);
-    }
-
-    #[test]
-    fn stale_semantic_observation_generation_is_rejected() {
-        let mut builder = CodeGraphBuilder::new("/workspace", 1);
-        builder.add_file("src/lib.rs", "bbb").expect("lib file");
-        let error = builder
-            .add_semantic_observation(observation("stale".to_owned(), SemanticOutcome::NoResult))
-            .expect_err("stale observation must fail");
-        assert!(error.contains("generation"));
-    }
-
-    #[test]
-    fn scope_completeness_does_not_imply_whole_graph_completeness() {
-        let mut builder = CodeGraphBuilder::new("/workspace", 1);
-        builder.add_file("src/lib.rs", "bbb").expect("lib file");
-        builder.mark_semantic_scope_complete("deadCode");
-        let snapshot = builder.finish();
-
-        assert!(
-            snapshot
-                .completeness
-                .semantic_scopes_complete
-                .contains("deadCode")
-        );
-        assert!(!snapshot.completeness.semantic_complete);
-    }
-
-    #[test]
-    fn source_mutation_is_rejected_after_semantic_enrichment_begins() {
-        let mut builder = CodeGraphBuilder::new("/workspace", 1);
-        builder.add_file("src/main.rs", "aaa").expect("main file");
-        builder.add_file("src/lib.rs", "bbb").expect("lib file");
-        builder
-            .add_semantic_relation(semantic(builder.generation()))
-            .expect("semantic relation");
-        assert!(
-            builder
-                .add_file("src/late.rs", "ccc")
-                .expect_err("late source mutation")
-                .contains("after semantic enrichment")
-        );
-        assert!(
-            builder
-                .add_file_relation("src/main.rs", "src/late.rs", "rust-use", 1)
-                .expect_err("late syntax mutation")
-                .contains("after semantic enrichment")
-        );
     }
 
     #[test]
@@ -1184,7 +804,7 @@ mod tests {
           "modules":[{"name":"child","line":2,"scope":[],"inline":false,"path":"child.rs","unsupported":false}],
           "commonJs":[{"specifier":"pkg","line":3,"kind":"commonjs-require","binding":"require"}]
         }"#;
-        let facts = GraphFactsDocument::from_json(json).expect("typed facts");
+        let facts: GraphFactsDocument = serde_json::from_str(json).expect("typed facts");
         assert_eq!(facts.declarations[0].selection_range.start.character, 3);
         assert_eq!(facts.edges[0].relation, "calls");
         assert_eq!(facts.modules[0].path.as_deref(), Some("child.rs"));

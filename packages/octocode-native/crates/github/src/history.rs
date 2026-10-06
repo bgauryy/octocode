@@ -94,14 +94,9 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 }
             }
         }
-        let response = self.execute(RequestSpec::get(url), context).await?;
-        let items: Vec<Value> = serde_json::from_slice(&response.body).map_err(|_| {
-            ProviderError::new(
-                ProviderErrorKind::Decode,
-                "invalid GitHub commit list response",
-            )
-        })?;
-        let has_more = response.next.is_some();
+        let (items, has_more): (Vec<Value>, bool) = self
+            .revalidated_json(RequestSpec::get(url), false, context, "commit list")
+            .await?;
         Ok(HistoryPage {
             total_count: 0,
             incomplete_results: false,
@@ -178,14 +173,9 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 q.append_pair("base", base);
             }
         }
-        let response = self.execute(RequestSpec::get(url), context).await?;
-        let items: Vec<Value> = serde_json::from_slice(&response.body).map_err(|_| {
-            ProviderError::new(
-                ProviderErrorKind::Decode,
-                "invalid GitHub pull request list response",
-            )
-        })?;
-        let has_more = response.next.is_some();
+        let (items, has_more): (Vec<Value>, bool) = self
+            .revalidated_json(RequestSpec::get(url), false, context, "pull request list")
+            .await?;
         Ok(HistoryPage {
             total_count: 0,
             incomplete_results: false,
@@ -236,13 +226,9 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 reqwest::header::HeaderValue::from_static("application/vnd.github+json"),
             );
         }
-        let page = self.execute(spec, context).await?;
-        let value: Value = serde_json::from_slice(&page.body).map_err(|_| {
-            ProviderError::new(
-                ProviderErrorKind::Decode,
-                "invalid GitHub history search response",
-            )
-        })?;
+        let (value, _): (Value, bool) = self
+            .revalidated_json(spec, false, context, "history search")
+            .await?;
         Ok(HistoryPage {
             total_count: value
                 .get("total_count")

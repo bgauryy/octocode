@@ -363,10 +363,56 @@ fn release_facts(artifact: &mut ArtifactItem, row: &serde_json::Map<String, Valu
             .map(|deps| deps.len())
     };
     artifact.dependencies = count("dependencies").or(Some(0));
+    artifact.dependency_list = row
+        .get("dependencies")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+        .map(|(name, range)| match range.as_str() {
+            Some(range) => format!("{name}@{range}"),
+            None => name.clone(),
+        })
+        .collect();
     artifact.peer_dependencies = count("peerDependencies").filter(|count| *count > 0);
     artifact.deprecated = string(row.get("deprecated"));
     artifact.engines = string(row.get("engines").and_then(|engines| engines.get("node")));
     artifact.published_at = published_at(row);
+    artifact.entry_directory = entry_directory(row);
+}
+
+/// The directory of `main` when the package ships it as written: no build
+/// script, so the published entry is a repository path (`./source/index.js`
+/// → `source`). A built package's `main` names output absent upstream.
+fn entry_directory(row: &serde_json::Map<String, Value>) -> Option<String> {
+    let builds = row
+        .get("scripts")
+        .and_then(Value::as_object)
+        .is_some_and(|scripts| {
+            scripts.keys().any(|name| {
+                name.starts_with("build")
+                    || name.starts_with("compile")
+                    || name.starts_with("bundle")
+                    || matches!(
+                        name.as_str(),
+                        "prepare" | "prepack" | "prepublish" | "prepublishOnly"
+                    )
+            })
+        });
+    if builds {
+        return None;
+    }
+    let main = row.get("main")?.as_str()?;
+    let main = main.trim_start_matches("./").trim_start_matches('/');
+    let (directory, _) = main.rsplit_once('/')?;
+    let segments: Vec<&str> = directory.split('/').collect();
+    let shipped = segments
+        .iter()
+        .all(|part| !part.is_empty() && *part != "." && *part != "..")
+        && !matches!(
+            segments[0],
+            "dist" | "build" | "out" | "cjs" | "esm" | "umd" | "bundle" | "node_modules"
+        );
+    shipped.then(|| directory.to_owned())
 }
 
 /// npm's version manifest has no publish time, but its upload record does:
@@ -598,6 +644,42 @@ pub(crate) fn normalize_repository(value: &str) -> Option<String> {
 }
 
 #[cfg(test)]
+mod entry_directory_tests {
+    use super::entry_directory;
+    use serde_json::json;
+
+    fn entry(row: serde_json::Value) -> Option<String> {
+        entry_directory(row.as_object().expect("row"))
+    }
+
+    #[test]
+    fn shipped_source_main_names_its_directory() {
+        assert_eq!(
+            entry(json!({"main": "./source/index.js"})).as_deref(),
+            Some("source")
+        );
+        assert_eq!(
+            entry(json!({"main": "src/lib/index.js", "scripts": {"test": "x"}})).as_deref(),
+            Some("src/lib")
+        );
+        // A root entry, a missing main, or a build output stays at the package root.
+        assert_eq!(entry(json!({"main": "index.js"})), None);
+        assert_eq!(entry(json!({})), None);
+        assert_eq!(entry(json!({"main": "./dist/index.js"})), None);
+        assert_eq!(entry(json!({"main": "../x/index.js"})), None);
+        // A build step makes `main` output, not a repository path.
+        assert_eq!(
+            entry(json!({"main": "./lib/index.js", "scripts": {"build": "tsc"}})),
+            None
+        );
+        assert_eq!(
+            entry(json!({"main": "./lib/index.js", "scripts": {"prepare": "x"}})),
+            None
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::super::types::artifact_query;
     use super::normalize_repository;
@@ -724,6 +806,14 @@ mod tests {
     const COMMIT: &str = "59bbc03e10c636b9eb3c393dfeb552819774ec21";
     const TARBALL: &[u8] = b"zod tarball bytes";
 
+    /// A registry at `url` whose authorization comes from `npmrc` text.
+    fn npmrc_registry(url: &str, npmrc: &str) -> ResolvedNpmRegistry {
+        let mut registry = npm_registry(url);
+        registry.authorization =
+            super::super::npmrc::authorization_for(&registry.base, npmrc, |_| None);
+        registry
+    }
+
     fn sha512(bytes: &[u8]) -> Vec<u8> {
         use sha2::Digest as _;
         sha2::Sha512::digest(bytes).to_vec()
@@ -774,13 +864,8 @@ mod tests {
         http: &RouteHttp,
         fields: Value,
     ) -> Result<super::ArtifactProviderPage, super::ArtifactError> {
-        let budget = RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000);
-        let client = RegistryClient {
-            http,
-            budget: &budget,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
+        let budget = super::super::types::test_budget();
+        let client = RegistryClient::uncached(http, &budget);
         let mut query = json!({"type": "npm"});
         for (key, value) in fields.as_object().expect("fields") {
             query[key] = value.clone();
@@ -931,19 +1016,11 @@ mod tests {
                     &sha512(TARBALL),
                 ),
             )]);
-            let budget =
-                RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000);
-            let client = RegistryClient {
-                http: &http,
-                budget: &budget,
-                cache_revision: 0,
-                cache_enabled: false,
-            };
-            let mut registry = npm_registry("https://registry.npmjs.org/");
-            registry.authorization = super::super::npmrc::authorization_for(
-                &registry.base,
+            let budget = super::super::types::test_budget();
+            let client = RegistryClient::uncached(&http, &budget);
+            let registry = npmrc_registry(
+                "https://registry.npmjs.org/",
                 "//registry.npmjs.org/:_authToken=fake-test-token",
-                |_| None,
             );
             let mut item = super::ArtifactItem::new(
                 ArtifactType::Npm,
@@ -997,19 +1074,11 @@ mod tests {
                     &sha512(TARBALL),
                 ),
             )]);
-            let budget =
-                RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000);
-            let client = RegistryClient {
-                http: &http,
-                budget: &budget,
-                cache_revision: 0,
-                cache_enabled: false,
-            };
-            let mut registry = npm_registry("https://registry.npmjs.org/api/npm/");
-            registry.authorization = super::super::npmrc::authorization_for(
-                &registry.base,
+            let budget = super::super::types::test_budget();
+            let client = RegistryClient::uncached(&http, &budget);
+            let registry = npmrc_registry(
+                "https://registry.npmjs.org/api/npm/",
                 &format!("//registry.npmjs.org{scope}:_authToken=fake-path-test-token"),
-                |_| None,
             );
             assert!(registry.authorization.is_some());
             let mut item = super::ArtifactItem::new(
@@ -1058,18 +1127,11 @@ mod tests {
                 json!({"objects":[],"total":0}),
             ),
         ]);
-        let budget = RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000);
-        let client = RegistryClient {
-            http: &http,
-            budget: &budget,
-            cache_revision: 0,
-            cache_enabled: false,
-        };
-        let mut registry = npm_registry("https://registry.npmjs.org/api/npm/");
-        registry.authorization = super::super::npmrc::authorization_for(
-            &registry.base,
+        let budget = super::super::types::test_budget();
+        let client = RegistryClient::uncached(&http, &budget);
+        let registry = npmrc_registry(
+            "https://registry.npmjs.org/api/npm/",
             "//registry.npmjs.org/api/npm/:_authToken=fake-metadata-token",
-            |_| None,
         );
         super::exact("zod", Some("^4"), &registry, &client, None)
             .await

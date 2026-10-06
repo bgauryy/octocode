@@ -1,6 +1,6 @@
 # Types and patterns
 
-Load when you design a struct/enum/trait, choose a primitive or smart pointer, port an OO object model, or need a named pattern. Layout in memory: `references/performance-and-memory.md`. JS side of a napi type: `references/napi.md`.
+Load when you design a struct/enum/trait, choose a primitive or smart pointer, port an OO object model, or need a named pattern. Why: the type shape fixes which states are representable and what every caller pays. Layout in memory: `references/performance-and-memory.md`. JS side of a napi type: `references/napi.md`.
 
 ## Objects
 - Object = `struct` + `impl` + traits. No inheritance (not even via `Deref` chains): compose structs; share behavior with traits and default methods.

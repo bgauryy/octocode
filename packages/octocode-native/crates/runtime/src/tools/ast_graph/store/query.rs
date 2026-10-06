@@ -535,7 +535,6 @@ pub fn query(options: &QueryOptions, paths: &PathPolicy) -> GraphOutput {
 }
 
 fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphOutput> {
-    let unbox = |failure: Failure| *failure;
     if !OPS.contains(&options.op.as_str()) {
         return Err(GraphOutput::error(
             2,
@@ -547,76 +546,12 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
             ),
         ));
     }
-    let kind = match options.kind.as_deref() {
-        None => None,
-        Some(value) => Some(NodeKind::parse(value).ok_or_else(|| {
-            GraphOutput::error(
-                2,
-                "graph.input",
-                format!("unknown --kind {value:?}; expected file, symbol, or package"),
-            )
-        })?),
-    };
-    let mut edge_kinds = Vec::new();
-    for value in options
-        .edges
-        .iter()
-        .flat_map(|v| v.split(','))
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-    {
-        edge_kinds.push(EdgeKind::parse(value).ok_or_else(|| {
-            GraphOutput::error(
-                2,
-                "graph.input",
-                format!("unknown --edge {value:?}; expected contains, imports, or calls"),
-            )
-        })?);
-    }
-    let direction = match options.direction.as_deref() {
-        None => None,
-        Some("out") => Some(Direction::Out),
-        Some("in") => Some(Direction::In),
-        Some("both") => Some(Direction::Both),
-        Some(other) => {
-            return Err(GraphOutput::error(
-                2,
-                "graph.input",
-                format!("unknown --direction {other:?}; expected out, in, or both"),
-            ));
-        }
-    };
-    let weakest = match options.confidence.as_deref() {
-        None | Some("low") => Confidence::Low,
-        Some("medium") => Confidence::Medium,
-        Some("high") => Confidence::High,
-        Some(other) => {
-            return Err(GraphOutput::error(
-                2,
-                "graph.input",
-                format!("unknown --confidence {other:?}; expected high, medium, or low"),
-            ));
-        }
-    };
-    let depth = options.depth.map(|d| d.clamp(1, MAX_DEPTH));
-    let graph = load(options, paths).map_err(unbox)?;
-    let target = |required: &str| -> Result<u32, GraphOutput> {
-        let reference = options.target.as_deref().ok_or_else(|| {
-            GraphOutput::error(
-                2,
-                "graph.input",
-                format!("`{}` needs {required}", options.op),
-            )
-        })?;
-        graph.resolve(reference, kind).map_err(unbox)
-    };
-    let filter = |default: &[EdgeKind]| EdgeFilter {
-        kinds: if edge_kinds.is_empty() {
-            default.to_vec()
-        } else {
-            edge_kinds.clone()
-        },
-        weakest,
+    let flags = Flags::parse(options)?;
+    let graph = load(options, paths).map_err(|failure| *failure)?;
+    let query = Query {
+        options,
+        g: &graph,
+        flags,
     };
     let g = &graph;
     match options.op.as_str() {
@@ -626,282 +561,35 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
                 .target
                 .as_deref()
                 .ok_or_else(|| GraphOutput::error(2, "graph.input", "`find` needs search text"))?;
-            Ok(run_page(options, g, Map::new(), find(g, text, kind)))
+            Ok(run_page(
+                options,
+                g,
+                Map::new(),
+                find(g, text, query.flags.kind),
+            ))
         }
-        "node" => Ok(node(g, target("a node reference")?)),
+        "node" => Ok(node(g, query.target("a node reference")?)),
         "symbols" => {
-            let root = target("a file or symbol")?;
+            let root = query.target("a file or symbol")?;
             let (extra, page) = symbols(g, root);
             Ok(run_page(options, g, extra, page))
         }
-        "deps" | "dependents" | "callers" | "callees" | "walk" => {
-            let root = target("a node reference")?;
-            let node_kind = g.t.nodes[root as usize].kind;
-            let natural = if node_kind == NodeKind::Symbol {
-                EdgeKind::Calls
-            } else {
-                EdgeKind::Imports
-            };
-            let (default_edges, default_direction, default_depth) = match options.op.as_str() {
-                "deps" => (vec![natural], Direction::Out, 1),
-                "dependents" => (vec![natural], Direction::In, 1),
-                "callers" => (vec![EdgeKind::Calls], Direction::In, 1),
-                "callees" => (vec![EdgeKind::Calls], Direction::Out, 1),
-                _ => (EdgeKind::ALL.to_vec(), Direction::Out, 2),
-            };
-            // A file's callers/callees are those of every symbol it declares.
-            let seeds = if matches!(options.op.as_str(), "callers" | "callees")
-                && node_kind == NodeKind::File
-            {
-                descendants(g, root)
-            } else {
-                vec![root]
-            };
-            let filter = filter(&default_edges);
-            let direction = direction.unwrap_or(default_direction);
-            let page = walk(
-                g,
-                &seeds,
-                direction,
-                &filter,
-                depth.unwrap_or(default_depth),
-                kind,
-            );
-            let mut extra = Map::new();
-            extra.insert("target".into(), Value::Object(g.node_json(root)));
-            extra.insert(
-                "edges".into(),
-                json!(filter.kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>()),
-            );
-            if filter.kinds.contains(&EdgeKind::Calls) {
-                extra.insert("coverage".into(), g.coverage(root));
-            }
-            Ok(run_page(options, g, extra, page))
-        }
-        "path" => {
-            let from = target("a source reference")?;
-            let reference = options.to.as_deref().ok_or_else(|| {
-                GraphOutput::error(2, "graph.input", "`path` needs a target: path <from> <to>")
-            })?;
-            let to = g.resolve(reference, kind).map_err(unbox)?;
-            let both_symbols = g.t.nodes[from as usize].kind == NodeKind::Symbol
-                && g.t.nodes[to as usize].kind == NodeKind::Symbol;
-            let default = if both_symbols {
-                vec![EdgeKind::Calls]
-            } else {
-                vec![EdgeKind::Imports]
-            };
-            let filter = filter(&default);
-            let mut out = path(g, from, to, direction.unwrap_or(Direction::Out), &filter);
-            if filter.kinds.contains(&EdgeKind::Calls) {
-                out.value["coverage"] = g.coverage(from);
-            }
-            Ok(out)
-        }
+        "deps" | "dependents" | "callers" | "callees" | "walk" => query.traversal(),
+        "path" => query.path(),
         "cycles" => {
-            let filter = filter(&[EdgeKind::Imports]);
+            let filter = query.filter(&[EdgeKind::Imports]);
             let page = cycles(g, &filter);
-            let mut extra = Map::new();
-            extra.insert(
-                "edges".into(),
-                json!(filter.kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>()),
-            );
-            Ok(run_page(options, g, extra, page))
+            Ok(run_page(options, g, edges_extra(&filter), page))
         }
-        "hubs" => {
-            let filter = filter(&[EdgeKind::Imports]);
-            let rank_by = direction.unwrap_or(Direction::In);
-            let page = hubs(g, &filter, kind, rank_by);
-            let mut extra = Map::new();
-            extra.insert(
-                "edges".into(),
-                json!(filter.kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>()),
-            );
-            extra.insert(
-                "rankBy".into(),
-                json!(if rank_by == Direction::Out {
-                    "out"
-                } else {
-                    "in"
-                }),
-            );
-            Ok(run_page(options, g, extra, page))
-        }
+        "hubs" => query.hubs(),
         "diagnostics" => Ok(run_page(
             options,
             g,
             Map::new(),
             diagnostics(g, options.target.as_deref()),
         )),
-        "impact" => {
-            let root = PathBuf::from(g.manifest["root"].as_str().unwrap_or_default());
-            let mut refs = options.target.iter().cloned().collect::<Vec<_>>();
-            refs.extend(
-                options
-                    .changed
-                    .iter()
-                    .flat_map(|c| c.split(','))
-                    .map(str::trim)
-                    .filter(|c| !c.is_empty())
-                    .map(str::to_owned),
-            );
-            let mut global = Vec::new();
-            let mut unmapped = Vec::new();
-            if let Some(rev) = &options.since {
-                let changed = git_changed(&root, rev)
-                    .map_err(|message| GraphOutput::error(5, "graph.git", message))?;
-                for path in changed {
-                    if super::impact::is_global_config(&path) {
-                        global.push((parent_of(&path).to_owned(), path));
-                    } else if g.t.by_key(&path).is_some() {
-                        refs.push(path);
-                    } else {
-                        unmapped.push(path);
-                    }
-                }
-            }
-            if refs.is_empty() && global.is_empty() {
-                let mut out = GraphOutput::error(
-                    2,
-                    "graph.input",
-                    "`impact` needs a reference, --changed, or --since <rev>",
-                );
-                if !unmapped.is_empty() {
-                    out.value["unmapped"] = json!(unmapped);
-                    out.exit = 1;
-                }
-                return Err(out);
-            }
-            let mut seeds = Vec::new();
-            for reference in &refs {
-                seeds.push(g.resolve(reference, kind).map_err(unbox)?);
-            }
-            seeds.sort_unstable();
-            seeds.dedup();
-            let max_depth = depth.unwrap_or(DEFAULT_IMPACT_DEPTH);
-            let impact = super::impact::run(&g.t, &seeds, &global, max_depth);
-            let mut extra = Map::new();
-            let mut summary = impact.summary;
-            summary["maxDepth"] = json!(max_depth);
-            if let Some(first) = seeds.first() {
-                extra.insert("coverage".into(), g.coverage(*first));
-            }
-            if !unmapped.is_empty() {
-                summary["unmapped"] = json!(
-                    unmapped
-                        .into_iter()
-                        .take(MAX_CANDIDATES * 5)
-                        .collect::<Vec<_>>()
-                );
-            }
-            extra.insert("summary".into(), summary);
-            let rows = impact.rows;
-            Ok(run_page(
-                options,
-                g,
-                extra,
-                Page {
-                    total: rows.len(),
-                    rows,
-                },
-            ))
-        }
-        "issues" => {
-            let detectors = options
-                .detectors
-                .iter()
-                .flat_map(|d| d.split(','))
-                .map(str::trim)
-                .filter(|d| !d.is_empty())
-                .map(str::to_owned)
-                .collect::<Vec<_>>();
-            let invalid = |message: String| GraphOutput::error(2, "graph.input", message);
-            let root = PathBuf::from(g.manifest["root"].as_str().unwrap_or_default());
-            let scan_root = root.is_dir().then_some(root.as_path());
-            let report = super::detect::run(&g.t, &detectors, scan_root).map_err(invalid)?;
-            let min_tier = options.min_tier.unwrap_or(DEFAULT_MIN_TIER);
-            let keep = |f: &super::detect::Finding| {
-                options.min_score.is_none_or(|min| f.score >= min) && f.tier >= min_tier
-            };
-            let total_before = report.findings.len();
-            let findings = report.findings.into_iter().filter(keep).collect::<Vec<_>>();
-            let mut extra = Map::new();
-            let mut summary = report.summary;
-            summary["minTier"] = json!(min_tier);
-            summary["hiddenBelowTier"] = json!(total_before - findings.len());
-            extra.insert("summary".into(), summary);
-            let mut status = BTreeMap::<String, &str>::new();
-            if let Some(base) = &options.baseline {
-                let base_options = QueryOptions {
-                    graph: Some(base.clone()),
-                    workspace: options.workspace.clone(),
-                    ..Default::default()
-                };
-                let base_graph = load(&base_options, paths).map_err(unbox)?;
-                let base_root =
-                    PathBuf::from(base_graph.manifest["root"].as_str().unwrap_or_default());
-                let before = super::detect::run(
-                    &base_graph.t,
-                    &detectors,
-                    base_root.is_dir().then_some(base_root.as_path()),
-                )
-                .map_err(invalid)?;
-                let old = before
-                    .findings
-                    .iter()
-                    .map(|f| f.id.clone())
-                    .collect::<std::collections::BTreeSet<_>>();
-                let now = findings
-                    .iter()
-                    .map(|f| f.id.clone())
-                    .collect::<std::collections::BTreeSet<_>>();
-                for finding in &findings {
-                    status.insert(
-                        finding.id.clone(),
-                        if old.contains(&finding.id) {
-                            "existing"
-                        } else {
-                            "new"
-                        },
-                    );
-                }
-                let resolved = before
-                    .findings
-                    .iter()
-                    .filter(|f| !now.contains(&f.id))
-                    .map(|f| json!({"id": f.id, "detector": f.detector, "subject": f.subject, "title": f.title}))
-                    .collect::<Vec<_>>();
-                extra.insert(
-                    "baseline".into(),
-                    json!({
-                        "graph": base_graph.id,
-                        "new": status.values().filter(|s| **s == "new").count(),
-                        "existing": status.values().filter(|s| **s == "existing").count(),
-                        "resolved": resolved.len(),
-                        "resolvedFindings": resolved.into_iter().take(MAX_CANDIDATES * 5).collect::<Vec<_>>(),
-                    }),
-                );
-            }
-            let rows = findings
-                .iter()
-                .map(|finding| {
-                    let mut row = finding.to_json();
-                    if let Some(state) = status.get(&finding.id) {
-                        row["status"] = json!(state);
-                    }
-                    row
-                })
-                .collect::<Vec<_>>();
-            Ok(run_page(
-                options,
-                g,
-                extra,
-                Page {
-                    total: rows.len(),
-                    rows,
-                },
-            ))
-        }
+        "impact" => query.impact(),
+        "issues" => query.issues(paths),
         "stale" => {
             let (extra, page) = stale(g);
             let mut out = run_page(options, g, extra, page);
@@ -911,6 +599,382 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
             Ok(out)
         }
         _ => Err(GraphOutput::error(2, "graph.input", "unknown op")),
+    }
+}
+
+/// The parsed query flags.
+struct Flags {
+    kind: Option<NodeKind>,
+    edge_kinds: Vec<EdgeKind>,
+    direction: Option<Direction>,
+    weakest: Confidence,
+    depth: Option<u32>,
+}
+
+impl Flags {
+    fn parse(options: &QueryOptions) -> Result<Self, GraphOutput> {
+        let invalid = |message: String| GraphOutput::error(2, "graph.input", message);
+        let kind = match options.kind.as_deref() {
+            None => None,
+            Some(value) => Some(NodeKind::parse(value).ok_or_else(|| {
+                invalid(format!(
+                    "unknown --kind {value:?}; expected file, symbol, or package"
+                ))
+            })?),
+        };
+        let mut edge_kinds = Vec::new();
+        for value in options
+            .edges
+            .iter()
+            .flat_map(|v| v.split(','))
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
+            edge_kinds.push(EdgeKind::parse(value).ok_or_else(|| {
+                invalid(format!(
+                    "unknown --edge {value:?}; expected contains, imports, or calls"
+                ))
+            })?);
+        }
+        let direction = match options.direction.as_deref() {
+            None => None,
+            Some("out") => Some(Direction::Out),
+            Some("in") => Some(Direction::In),
+            Some("both") => Some(Direction::Both),
+            Some(other) => {
+                return Err(invalid(format!(
+                    "unknown --direction {other:?}; expected out, in, or both"
+                )));
+            }
+        };
+        let weakest = match options.confidence.as_deref() {
+            None | Some("low") => Confidence::Low,
+            Some("medium") => Confidence::Medium,
+            Some("high") => Confidence::High,
+            Some(other) => {
+                return Err(invalid(format!(
+                    "unknown --confidence {other:?}; expected high, medium, or low"
+                )));
+            }
+        };
+        Ok(Self {
+            kind,
+            edge_kinds,
+            direction,
+            weakest,
+            depth: options.depth.map(|d| d.clamp(1, MAX_DEPTH)),
+        })
+    }
+}
+
+/// `extra.edges`: the edge kinds a page followed.
+fn edges_extra(filter: &EdgeFilter) -> Map<String, Value> {
+    let mut extra = Map::new();
+    extra.insert(
+        "edges".into(),
+        json!(filter.kinds.iter().map(|k| k.as_str()).collect::<Vec<_>>()),
+    );
+    extra
+}
+
+/// One query against one loaded graph.
+struct Query<'q> {
+    options: &'q QueryOptions,
+    g: &'q Graph,
+    flags: Flags,
+}
+
+impl Query<'_> {
+    fn target(&self, required: &str) -> Result<u32, GraphOutput> {
+        let reference = self.options.target.as_deref().ok_or_else(|| {
+            GraphOutput::error(
+                2,
+                "graph.input",
+                format!("`{}` needs {required}", self.options.op),
+            )
+        })?;
+        self.g
+            .resolve(reference, self.flags.kind)
+            .map_err(|failure| *failure)
+    }
+
+    fn filter(&self, default: &[EdgeKind]) -> EdgeFilter {
+        EdgeFilter {
+            kinds: if self.flags.edge_kinds.is_empty() {
+                default.to_vec()
+            } else {
+                self.flags.edge_kinds.clone()
+            },
+            weakest: self.flags.weakest,
+        }
+    }
+
+    /// `deps`, `dependents`, `callers`, `callees`, `walk`.
+    fn traversal(&self) -> Result<GraphOutput, GraphOutput> {
+        let (g, op) = (self.g, self.options.op.as_str());
+        let root = self.target("a node reference")?;
+        let node_kind = g.t.nodes[root as usize].kind;
+        let natural = if node_kind == NodeKind::Symbol {
+            EdgeKind::Calls
+        } else {
+            EdgeKind::Imports
+        };
+        let (default_edges, default_direction, default_depth) = match op {
+            "deps" => (vec![natural], Direction::Out, 1),
+            "dependents" => (vec![natural], Direction::In, 1),
+            "callers" => (vec![EdgeKind::Calls], Direction::In, 1),
+            "callees" => (vec![EdgeKind::Calls], Direction::Out, 1),
+            _ => (EdgeKind::ALL.to_vec(), Direction::Out, 2),
+        };
+        // A file's callers/callees are those of every symbol it declares.
+        let seeds = if matches!(op, "callers" | "callees") && node_kind == NodeKind::File {
+            descendants(g, root)
+        } else {
+            vec![root]
+        };
+        let filter = self.filter(&default_edges);
+        let page = walk(
+            g,
+            &seeds,
+            self.flags.direction.unwrap_or(default_direction),
+            &filter,
+            self.flags.depth.unwrap_or(default_depth),
+            self.flags.kind,
+        );
+        let mut extra = Map::new();
+        extra.insert("target".into(), Value::Object(g.node_json(root)));
+        extra.extend(edges_extra(&filter));
+        if filter.kinds.contains(&EdgeKind::Calls) {
+            extra.insert("coverage".into(), g.coverage(root));
+        }
+        Ok(run_page(self.options, g, extra, page))
+    }
+
+    fn path(&self) -> Result<GraphOutput, GraphOutput> {
+        let g = self.g;
+        let from = self.target("a source reference")?;
+        let reference = self.options.to.as_deref().ok_or_else(|| {
+            GraphOutput::error(2, "graph.input", "`path` needs a target: path <from> <to>")
+        })?;
+        let to = g
+            .resolve(reference, self.flags.kind)
+            .map_err(|failure| *failure)?;
+        let both_symbols = g.t.nodes[from as usize].kind == NodeKind::Symbol
+            && g.t.nodes[to as usize].kind == NodeKind::Symbol;
+        let default = if both_symbols {
+            vec![EdgeKind::Calls]
+        } else {
+            vec![EdgeKind::Imports]
+        };
+        let filter = self.filter(&default);
+        let direction = self.flags.direction.unwrap_or(Direction::Out);
+        let mut out = path(g, from, to, direction, &filter);
+        if filter.kinds.contains(&EdgeKind::Calls) {
+            out.value["coverage"] = g.coverage(from);
+        }
+        Ok(out)
+    }
+
+    fn hubs(&self) -> Result<GraphOutput, GraphOutput> {
+        let filter = self.filter(&[EdgeKind::Imports]);
+        let rank_by = self.flags.direction.unwrap_or(Direction::In);
+        let page = hubs(self.g, &filter, self.flags.kind, rank_by);
+        let mut extra = edges_extra(&filter);
+        extra.insert(
+            "rankBy".into(),
+            json!(if rank_by == Direction::Out {
+                "out"
+            } else {
+                "in"
+            }),
+        );
+        Ok(run_page(self.options, self.g, extra, page))
+    }
+
+    fn impact(&self) -> Result<GraphOutput, GraphOutput> {
+        let (g, options) = (self.g, self.options);
+        let root = PathBuf::from(g.manifest["root"].as_str().unwrap_or_default());
+        let mut refs = options.target.iter().cloned().collect::<Vec<_>>();
+        refs.extend(
+            options
+                .changed
+                .iter()
+                .flat_map(|c| c.split(','))
+                .map(str::trim)
+                .filter(|c| !c.is_empty())
+                .map(str::to_owned),
+        );
+        let mut global = Vec::new();
+        let mut unmapped = Vec::new();
+        if let Some(rev) = &options.since {
+            let changed = git_changed(&root, rev)
+                .map_err(|message| GraphOutput::error(5, "graph.git", message))?;
+            for path in changed {
+                if super::impact::is_global_config(&path) {
+                    global.push((parent_of(&path).to_owned(), path));
+                } else if g.t.by_key(&path).is_some() {
+                    refs.push(path);
+                } else {
+                    unmapped.push(path);
+                }
+            }
+        }
+        if refs.is_empty() && global.is_empty() {
+            let mut out = GraphOutput::error(
+                2,
+                "graph.input",
+                "`impact` needs a reference, --changed, or --since <rev>",
+            );
+            if !unmapped.is_empty() {
+                out.value["unmapped"] = json!(unmapped);
+                out.exit = 1;
+            }
+            return Err(out);
+        }
+        let mut seeds = Vec::new();
+        for reference in &refs {
+            seeds.push(
+                g.resolve(reference, self.flags.kind)
+                    .map_err(|failure| *failure)?,
+            );
+        }
+        seeds.sort_unstable();
+        seeds.dedup();
+        let max_depth = self.flags.depth.unwrap_or(DEFAULT_IMPACT_DEPTH);
+        let impact = super::impact::run(&g.t, &seeds, &global, max_depth);
+        let mut extra = Map::new();
+        let mut summary = impact.summary;
+        summary["maxDepth"] = json!(max_depth);
+        if let Some(first) = seeds.first() {
+            extra.insert("coverage".into(), g.coverage(*first));
+        }
+        if !unmapped.is_empty() {
+            summary["unmapped"] = json!(
+                unmapped
+                    .into_iter()
+                    .take(MAX_CANDIDATES * 5)
+                    .collect::<Vec<_>>()
+            );
+        }
+        extra.insert("summary".into(), summary);
+        let rows = impact.rows;
+        Ok(run_page(
+            options,
+            g,
+            extra,
+            Page {
+                total: rows.len(),
+                rows,
+            },
+        ))
+    }
+
+    fn issues(&self, paths: &PathPolicy) -> Result<GraphOutput, GraphOutput> {
+        let (g, options) = (self.g, self.options);
+        let detectors = options
+            .detectors
+            .iter()
+            .flat_map(|d| d.split(','))
+            .map(str::trim)
+            .filter(|d| !d.is_empty())
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let invalid = |message: String| GraphOutput::error(2, "graph.input", message);
+        let root = PathBuf::from(g.manifest["root"].as_str().unwrap_or_default());
+        let scan_root = root.is_dir().then_some(root.as_path());
+        let report = super::detect::run(&g.t, &detectors, scan_root).map_err(invalid)?;
+        let min_tier = options.min_tier.unwrap_or(DEFAULT_MIN_TIER);
+        let keep = |f: &super::detect::Finding| {
+            options.min_score.is_none_or(|min| f.score >= min) && f.tier >= min_tier
+        };
+        let total_before = report.findings.len();
+        let findings = report.findings.into_iter().filter(keep).collect::<Vec<_>>();
+        let mut extra = Map::new();
+        let mut summary = report.summary;
+        summary["minTier"] = json!(min_tier);
+        summary["hiddenBelowTier"] = json!(total_before - findings.len());
+        extra.insert("summary".into(), summary);
+        let mut status = BTreeMap::<String, &str>::new();
+        if let Some(base) = &options.baseline {
+            let baseline = self.baseline(paths, base, &detectors, &findings, &mut status)?;
+            extra.insert("baseline".into(), baseline);
+        }
+        let rows = findings
+            .iter()
+            .map(|finding| {
+                let mut row = finding.to_json();
+                if let Some(state) = status.get(&finding.id) {
+                    row["status"] = json!(state);
+                }
+                row
+            })
+            .collect::<Vec<_>>();
+        Ok(run_page(
+            options,
+            g,
+            extra,
+            Page {
+                total: rows.len(),
+                rows,
+            },
+        ))
+    }
+
+    /// Findings compared with a baseline graph: each current one is `new`
+    /// or `existing` (written to `status`), and the resolved ones are listed.
+    fn baseline(
+        &self,
+        paths: &PathPolicy,
+        base: &str,
+        detectors: &[String],
+        findings: &[super::detect::Finding],
+        status: &mut BTreeMap<String, &str>,
+    ) -> Result<Value, GraphOutput> {
+        let base_options = QueryOptions {
+            graph: Some(base.to_owned()),
+            workspace: self.options.workspace.clone(),
+            ..Default::default()
+        };
+        let base_graph = load(&base_options, paths).map_err(|failure| *failure)?;
+        let base_root = PathBuf::from(base_graph.manifest["root"].as_str().unwrap_or_default());
+        let before = super::detect::run(
+            &base_graph.t,
+            detectors,
+            base_root.is_dir().then_some(base_root.as_path()),
+        )
+        .map_err(|message| GraphOutput::error(2, "graph.input", message))?;
+        let old = before
+            .findings
+            .iter()
+            .map(|f| f.id.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        let now = findings
+            .iter()
+            .map(|f| f.id.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+        for finding in findings {
+            status.insert(
+                finding.id.clone(),
+                if old.contains(&finding.id) {
+                    "existing"
+                } else {
+                    "new"
+                },
+            );
+        }
+        let resolved = before
+            .findings
+            .iter()
+            .filter(|f| !now.contains(&f.id))
+            .map(|f| json!({"id": f.id, "detector": f.detector, "subject": f.subject, "title": f.title}))
+            .collect::<Vec<_>>();
+        Ok(json!({
+            "graph": base_graph.id,
+            "new": status.values().filter(|s| **s == "new").count(),
+            "existing": status.values().filter(|s| **s == "existing").count(),
+            "resolved": resolved.len(),
+            "resolvedFindings": resolved.into_iter().take(MAX_CANDIDATES * 5).collect::<Vec<_>>(),
+        }))
     }
 }
 
@@ -1023,20 +1087,23 @@ fn node(g: &Graph, id: u32) -> GraphOutput {
     GraphOutput::ok(json!({"graph": g.summary(), "op": "node", "node": out}))
 }
 
+/// The symbols `id` directly contains, in edge order.
+fn contained_symbols(g: &Graph, id: u32) -> Vec<u32> {
+    g.t.out(id)
+        .iter()
+        .filter(|edge| {
+            edge.kind == EdgeKind::Contains && g.t.nodes[edge.dst as usize].kind == NodeKind::Symbol
+        })
+        .map(|edge| edge.dst)
+        .collect()
+}
+
 /// Every symbol transitively contained in `root`, in source order.
 fn descendants(g: &Graph, root: u32) -> Vec<u32> {
     let mut out = Vec::new();
     let mut stack = vec![root];
     while let Some(id) = stack.pop() {
-        let children =
-            g.t.out(id)
-                .iter()
-                .filter(|edge| {
-                    edge.kind == EdgeKind::Contains
-                        && g.t.nodes[edge.dst as usize].kind == NodeKind::Symbol
-                })
-                .map(|edge| edge.dst)
-                .collect::<Vec<_>>();
+        let children = contained_symbols(g, id);
         for child in children.into_iter().rev() {
             out.push(child);
             stack.push(child);
@@ -1050,15 +1117,7 @@ fn symbols(g: &Graph, root: u32) -> (Map<String, Value>, Page) {
     let mut rows = Vec::new();
     let mut stack = vec![(root, 0u32)];
     while let Some((id, depth)) = stack.pop() {
-        let mut children =
-            g.t.out(id)
-                .iter()
-                .filter(|edge| {
-                    edge.kind == EdgeKind::Contains
-                        && g.t.nodes[edge.dst as usize].kind == NodeKind::Symbol
-                })
-                .map(|edge| edge.dst)
-                .collect::<Vec<_>>();
+        let mut children = contained_symbols(g, id);
         children.sort_by_key(|child| (g.t.nodes[*child as usize].line, *child));
         for child in children.into_iter().rev() {
             stack.push((child, depth + 1));
@@ -1179,12 +1238,6 @@ fn path(g: &Graph, from: u32, to: u32, direction: Direction, filter: &EdgeFilter
 /// largest first, then by their smallest key.
 fn cycles(g: &Graph, filter: &EdgeFilter) -> Page {
     let n = g.t.nodes.len();
-    let mut index = vec![u32::MAX; n];
-    let mut low = vec![0u32; n];
-    let mut on_stack = vec![false; n];
-    let mut stack = Vec::new();
-    let mut components = Vec::<Vec<u32>>::new();
-    let mut counter = 0u32;
     let successors = |id: u32| {
         g.t.out(id)
             .iter()
@@ -1192,52 +1245,10 @@ fn cycles(g: &Graph, filter: &EdgeFilter) -> Page {
             .map(|edge| edge.dst)
             .collect::<Vec<_>>()
     };
-    for start in 0..n as u32 {
-        if index[start as usize] != u32::MAX {
-            continue;
-        }
-        let mut frames = vec![(start, successors(start), 0usize)];
-        index[start as usize] = counter;
-        low[start as usize] = counter;
-        counter += 1;
-        stack.push(start);
-        on_stack[start as usize] = true;
-        while let Some((id, next, at)) = frames.last_mut() {
-            let id = *id;
-            if let Some(&w) = next.get(*at) {
-                *at += 1;
-                if index[w as usize] == u32::MAX {
-                    index[w as usize] = counter;
-                    low[w as usize] = counter;
-                    counter += 1;
-                    stack.push(w);
-                    on_stack[w as usize] = true;
-                    frames.push((w, successors(w), 0));
-                } else if on_stack[w as usize] {
-                    low[id as usize] = low[id as usize].min(index[w as usize]);
-                }
-                continue;
-            }
-            frames.pop();
-            if let Some((parent, _, _)) = frames.last() {
-                low[*parent as usize] = low[*parent as usize].min(low[id as usize]);
-            }
-            if low[id as usize] == index[id as usize] {
-                let mut component = Vec::new();
-                while let Some(w) = stack.pop() {
-                    on_stack[w as usize] = false;
-                    component.push(w);
-                    if w == id {
-                        break;
-                    }
-                }
-                let self_loop = component.len() == 1 && successors(id).contains(&id);
-                if component.len() > 1 || self_loop {
-                    components.push(component);
-                }
-            }
-        }
-    }
+    let nodes = (0..n as u32).collect::<Vec<_>>();
+    let mut components = super::detect::tarjan(&nodes, &successors, n, &|component| {
+        component.len() > 1 || successors(component[0]).contains(&component[0])
+    });
     for component in &mut components {
         component.sort_by(|a, b| g.key(*a).cmp(g.key(*b)));
     }
@@ -1362,7 +1373,7 @@ fn stale(g: &Graph) -> (Map<String, Value>, Page) {
         let status = match std::fs::read(root.join(file)) {
             Err(_) => "missing",
             Ok(bytes) => {
-                let current = octocode_engine::index::content_digest(&bytes);
+                let current = octocode_engine::digest::sha256(&bytes);
                 if current == g.t.str(*digest) {
                     continue;
                 } else {

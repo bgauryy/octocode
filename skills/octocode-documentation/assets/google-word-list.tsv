@@ -86,6 +86,7 @@ build cop, build sheriff	dont-use	Don't use. Instead, use a more precise term li
 button	caution	In a UI, a link isn't the same as a button; don't use the term button to refer to a link. Use button to refer to mechanical buttons (like the volume control buttons on the side of a phone) and capacitive touch buttons on a phone (like the Home button). You press mechanical buttons, and tap capacitive and on-screen buttons.
 can	usage	Use can in the following ways: To convey permission or ability (for example, "You can access the server"). To refer to an optional action (for example, "You can also view logs with the Log Viewer"). To describe a possible outcome (for example, "The process can take 30 minutes"). See also could, may, might, must, should, and would. For information about clarifying who's performing an action, see Active voice.
 canary	dont-use	Don't use canary as a verb, and don't use canarying. When possible, avoid jargon like canary and canary testing. If you use one of these phrases, define it on first use or provide a link to the definition, and use it consistently throughout the document.
+careful, carefully	avoid	Avoid telling a user to perform an action carefully, which can sound condescending or imply that other steps don't require much attention. For more information, see Use precise, objective language. Recommended: Enter the API key that appears in the console. Not recommended: Make sure to enter the API key carefully.
 cell phone, cellphone	dont-use	Don't use. Instead, use mobile phone, or if you're talking about more than phones, then use mobile device. It's OK to use phone (without mobile) when the context is clear.
 cellular data	dont-use	Don't use. Instead, use mobile data.
 cellular network	dont-use	Don't use. Instead, use mobile network.
@@ -174,7 +175,7 @@ dumb down	dont-use	Don't use. Instead, use a word or phrase what's happening, su
 dummy variable	dont-use	Don't use to refer to placeholders. Instead, use placeholder. Also don't use if referring to the concept in statistics known as a dummy variable. Instead, use alternate terms such as indicator variable, design variable, one-hot encoding, Boolean indicator, binary variable, or qualitative variable.
 each	usage	Each refers to every individual item taken individually, not to a group of items taken collectively. In other words, each isn't a synonym for all. For example, a list of each item is ambiguous; a list of all the items or a list of the items is generally clearer.
 earlier	caution	Use for a range of version numbers, not lower. Recommended: Use version 2.2 or earlier. Not recommended: Use version 2.2 or lower. In Android documentation, don't use earlier for a range of version numbers. Instead, use lower. When referring to a position in a document, use earlier or preceding, not higher.
-easy, easily	usage	What might be easy for you might not be easy for others. Try eliminating this word from the sentence because usually the same meaning can be conveyed without it.
+easy, easily	usage	What might be easy for you might not be easy for others. Try eliminating this word from the sentence because usually the same meaning can be conveyed without it. For more information, see Use precise, objective language.
 ecommerce	usage	Not e-commerce.
 edge availability domain	dont-use	Don't use edge availability zone, metro availability domain, or metro availability zone. Don't shorten to EAD.
 e.g.	dont-use	Don't use. Instead, use phrases like for example or such as. Many people confuse e.g. and i.e.
@@ -431,8 +432,9 @@ press	usage	Use when referring to pressing a key or a key combination to cause a
 presubmit	usage	Not pre-submit.
 primitive	avoid	Use with caution. Don't use primitive in a disparaging sense.
 project	usage	In Google Cloud documentation, use Google Cloud project on first mention and in any context in which there might be ambiguity about what kind of project you're referring to.
+proper, properly	avoid	Avoid proper and properly, which are vague and can imply subjective judgments of correctness or superiority. Instead, focus on describing the technical details. For more information, see Use precise, objective language. Recommended: Verify that the port is open and accepting connections. Not recommended: Ensure the port is properly configured.
 pros	dont-use	Don't use. Instead, use a more precise term, such as advantages.
-quick, quickly	usage	What might be quick for you might not be quick for others. Try eliminating this word from the sentence because usually the same meaning can be conveyed without it.
+quick, quickly	usage	What might be quick for you might not be quick for others. Try eliminating this word from the sentence. For more information, see Use precise, objective language.
 quota	usage	In API contexts, often refers to API usage limits. Where possible, it's best to use a more specific term, such as usage limit; the word quota means many different things to many different people. In some contexts, such as Google Cloud documentation, the standard term is quota, so use that term.
 RDP	dont-use	Don't use as a verb. Instead, use connect using RDP. If it's clear from context that they're using RDP, it's OK to use connect.
 re*	usage	See guidance about hyphens with prefixes.
@@ -482,7 +484,7 @@ sign-in (noun or adjective), sign in (verb)	usage	Not log in or signin.
 sign into	dont-use	Don't use. Instead, use sign in to.
 sign-on, sign on	dont-use	Don't use either form on its own. Use the hyphenated version as part of single sign-on.
 sign-out (noun or adjective), sign out (verb)	usage	Not log out or signout.
-simple, simply	usage	What might be simple for you might not be simple for others. Try eliminating this word from the sentence because usually the same meaning can be conveyed without it.
+simple, simply	usage	What might be simple for you might not be simple for others. Try eliminating this word from the sentence because usually the same meaning can be conveyed without it. For more information, see Use precise, objective language.
 since	usage	If you mean because, then use because instead of since. Since is ambiguous; it can refer to the passage of time. Because refers to causation or the reason for something.
 single most	usage	Not singlemost.
 single pane of glass	avoid	Avoid. This term is used to favorably compare a centralized control and monitoring interface against the alternative of several disparate interfaces. It can almost always be replaced by single interface or unified interface.
@@ -554,7 +556,7 @@ unzip	dont-use	Don't use. Instead, use extract.
 US	caution	OK to use as an abbreviation for United States. Don't use U.S. or U.S.A. For more information, see Periods with abbreviations.
 user	usage	Use the word user only to refer to the user of the software that your reader is developing. Otherwise, address the reader as you and assume that they will complete the tasks that you're documenting. For more information, see Second person and first person.
 user base	usage	Not userbase.
-using	usage	Where using might have more than one interpretation, use by using to help clarify the logic of the sentence. Recommended: You can filter for data with specific attributes by using custom filters. Not recommended: You can filter for data with specific attributes using custom filters.
+using	usage	Where using might have more than one interpretation, use by using or that use instead to help clarify the logic of the sentence. Recommended: Remove the Compute Engine VMs by using the test tag. Recommended: Identify the service accounts that use the Google Cloud console. Not recommended: Filter the IAM roles using custom permissions. It's OK to use using (or with) when misinterpretation is unlikely. Recommended: You can connect to Cloud SQL using IAM database authentication.
 UTF	usage	Include the hyphen in the names of Unicode encodings, such as UTF-8, UTF-16, and UTF-32.
 utilize, utilization	avoid	Use with caution. Don't use utilize when you mean use. It's OK to use utilize or utilization when referring to the quantity of a resource being used. Recommended: When CPU utilization exceeds 75%, the autoscaler adds more CPU resources. Recommended: To distribute network traffic, use a load balancer. Not recommended: To distribute network traffic, utilize a load balancer.
 v (abbreviating version)	usage	Use lowercase.

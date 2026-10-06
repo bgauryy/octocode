@@ -1,8 +1,0 @@
-#!/bin/sh
-set -eu
-case $0 in */*) base=${0%/*} ;; *) base=. ;; esac
-if [ ! -f "$base/communication.py" ]; then
-  echo 'Communication scripts missing. Reinstall the complete skill folder.' >&2
-  exit 1
-fi
-exec "${OCTOCODE_PYTHON:-python3}" -B "$base/communication.py" "$@"

@@ -1,52 +1,7 @@
-//! Interpreters for the `history_content_selection` and
-//! `history_keyword_scope` opcodes.
+//! Interpreters for the `history_keyword_scope` and
+//! `history_repository_scope` opcodes.
 use super::{ContractValidationError, issue, query_values};
 use serde_json::Value;
-
-pub(super) fn validate_history_content_selection(
-    input: &Value,
-) -> Result<(), ContractValidationError> {
-    for (index, query) in query_values(input) {
-        let Some(patches) = query.pointer("/content/patches").and_then(Value::as_object) else {
-            continue;
-        };
-        let selected = patches.get("mode").and_then(Value::as_str) == Some("selected");
-        let nonempty = |field: &str| {
-            patches
-                .get(field)
-                .and_then(Value::as_array)
-                .is_some_and(|v| !v.is_empty())
-        };
-        let has_selection = nonempty("files") || nonempty("ranges");
-        if selected && !has_selection {
-            return Err(issue(
-                "history.content-selection",
-                vec![
-                    "queries".into(),
-                    index.to_string(),
-                    "content".into(),
-                    "patches".into(),
-                    "files".into(),
-                ],
-                "selected patch mode requires non-empty files or ranges",
-            ));
-        }
-        if !selected && has_selection {
-            return Err(issue(
-                "history.content-selection",
-                vec![
-                    "queries".into(),
-                    index.to_string(),
-                    "content".into(),
-                    "patches".into(),
-                    "mode".into(),
-                ],
-                "patch files and ranges require selected mode",
-            ));
-        }
-    }
-    Ok(())
-}
 
 pub(super) fn validate_history_keyword_scope(input: &Value) -> Result<(), ContractValidationError> {
     for (index, query) in query_values(input) {
@@ -60,8 +15,8 @@ pub(super) fn validate_history_keyword_scope(input: &Value) -> Result<(), Contra
         if query.get("operation").and_then(Value::as_str) != Some("commit") {
             continue;
         }
-        for field in ["path", "branch", "base", "head", "includeDiff"] {
-            if query.get(field).is_some_and(|v| v != &Value::Bool(false)) {
+        for field in ["path", "ref", "base", "head"] {
+            if query.get(field).is_some() {
                 return Err(issue(
                     "history.keyword-scope",
                     vec!["queries".into(), index.to_string(), field.into()],
@@ -96,10 +51,10 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn commit_keywords_reject_path_and_branch_scopes() {
+    fn commit_keywords_reject_path_and_ref_scopes() {
         // Commit-message keywords never silently drop path
         // or branch; the combination is a validation error.
-        for field in ["path", "branch"] {
+        for field in ["path", "ref"] {
             let mut query = json!({
                 "operation":"commit",
                 "owner":"octocat",

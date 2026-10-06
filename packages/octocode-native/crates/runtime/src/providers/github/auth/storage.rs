@@ -5,6 +5,17 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub fn delete_platform_credential(host: &str) -> Result<(), ProviderError> {
+    let Ok(entry) = platform_entry(host) else {
+        return Ok(());
+    };
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
+        Err(error) => Err(map_store_error(error)),
+    }
+}
+
+/// The `octocode` keychain entry for `host` in the platform credential store.
+fn platform_entry(host: &str) -> Result<keyring_core::Entry, ProviderError> {
     use keyring_core::api::CredentialStoreApi;
     #[cfg(target_os = "macos")]
     let store = apple_native_keyring_store::keychain::Store::new();
@@ -15,22 +26,20 @@ pub fn delete_platform_credential(host: &str) -> Result<(), ProviderError> {
     #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
     {
         let _ = host;
-        return Ok(());
+        return Err(ProviderError::new(
+            ProviderErrorKind::CredentialStoreUnavailable,
+            "no secure credential store is available on this platform",
+        ));
     }
     #[cfg(any(target_os = "macos", target_os = "linux", windows))]
     {
-        let store = match store {
-            Ok(store) => store,
-            Err(_) => return Ok(()),
-        };
-        let entry = match store.build("octocode", host, None) {
-            Ok(entry) => entry,
-            Err(_) => return Ok(()),
-        };
-        match entry.delete_credential() {
-            Ok(()) | Err(keyring_core::Error::NoEntry) => Ok(()),
-            Err(error) => Err(map_store_error(error)),
-        }
+        let store = store.map_err(|_| {
+            ProviderError::new(
+                ProviderErrorKind::CredentialStoreUnavailable,
+                "secure credential store is unavailable",
+            )
+        })?;
+        store.build("octocode", host, None).map_err(map_store_error)
     }
 }
 
@@ -64,38 +73,10 @@ pub fn load_stored_credentials(host: &str) -> Result<Option<StoredCredentials>, 
 }
 
 fn load_platform_password(host: &str) -> Result<Option<String>, ProviderError> {
-    use keyring_core::api::CredentialStoreApi;
-    let host = normalize_host(host);
-    #[cfg(target_os = "macos")]
-    let store = apple_native_keyring_store::keychain::Store::new();
-    #[cfg(target_os = "linux")]
-    let store = zbus_secret_service_keyring_store::Store::new();
-    #[cfg(windows)]
-    let store = windows_native_keyring_store::Store::new();
-    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-    {
-        let _ = host;
-        return Err(ProviderError::new(
-            ProviderErrorKind::CredentialStoreUnavailable,
-            "no secure credential store is available on this platform",
-        ));
-    }
-    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
-    {
-        let store = store.map_err(|_| {
-            ProviderError::new(
-                ProviderErrorKind::CredentialStoreUnavailable,
-                "secure credential store is unavailable",
-            )
-        })?;
-        let entry = store
-            .build("octocode", &host, None)
-            .map_err(map_store_error)?;
-        match entry.get_password() {
-            Ok(secret) if !secret.trim().is_empty() => Ok(Some(secret)),
-            Ok(_) | Err(keyring_core::Error::NoEntry) => Ok(None),
-            Err(error) => Err(map_store_error(error)),
-        }
+    match platform_entry(&normalize_host(host))?.get_password() {
+        Ok(secret) if !secret.trim().is_empty() => Ok(Some(secret)),
+        Ok(_) | Err(keyring_core::Error::NoEntry) => Ok(None),
+        Err(error) => Err(map_store_error(error)),
     }
 }
 
@@ -163,34 +144,9 @@ pub fn store_platform_credential(credentials: &StoredCredentials) -> Result<(), 
 }
 
 fn set_platform_password(host: &str, payload: &str) -> Result<(), ProviderError> {
-    use keyring_core::api::CredentialStoreApi;
-    #[cfg(target_os = "macos")]
-    let store = apple_native_keyring_store::keychain::Store::new();
-    #[cfg(target_os = "linux")]
-    let store = zbus_secret_service_keyring_store::Store::new();
-    #[cfg(windows)]
-    let store = windows_native_keyring_store::Store::new();
-    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
-    {
-        let _ = (host, payload);
-        return Err(ProviderError::new(
-            ProviderErrorKind::CredentialStoreUnavailable,
-            "no secure credential store is available on this platform",
-        ));
-    }
-    #[cfg(any(target_os = "macos", target_os = "linux", windows))]
-    {
-        let store = store.map_err(|_| {
-            ProviderError::new(
-                ProviderErrorKind::CredentialStoreUnavailable,
-                "secure credential store is unavailable",
-            )
-        })?;
-        let entry = store
-            .build("octocode", host, None)
-            .map_err(map_store_error)?;
-        entry.set_password(payload).map_err(map_store_error)
-    }
+    platform_entry(host)?
+        .set_password(payload)
+        .map_err(map_store_error)
 }
 
 fn map_store_error(error: keyring_core::Error) -> ProviderError {

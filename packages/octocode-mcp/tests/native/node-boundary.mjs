@@ -15,6 +15,9 @@ class FakeRuntime {
   constructor() {
     FakeRuntime.instance = this;
   }
+  async probeClassification() {
+    return { probed: false, available: false };
+  }
   catalog() {
     return {
       fingerprint: getNativeContractFingerprint(),
@@ -27,9 +30,6 @@ class FakeRuntime {
   cancel() {
     return true;
   }
-  normalizeInput(_tool, input) {
-    return input;
-  }
   async executeMcp(requestId, tool, input) {
     this.executions.push({ requestId, tool, input });
     return { content: [], isError: true };
@@ -40,7 +40,7 @@ class FakeRuntime {
 }
 
 assert.equal(typeof loadNativeBinding({}).NativeRuntime, 'function');
-const instance = createNativeMcp({
+const instance = await createNativeMcp({
   binding: { NativeRuntime: FakeRuntime },
   env: {},
 });

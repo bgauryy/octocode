@@ -1,0 +1,49 @@
+{
+  "name": "@octocodeai/octocode-agents-communication",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "MCP server and /cli operations for durable cross-vendor agent coordination.",
+  "type": "module",
+  "bin": "./bin/octocode-agents-communication.mjs",
+  "devDependencies": {
+    "@octocodeai/config": "20.1.0",
+    "esbuild": "^0.28.2",
+    "octocode-mcp-cli": "workspace:*"
+  },
+  "scripts": {
+    "build": "node src/build.mjs",
+    "typecheck": "node src/check-syntax.mjs",
+    "lint": "yarn typecheck && yarn lint:links",
+    "lint:links": "node src/check-links.mjs",
+    "test": "yarn build && yarn test:python && node --test --test-concurrency=4 tests/*.test.mjs",
+    "verify": "yarn lint && yarn test && node src/release-smoke.mjs",
+    "pack:runtime": "node src/pack-runtime.mjs",
+    "test:python": "node src/test-python.mjs",
+    "prepack": "yarn build"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "scripts",
+    "OPERATING.md",
+    "README.md",
+    "LICENSE",
+    "!scripts/**/__pycache__",
+    "!scripts/**/*.pyc"
+  ],
+  "engines": {
+    "node": "^24.15.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-agents-communication"
+  },
+  "exports": {
+    ".": "./dist/mcp.js",
+    "./cli": "./dist/cli.js"
+  }
+}

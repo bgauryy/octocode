@@ -3,13 +3,13 @@ import path from 'node:path';
 import { isValidSkillName, listSkills } from '../registry.js';
 import { contentFreshness } from '../freshness.js';
 import { getSkillsHome } from '../home.js';
+import { ALL_PLATFORMS, getPlatformSkillsDir } from '../platforms.js';
 import {
-  ALL_PLATFORMS,
-  getPlatformSkillsDir,
-  parsePlatforms,
-} from '../platforms.js';
-import type { Platform } from '../platforms.js';
-import { bold, c, dim } from '../../../../utils/colors.js';
+  parseSkillPlatforms,
+  type SkillPlatform,
+} from '@octocodeai/octocode-skill-installer';
+import { bold, dim } from '../../../../utils/colors.js';
+import { reportFailure } from './fail.js';
 
 export interface RemoveOptions {
   all: boolean;
@@ -95,17 +95,6 @@ function installedTargets(name: string): Target[] {
   );
 }
 
-function fail(message: string, json: boolean, jsonErrors = false): void {
-  if (jsonErrors)
-    console.log(
-      JSON.stringify({ kind: 'octocode.toolError', version: 1, error: message })
-    );
-  else if (json)
-    console.log(JSON.stringify({ success: false, error: message }));
-  else console.error(`\n  ${c('red', '✗')} ${message}\n`);
-  process.exitCode = 1;
-}
-
 export function runRemove(skillNames: string[], opts: RemoveOptions): void {
   let names = skillNames;
   if (opts.all) {
@@ -125,17 +114,18 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
       else console.log('\n  No installed skills found.\n');
       return;
     }
-    return fail(
+    return reportFailure(
       'Specify a skill name or use --all.',
       opts.json,
       opts.jsonErrors
     );
   }
 
-  let platforms: Platform[] | null = null;
+  let platforms: SkillPlatform[] | null = null;
   if (opts.platform) {
-    const parsed = parsePlatforms(opts.platform);
-    if (parsed.error) return fail(parsed.error, opts.json, opts.jsonErrors);
+    const parsed = parseSkillPlatforms(opts.platform);
+    if (parsed.error)
+      return reportFailure(parsed.error, opts.json, opts.jsonErrors);
     platforms = parsed.platforms;
   }
 

@@ -1,4 +1,4 @@
-// Requires a configured classification provider. Verifies the bare next.clasify walk and hints.read deciding reads.
+// Requires a configured classification provider. Verifies the next.clasify walk and hints.read deciding reads.
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, startServer, nextHints, writeResults } from './mcp-client.mjs';
@@ -40,12 +40,12 @@ try {
   for (let i = 0; i < 10; i++) {
     pages.push(e);
     for (const h of nextHints(e.sc).filter(x => x.path.endsWith('.hints.read')))
-      reads.push(await c.raw(h.tool, h.query));
+      reads.push(await c.follow(h));
     const h = nextHints(e.sc).find(
       x => x.tool === 'clasify' && x.path.endsWith('.clasify')
     );
     if (!h) break;
-    e = await c.raw(h.tool, h.query);
+    e = await c.follow(h);
   }
   const ranges = pages.flatMap(e =>
     (e.sc?.queries ?? []).flatMap(q =>

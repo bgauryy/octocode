@@ -49,22 +49,22 @@ loadNativeBinding
   -> ABI version check
   -> catalog()                    (tool availability from native)
   -> contract fingerprint check   (core ↔ native schema parity)
-  -> registerTool loop            (Zod schemas via @octocodeai/config/schema)
+  -> registerTool loop            (published views; native validates)
   -> StdioServerTransport connect
 ```
 
 At startup, the Node adapter loads the platform-specific Rust N-API addon (`@octocodeai/octocode-native`), instantiates the native runtime, and validates that its ABI version and contract fingerprint match the registered schemas (`@octocodeai/config/schema`, which re-exports `@octocodeai/octocode-core`). A mismatch on either check is a startup failure, so the server never serves a schema the runtime would reject. The only escape hatch is `OCTOCODE_ALLOW_CONTRACT_DRIFT=1`, which downgrades a fingerprint mismatch to a stderr warning; it is ignored under `NODE_ENV=production`, and the bundled server honors it only with `NODE_ENV=development` or `test`. Startup also fails when no tool is available (for example, a `TOOLS_TO_RUN` list with only unknown names).
 
-Tool arguments pass through the runtime's `normalizeInput` before SDK validation, the same native normalization the CLI applies: a bare query is wrapped in `queries`, and a JSON-encoded or bare-scalar value for a list-only field, or an exact integer/boolean string for an integer/boolean-only field, is repaired. Fields that also accept a string are never rewritten.
+Tool arguments pass through the SDK unchanged: native normalizes and validates them once, as on the CLI, and an invalid call gets the same repair guidance the CLI prints (nearest field, allowed values, the missing field's fix). Every call is `{queries:[...]}` (a flat row or bare array is rejected); a JSON-encoded or bare-scalar value for a list-only field, or an exact integer/boolean string for an integer/boolean-only field, is repaired. Fields that also accept a string are never rewritten. In a batch, valid rows run and each invalid row returns its own error.
 
 Configuration, security policy, providers, credentials, caches, and usage stats are owned entirely by the native runtime; the Node adapter owns only protocol framing and process lifecycle. Settings and environment tokens are resolved once at startup. Stored logins and `gh` are resolved per request, so a new `octocode auth login` takes effect without a server restart.
 
 ## Tool catalog
 
 The full discovery catalog contains 16 tools. With default settings and no
-provider key, the MCP server registers 12: `ghCloneRepo` and `astRewrite` are
-CLI-only and always omitted. `clasify` needs a nonblank resolved classification key: `OCTOCODE_CLASSIFICATION_API`, else the selected vendor's key (`OCTOCODE_JEV_KEY` for jev), else `.octocoderc` `classification.api` (a present-but-blank `OCTOCODE_CLASSIFICATION_API` disables it);
-`astTopology` needs `OCTOCODE_BETA=true` (or `local.beta:true`). Unavailable tools
+provider key, the MCP server registers 12: `ghCloneRepo`, `astTopology` and
+`astRewrite` are CLI-only and always omitted, with or without `OCTOCODE_BETA`.
+`clasify` needs a nonblank resolved classification key: `OCTOCODE_CLASSIFICATION_API`, else the selected vendor's key (`OCTOCODE_JEV_KEY` for jev), else `.octocoderc` `classification.api` (a present-but-blank `OCTOCODE_CLASSIFICATION_API` disables it). At startup MCP sends one minimal clasify request; if the provider fails (bad key, exhausted quota, unreachable host, invalid response; a rate limit does not count), clasify is left out and stderr shows `clasify disabled: provider check failed (<code>)`. Unavailable tools
 are omitted from MCP discovery entirely, not registered as failing calls. The
 CLI-only exclusion is enforced twice: the native runtime never lists them for
 the MCP surface, and the adapter filters core's `isCliOnlyTool` policy again
@@ -73,13 +73,14 @@ before registration.
 | Family | Tools |
 |--------|-------|
 | GitHub | `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`, `ghCloneRepo` (CLI-only) |
-| Local | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `astTopology`, `lspSearch` (`astRewrite` is CLI-only) |
+| Local | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, `lspSearch` (`astTopology` and `astRewrite` are CLI-only) |
 | Package | `artifactSearch` |
 | Semantic assessment | `clasify` |
 
-`astRewrite` is never registered on MCP; run `octocode astRewrite` with the
-same beta gate. It is preview-first; applying a mutation requires the complete
-set of preview hashes.
+`astTopology` and `astRewrite` are never registered on MCP, and no MCP
+instruction, description or lead names them; run `octocode astTopology` or
+`octocode astRewrite` with `OCTOCODE_BETA=true`. `astRewrite` is preview-first;
+applying a mutation requires the complete set of preview hashes.
 
 Server instructions are built for the registered tool subset and target at most
 2,000 characters, because hosts truncate near 2 KB. The budget is the core
@@ -116,7 +117,7 @@ settings that most often differ per MCP client:
 | `ENABLE_LOCAL` | `true` | Turns local filesystem and LSP tools on or off. |
 | `TOOLS_TO_RUN` / `DISABLE_TOOLS` | unset | Strict allowlist (replaces the default set) / removals from the default set. |
 | `WORKSPACE_ROOT`, `ALLOWED_PATHS` | — | Bound local path resolution and validation. |
-| `OCTOCODE_BETA` | `false` | Registers `astTopology`. |
+| `OCTOCODE_BETA` | `false` | Enables the CLI-only beta tools `astTopology` and `astRewrite`; registers nothing on MCP. |
 | `OCTOCODE_CLASSIFICATION_API` (or `OCTOCODE_JEV_KEY`) | unset | Registers `clasify`. See [Authentication](AUTHENTICATION.md#classification-key-clasify). |
 | `OCTOCODE_OUTPUT_FORMAT` | `yaml` | Encoding of the MCP text channel (`yaml` or `json`); `structuredContent` is always JSON. |
 
@@ -137,11 +138,11 @@ active catalog entries.
 | `github_search_repos` | `ghSearchRepo` |
 | `github_search_pull_requests` | `ghSearchHistory` |
 | `github_clone_repo` | `ghCloneRepo` |
-| `local_analyze_graph` | `astTopology` |
+| `local_analyze_graph` | `astTopology` (CLI-only) |
 | `local_fetch_content` | `localFetch` |
-| `local_dead_code` | `astTopology` (`analysis:"deadCode"`) |
+| `local_dead_code` | `astTopology` (CLI-only, `operation:"deadCode"`) |
 | `local_find_files` | `structureSearch` (`files` operation) |
-| `local_ripgrep` | `localSearch` (lexical `searchText`) |
+| `local_ripgrep` | `localSearch` (lexical `matchString`) |
 | `local_view_structure` | `structureSearch` (`tree` operation) |
 | `local_search` | `localSearch` ✅ unchanged |
 | `lsp` | `lspSearch` |
@@ -154,7 +155,7 @@ The MCP server shares the same on-disk cache as the CLI under the configured Oct
 | Bucket | Path | Contents |
 |---|---|---|
 | Clone | `tmp/clone/{owner}/{repo}/{branch}` | Reusable Git checkouts |
-| Tree | `tmp/tree/{owner}/{repo}/{commitSha}` | Materialized repository trees |
+| Tree | `tmp/materialize/v2/{owner}/{repo}/{commitSha}` | Materialized repository trees; `{commitSha}.manifest.json` beside each records the files written |
 | Response | `tmp/response/` | Eligible GitHub and npm response payloads |
 
 Each runtime start (MCP or CLI) runs a best-effort sweep when the 24-hour marker `tmp/.last-cache-maintenance` is due. It removes expired entries from Octocode's own buckets, leaves unrelated files under `tmp` alone, is skipped in `memory` storage mode, and a sweep failure never fails startup. See [Cache storage and lifecycle](CONFIGURATION.md#cache-storage-and-lifecycle) for the 24-hour gate, expiry rules, limits, and manual controls, and [Cache behavior](OCTOCODE_TOOLS.md#cache-behavior) for tool-level semantics.

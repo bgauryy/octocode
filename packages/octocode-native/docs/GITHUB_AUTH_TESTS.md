@@ -36,11 +36,11 @@ which are relative to `crates/runtime` and `crates/cli`, respectively.
 From `packages/octocode-native`:
 
 ```sh
-cargo test -p octocode-native --no-default-features --lib providers::github::
-cargo test -p octocode-native --no-default-features --lib config::
-cargo test -p octocode-cli --no-default-features --test auth_discovery
-cargo test -p octocode-cli --no-default-features --test cli auth_
-cargo test -p octocode-cli --no-default-features --bin octocode auth_tests
+cargo test -p octocode-native --lib providers::github::
+cargo test -p octocode-native --lib config::
+cargo test -p octocode-cli --test auth_discovery
+cargo test -p octocode-cli --test cli auth_
+cargo test -p octocode-cli --bin octocode auth_tests
 ```
 
 From the repository root, after rebuilding native, CLI, and MCP:

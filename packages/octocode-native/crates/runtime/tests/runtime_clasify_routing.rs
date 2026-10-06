@@ -1,78 +1,25 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
-mod support;
+use crate::support;
 
 use octocode_native::runtime::FailureKind;
 use serde_json::{Value, json};
-use support::Workspace;
+use support::{LocateTopPassage, Workspace, provider_runtime};
 use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
-
-const MOCK_PROVIDER_TIMEOUT_MS: &str = "30000";
-
-/// Locate stub: 0.9 on the first passage offered, `exists` 0.9.
-#[derive(Clone)]
-struct LocateFirstPassage;
-
-impl Respond for LocateFirstPassage {
-    fn respond(&self, request: &Request) -> ResponseTemplate {
-        fn passage_ids(value: &Value, ids: &mut Vec<String>) {
-            match value {
-                Value::Object(map) => {
-                    for (key, value) in map {
-                        if key.len() == 4 && key.starts_with('P') && !ids.contains(key) {
-                            ids.push(key.clone());
-                        }
-                        passage_ids(value, ids);
-                    }
-                }
-                Value::Array(items) => items.iter().for_each(|item| passage_ids(item, ids)),
-                _ => {}
-            }
-        }
-        let body: Value = serde_json::from_slice(&request.body).unwrap();
-        let mut ids = Vec::new();
-        passage_ids(&body, &mut ids);
-        ids.sort();
-        let rest = if ids.len() > 1 {
-            0.1 / (ids.len() - 1) as f64
-        } else {
-            0.0
-        };
-        let probabilities = ids
-            .iter()
-            .enumerate()
-            .map(|(index, id)| (id.clone(), json!(if index == 0 { 0.9 } else { rest })))
-            .collect::<serde_json::Map<_, _>>();
-        ResponseTemplate::new(200).set_body_json(json!({
-            "model":"resolved",
-            "answers":{
-                "answer_0":{"type":"choice","choice":ids.first(),"confidence":0.9,
-                    "probabilities":probabilities},
-                "answer_1":{"type":"noul","noul":0.9}
-            },
-            "usage":{"input_tokens":5,"output_tokens":2}
-        }))
-    }
-}
+use wiremock::{Mock, MockServer, ResponseTemplate};
 
 async fn provider(expected_calls: u64) -> MockServer {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
-        .respond_with(LocateFirstPassage)
+        .respond_with(LocateTopPassage {
+            top: 0.9,
+            exists: 0.9,
+        })
         .expect(expected_calls)
         .mount(&server)
         .await;
     server
-}
-
-fn runtime(workspace: &Workspace, server: &MockServer) -> octocode_native::runtime::ToolRuntime {
-    workspace.runtime(&[
-        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
-        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
-        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
-    ])
 }
 
 fn steps(workspace: &Workspace) -> String {
@@ -86,21 +33,21 @@ fn steps(workspace: &Workspace) -> String {
 }
 
 /// A locate target that is only an identifier is a literal lookup: the call
-/// routes to an executable `next.localSearch` without reading the file or
+/// routes to an executable `hints.textSearch` without reading the file or
 /// asking the provider, and it is not a failure.
 #[tokio::test]
 async fn bare_identifier_locate_target_routes_to_local_search_without_provider_work() {
     let server = provider(0).await;
     let workspace = Workspace::new();
     let file = steps(&workspace);
-    let runtime = runtime(&workspace, &server);
-    let input = json!({
+    let runtime = provider_runtime(&workspace, &server);
+    let input = json!({"queries":[{
         "reasoning":"Find the constant.","mainGoal":"Where step_17 is defined.",
-        "resources":[{"id":"steps","context":{"tool":"localFetch","query":{
+        "resources":[{"id":"steps","tool":"localFetch","query":{
             "path":file,"fullContent":true
-        }}}],
-        "questions":[{"id":"def","questionType":"locate","target":"step_17"}]
-    });
+        }}],
+        "questions":[{"id":"def","type":"locate","ask":"step_17"}]
+    }]});
     let outcome = runtime
         .execute("locate-bare".into(), "clasify".into(), input)
         .await
@@ -119,14 +66,15 @@ async fn bare_identifier_locate_target_routes_to_local_search_without_provider_w
             .contains("step_17"),
         "{query}"
     );
-    let search = &query["hints"]["localSearch"];
-    assert_eq!(search["query"]["searchText"], "step_17", "{query}");
+    let search = &query["hints"]["textSearch"];
+    assert_eq!(search["tool"], "localSearch", "{query}");
     assert_eq!(
-        search["query"]["mainGoal"], "Where step_17 is defined.",
+        search["query"]["queries"][0]["matchString"], "step_17",
         "{query}"
     );
-    assert_eq!(
-        search["query"]["reasoning"], "Find the constant.",
+    // A cross-tool lead starts its own step: it carries no matrix brief.
+    assert!(
+        search["query"]["queries"][0].get("mainGoal").is_none(),
         "{query}"
     );
     let found = runtime
@@ -136,7 +84,7 @@ async fn bare_identifier_locate_target_routes_to_local_search_without_provider_w
             search["query"].clone(),
         )
         .await
-        .expect("next.localSearch executes");
+        .expect("hints.textSearch executes");
     assert!(
         found
             .structured_content
@@ -153,14 +101,14 @@ async fn a_described_target_that_names_an_identifier_is_still_located() {
     let server = provider(1).await;
     let workspace = Workspace::new();
     let file = steps(&workspace);
-    let runtime = runtime(&workspace, &server);
-    let input = json!({
+    let runtime = provider_runtime(&workspace, &server);
+    let input = json!({"queries":[{
         "reasoning":"Locate a step.","mainGoal":"Where step_17 is defined.",
-        "resources":[{"id":"steps","context":{"tool":"localFetch","query":{
+        "resources":[{"id":"steps","tool":"localFetch","query":{
             "path":file,"fullContent":true
-        }}}],
-        "questions":[{"id":"def","questionType":"locate","target":"Where is step_17 defined?"}]
-    });
+        }}],
+        "questions":[{"id":"def","type":"locate","ask":"Where is step_17 defined?"}]
+    }]});
     let outcome = runtime
         .execute("locate-described".into(), "clasify".into(), input)
         .await
@@ -178,14 +126,14 @@ async fn a_page_read_never_repeats_a_best_row_read() {
     let server = provider(1).await;
     let workspace = Workspace::new();
     let file = steps(&workspace);
-    let runtime = runtime(&workspace, &server);
-    let input = json!({
+    let runtime = provider_runtime(&workspace, &server);
+    let input = json!({"queries":[{
         "reasoning":"Locate a step.","mainGoal":"Which function returns one.",
-        "resources":[{"id":"steps","context":{"tool":"localFetch","query":{
+        "resources":[{"id":"steps","tool":"localFetch","query":{
             "path":file,"fullContent":true
-        }}}],
-        "questions":[{"id":"t","questionType":"locate","target":"The function that returns one."}]
-    });
+        }}],
+        "questions":[{"id":"t","type":"locate","ask":"The function that returns one."}]
+    }]});
     let outcome = runtime
         .execute("locate-dedup".into(), "clasify".into(), input)
         .await
@@ -197,9 +145,11 @@ async fn a_page_read_never_repeats_a_best_row_read() {
     // The top best window's read is the query's next.read, emitted once.
     let best_read = &query["hints"]["read"];
     assert!(best_read.is_object(), "{query}");
+    let lines = &query["best"]["t"][0]["lines"];
     assert_eq!(
-        best_read["query"]["startLine"],
-        query["best"]["t"][0]["lines"][0]
+        best_read["query"]["queries"][0]["ranges"],
+        json!([format!("{}-{}", lines[0], lines[1])]),
+        "{query}"
     );
     for page in query["resources"][0]["pages"].as_array().unwrap() {
         assert_ne!(
@@ -233,24 +183,24 @@ async fn a_missing_file_resource_is_not_found_like_its_read() {
         .join("src/nope.rs")
         .to_string_lossy()
         .into_owned();
-    let runtime = runtime(&workspace, &server);
+    let runtime = provider_runtime(&workspace, &server);
     let direct = runtime
         .execute(
             "read-missing".into(),
             "localFetch".into(),
-            json!({"mainGoal":"g","reasoning":"r","path":missing}),
+            json!({"queries":[{"mainGoal":"g","reasoning":"r","path":missing}]}),
         )
         .await
         .expect("localFetch");
     assert_eq!(direct.failure, Some(FailureKind::NotFound));
     let matrix = |resources: Value| {
-        json!({
+        json!({"queries":[{
             "reasoning":"Triage files.","mainGoal":"Which files define steps.",
             "resources":resources,
-            "questions":[{"id":"q","type":"noul","instructions":"Does it define a step?"}]
-        })
+            "questions":[{"id":"q","type":"yesno","ask":"Does it define a step?"}]
+        }]})
     };
-    let resource = |id: &str, path: &str| json!({"id":id,"context":{"tool":"localFetch","query":{"path":path,"fullContent":true}}});
+    let resource = |id: &str, path: &str| json!({"id":id,"tool":"localFetch","query":{"path":path,"fullContent":true}});
     let all_missing = runtime
         .execute(
             "clasify-missing".into(),
@@ -287,14 +237,14 @@ async fn a_disabled_context_tool_is_rejected_at_validation_naming_its_gate() {
     let server = provider(0).await;
     let workspace = Workspace::new();
     let file = steps(&workspace);
-    let runtime = runtime(&workspace, &server);
-    let input = json!({
+    let runtime = provider_runtime(&workspace, &server);
+    let input = json!({"queries":[{
         "reasoning":"Rank dependents.","mainGoal":"Which modules import steps.",
-        "resources":[{"id":"deps","context":{"tool":"astTopology","query":{
-            "analysis":"dependents","file":file
-        }}}],
-        "questions":[{"id":"t","type":"noul","instructions":"Is this relevant?"}]
-    });
+        "resources":[{"id":"deps","tool":"astTopology","query":{
+            "operation":"dependents","source":file
+        }}],
+        "questions":[{"id":"t","type":"yesno","ask":"Is this relevant?"}]
+    }]});
     let error = runtime
         .execute("disabled-context".into(), "clasify".into(), input)
         .await
@@ -303,7 +253,7 @@ async fn a_disabled_context_tool_is_rejected_at_validation_naming_its_gate() {
     let issues = error.validation_issues.clone().unwrap_or_default();
     let issue = issues
         .iter()
-        .find(|issue| issue.path.join(".") == "resources.0.context.tool")
+        .find(|issue| issue.path.join(".") == "queries.0.resources.0.tool")
         .unwrap_or_else(|| panic!("{error:?}"));
     assert!(issue.message.contains("OCTOCODE_BETA"), "{}", issue.message);
     assert!(issue.message.contains("localFetch"), "{}", issue.message);

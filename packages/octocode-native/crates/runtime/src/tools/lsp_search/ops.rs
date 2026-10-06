@@ -46,118 +46,11 @@ pub(super) struct Operation<'a, 'p> {
 }
 
 impl Operation<'_, '_> {
-    pub(super) async fn run(mut self) -> Result<Value, LspFailure> {
+    pub(super) async fn run(self) -> Result<Value, LspFailure> {
         let query = self.query;
         match query.operation().as_str() {
-            "definition" => {
-                let (found, warnings) = resolve_definition_chain(
-                    self.client,
-                    self.sources,
-                    self.snippet_policy,
-                    self.cancel,
-                    self.path,
-                    self.line,
-                    self.character,
-                )
-                .await?;
-                let mut row = self
-                    .locations("definition", "definitionProvider", found)
-                    .await;
-                if !warnings.is_empty() {
-                    super::failure::mark_partial(&mut row, query, "definitionHopFailed", &warnings);
-                }
-                Ok(row)
-            }
-            "references" => {
-                let include_declaration = query.include_declaration().unwrap_or(true);
-                let mut found = self
-                    .location_request(LocationRequest::References {
-                        include_declaration,
-                    })
-                    .await?;
-                let recovered = recover_aliases(
-                    self.client,
-                    self.sources,
-                    self.snippet_policy,
-                    self.cancel,
-                    query.symbol_name(),
-                    include_declaration,
-                    self.path,
-                    self.line,
-                    self.character,
-                    &found,
-                )
-                .await?;
-                let alias_scan_capped = recovered.capped;
-                let recovered = recovered.snippets;
-                let mut seen = found
-                    .iter()
-                    .chain(&recovered)
-                    .map(snippet_identity)
-                    .collect::<HashSet<_>>();
-                let known_files = found
-                    .iter()
-                    .chain(&recovered)
-                    .map(|snippet| canonical_path(&uri_to_path(&snippet.uri)))
-                    .collect::<HashSet<_>>();
-                let importers = self.importers(&known_files).await?;
-                let mut from_importers = Vec::new();
-                if let Some(importers) = &importers {
-                    for anchor in importers.per_file() {
-                        let Ok(extra) = get_locations(
-                            self.client,
-                            self.snippet_policy,
-                            self.cancel,
-                            LocationRequest::References {
-                                include_declaration,
-                            },
-                            &anchor.path,
-                            anchor.line,
-                            anchor.character,
-                        )
-                        .await
-                        else {
-                            self.cancel.check().map_err(LspFailure::cancelled)?;
-                            continue;
-                        };
-                        from_importers.extend(
-                            extra
-                                .into_iter()
-                                .filter(|snippet| seen.insert(snippet_identity(snippet))),
-                        );
-                    }
-                }
-                // Recovered references are not reported from the anchor:
-                // label each so callers can weigh them as such.
-                let labelled = |label: &'static str| {
-                    move |snippet| {
-                        let mut value = serde_json::to_value(snippet).unwrap_or(Value::Null);
-                        value["source"] = json!(label);
-                        value
-                    }
-                };
-                let found = found
-                    .drain(..)
-                    .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
-                    .chain(recovered.into_iter().map(labelled(RECOVERED_ALIAS)))
-                    .chain(from_importers.into_iter().map(labelled(RECOVERED_IMPORTER)))
-                    .collect::<Vec<_>>();
-                let mut row = locations(
-                    self.query,
-                    self.sources,
-                    "references",
-                    "referencesProvider",
-                    found,
-                )
-                .await;
-                if let Some(importers) = &importers {
-                    importers.annotate(&mut row);
-                }
-                if alias_scan_capped && row.pointer("/payload/coverage").is_some() {
-                    super::recovery::disclose_alias_cap(&mut row, query, self.workspace_root);
-                }
-                Ok(row)
-            }
+            "definition" => self.definition().await,
+            "references" => self.references().await,
             "typeDefinition" => {
                 let found = self
                     .location_request(LocationRequest::TypeDefinition)
@@ -174,28 +67,7 @@ impl Operation<'_, '_> {
                     .locations("implementation", "implementationProvider", found)
                     .await)
             }
-            "hover" => {
-                let hover = cancellable(
-                    self.cancel,
-                    self.client
-                        .get_hover(self.path.to_owned(), self.line, self.character),
-                )
-                .await??;
-                Ok(match hover {
-                    Value::Null => empty(
-                        query,
-                        "noHover",
-                        "hoverProvider returned no hover at this position",
-                        true,
-                    ),
-                    hover => json!({
-                        "type": query.operation(),
-                        "uri": query.uri(),
-                        "lsp": { "serverAvailable": true, "provider": "hoverProvider" },
-                        "payload": { "kind": "hover", "hover": public_hover(hover) }
-                    }),
-                })
-            }
+            "hover" => self.hover().await,
             "documentSymbols" => {
                 let symbols = cancellable(
                     self.cancel,
@@ -207,46 +79,7 @@ impl Operation<'_, '_> {
             "workspaceSymbol" => self.workspace_symbol().await,
             "diagnostic" => self.diagnostic().await,
             "callers" | "callees" | "callHierarchy" | "supertypes" | "subtypes" => {
-                let importers = self.importers(&HashSet::new()).await?;
-                let extra_roots = importers
-                    .as_ref()
-                    .map(|importers| {
-                        importers
-                            .call_sites()
-                            .into_iter()
-                            .map(|anchor| (anchor.path.clone(), anchor.line, anchor.character))
-                            .collect::<Vec<_>>()
-                    })
-                    .unwrap_or_default();
-                let derived_callers = match &importers {
-                    Some(importers) if query.operation() != "callees" => {
-                        importers::callers_from_references(
-                            self.client,
-                            self.sources,
-                            self.snippet_policy,
-                            self.cancel,
-                            importers,
-                        )
-                        .await?
-                    }
-                    _ => Vec::new(),
-                };
-                let mut row = hierarchy(
-                    self.client,
-                    query,
-                    self.sources.policy(),
-                    self.path,
-                    self.line,
-                    self.character,
-                    &extra_roots,
-                    derived_callers,
-                    self.cancel,
-                )
-                .await?;
-                if let Some(importers) = &importers {
-                    importers.annotate(&mut row);
-                }
-                Ok(row)
+                self.hierarchy().await
             }
             other => Ok(empty(
                 query,
@@ -255,6 +88,180 @@ impl Operation<'_, '_> {
                 true,
             )),
         }
+    }
+
+    async fn definition(self) -> Result<Value, LspFailure> {
+        let query = self.query;
+        let (found, warnings) = resolve_definition_chain(
+            self.client,
+            self.sources,
+            self.snippet_policy,
+            self.cancel,
+            self.path,
+            self.line,
+            self.character,
+        )
+        .await?;
+        let mut row = self
+            .locations("definition", "definitionProvider", found)
+            .await;
+        if !warnings.is_empty() {
+            super::failure::mark_partial(&mut row, query, "definitionHopFailed", &warnings);
+        }
+        Ok(row)
+    }
+
+    /// References from the anchor, plus alias and verified-importer
+    /// recoveries, each recovered row labelled with its source.
+    async fn references(mut self) -> Result<Value, LspFailure> {
+        let query = self.query;
+        let include_declaration = query.include_declaration().unwrap_or(true);
+        let mut found = self
+            .location_request(LocationRequest::References {
+                include_declaration,
+            })
+            .await?;
+        let recovered = recover_aliases(
+            self.client,
+            self.sources,
+            self.snippet_policy,
+            self.cancel,
+            query.symbol_name(),
+            include_declaration,
+            self.path,
+            self.line,
+            self.character,
+            &found,
+        )
+        .await?;
+        let alias_scan_capped = recovered.capped;
+        let recovered = recovered.snippets;
+        let mut seen = found
+            .iter()
+            .chain(&recovered)
+            .map(snippet_identity)
+            .collect::<HashSet<_>>();
+        let known_files = found
+            .iter()
+            .chain(&recovered)
+            .map(|snippet| canonical_path(&uri_to_path(&snippet.uri)))
+            .collect::<HashSet<_>>();
+        let importers = self.importers(&known_files).await?;
+        let mut from_importers = Vec::new();
+        if let Some(importers) = &importers {
+            for anchor in importers.per_file() {
+                let Ok(extra) = get_locations(
+                    self.client,
+                    self.snippet_policy,
+                    self.cancel,
+                    LocationRequest::References {
+                        include_declaration,
+                    },
+                    &anchor.path,
+                    anchor.line,
+                    anchor.character,
+                )
+                .await
+                else {
+                    self.cancel.check().map_err(LspFailure::cancelled)?;
+                    continue;
+                };
+                from_importers.extend(
+                    extra
+                        .into_iter()
+                        .filter(|snippet| seen.insert(snippet_identity(snippet))),
+                );
+            }
+        }
+        // Recovered references are not reported from the anchor:
+        // label each so callers can weigh them as such.
+        let labelled = |label: &'static str| {
+            move |snippet| {
+                let mut value = serde_json::to_value(snippet).unwrap_or(Value::Null);
+                value["source"] = json!(label);
+                value
+            }
+        };
+        let found = found
+            .drain(..)
+            .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
+            .chain(recovered.into_iter().map(labelled(RECOVERED_ALIAS)))
+            .chain(from_importers.into_iter().map(labelled(RECOVERED_IMPORTER)))
+            .collect::<Vec<_>>();
+        let mut row = locations(
+            self.query,
+            self.sources,
+            "references",
+            "referencesProvider",
+            found,
+        )
+        .await;
+        if let Some(importers) = &importers {
+            importers.annotate(&mut row);
+        }
+        if alias_scan_capped && row.pointer("/payload/coverage").is_some() {
+            super::recovery::disclose_alias_cap(&mut row, query, self.workspace_root);
+        }
+        Ok(row)
+    }
+
+    async fn hover(self) -> Result<Value, LspFailure> {
+        let query = self.query;
+        let hover = cancellable(
+            self.cancel,
+            self.client
+                .get_hover(self.path.to_owned(), self.line, self.character),
+        )
+        .await??;
+        Ok(match hover {
+            Value::Null => empty(
+                query,
+                "noHover",
+                "hoverProvider returned no hover at this position",
+                true,
+            ),
+            hover => json!({
+                "lsp": { "serverAvailable": true, "provider": "hoverProvider" },
+                "payload": { "kind": "hover", "hover": public_hover(hover) }
+            }),
+        })
+    }
+
+    /// A call or type hierarchy walk; TS/JS incoming walks are rooted at
+    /// verified importer call sites too.
+    async fn hierarchy(mut self) -> Result<Value, LspFailure> {
+        let query = self.query;
+        let importers = self.importers(&HashSet::new()).await?;
+        let extra_roots = importers
+            .as_ref()
+            .map(|importers| {
+                importers
+                    .call_sites()
+                    .into_iter()
+                    .map(|anchor| (anchor.path.clone(), anchor.line, anchor.character))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let derive = importers
+            .as_ref()
+            .filter(|_| query.operation() != "callees")
+            .map(|importers| (importers, self.snippet_policy));
+        let mut row = hierarchy(
+            self.client,
+            query,
+            self.sources,
+            self.path,
+            self.line,
+            self.character,
+            &extra_roots,
+            derive,
+            self.cancel,
+        )
+        .await?;
+        if let Some(importers) = &importers {
+            importers.annotate(&mut row);
+        }
+        Ok(row)
     }
 
     /// Verified importer anchors when the server may have missed importers
@@ -334,11 +341,16 @@ impl Operation<'_, '_> {
             .collect::<Vec<_>>();
         // Servers return fuzzy matches in their own order (rust-analyzer:
         // alphabetical), which can bury the exact name past the first page.
-        // Stable sort keeps server order within each tier.
+        // Within a tier, declarations come before variable bindings (tsserver
+        // lists every `import { Scene }` as a `variable` named Scene ahead of
+        // `class Scene`). Stable sort keeps server order otherwise.
         symbols.sort_by_key(|symbol| {
-            match_tier(
-                symbol.get("name").and_then(Value::as_str).unwrap_or(""),
-                &name,
+            (
+                match_tier(
+                    symbol.get("name").and_then(Value::as_str).unwrap_or(""),
+                    &name,
+                ),
+                binding_rank(symbol.get("kind").and_then(Value::as_str).unwrap_or("")),
             )
         });
         let mut row = items_payload(query, "symbols", json!(symbols));
@@ -358,24 +370,28 @@ impl Operation<'_, '_> {
                 };
                 let language = language_name(extension);
                 others.push(language);
-                row["next"][format!("search{}", capitalized(language))] = json!({
-                    "tool": ToolId::LspSearch.as_str(),
-                    "confidence": "medium",
-                    "why": format!("Search the {language} project that shares this workspace root."),
-                    "query": {
-                        "operation": "workspaceSymbol",
-                        "symbolName": name,
-                        "uri": file
-                    }
-                });
+                row["next"][format!("search{}", capitalized(language))] =
+                    crate::tools::result::Continuation::new(
+                        ToolId::LspSearch,
+                        json!({
+                            "operation": "workspaceSymbol",
+                            "symbolName": name,
+                            "path": file
+                        }),
+                    )
+                    .why(format!(
+                        "Search the {language} project that shares this workspace root."
+                    ))
+                    .confidence("medium")
+                    .build();
             }
             let hint = if others.is_empty() {
                 format!(
-                    "workspaceRoot-only search covered the {searched} project of one representative file; pass uri for a source file in the project that should contain the symbol."
+                    "workspaceRoot-only search covered the {searched} project of one representative file; pass path for a source file in the project that should contain the symbol."
                 )
             } else {
                 format!(
-                    "workspaceRoot-only search used the {searched} language server; this root also holds {} projects it did not search. Follow next.* to search them.",
+                    "workspaceRoot-only search used the {searched} language server; this root also holds {} projects it did not search: follow hints.search*.",
                     others.join(", ")
                 )
             };
@@ -419,7 +435,7 @@ impl Operation<'_, '_> {
         }
         // Success rows drop `hints` (response hint policy), so this note is a
         // warning: it explains results, it is not a recovery step.
-        if disabled_macro_diagnostics(&row["payload"]["items"]) {
+        if disabled_macro_diagnostics(&row["payload"]["matches"]) {
             let note = json!(RUST_MACRO_NOTE);
             match row["warnings"].as_array_mut() {
                 Some(warnings) => warnings.push(note),
@@ -546,9 +562,27 @@ fn canonical_path(path: &str) -> String {
         .unwrap_or_else(|_| path.to_owned())
 }
 
+/// Bindings (variables, fields, properties) rank after declarations of the
+/// same name: an import alias or a property is rarely the definition sought.
+fn binding_rank(kind: &str) -> u8 {
+    u8::from(matches!(kind, "variable" | "field" | "property"))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::match_tier;
+    use super::{binding_rank, match_tier};
+
+    #[test]
+    fn workspace_symbols_rank_declarations_before_same_name_bindings() {
+        let mut rows = [
+            ("Scene", "variable"),
+            ("scene", "property"),
+            ("Scene", "class"),
+        ];
+        rows.sort_by_key(|(name, kind)| (match_tier(name, "Scene"), binding_rank(kind)));
+        assert_eq!(rows[0], ("Scene", "class"));
+        assert_eq!(rows[1], ("Scene", "variable"));
+    }
 
     #[test]
     fn workspace_symbols_rank_exact_before_fuzzy() {

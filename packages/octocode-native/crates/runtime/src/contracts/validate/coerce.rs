@@ -11,10 +11,10 @@
 //! Arrays: MCP hosts send list fields JSON-encoded (`include:"[\"*.go\"]"`)
 //! or as a bare scalar (`keywords:"term"`). Where every schema that can hold
 //! the value is an array (a `null` alternative is neutral), a string that
-//! parses as a JSON array (curly double quotes read as `"`) becomes that
-//! array, and a scalar every array alternative's items accept becomes a
-//! one-element array. Any string, untyped, or other alternative vetoes the
-//! repair.
+//! parses as a JSON array (curly double quotes read as `"`), or as that JSON
+//! encoded once more (`[\"a\"]`), becomes that array, and a scalar every
+//! array alternative's items accept becomes a one-element array. Any string,
+//! untyped, or other alternative vetoes the repair.
 //!
 //! Line ranges: where items carry the canonical `a-b` line-range pattern,
 //! `" 140-150"`, `"140 - 150"` and `"70,130"` become `"140-150"`/`"70-130"`,
@@ -191,14 +191,8 @@ fn array_form(schemas: &[Typed<'_>], value: &Value) -> Option<Value> {
     if matches!(value, Value::Null | Value::Array(_) | Value::Object(_)) || !only_arrays(schemas) {
         return None;
     }
-    if let Value::String(text) = value
-        && text.trim_start().starts_with('[')
-    {
-        if let Ok(parsed @ Value::Array(_)) = serde_json::from_str::<Value>(text) {
-            return Some(parsed);
-        }
-        if let Ok(parsed @ Value::Array(_)) = serde_json::from_str::<Value>(&straight_quotes(text))
-        {
+    if let Value::String(text) = value {
+        if let Some(parsed) = encoded_array(text) {
             return Some(parsed);
         }
         // A malformed encoded list is not one literal item; leave it for the
@@ -218,14 +212,37 @@ fn array_form(schemas: &[Typed<'_>], value: &Value) -> Option<Value> {
         .then(|| Value::Array(vec![item]))
 }
 
-/// `["…`, `[{…` or `[[…`: the text is an attempted JSON array, not a literal.
-/// A curly double quote counts as `"`.
+/// The array `text` encodes: JSON (curly double quotes read as `"`), or that
+/// JSON encoded once more, with its quotes escaped (`[\"a\"]`) or as a JSON
+/// string (`"[\"a\"]"`).
+fn encoded_array(text: &str) -> Option<Value> {
+    let parse = |text: &str| match serde_json::from_str::<Value>(text) {
+        Ok(parsed @ Value::Array(_)) => Some(parsed),
+        _ => None,
+    };
+    let trimmed = text.trim();
+    if trimmed.starts_with('[') {
+        return parse(trimmed)
+            .or_else(|| parse(&straight_quotes(trimmed)))
+            .or_else(|| {
+                let unescaped = serde_json::from_str::<String>(&format!("\"{trimmed}\"")).ok()?;
+                parse(&unescaped)
+            });
+    }
+    match serde_json::from_str::<Value>(trimmed) {
+        Ok(Value::String(inner)) if inner.trim_start().starts_with('[') => parse(inner.trim()),
+        _ => None,
+    }
+}
+
+/// `["…`, `[{…`, `[[…` or `[\"…`: the text is an attempted JSON array, not a
+/// literal. A curly double quote counts as `"`.
 pub(super) fn looks_like_json_array(text: &str) -> bool {
     let mut chars = text.trim_start().chars();
     chars.next() == Some('[')
-        && chars
-            .find(|c| !c.is_whitespace())
-            .is_some_and(|c| matches!(c, '"' | '{' | '[') || CURLY_DOUBLE_QUOTES.contains(&c))
+        && chars.find(|c| !c.is_whitespace()).is_some_and(|c| {
+            matches!(c, '"' | '{' | '[' | '\\') || CURLY_DOUBLE_QUOTES.contains(&c)
+        })
 }
 
 /// Double quotes rich-text hosts substitute for `"`.
@@ -570,6 +587,27 @@ mod tests {
         assert_eq!(
             coerced(&nested, json!({"include": r#"["*.ts"]"#})),
             json!({"include":["*.ts"]})
+        );
+    }
+
+    /// A list encoded one level too deep (escaped quotes, or the encoded
+    /// list itself JSON-quoted) is still that list.
+    #[test]
+    fn double_encoded_arrays_parse_where_only_arrays_are_accepted() {
+        let ranges =
+            json!({"type":"array","items":{"type":"string","pattern":"^[1-9]\\d*-[1-9]\\d*$"}});
+        assert_eq!(
+            coerced(&ranges, json!(r#"[\"749-775\"]"#)),
+            json!(["749-775"])
+        );
+        assert_eq!(
+            coerced(&ranges, json!(r#""[\"10-20\",\"30-40\"]""#)),
+            json!(["10-20", "30-40"])
+        );
+        // A malformed escaped list stays for the validator to report.
+        assert_eq!(
+            coerced(&ranges, json!(r#"[\"749-775\""#)),
+            json!(r#"[\"749-775\""#)
         );
     }
 

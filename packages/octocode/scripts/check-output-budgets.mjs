@@ -15,7 +15,12 @@ if (!existsSync(cli)) {
 
 const cases = [
   { name: 'root-help', args: ['--help'], maxBytes: 4500, instructions: 'text' },
-  { name: 'scheme-catalog', args: ['scheme', '--compact'], maxBytes: 7500, instructions: 'json' },
+  {
+    name: 'scheme-catalog',
+    args: ['scheme', '--compact'],
+    maxBytes: 7500,
+    instructions: 'json',
+  },
   {
     name: 'localSearch-compact-schema',
     args: ['scheme', 'localSearch', '--view', 'query', '--compact'],
@@ -26,12 +31,17 @@ const cases = [
     args: [
       'localSearch',
       JSON.stringify({
-        path: sourceEntry,
-        searchText: 'runCLI',
-        regex: 'literal',
-        resultView: 'files',
-        pageSize: 1,
-        reasoning: 'Exercise the direct localSearch CLI within the output budget.',
+        queries: [
+          {
+            path: sourceEntry,
+            matchString: 'runCLI',
+            regex: 'literal',
+            resultView: 'files',
+            pageSize: 1,
+            reasoning:
+              'Exercise the direct localSearch CLI within the output budget.',
+          },
+        ],
       }),
     ],
     maxBytes: 5000,
@@ -63,7 +73,10 @@ for (const item of cases) {
     const marker = '\nAgent instructions:\n';
     const split = measured.indexOf(marker);
     if (split >= 0) {
-      instructionBytes = Buffer.byteLength(measured.slice(split + marker.length), 'utf8');
+      instructionBytes = Buffer.byteLength(
+        measured.slice(split + marker.length),
+        'utf8'
+      );
       measured = measured.slice(0, split);
     }
   } else if (item.instructions === 'json' && run.status === 0) {
@@ -95,7 +108,11 @@ for (const item of cases) {
 
 const noArgs = runCli([]);
 let defaultCatalog;
-try { defaultCatalog = JSON.parse(noArgs.stdout); } catch { /* reported below */ }
+try {
+  defaultCatalog = JSON.parse(noArgs.stdout);
+} catch {
+  /* reported below */
+}
 results.push({
   name: 'default-shows-catalog',
   ok: noArgs.status === 0 && defaultCatalog?.kind === 'octocode.toolCatalog',

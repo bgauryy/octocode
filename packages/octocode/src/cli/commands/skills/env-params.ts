@@ -12,6 +12,7 @@
  */
 
 import {
+  applyOctocodeEnv,
   configFieldEnvNames,
   ENV_TOKEN_VARS,
   getOctocodeHome,
@@ -127,14 +128,18 @@ export const SKILL_ENV_PARAMS: Record<string, EnvParam[]> = {
 // ─── Runtime status check ─────────────────────────────────────────────────────
 
 /**
- * Check whether a single env var is set in the process env or in the home
- * `.env` layer that Octocode itself loads.
+ * Check whether a single env var is set, with the layers and trust rules
+ * Octocode itself applies: process env, then the workspace and home `.env`
+ * (a workspace file cannot supply protected keys such as tokens).
  */
 export function isEnvSet(key: string): boolean {
-  const own = process.env[key];
-  const val = own?.trim()
-    ? own
-    : loadOctocodeEnv({ home: getOctocodeHome() }).map[key];
+  const effective: Record<string, string | undefined> = { ...process.env };
+  const { map, sources } = loadOctocodeEnv({
+    home: getOctocodeHome(),
+    cwd: process.cwd(),
+  });
+  applyOctocodeEnv(map, { env: effective, sources });
+  const val = effective[key];
   return typeof val === 'string' && val.trim().length > 0;
 }
 
@@ -217,15 +222,29 @@ export function groupLabel(group: string): string {
 }
 
 /** True when the group that contains this param is satisfied by ANY other set param in the list. */
-export function isGroupSatisfied(
-  ps: EnvParamStatus,
-  all: EnvParamStatus[]
-): boolean {
+function isGroupSatisfied(ps: EnvParamStatus, all: EnvParamStatus[]): boolean {
   const { group } = ps.param;
   if (!group) return ps.status === 'set';
   return all.some(
     other => other.param.group === group && other.status === 'set'
   );
+}
+
+/** One JSON row per env param: its status, and its group's satisfaction when grouped. */
+export function envParamRows(env: SkillEnvStatus) {
+  return env.params.map(param => ({
+    key: param.param.key,
+    status: param.status,
+    required: param.param.required,
+    description: param.param.description,
+    ...(param.param.group
+      ? {
+          group: param.param.group,
+          groupSatisfied: isGroupSatisfied(param, env.params),
+        }
+      : {}),
+    ...(param.param.link ? { link: param.param.link } : {}),
+  }));
 }
 
 /** Compact summary of what's missing, for inline display. */

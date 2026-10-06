@@ -46,18 +46,18 @@ describe('Unified public pagination fields', () => {
     ).toBe(false);
   });
 
-  it('structureSearch files uses limit as the total cap and pageSize per page', () => {
+  it('structureSearch files uses maxEntries as the scan cap and pageSize per page', () => {
     const query = q0(StructureSearchBulkQuerySchema, {
       mainGoal: 'test goal',
       reasoning: 'exercise pagination fields',
       operation: 'files',
       path: '.',
-      names: ['*.ts'],
-      limit: 75,
+      include: ['*.ts'],
+      maxEntries: 75,
       page: 2,
       pageSize: 25,
     });
-    expect(query).toMatchObject({ limit: 75, page: 2, pageSize: 25 });
+    expect(query).toMatchObject({ maxEntries: 75, page: 2, pageSize: 25 });
     expect('itemsPerPage' in query).toBe(false);
   });
 
@@ -66,7 +66,7 @@ describe('Unified public pagination fields', () => {
       mainGoal: 'test goal',
       reasoning: 'exercise pagination fields',
       path: '.',
-      searchText: 'needle',
+      matchString: 'needle',
       regex: 'literal',
     };
     const query = q0(LocalSearchBulkQuerySchema, {
@@ -84,29 +84,36 @@ describe('Unified public pagination fields', () => {
     }
   });
 
-  it('astTopology distinguishes limit from pageSize', () => {
-    const query = q0(AstTopologyBulkQuerySchema, {
+  it('astTopology pages results with page and pageSize only', () => {
+    const base = {
       mainGoal: 'test goal',
       reasoning: 'exercise pagination fields',
-      analysis: 'cycles',
+      operation: 'cycles',
       path: '.',
-      limit: 100,
+    };
+    const query = q0(AstTopologyBulkQuerySchema, {
+      ...base,
       page: 2,
       pageSize: 20,
     });
-    expect(query).toMatchObject({ limit: 100, page: 2, pageSize: 20 });
+    expect(query).toMatchObject({ page: 2, pageSize: 20 });
+    expect(
+      AstTopologyBulkQuerySchema.safeParse({
+        queries: [{ ...base, limit: 100 }],
+      }).success
+    ).toBe(false);
   });
 
-  it('artifactSearch exposes cursor and pageSize only for keyword discovery', () => {
+  it('artifactSearch exposes page and pageSize only for keyword discovery', () => {
     const keywordQuery = q0(ArtifactSearchBulkQueryLocalSchema, {
       mainGoal: 'test goal',
       reasoning: 'exercise pagination fields',
       type: 'npm',
       keywords: ['hono'],
-      cursor: 'opaque',
+      page: 2,
       pageSize: 25,
     });
-    expect(keywordQuery).toMatchObject({ cursor: 'opaque', pageSize: 25 });
+    expect(keywordQuery).toMatchObject({ page: 2, pageSize: 25 });
     for (const field of ['itemsPerPage', 'searchLimit', 'limit']) {
       expect(field in keywordQuery).toBe(false);
     }
@@ -119,7 +126,6 @@ describe('Unified public pagination fields', () => {
     });
     for (const field of [
       'page',
-      'cursor',
       'pageSize',
       'itemsPerPage',
       'searchLimit',

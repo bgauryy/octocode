@@ -1,234 +1,150 @@
 use super::RuntimeError;
 use serde_json::{Value, json};
 
-/// Project a typed contract failure into the CallToolResult shape returned by
-/// the frozen MCP SDK registration layer. Runtime and transport faults remain
-/// errors at the NAPI boundary.
-pub fn mcp_input_error(tool: &str, input: &Value, error: &RuntimeError) -> Option<Value> {
+/// Project a typed contract failure into the CallToolResult shape MCP
+/// returns: the same actionable projection the CLI prints (`error` plus its
+/// repair `details`), pointed at the tool's inputSchema; an output contract
+/// violation keeps its cause. Runtime and transport faults remain errors at
+/// the NAPI boundary.
+pub fn mcp_input_error(tool: &str, error: &RuntimeError) -> Option<Value> {
+    // A response that breaks its own output contract names the broken field
+    // (contract paths, no request data): the agent sees the cause instead of
+    // the interface's generic failure.
+    if error.code == "outputContractViolation" {
+        let message = crate::security::scrub_error_text(&error.message);
+        return Some(json!({
+            "content": [{"type":"text","text":format!("{message} (errorCode: outputContractViolation)")}],
+            "isError": true
+        }));
+    }
     (error.code == "invalidInput").then(|| {
-        let detail = envelope_detail(input).unwrap_or_else(|| {
-            error.validation_issues.as_deref().map_or_else(
-                || error.message.clone(),
-                render_issues,
-            )
-        });
+        let detail = error
+            .payload
+            .as_deref()
+            .and_then(tool_error_text)
+            .unwrap_or_else(|| error.message.clone());
         json!({
-            "content": [{
-                "type": "text",
-                "text": format!("Input validation error: Invalid arguments for tool {tool}: {detail}")
-            }],
+            "content": [{"type":"text","text":format!(
+                "Input validation error: Invalid arguments for tool {tool}: {detail}"
+            )}],
             "isError": true
         })
     })
 }
 
-pub fn mcp_envelope_error(tool: &str, input: &Value) -> Option<Value> {
-    if tool == crate::tools::id::ToolId::Clasify.as_str()
-        && input.as_object().is_some_and(|object| {
-            object.contains_key("id")
-                && object.contains_key("resources")
-                && object.contains_key("questions")
-        })
-    {
-        return None;
-    }
-    envelope_detail(input).map(|detail| result(tool, &detail))
-}
-
-fn result(tool: &str, detail: &str) -> Value {
-    json!({
-        "content": [{"type":"text","text":format!(
-            "Input validation error: Invalid arguments for tool {tool}: {detail}"
-        )}],
-        "isError": true
-    })
-}
-
-fn envelope_detail(input: &Value) -> Option<String> {
-    if !input.is_object() {
-        return Some(format!(
-            "Invalid input: expected object, received {}",
-            json_type(input)
-        ));
-    }
-    let Some(queries) = input.get("queries") else {
-        return Some("queries: Invalid input: expected array, received undefined".into());
-    };
-    if !queries.is_array() {
-        return Some(format!(
-            "queries: Invalid input: expected array, received {}",
-            json_type(queries)
-        ));
-    }
-    None
-}
-
-fn render_issue(issue: &crate::contracts::ValidationIssue) -> String {
-    if issue.rule_id == "schema.union-selected-keys" {
-        return format!("{}: input: {}", issue.path.join("."), issue.message);
-    }
-    // The canonical range refinement is inside the selector union; MCP's
-    // union formatter retains that boundary while the direct CLI flattens it.
-    if issue.rule_id == "content.range-order" {
-        let parent = issue.path[..issue.path.len().saturating_sub(1)].join(".");
-        return format!("{parent}: endLine: {}", issue.message);
-    }
-    let path = issue.path.join(".");
-    let prefix = if path.is_empty() {
-        String::new()
+/// `octocode.toolError` → one line: the error, then each repair detail.
+fn tool_error_text(payload: &Value) -> Option<String> {
+    let error = payload.get("error")?.as_str()?;
+    let details = payload
+        .get("details")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    Some(if details.is_empty() {
+        error.to_owned()
     } else {
-        format!("{path}: ")
-    };
-    if issue.rule_id == "schema.required"
-        && let Some(field) = issue.path.last()
-    {
-        let parent = issue.path[..issue.path.len().saturating_sub(1)].join(".");
-        let expected = issue
-            .schema
-            .as_ref()
-            .and_then(|v| v["type"].as_str())
-            .unwrap_or("nonoptional");
-        return format!(
-            "{parent}: {field}: Invalid input: expected {expected}, received undefined"
-        );
-    }
-    if issue.rule_id == "schema.type" {
-        let expected = issue
-            .schema
-            .as_ref()
-            .and_then(|v| v["type"].as_str())
-            .unwrap_or("value");
-        let received = issue
-            .received
-            .as_ref()
-            .map(json_type)
-            .unwrap_or("undefined");
-        return format!("{prefix}Invalid input: expected {expected}, received {received}");
-    }
-    if issue.rule_id == "schema.enum"
-        && let Some(values) = issue.schema.as_ref().and_then(|v| v["enum"].as_array())
-    {
-        let choices = values
-            .iter()
-            .map(Value::to_string)
-            .collect::<Vec<_>>()
-            .join("|");
-        return format!("{prefix}Invalid option: expected one of {choices}");
-    }
-    format!("{prefix}{}", issue.message)
-}
-
-fn render_issues(issues: &[crate::contracts::ValidationIssue]) -> String {
-    let mut rendered = Vec::new();
-    let mut consumed = vec![false; issues.len()];
-    for (index, issue) in issues.iter().enumerate() {
-        if consumed[index] {
-            continue;
-        }
-        if issue.rule_id == "schema.unknown-field" {
-            let parent = &issue.path[..issue.path.len().saturating_sub(1)];
-            let mut fields = Vec::new();
-            for (candidate_index, candidate) in issues.iter().enumerate().skip(index) {
-                if candidate.rule_id == "schema.unknown-field"
-                    && candidate.path[..candidate.path.len().saturating_sub(1)] == *parent
-                {
-                    consumed[candidate_index] = true;
-                    if let Some(field) = candidate.path.last() {
-                        fields.push(format!("\"{field}\""));
-                    }
-                }
-            }
-            rendered.push(format!(
-                "{}: Unrecognized key{}: {}",
-                parent.join("."),
-                if fields.len() == 1 { "" } else { "s" },
-                fields.join(", ")
-            ));
-        } else {
-            consumed[index] = true;
-            rendered.push(render_issue(issue));
-        }
-    }
-    rendered.join(", ")
-}
-
-fn json_type(value: &Value) -> &'static str {
-    match value {
-        Value::Null => "null",
-        Value::Bool(_) => "boolean",
-        Value::Number(_) => "number",
-        Value::String(_) => "string",
-        Value::Array(_) => "array",
-        Value::Object(_) => "object",
-    }
+        format!("{error} {}", details.join("; "))
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::contracts::{self, PrepareOptions};
 
-    fn error(issues: Vec<crate::contracts::ValidationIssue>) -> RuntimeError {
+    fn invalid(tool: &str, input: Value) -> RuntimeError {
+        let error = contracts::prepare_many_and_validate(tool, input, PrepareOptions::default())
+            .expect_err("invalid input");
         RuntimeError {
             code: "invalidInput".into(),
-            message: "contract validation failed".into(),
-            payload: None,
-            validation_issues: Some(issues),
+            message: error.to_string(),
+            payload: Some(Box::new(contracts::format_input_error(tool, &error, true))),
+            validation_issues: Some(error.issues),
         }
     }
 
-    fn issue(rule: &str, path: &[&str], message: &str) -> crate::contracts::ValidationIssue {
-        crate::contracts::ValidationIssue {
-            rule_id: rule.into(),
-            path: path.iter().map(|part| (*part).into()).collect(),
-            message: message.into(),
-            schema: (rule == "schema.required").then(|| json!({"type":"string"})),
-            received: None,
-        }
+    fn text(tool: &str, input: Value) -> String {
+        let result = mcp_input_error(tool, &invalid(tool, input)).expect("an MCP error");
+        assert_eq!(result["isError"], true);
+        assert!(result.get("structuredContent").is_none());
+        result["content"][0]["text"]
+            .as_str()
+            .expect("text")
+            .to_owned()
     }
 
     #[test]
-    fn matches_frozen_missing_wrong_type_and_unknown_field_messages() {
-        let cases = [
-            (
-                json!({}),
-                error(vec![]),
-                "queries: Invalid input: expected array, received undefined",
-            ),
-            (
-                json!({"queries":"bad"}),
-                error(vec![]),
-                "queries: Invalid input: expected array, received string",
-            ),
-            (
-                json!({"queries":[{}]}),
-                error(vec![issue(
-                    "schema.required",
-                    &["queries", "0", "path"],
-                    "missing",
-                )]),
-                "queries.0: path: Invalid input: expected string, received undefined",
-            ),
-            (
-                json!({"queries":[{"path":"x","wat":true}]}),
-                error(vec![issue(
-                    "schema.unknown-field",
-                    &["queries", "0", "wat"],
-                    "unknown",
-                )]),
-                "queries.0: Unrecognized key: \"wat\"",
-            ),
-        ];
-        for (input, error, expected) in cases {
-            let result = mcp_input_error("localFetch", &input, &error)
-                .expect("invalid input should produce an MCP error");
-            assert_eq!(
-                result["content"][0]["text"],
-                format!(
-                    "Input validation error: Invalid arguments for tool localFetch: {expected}"
-                )
-            );
-            assert_eq!(result["isError"], true);
-            assert!(result.get("structuredContent").is_none());
-        }
+    fn mcp_errors_carry_the_actionable_repair_details() {
+        let typo = text(
+            "localFetch",
+            json!({"queries":[{"path":"a.rs","matchstring":"x"}]}),
+        );
+        assert!(
+            typo.starts_with("Input validation error: Invalid arguments for tool localFetch: "),
+            "{typo}"
+        );
+        assert!(typo.contains("did you mean 'matchString'?"), "{typo}");
+        assert!(typo.contains("See the localFetch inputSchema"), "{typo}");
+        assert!(!typo.contains("scheme"), "{typo}");
+
+        let missing = text(
+            "ghGetFileContent",
+            json!({"queries":[{"owner":"a","repo":"b"}]}),
+        );
+        assert!(
+            missing.contains("Set path to a repository-relative file."),
+            "{missing}"
+        );
+
+        let choice = text(
+            "localSearch",
+            json!({"queries":[{"path":".","matchString":"x","regex":"perl"}]}),
+        );
+        assert!(choice.contains("literal, rust, pcre2"), "{choice}");
+
+        let brief = text(
+            "localFetch",
+            json!({"mainGoal":"g","queries":[{"path":"a.rs"}]}),
+        );
+        assert!(
+            brief.contains("Move 'mainGoal' into each queries[] row"),
+            "{brief}"
+        );
+    }
+
+    #[test]
+    fn malformed_envelopes_get_the_same_projection() {
+        assert!(text("localFetch", json!({"queries":"x"})).contains("queries must be an array"));
+        assert!(text("localFetch", json!({"path":"a.rs"})).contains("{\"queries\":[...]}"));
+    }
+
+    /// A response that breaks its own output contract is a tool defect the
+    /// agent must see, not a generic "failed to execute": MCP returns the
+    /// scrubbed cause as a tool error.
+    #[test]
+    fn output_contract_violations_surface_their_cause() {
+        let error = RuntimeError {
+            code: "outputContractViolation".into(),
+            message: "ghGetHistoryItem produced a response that violates its canonical output contract: results.0.data.pullRequests.0.files: Value length 0 is below the minimum of 1".into(),
+            payload: None,
+            validation_issues: None,
+        };
+        let result = mcp_input_error("ghGetHistoryItem", &error).expect("an MCP error");
+        assert_eq!(result["isError"], true);
+        let text = result["content"][0]["text"].as_str().expect("text");
+        assert!(text.contains("outputContractViolation"), "{text}");
+        assert!(
+            text.contains("pullRequests.0.files: Value length 0"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn other_failures_stay_runtime_errors() {
+        assert!(
+            mcp_input_error("localFetch", &RuntimeError::new("toolUnavailable", "x")).is_none()
+        );
     }
 }

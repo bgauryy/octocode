@@ -1,6 +1,6 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 #![cfg(unix)]
-mod support;
+use crate::support;
 use serde_json::json;
 use std::os::unix::fs::PermissionsExt;
 use support::Workspace;
@@ -9,11 +9,6 @@ use wiremock::{
     matchers::{header, method, path},
 };
 
-fn fake_gh(workspace: &Workspace) -> String {
-    let script = workspace.write("bin/gh", "#!/bin/sh\n[ \"$1 $2 $3 $4\" = 'auth token --hostname 127.0.0.1' ] || exit 2\n[ -z \"$GH_TOKEN$GITHUB_TOKEN$OCTOCODE_TOKEN\" ] || exit 3\nprintf x >> \"$OCTOCODE_HOME/gh-calls\"\nprintf synthetic-gh-credential\n");
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700)).unwrap();
-    format!("{}:/usr/bin:/bin", script.parent().unwrap().display())
-}
 #[tokio::test]
 async fn native_cli_reads_main_home_credentials_before_gh() {
     let workspace = Workspace::new();
@@ -36,7 +31,7 @@ async fn native_cli_reads_main_home_credentials_before_gh() {
     }
     let mut command = workspace.cli();
     command
-        .env("PATH", fake_gh(&workspace))
+        .env("PATH", workspace.fake_gh_path())
         .env("GITHUB_API_URL", "http://127.0.0.1:1/api/v3")
         .args(["auth", "status", "--json"]);
     let output = tokio::task::spawn_blocking(move || command.output().unwrap())
@@ -62,7 +57,7 @@ async fn native_cli_status_uses_host_scoped_gh_and_preserves_json() {
     let workspace = Workspace::new();
     let mut command = workspace.cli();
     command
-        .env("PATH", fake_gh(&workspace))
+        .env("PATH", workspace.fake_gh_path())
         .env("GITHUB_API_URL", format!("{}/api/v3", server.uri()))
         .args(["auth", "status", "--json"]);
     let output = tokio::task::spawn_blocking(move || command.output().unwrap())

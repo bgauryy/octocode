@@ -1,4 +1,4 @@
-use crate::error::{Error, Result, Status};
+use crate::error::{Error, Result};
 use crate::lsp::client::{LspLease, NativeLspClient};
 use crate::lsp::types::JsLanguageServerConfig;
 use serde_json::Value;
@@ -69,10 +69,12 @@ pub struct LspPoolOptions {
     pub max_entries: usize,
 }
 
+/// Agent think time between calls often exceeds a minute, and a cold
+/// language server costs seconds; an idle server holds only memory.
 impl Default for LspPoolOptions {
     fn default() -> Self {
         Self {
-            idle_timeout_ms: 60_000,
+            idle_timeout_ms: 300_000,
             max_entries: 4,
         }
     }
@@ -96,9 +98,8 @@ impl Drop for IdleTimerGuard {
     }
 }
 
-struct Entry<C, M> {
+struct Entry<C> {
     client: C,
-    metadata: M,
     id: u64,
     /// Renewed on every successful acquire; the entry's one idle timer
     /// re-sleeps until `last_used + idle_timeout` instead of spawning anew.
@@ -107,19 +108,13 @@ struct Entry<C, M> {
 }
 
 /// Errors are shared between deduplicated waiters, so they are reference
-/// counted instead of flattened to a string: status (and any structured
-/// detail on `Error`) survives to the boundary.
+/// counted instead of flattened to a string: any structured detail on
+/// `Error` survives to the boundary.
 type SharedError = Arc<Error>;
 type SharedResult<C> = std::result::Result<Option<C>, SharedError>;
 
-fn shared_error(status: Status, reason: impl Into<String>) -> SharedError {
-    Arc::new(Error::new(status, reason))
-}
-
-/// Recover an owned `Error` at the pool boundary, preserving every field
-/// (status, typed RPC detail). The last holder moves it out instead of cloning.
-fn unshare_error(error: SharedError) -> Error {
-    Arc::unwrap_or_clone(error)
+fn shared_error(reason: impl Into<String>) -> SharedError {
+    Arc::new(Error::new(reason))
 }
 
 struct StartBackoff {
@@ -175,10 +170,7 @@ impl<C: Clone> InFlight<C> {
         // Wake current waiters immediately. A later acquire also observes this
         // bit and replaces the registration without racing async Drop cleanup.
         self.cancelled.store(true, Ordering::SeqCst);
-        self.complete(Err(shared_error(
-            Status::GenericFailure,
-            "LSP client startup was cancelled",
-        )));
+        self.complete(Err(shared_error("LSP client startup was cancelled")));
     }
 
     fn is_cancelled(&self) -> bool {
@@ -186,8 +178,8 @@ impl<C: Clone> InFlight<C> {
     }
 }
 
-struct State<C, M> {
-    entries: HashMap<String, Entry<C, M>>,
+struct State<C> {
+    entries: HashMap<String, Entry<C>>,
     inflight: HashMap<String, Arc<InFlight<C>>>,
     backoff: HashMap<String, StartBackoff>,
     lru: VecDeque<String>,
@@ -196,7 +188,7 @@ struct State<C, M> {
     idle_timers_spawned: usize,
 }
 
-impl<C, M> Default for State<C, M> {
+impl<C> Default for State<C> {
     fn default() -> Self {
         Self {
             entries: HashMap::new(),
@@ -210,9 +202,9 @@ impl<C, M> Default for State<C, M> {
     }
 }
 
-struct GenericPool<C, M> {
+struct GenericPool<C> {
     options: LspPoolOptions,
-    state: Arc<Mutex<State<C, M>>>,
+    state: Arc<Mutex<State<C>>>,
     count: Arc<AtomicUsize>,
 }
 
@@ -231,17 +223,17 @@ where
     }
 }
 
-struct StartCancellationGuard<C: PoolClient, M: Send + 'static> {
+struct StartCancellationGuard<C: PoolClient> {
     key: String,
-    state: Arc<Mutex<State<C, M>>>,
+    state: Arc<Mutex<State<C>>>,
     inflight: Arc<InFlight<C>>,
     client: Option<C>,
     armed: bool,
     runtime: Option<Handle>,
 }
 
-impl<C: PoolClient, M: Send + 'static> StartCancellationGuard<C, M> {
-    fn new(key: String, state: Arc<Mutex<State<C, M>>>, inflight: Arc<InFlight<C>>) -> Self {
+impl<C: PoolClient> StartCancellationGuard<C> {
+    fn new(key: String, state: Arc<Mutex<State<C>>>, inflight: Arc<InFlight<C>>) -> Self {
         Self {
             key,
             state,
@@ -262,7 +254,7 @@ impl<C: PoolClient, M: Send + 'static> StartCancellationGuard<C, M> {
     }
 }
 
-impl<C: PoolClient, M: Send + 'static> Drop for StartCancellationGuard<C, M> {
+impl<C: PoolClient> Drop for StartCancellationGuard<C> {
     fn drop(&mut self) {
         if !self.armed {
             return;
@@ -338,7 +330,7 @@ where
     receive.await
 }
 
-impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
+impl<C: PoolClient> GenericPool<C> {
     fn new(mut options: LspPoolOptions) -> Self {
         options.idle_timeout_ms = options.idle_timeout_ms.max(1);
         options.max_entries = options.max_entries.max(1);
@@ -353,7 +345,7 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
         Duration::from_millis(self.options.idle_timeout_ms)
     }
 
-    async fn acquire<F, Fut>(&self, key: String, metadata: M, factory: F) -> SharedResult<C>
+    async fn acquire<F, Fut>(&self, key: String, factory: F) -> SharedResult<C>
     where
         F: FnOnce() -> Fut + Send,
         Fut: Future<Output = SharedResult<C>> + Send,
@@ -464,9 +456,9 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
                 cancellation.track_client(client.clone());
                 client.stop().await;
                 cancellation.disarm();
-                self.finish_start(key, metadata, inflight, factory()).await
+                self.finish_start(key, inflight, factory()).await
             }
-            Action::Start(inflight) => self.finish_start(key, metadata, inflight, factory()).await,
+            Action::Start(inflight) => self.finish_start(key, inflight, factory()).await,
         }
     }
 
@@ -478,7 +470,6 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
     async fn acquire_leased<F, Fut, L>(
         &self,
         key: String,
-        metadata: M,
         factory: F,
         lease: impl Fn(&C) -> L,
     ) -> SharedResult<(C, L)>
@@ -487,10 +478,7 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
         Fut: Future<Output = SharedResult<C>> + Send,
     {
         for attempt in 1..=LEASE_ATTEMPTS {
-            let Some(client) = self
-                .acquire(key.clone(), metadata.clone(), &factory)
-                .await?
-            else {
+            let Some(client) = self.acquire(key.clone(), &factory).await? else {
                 return Ok(None);
             };
             let state = self.state.lock().await;
@@ -510,7 +498,6 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
     async fn finish_start<Fut>(
         &self,
         key: String,
-        metadata: M,
         inflight: Arc<InFlight<C>>,
         future: Fut,
     ) -> SharedResult<C>
@@ -544,7 +531,6 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
                             key.clone(),
                             Entry {
                                 client: client.clone(),
-                                metadata,
                                 id: entry_id,
                                 last_used: now,
                                 idle_timer: IdleTimerGuard(Some(timer)),
@@ -710,26 +696,16 @@ impl<C: PoolClient, M: Clone + Send + Sync + 'static> GenericPool<C, M> {
     fn len(&self) -> usize {
         self.count.load(Ordering::SeqCst)
     }
-
-    async fn metadata(&self) -> Vec<M> {
-        self.state
-            .lock()
-            .await
-            .entries
-            .values()
-            .map(|entry| entry.metadata.clone())
-            .collect()
-    }
 }
 
-fn inflight_is_current<C, M>(state: &State<C, M>, key: &str, expected: &Arc<InFlight<C>>) -> bool {
+fn inflight_is_current<C>(state: &State<C>, key: &str, expected: &Arc<InFlight<C>>) -> bool {
     state
         .inflight
         .get(key)
         .is_some_and(|current| Arc::ptr_eq(current, expected))
 }
 
-fn touch_entry<C, M>(state: &mut State<C, M>, key: &str) -> bool {
+fn touch_entry<C>(state: &mut State<C>, key: &str) -> bool {
     let Some(entry) = state.entries.get_mut(key) else {
         return false;
     };
@@ -744,11 +720,7 @@ fn touch_entry<C, M>(state: &mut State<C, M>, key: &str) -> bool {
 /// overflows temporarily; a later install or acquire retries the eviction and
 /// idle expiry shrinks it too. Returned clients must be stopped by the caller
 /// after the state lock is released.
-fn evict_overflow<C: PoolClient, M>(
-    state: &mut State<C, M>,
-    max_entries: usize,
-    keep: &str,
-) -> Vec<C> {
+fn evict_overflow<C: PoolClient>(state: &mut State<C>, max_entries: usize, keep: &str) -> Vec<C> {
     let mut evicted = Vec::new();
     while state.entries.len() > max_entries {
         let State { entries, lru, .. } = &mut *state;
@@ -782,12 +754,7 @@ async fn start_client(config: JsLanguageServerConfig) -> SharedResult<NativeLspC
     let start =
         run_cancellation_safe_start(client.clone(), async move { starting_client.start().await })
             .await
-            .map_err(|error| {
-                shared_error(
-                    Status::GenericFailure,
-                    format!("LSP client startup task failed: {error}"),
-                )
-            })?;
+            .map_err(|error| shared_error(format!("LSP client startup task failed: {error}")))?;
     start.map_err(Arc::new)?;
     let mut cleanup = StopOnDrop::new(client.clone());
     if let Some(timeout_ms) = readiness_timeout(config.language_id.as_deref())
@@ -802,7 +769,7 @@ async fn start_client(config: JsLanguageServerConfig) -> SharedResult<NativeLspC
 }
 
 pub struct LspClientPool {
-    inner: GenericPool<NativeLspClient, JsLanguageServerConfig>,
+    inner: GenericPool<NativeLspClient>,
 }
 
 impl Default for LspClientPool {
@@ -820,11 +787,10 @@ impl LspClientPool {
 
     pub async fn acquire(&self, config: JsLanguageServerConfig) -> Result<Option<NativeLspClient>> {
         let key = canonical_lsp_key(&config)?;
-        let factory_config = config.clone();
         self.inner
-            .acquire(key, config, || start_client(factory_config))
+            .acquire(key, || start_client(config))
             .await
-            .map_err(unshare_error)
+            .map_err(Arc::unwrap_or_clone)
     }
 
     /// Acquire a client already leased: the lease is taken under the pool
@@ -835,16 +801,10 @@ impl LspClientPool {
         config: JsLanguageServerConfig,
     ) -> Result<Option<(NativeLspClient, LspLease)>> {
         let key = canonical_lsp_key(&config)?;
-        let factory_config = config.clone();
         self.inner
-            .acquire_leased(
-                key,
-                config,
-                || start_client(factory_config.clone()),
-                NativeLspClient::lease,
-            )
+            .acquire_leased(key, || start_client(config.clone()), NativeLspClient::lease)
             .await
-            .map_err(unshare_error)
+            .map_err(Arc::unwrap_or_clone)
     }
 
     pub async fn clear(&self, config: &JsLanguageServerConfig) -> Result<bool> {
@@ -862,10 +822,6 @@ impl LspClientPool {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    pub async fn configs(&self) -> Vec<JsLanguageServerConfig> {
-        self.inner.metadata().await
     }
 }
 
@@ -911,12 +867,7 @@ pub fn canonical_lsp_key(config: &JsLanguageServerConfig) -> Result<String> {
         "initializationOptions": initialization_options,
         "maxMemoryMb": config.max_memory_mb,
     }))
-    .map_err(|error| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Failed to serialize LSP pool key: {error}"),
-        )
-    })
+    .map_err(|error| Error::new(format!("Failed to serialize LSP pool key: {error}")))
 }
 
 /// Pool-key form of a workspace root: the real path (symlinks resolved) when
@@ -928,12 +879,7 @@ fn normalize_workspace_root(root: &str) -> Result<String> {
         path.to_path_buf()
     } else {
         std::env::current_dir()
-            .map_err(|error| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("Failed to resolve current directory: {error}"),
-                )
-            })?
+            .map_err(|error| Error::new(format!("Failed to resolve current directory: {error}")))?
             .join(path)
     };
     if let Ok(real) = std::fs::canonicalize(&absolute) {
@@ -1040,11 +986,16 @@ mod tests {
         }
     }
 
-    fn pool(max_entries: usize, idle_timeout_ms: u64) -> GenericPool<FakeClient, usize> {
+    fn pool(max_entries: usize, idle_timeout_ms: u64) -> GenericPool<FakeClient> {
         GenericPool::new(LspPoolOptions {
             max_entries,
             idle_timeout_ms,
         })
+    }
+
+    #[test]
+    fn idle_servers_outlive_agent_think_time() {
+        assert!(LspPoolOptions::default().idle_timeout_ms >= 300_000);
     }
 
     #[tokio::test]
@@ -1058,7 +1009,7 @@ mod tests {
             let starts = Arc::clone(&starts);
             let gate = Arc::clone(&gate);
             tokio::spawn(async move {
-                pool.acquire("k".into(), 1, || async move {
+                pool.acquire("k".into(), || async move {
                     starts.fetch_add(1, Ordering::SeqCst);
                     if let Some(receiver) = gate.lock().await.take() {
                         let _ = receiver.await;
@@ -1072,7 +1023,7 @@ mod tests {
         let second = {
             let pool = Arc::clone(&pool);
             tokio::spawn(async move {
-                pool.acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(2))) })
+                pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
                     .await
             })
         };
@@ -1099,7 +1050,7 @@ mod tests {
         let first = {
             let pool = Arc::clone(&pool);
             tokio::spawn(async move {
-                pool.acquire("k".into(), 1, || async move {
+                pool.acquire("k".into(), || async move {
                     let _ = entered_send.send(());
                     let _ = release_receive.await;
                     Ok(Some(FakeClient::new(1)))
@@ -1123,7 +1074,7 @@ mod tests {
 
         let retried = tokio::time::timeout(
             Duration::from_secs(1),
-            pool.acquire("k".into(), 2, || async { Ok(Some(FakeClient::new(2))) }),
+            pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) }),
         )
         .await
         .expect("cancelled startup must not block a retry")
@@ -1143,7 +1094,7 @@ mod tests {
         let first = {
             let pool = Arc::clone(&pool);
             tokio::spawn(async move {
-                pool.acquire("k".into(), 1, || async move {
+                pool.acquire("k".into(), || async move {
                     let _ = entered_send.send(());
                     let _ = release_receive.await;
                     Ok(Some(uninstalled))
@@ -1172,7 +1123,7 @@ mod tests {
 
         let retried = tokio::time::timeout(
             Duration::from_secs(1),
-            pool.acquire("k".into(), 2, || async { Ok(Some(FakeClient::new(2))) }),
+            pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) }),
         )
         .await
         .expect("cancelled install must not block a retry")
@@ -1185,7 +1136,7 @@ mod tests {
     async fn cancelled_health_check_does_not_strand_inflight_or_stop_live_client() {
         let pool = Arc::new(pool(4, 60_000));
         let client = pool
-            .acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(1))) })
+            .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
             .await
             .expect("install")
             .expect("client");
@@ -1194,7 +1145,7 @@ mod tests {
         let checking = {
             let pool = Arc::clone(&pool);
             tokio::spawn(async move {
-                pool.acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(2))) })
+                pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
                     .await
             })
         };
@@ -1211,7 +1162,7 @@ mod tests {
 
         let reused = tokio::time::timeout(
             Duration::from_secs(1),
-            pool.acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(2))) }),
+            pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) }),
         )
         .await
         .expect("cancelled health check must not block reuse")
@@ -1251,7 +1202,7 @@ mod tests {
         let pool = Arc::new(pool(4, 60_000));
         let old = FakeClient::new(1);
         let installed = pool
-            .acquire("k".into(), 1, || async { Ok(Some(old.clone())) })
+            .acquire("k".into(), || async { Ok(Some(old.clone())) })
             .await
             .expect("install")
             .expect("client");
@@ -1261,7 +1212,7 @@ mod tests {
             let pool = Arc::clone(&pool);
             let starts = Arc::clone(&starts);
             tokio::spawn(async move {
-                pool.acquire("k".into(), 2, || async move {
+                pool.acquire("k".into(), || async move {
                     starts.fetch_add(1, Ordering::SeqCst);
                     Ok(Some(FakeClient::new(2)))
                 })
@@ -1271,7 +1222,7 @@ mod tests {
         let second = {
             let pool = Arc::clone(&pool);
             tokio::spawn(async move {
-                pool.acquire("k".into(), 2, || async { Ok(Some(FakeClient::new(3))) })
+                pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(3))) })
                     .await
             })
         };
@@ -1294,14 +1245,14 @@ mod tests {
     async fn idle_use_renews_expiry_and_stale_timers_do_not_remove_replacements() {
         let pool = pool(4, 100);
         let first = pool
-            .acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(1))) })
+            .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
             .await
             .expect("install")
             .expect("client");
         tokio::task::yield_now().await;
         tokio::time::advance(Duration::from_millis(75)).await;
         let reused = pool
-            .acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(2))) })
+            .acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
             .await
             .expect("reuse")
             .expect("client");
@@ -1335,12 +1286,7 @@ mod tests {
             Busy(Arc::clone(&client.busy))
         };
         let (client, held) = pool
-            .acquire_leased(
-                "k".into(),
-                1,
-                || async { Ok(Some(FakeClient::new(1))) },
-                lease,
-            )
+            .acquire_leased("k".into(), || async { Ok(Some(FakeClient::new(1))) }, lease)
             .await
             .expect("install")
             .expect("client");
@@ -1351,12 +1297,7 @@ mod tests {
         assert_eq!(client.stops.load(Ordering::SeqCst), 0);
         // A reused entry is leased the same way.
         let (again, second) = pool
-            .acquire_leased(
-                "k".into(),
-                1,
-                || async { Ok(Some(FakeClient::new(2))) },
-                lease,
-            )
+            .acquire_leased("k".into(), || async { Ok(Some(FakeClient::new(2))) }, lease)
             .await
             .expect("reuse")
             .expect("client");
@@ -1374,7 +1315,7 @@ mod tests {
     async fn active_request_prevents_idle_shutdown_until_request_finishes() {
         let pool = pool(4, 100);
         let client = pool
-            .acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(1))) })
+            .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
             .await
             .expect("install")
             .expect("client");
@@ -1396,21 +1337,21 @@ mod tests {
     async fn successful_use_drives_lru_eviction() {
         let pool = pool(2, 60_000);
         let one = pool
-            .acquire("1".into(), 1, || async { Ok(Some(FakeClient::new(1))) })
+            .acquire("1".into(), || async { Ok(Some(FakeClient::new(1))) })
             .await
             .expect("one")
             .expect("client");
         let two = pool
-            .acquire("2".into(), 2, || async { Ok(Some(FakeClient::new(2))) })
+            .acquire("2".into(), || async { Ok(Some(FakeClient::new(2))) })
             .await
             .expect("two")
             .expect("client");
         let _ = pool
-            .acquire("1".into(), 1, || async { Ok(Some(FakeClient::new(9))) })
+            .acquire("1".into(), || async { Ok(Some(FakeClient::new(9))) })
             .await
             .expect("touch");
         let _ = pool
-            .acquire("3".into(), 3, || async { Ok(Some(FakeClient::new(3))) })
+            .acquire("3".into(), || async { Ok(Some(FakeClient::new(3))) })
             .await
             .expect("three");
         assert_eq!(one.stops.load(Ordering::SeqCst), 0);
@@ -1426,7 +1367,7 @@ mod tests {
         let task = {
             let pool = Arc::clone(&pool);
             tokio::spawn(async move {
-                pool.acquire("k".into(), 1, || async move {
+                pool.acquire("k".into(), || async move {
                     let _ = receive.await;
                     Ok(Some(late))
                 })
@@ -1445,7 +1386,7 @@ mod tests {
     async fn clear_during_health_invalidates_waiters_and_shutdown_stops_all() {
         let pool = Arc::new(pool(4, 60_000));
         let client = pool
-            .acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(1))) })
+            .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
             .await
             .expect("install")
             .expect("client");
@@ -1454,7 +1395,7 @@ mod tests {
         let task = {
             let pool = Arc::clone(&pool);
             tokio::spawn(async move {
-                pool.acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(2))) })
+                pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
                     .await
             })
         };
@@ -1464,7 +1405,7 @@ mod tests {
         assert!(task.await.expect("task").expect("acquire").is_none());
         assert_eq!(client.stops.load(Ordering::SeqCst), 1);
         let other = pool
-            .acquire("other".into(), 2, || async { Ok(Some(FakeClient::new(3))) })
+            .acquire("other".into(), || async { Ok(Some(FakeClient::new(3))) })
             .await
             .expect("other")
             .expect("client");
@@ -1566,13 +1507,13 @@ mod tests {
     async fn lru_eviction_never_stops_a_busy_client_and_evicts_it_once_idle() {
         let pool = pool(1, 60_000);
         let busy = pool
-            .acquire("busy".into(), 1, || async { Ok(Some(FakeClient::new(1))) })
+            .acquire("busy".into(), || async { Ok(Some(FakeClient::new(1))) })
             .await
             .expect("busy")
             .expect("client");
         busy.busy.store(true, Ordering::SeqCst);
         let fresh = pool
-            .acquire("fresh".into(), 2, || async { Ok(Some(FakeClient::new(2))) })
+            .acquire("fresh".into(), || async { Ok(Some(FakeClient::new(2))) })
             .await
             .expect("fresh")
             .expect("client");
@@ -1585,7 +1526,7 @@ mod tests {
 
         busy.busy.store(false, Ordering::SeqCst);
         let _ = pool
-            .acquire("fresh".into(), 2, || async { Ok(Some(FakeClient::new(3))) })
+            .acquire("fresh".into(), || async { Ok(Some(FakeClient::new(3))) })
             .await
             .expect("touch");
         assert_eq!(
@@ -1601,18 +1542,18 @@ mod tests {
     async fn eviction_skips_busy_oldest_and_takes_next_idle() {
         let pool = pool(2, 60_000);
         let oldest = pool
-            .acquire("1".into(), 1, || async { Ok(Some(FakeClient::new(1))) })
+            .acquire("1".into(), || async { Ok(Some(FakeClient::new(1))) })
             .await
             .expect("one")
             .expect("client");
         oldest.busy.store(true, Ordering::SeqCst);
         let second = pool
-            .acquire("2".into(), 2, || async { Ok(Some(FakeClient::new(2))) })
+            .acquire("2".into(), || async { Ok(Some(FakeClient::new(2))) })
             .await
             .expect("two")
             .expect("client");
         let _ = pool
-            .acquire("3".into(), 3, || async { Ok(Some(FakeClient::new(3))) })
+            .acquire("3".into(), || async { Ok(Some(FakeClient::new(3))) })
             .await
             .expect("three");
         assert_eq!(oldest.stops.load(Ordering::SeqCst), 0);
@@ -1624,14 +1565,14 @@ mod tests {
     async fn one_idle_timer_per_entry_across_many_acquires() {
         let pool = pool(4, 100);
         let client = pool
-            .acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(1))) })
+            .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
             .await
             .expect("install")
             .expect("client");
         for _ in 0..10 {
             tokio::time::advance(Duration::from_millis(20)).await;
             let _ = pool
-                .acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(2))) })
+                .acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
                 .await
                 .expect("reuse");
         }
@@ -1647,14 +1588,14 @@ mod tests {
     async fn cleared_entry_aborts_its_idle_timer_and_replacement_keeps_its_own() {
         let pool = pool(4, 100);
         let first = pool
-            .acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(1))) })
+            .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
             .await
             .expect("install")
             .expect("client");
         assert!(pool.clear("k").await);
         tokio::time::advance(Duration::from_millis(60)).await;
         let second = pool
-            .acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(2))) })
+            .acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
             .await
             .expect("replace")
             .expect("client");
@@ -1722,19 +1663,19 @@ mod tests {
         let failing = |starts: Arc<AtomicUsize>| {
             move || async move {
                 starts.fetch_add(1, Ordering::SeqCst);
-                Err(shared_error(Status::GenericFailure, "spawn failed"))
+                Err(shared_error("spawn failed"))
             }
         };
 
         let first = pool
-            .acquire("k".into(), 1, failing(Arc::clone(&starts)))
+            .acquire("k".into(), failing(Arc::clone(&starts)))
             .await
             .expect_err("first failure");
         assert_eq!(starts.load(Ordering::SeqCst), 1);
 
         // Inside the 250ms window: fail fast with the same error, no start.
         let fast = pool
-            .acquire("k".into(), 1, failing(Arc::clone(&starts)))
+            .acquire("k".into(), failing(Arc::clone(&starts)))
             .await
             .expect_err("backing off");
         assert!(Arc::ptr_eq(&first, &fast));
@@ -1742,7 +1683,7 @@ mod tests {
 
         tokio::time::advance(Duration::from_millis(251)).await;
         let _ = pool
-            .acquire("k".into(), 1, failing(Arc::clone(&starts)))
+            .acquire("k".into(), failing(Arc::clone(&starts)))
             .await
             .expect_err("second failure");
         assert_eq!(starts.load(Ordering::SeqCst), 2);
@@ -1750,14 +1691,14 @@ mod tests {
         // Second failure doubles the window to 500ms.
         tokio::time::advance(Duration::from_millis(300)).await;
         let _ = pool
-            .acquire("k".into(), 1, failing(Arc::clone(&starts)))
+            .acquire("k".into(), failing(Arc::clone(&starts)))
             .await
             .expect_err("still backing off");
         assert_eq!(starts.load(Ordering::SeqCst), 2);
 
         tokio::time::advance(Duration::from_millis(201)).await;
         let client = pool
-            .acquire("k".into(), 1, || async { Ok(Some(FakeClient::new(1))) })
+            .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
             .await
             .expect("recovered")
             .expect("client");
@@ -1766,13 +1707,13 @@ mod tests {
         // Success resets the backoff: the next failure waits only 250ms.
         assert!(pool.clear("k").await);
         let _ = pool
-            .acquire("k".into(), 1, failing(Arc::clone(&starts)))
+            .acquire("k".into(), failing(Arc::clone(&starts)))
             .await
             .expect_err("failure after reset");
         assert_eq!(starts.load(Ordering::SeqCst), 3);
         tokio::time::advance(Duration::from_millis(251)).await;
         let _ = pool
-            .acquire("k".into(), 1, failing(Arc::clone(&starts)))
+            .acquire("k".into(), failing(Arc::clone(&starts)))
             .await
             .expect_err("retried after base window");
         assert_eq!(starts.load(Ordering::SeqCst), 4);
@@ -1791,18 +1732,12 @@ mod tests {
     async fn start_errors_keep_their_status_through_the_pool() {
         let pool = pool(4, 60_000);
         let error = pool
-            .acquire("k".into(), 1, || async {
-                Err(shared_error(Status::InvalidArg, "bad server config"))
+            .acquire("k".into(), || async {
+                Err(shared_error("bad server config"))
             })
             .await
             .expect_err("start failure");
-        assert_eq!(error.status, Status::InvalidArg);
         assert_eq!(error.reason, "bad server config");
-        let owned = unshare_error(error);
-        assert_eq!(owned.status, Status::InvalidArg);
-        let shared = shared_error(Status::InvalidArg, "shared");
-        let _other_holder = Arc::clone(&shared);
-        assert_eq!(unshare_error(shared).status, Status::InvalidArg);
     }
 
     #[cfg(unix)]

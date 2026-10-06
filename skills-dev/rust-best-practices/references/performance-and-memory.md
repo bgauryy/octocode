@@ -1,6 +1,6 @@
 # Performance and memory
 
-Load when a hot path is slow or allocation-heavy, RSS or peak memory is high, a process OOMs, types look bloated, a structure holds millions of items, or you translate C allocation habits, allocate big/zeroed buffers, hand memory across FFI, or reach for `std::alloc`/`MaybeUninit`.
+Load when a hot path is slow or allocation-heavy, RSS or peak memory is high, a process OOMs, types look bloated, a structure holds millions of items, or you translate C allocation habits, allocate big/zeroed buffers, hand memory across FFI, or reach for `std::alloc`/`MaybeUninit`. Why: Rust's defaults hide allocation and layout costs that only a profile reveals.
 
 ## Measure first
 - Never optimize on intuition.

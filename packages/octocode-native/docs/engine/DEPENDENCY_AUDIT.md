@@ -7,18 +7,17 @@ This audit covers every direct dependency declared by the runtime and engine cra
 | Dependency | Owned job | Decision |
 |---|---|---|
 | `aho-corasick` | Literal prescan for secret detection and bounded search classification | Keep |
-| `ast-grep-core` | Structural rewrite matching, metavariables, captures, and replacement generation | Keep, optional under `embedded-ast-grep-rewrite` |
-| `ast-grep-config` | YAML rewrite rules, constraints, transforms, and rewriters | Keep, optional under `embedded-ast-grep-rewrite` |
+| `ast-grep-core` | Structural rewrite matching, metavariables, captures, and replacement generation | Keep |
+| `ast-grep-config` | YAML rewrite rules, constraints, transforms, and rewriters | Keep |
 | `grep-matcher` | Shared matcher traits used by direct ripgrep integrations | Keep |
-| `grep-pcre2` | Explicit opt-in PCRE2 search lane | Keep |
+| `grep-pcre2` | Per-request opt-in PCRE2 search lane (`regex:"pcre2"`) | Keep |
 | `grep-regex` | Default linear-time Rust-regex search lane | Keep |
 | `grep-searcher` | In-process ripgrep traversal/search execution | Keep; its transitive `memmap2` is required |
 | `ignore` | Gitignore-aware filesystem traversal | Keep |
-| `napi`, `napi-derive` | Engine addon ABI and asynchronous Node bindings | Keep, optional under `napi-addon` |
 | `oxc_allocator`, `oxc_ast`, `oxc_codegen`, `oxc_minifier`, `oxc_parser`, `oxc_semantic`, `oxc_span` | Rich JavaScript/TypeScript parsing, symbols, graph facts, references, and minification | Keep; complementary to Tree-sitter |
 | `rayon` | Bounded parallel file scans | Keep |
 | `regex`, `regex-syntax` | Generic matching and pre-validation of Rust-regex patterns | Keep |
-| `serde`, `serde_json` | Typed DTOs and N-API/LSP/graph JSON transport | Keep |
+| `serde`, `serde_json` | Typed DTOs and LSP/graph JSON transport | Keep |
 | `serde_yaml_ng` | YAML ast-grep rule documents | Keep; this is not YAML source parsing |
 | `tokio` | LSP process, I/O, synchronization, timeout, and async filesystem lifecycle | Keep |
 | `tree-sitter` | Canonical parser API and query execution | Keep |
@@ -26,7 +25,6 @@ This audit covers every direct dependency declared by the runtime and engine cra
 | `tree-sitter-cuda` | Optional CUDA grammar | **Excluded from `portable-default`**: its parse tables cost +6.787 MiB (see ablation below) for a niche language. Retained as an optional dep/feature; `.cu`/`.cuh` still route to `clangd` for LSP. Re-enable by adding `tree-sitter-cuda` back to `tree-sitter-large-grammars` |
 | `url` | Validated LSP and file-URI handling | Keep |
 | `which` | Trusted language-server executable discovery | Keep |
-| `napi-build` (build) | N-API build setup when the addon feature is enabled | Keep, optional |
 | `criterion`, `proptest` (development) | Benchmarks and property tests | Keep |
 
 Removed direct dependencies: `ast-grep-language`, `grep`, `lightningcss`, `crossbeam-epoch`, `memmap2`, and the five removed grammar crates. `crossbeam-epoch` remains transitively reachable through Rayon/Crossbeam internals; `memmap2` remains transitively reachable through `grep-searcher`. Neither is a redundant direct dependency.
@@ -41,7 +39,7 @@ Removed direct dependencies: `ast-grep-language`, `grep`, `lightningcss`, `cross
 | `base64`, `sha2`, `hex` | Provider encoding, hashes, snapshots, and integrity receipts | Keep |
 | `reqwest`, `bytes`, `futures-util` | Bounded HTTP providers and streaming responses | Keep |
 | `secrecy`, `keyring-core` | Credential secrecy and platform-store abstraction (`secrecy` supplies zeroization transitively) | Keep |
-| `octocode-engine` | Internal search, syntax, security, graph, minification, and LSP algorithms | Keep with explicit feature set; runtime policy remains separate |
+| `octocode-engine` | Internal search, syntax, security, graph, minification, and LSP algorithms | Keep with default features (`portable-default`); runtime policy remains separate |
 | `tokio`, `tokio-util` | Runtime lifecycle, cancellation, signals, and asynchronous tools | Keep |
 | `libc` (Unix) | Process-group and low-level lifecycle controls | Keep, target-specific |
 | `apple-native-keyring-store` (macOS) | Keychain credential store | Keep, target-specific |
@@ -59,8 +57,8 @@ Runtime credential discovery, configuration, and platform keyrings remain in
 `octocode-cli` owns `clap` for argument parsing, `regress` for the isolated regex
 worker, and `flate2`/`zip` for managed LSP installation. It calls runtime and engine
 libraries directly. `octocode-runtime-napi` owns `napi`, `napi-derive`, and
-`napi-build` for the runtime addon; the runtime library has no N-API dependency.
-The engine's separate feature-gated bindings are unchanged.
+`napi-build` for the runtime addon; neither the runtime library nor the engine
+has an N-API dependency.
 
 ## Footprint interpretation
 

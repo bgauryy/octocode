@@ -1,27 +1,6 @@
 use super::extraction::line_count;
 use super::types::*;
 use crate::security::scan::ContentScan;
-use crate::tools::id::ToolId;
-fn utf16(s: &str) -> usize {
-    s.encode_utf16().count()
-}
-fn records(s: &str) -> Vec<&str> {
-    if s.is_empty() {
-        return vec![];
-    }
-    let mut o = vec![];
-    let mut st = 0;
-    for (i, c) in s.char_indices() {
-        if c == '\n' {
-            o.push(&s[st..=i]);
-            st = i + 1
-        }
-    }
-    if st < s.len() {
-        o.push(&s[st..])
-    }
-    o
-}
 pub struct Page {
     pub text: String,
     pub pagination: Pagination,
@@ -31,15 +10,33 @@ pub struct Page {
     /// not because the view ended here.
     pub out_of_range: bool,
 }
+/// Bytes one line page may hold; a single longer line is read in byte
+/// chunks of this size.
+const LINE_PAGE_BYTES: usize = 16_384;
+
+/// Where a byte page that reaches past the end of an oversized line (one
+/// over [`LINE_PAGE_BYTES`], the only reason a line read pages by bytes)
+/// stops instead: that line's end, and the 0-based line line paging resumes
+/// at. `None` when the line fits a line page, the page ends inside it, or
+/// it is the last line.
+fn oversized_line_end(content: &str, offset: usize, end: usize) -> Option<(usize, usize)> {
+    let line_start = content[..offset].rfind('\n').map_or(0, |at| at + 1);
+    let line_end = content[offset..]
+        .find('\n')
+        .map_or(content.len(), |at| offset + at + 1);
+    (line_end - line_start > LINE_PAGE_BYTES && end >= line_end && line_end < content.len())
+        .then(|| (line_end, content[..line_end].matches('\n').count()))
+}
+
 pub fn page(content: &str, q: &LocalFetchQuery) -> Result<Page, String> {
-    let kind = q.chunk_type.unwrap_or(if q.full_content == Some(true) {
-        ChunkType::Bytes
+    let kind = q.unit.unwrap_or(if q.full_content == Some(true) {
+        WindowUnit::Bytes
     } else {
-        ChunkType::Lines
+        WindowUnit::Lines
     });
     let offset = q.offset().unwrap_or(0);
     match kind {
-        ChunkType::Bytes => {
+        WindowUnit::Bytes => {
             let out_of_range = offset > 0 && offset >= content.len();
             let offset = offset.min(content.len());
             if !content.is_char_boundary(offset) {
@@ -48,14 +45,22 @@ pub fn page(content: &str, q: &LocalFetchQuery) -> Result<Page, String> {
                         .into(),
                 );
             }
-            let chunk_size = q.chunk_size().unwrap_or(if q.full_content == Some(true) {
-                content.len()
-            } else {
-                16384
-            });
+            let chunk_size = q
+                .window_length()
+                .unwrap_or(if q.full_content == Some(true) {
+                    content.len()
+                } else {
+                    LINE_PAGE_BYTES
+                });
             let mut end = (offset + chunk_size).min(content.len());
             while end < content.len() && !content.is_char_boundary(end) {
                 end += 1
+            }
+            let resume = (q.full_content != Some(true))
+                .then(|| oversized_line_end(content, offset, end))
+                .flatten();
+            if let Some((line_end, _)) = resume {
+                end = line_end;
             }
             let text = content[offset..end].to_owned();
             let first = content[..offset].bytes().filter(|b| *b == b'\n').count() + 1;
@@ -63,57 +68,59 @@ pub fn page(content: &str, q: &LocalFetchQuery) -> Result<Page, String> {
             Ok(Page {
                 text,
                 pagination: Pagination {
-                    chunk_type: kind,
+                    unit: kind,
                     offset,
                     length: end - offset,
-                    chunk_size,
+                    window: chunk_size,
                     total_lines: line_count(content),
                     total_bytes: content.len(),
                     has_more: end < content.len(),
                     next_offset: (end < content.len()).then_some(end),
+                    resume_line: resume.map(|(_, line)| line),
                 },
                 view_lines: (first, last),
                 out_of_range,
             })
         }
-        ChunkType::Lines => {
-            let lines = records(content);
+        WindowUnit::Lines => {
+            let lines = content.split_inclusive('\n').collect::<Vec<_>>();
             let out_of_range = offset > 0 && offset >= lines.len();
             let offset = offset.min(lines.len());
             let selected = q.match_string.is_some()
                 || q.has_ranges()
                 || (q.start_line().is_some() && q.end_line().is_some());
-            let requested_limit = q.chunk_size().unwrap_or(if selected {
+            let requested_limit = q.window_length().unwrap_or(if selected {
                 lines.len().clamp(1, 50_000)
             } else {
                 DEFAULT_LINE_CHUNK
             });
             let mut end = (offset + requested_limit).min(lines.len());
             let mut bytes: usize = lines[offset..end].iter().map(|s| s.len()).sum();
-            while bytes > 16384 && end > offset {
+            while bytes > LINE_PAGE_BYTES && end > offset {
                 end -= 1;
                 bytes -= lines[end].len()
             }
             if end == offset && offset < lines.len() {
                 let byte_offset: usize = lines[..offset].iter().map(|line| line.len()).sum();
                 let mut byte_query = q.clone();
-                byte_query.chunk_type = Some(ChunkType::Bytes);
+                byte_query.unit = Some(WindowUnit::Bytes);
                 byte_query.offset = Some(wire_count(byte_offset));
-                byte_query.chunk_size = wire_positive(16384);
+                byte_query.length = wire_positive(LINE_PAGE_BYTES);
                 return page(content, &byte_query);
             }
             let text = lines[offset..end].concat();
             Ok(Page {
                 text,
                 pagination: Pagination {
-                    chunk_type: kind,
+                    unit: kind,
                     offset,
                     length: end - offset,
-                    chunk_size: q.chunk_size().unwrap_or(end.saturating_sub(offset)),
+                    window: q.window_length().unwrap_or(end.saturating_sub(offset)),
                     total_lines: lines.len(),
                     total_bytes: content.len(),
                     has_more: end < lines.len(),
                     next_offset: (end < lines.len()).then_some(end),
+                    resume_line: None,
                 },
                 view_lines: (offset + 1, end),
                 out_of_range,
@@ -141,7 +148,7 @@ pub fn sanitize_line_page(
     source_path: &std::path::Path,
     security: &impl ContentScan,
 ) -> Result<Option<(Page, bool)>, (String, String)> {
-    let lines = records(view);
+    let lines = view.split_inclusive('\n').collect::<Vec<_>>();
     let (first, last) = (raw.view_lines.0.saturating_sub(1), raw.view_lines.1);
     if raw.out_of_range || first >= last || last > lines.len() {
         return Ok(Some((raw, false)));
@@ -163,7 +170,7 @@ pub fn sanitize_line_page(
     if clean == window {
         return Ok(Some((raw, false)));
     }
-    let clean_lines = records(&clean);
+    let clean_lines = clean.split_inclusive('\n').collect::<Vec<_>>();
     if clean_lines.len() != end - start {
         return Ok(None);
     }
@@ -283,8 +290,8 @@ fn map_clean_window(
     clean: &str,
     raw: &Page,
 ) -> Option<Page> {
-    let raw_lines = records(window);
-    let clean_lines = records(clean);
+    let raw_lines = window.split_inclusive('\n').collect::<Vec<_>>();
+    let clean_lines = clean.split_inclusive('\n').collect::<Vec<_>>();
     if raw_lines.len() != clean_lines.len() {
         return None;
     }
@@ -332,14 +339,19 @@ fn map_clean_window(
 pub fn continuation(q: &LocalFetchQuery, p: &Pagination) -> Option<NextCalls> {
     p.next_offset.map(|offset| {
         let mut query = q.clone();
-        query.offset = Some(wire_count(offset));
-        query.chunk_type = Some(p.chunk_type);
-        query.chunk_size = wire_positive(p.chunk_size);
+        if let Some(line) = p.resume_line {
+            // Past the oversized line, paging is by lines again.
+            query.offset = Some(wire_count(line));
+            query.unit = Some(WindowUnit::Lines);
+            query.length = None;
+        } else {
+            query.offset = Some(wire_count(offset));
+            query.unit = Some(p.unit);
+            query.length = wire_positive(p.window);
+        }
         NextCalls {
             r#continue: Some(Continuation {
-                tool: ToolId::LocalFetch.as_str().into(),
                 query,
-                confidence: "exact".into(),
                 reason: None,
             }),
             read_bounded_lines: None,
@@ -349,7 +361,7 @@ pub fn continuation(q: &LocalFetchQuery, p: &Pagination) -> Option<NextCalls> {
     })
 }
 pub fn result_counts(s: &str) -> (usize, usize, usize) {
-    (utf16(s), s.len(), line_count(s))
+    (s.encode_utf16().count(), s.len(), line_count(s))
 }
 
 #[cfg(test)]

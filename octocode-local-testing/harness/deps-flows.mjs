@@ -3,12 +3,13 @@
 // candidates are verified against package declarations and lexical class uses.
 // Bounded syntactic graph coverage is measured against LSP, not called complete.
 import path from 'node:path';
-import { REPOS, ROOT, astMatchRows, checks, collect, declarations, nextHints, rowData, sourcePath, sourceView, startServer, structureFiles, writeResults } from './mcp-client.mjs';
+import { REPOS, ROOT, astMatchRows, checks, cliClient, cliEntry, collect, declarations, findHint, rowData, sourcePath, sourceView, startServer, structureFiles, walk, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('deps-flows');
 const client = await startServer({ env: { OCTOCODE_BETA: '1' } });
 const { call, raw } = client;
-check('astTopology is exposed with OCTOCODE_BETA=1', client.tools.some(t => t.name === 'astTopology'));
+// astTopology is CLI-only: never on MCP, even with OCTOCODE_BETA=1.
+check('astTopology is not listed on MCP with OCTOCODE_BETA=1', !client.tools.some(t => t.name === 'astTopology'));
 
 const PROJECTS = [
   { lang: 'TypeScript/TSX', root: 'tsx', scope: 'packages/excalidraw', ext: ['ts', 'tsx'], importKind: 'import_statement', lsp: true },
@@ -30,22 +31,9 @@ function tokens(file, lang) {
   return [stem];
 }
 const results = entry => rowData(entry)?.results ?? [];
-async function walkPages(first, key, max = 20) {
-  const pages = [first];
-  let current = first;
-  while (pages.length < max) {
-    const h = nextHints(current.sc).find(x => x.path.endsWith(`.${key}`));
-    if (!h) break;
-    current = await raw(h.tool, h.query);
-    if (current.isError) break;
-    pages.push(current);
-  }
-  return pages;
-}
-
 /** The import statement starting at `line` (multi-line `import {…} from "x"` included). */
 async function lineAt(root, file, line) {
-  const f = await call('localFetch', { path: path.join(root, file), startLine: line, endLine: line + 200 });
+  const f = await call('localFetch', { path: path.join(root, file), ranges: [`${line}-${line + 200}`] });
   const text = sourceView(rowData(f)).text;
   const lines = text.split('\n');
   // The statement ends at its module string: `from 'x'` / `"x"` / `<x>` / `;` / `)`.
@@ -60,8 +48,8 @@ async function proveEdges(root, lang, edges, limit = 20) {
   for (const edge of edges.slice(0, limit)) {
     if (lang === 'Java' && edge.edgeKinds?.includes('java-same-package') && edge.importLine === undefined) {
       const from = await call('localFetch', { path: path.join(root, edge.from), matchString: tokens(edge.to, lang)[0], contextLines: 2 });
-      const fromHead = await call('localFetch', { path: path.join(root, edge.from), startLine: 1, endLine: 80 });
-      const to = await call('localFetch', { path: path.join(root, edge.to), startLine: 1, endLine: 80 });
+      const fromHead = await call('localFetch', { path: path.join(root, edge.from), ranges: ['1-80'] });
+      const to = await call('localFetch', { path: path.join(root, edge.to), ranges: ['1-80'] });
       const a = sourceView(rowData(from)).text, b = sourceView(rowData(to)).text;
       const packageOf = s => s.match(/^\s*package\s+([\w.]+)\s*;/m)?.[1];
       const name = tokens(edge.to, lang)[0];
@@ -72,15 +60,17 @@ async function proveEdges(root, lang, edges, limit = 20) {
     }
     if (!Number.isInteger(edge.importLine)) { failures.push(`missing importLine/kind ${edge.from} ↛ ${edge.to}`); continue; }
     const text = await lineAt(root, edge.from, edge.importLine);
-    if (tokens(edge.to, lang).some(t => text.includes(t))) proven += 1;
+    // A Rust qualified path may name a module declared inline in its target file.
+    const rustPath = edge.edgeKinds?.includes('rust-path') && /\b(crate|super|self)::\w/.test(text);
+    if (rustPath || tokens(edge.to, lang).some(t => text.includes(t))) proven += 1;
     else failures.push(`${edge.from}:${edge.importLine} ↛ ${edge.to} «${text.trim().slice(0, 60)}»`);
   }
   return { proven, sampled: Math.min(limit, edges.length), failures };
 }
 
 let projectTopo = {};
-async function topo(root, analysis, extra) {
-  return call('astTopology', { analysis, path: root, excludeDir: EXCLUDE, ...projectTopo, ...extra });
+async function topo(root, operation, extra) {
+  return cliEntry('astTopology', { queries: [{ operation, path: root, exclude: EXCLUDE, ...projectTopo, ...extra }] });
 }
 
 const report = [];
@@ -88,28 +78,29 @@ for (const p of PROJECTS) {
   const root = path.join(REPOS, p.root);
   projectTopo = p.topo ?? {};
   const row = { lang: p.lang };
-  const listing = await call('structureSearch', { operation: 'files', path: path.join(root, p.scope), extensions: p.ext, detail: 'full', sort: 'lines', limit: 30 });
-  const candidates = structureFiles(rowData(listing)?.files).filter(o => typeof o.path === 'string' && typeof o.lineCount === 'number')
-    // Paths are relative to the response `base` (the workspace for structureSearch).
-    .map(o => path.relative(root, path.resolve(listing.sc?.base ?? ROOT, o.path)))
+  const listing = await call('structureSearch', { operation: 'files', path: path.join(root, p.scope), extensions: p.ext, detail: 'full', sort: 'lines', maxEntries: 30 });
+  const candidates = structureFiles(rowData(listing)?.files, rowData(listing)?.path).filter(o => typeof o.path === 'string' && typeof o.lineCount === 'number')
+    // Paths are relative to the response `root` (the workspace for structureSearch).
+    .map(o => path.relative(root, path.resolve(listing.sc?.root ?? ROOT, o.path)))
     .filter(f => !/(^|[/_.])(tests?|spec|bench)([/_.]|$)/i.test(f));
   let hub, dependents;
   for (const candidate of candidates.slice(0, 10)) {
-    const d = await topo(root, 'dependents', { file: candidate, depth: 1 });
+    const d = await topo(root, 'dependents', { source: candidate, depth: 1 });
     if (results(d).length >= 2) { hub = candidate; dependents = d; break; }
   }
   check(`${p.lang}: hub with ≥2 dependents`, !!hub, `candidates=${candidates.length}`);
   if (!hub) { report.push(row); continue; }
   row.hub = hub;
   // A diagnostics continuation must deliver the diagnostic entries it pages.
-  const diagHint = rowData(dependents)?.next?.nextDiagnostics;
+  // Withheld diagnostic rows are an opt-in lead, not a remaining page.
+  const diagHint = findHint(dependents.sc, 'readDiagnostics');
   if (diagHint) {
-    const diagPage = await raw(diagHint.tool, diagHint.query);
+    const diagPage = await cliClient.follow(diagHint);
     // Identical code+message rows are grouped: `files` lists each `path[:line]`.
     const entries = collect(rowData(diagPage)?.coverage, o => (typeof o.file === 'string' || Array.isArray(o.files)) && typeof o.code === 'string');
-    check(`${p.lang}: next.nextDiagnostics returns diagnostic entries`, !diagPage.isError && entries.length > 0, `entries=${entries.length} pagination=${JSON.stringify(rowData(diagPage)?.coverage?.diagnosticsPagination ?? {})}`);
+    check(`${p.lang}: hints.readDiagnostics returns diagnostic entries`, !diagPage.isError && entries.length > 0, `entries=${entries.length} pagination=${JSON.stringify(rowData(diagPage)?.coverage?.diagnosticPagination ?? {})}`);
   }
-  const dependencies = await topo(root, 'dependencies', { file: hub, depth: 1 });
+  const dependencies = await topo(root, 'dependencies', { source: hub, depth: 1 });
   const depRows = results(dependencies);
   const dependentRows = results(dependents);
   row.deps = depRows.length;
@@ -126,7 +117,7 @@ for (const p of PROJECTS) {
 
   // Syntax view: every importLine the graph reports is an import statement astSearch sees.
   const lang = p.lang === 'TypeScript/TSX' ? (hub.endsWith('.tsx') ? 'TSX' : 'TypeScript') : p.lang;
-  const imports = await call('astSearch', { operation: 'match', path: path.join(root, hub), langType: lang, rule: Array.isArray(p.importKind) ? `rule:\n  any:\n${p.importKind.map(k => `    - kind: ${k}\n`).join('')}` : `rule:\n  kind: ${p.importKind}\n`, maxMatchesPerFile: 200 });
+  const imports = await call('astSearch', { operation: 'match', path: path.join(root, hub), language: lang, rule: Array.isArray(p.importKind) ? `rule:\n  any:\n${p.importKind.map(k => `    - kind: ${k}\n`).join('')}` : `rule:\n  kind: ${p.importKind}\n`, matchPageSize: 200 });
   const importLines = new Set(astMatchRows(imports).filter(o => typeof o.value === 'string' && typeof o.line === 'number').flatMap(o => {
     const end = o.endLine ?? o.line; const out = []; for (let l = o.line; l <= end; l++) out.push(l); return out;
   }));
@@ -136,13 +127,13 @@ for (const p of PROJECTS) {
   check(`${p.lang}: explicit graph importLines are import syntax (astSearch ${p.importKind})`, !imports.isError && syntaxCovered === explicitRows.length, row.importSyntax);
 
   // Transitive closure, path, cycles.
-  const deep = await topo(root, 'dependencies', { file: hub, depth: 3 });
+  const deep = await topo(root, 'dependencies', { source: hub, depth: 3 });
   const deepFiles = new Set(results(deep).map(r => r.file));
   row.transitive = deepFiles.size;
   check(`${p.lang}: depth 3 ⊇ depth 1`, depRows.every(r => deepFiles.has(r.file)), `d1=${depRows.length} d3=${deepFiles.size}`);
   const far = results(deep).find(r => (r.distance ?? 0) >= 2 || !depRows.some(d => d.file === r.file));
   if (far) {
-    const route = await topo(root, 'path', { file: hub, target: far.file });
+    const route = await topo(root, 'path', { source: hub, target: far.file });
     const found = results(route)[0];
     const edges = found?.edges ?? [];
     const proof = await proveEdges(root, p.lang, edges, 10);
@@ -150,7 +141,7 @@ for (const p of PROJECTS) {
     check(`${p.lang}: path hub → ${far.file} found and every hop proven`, found?.found && edges.length >= 2 && proof.proven === proof.sampled, proof.failures.slice(0, 2).join(' | ') || row.path);
   }
   const cycles = await topo(root, 'cycles', { path: path.join(root, p.scope), pageSize: 20 });
-  row.cycles = rowData(cycles)?.pagination?.totalEntries ?? results(cycles).length;
+  row.cycles = rowData(cycles)?.pagination?.totalItems ?? results(cycles).length;
   check(`${p.lang}: cycles answers`, !cycles.isError, `${cycles.ms}ms total=${row.cycles}`);
 
   // Identity view: files whose code references an exported hub symbol must depend on the hub (transitively).
@@ -158,15 +149,16 @@ for (const p of PROJECTS) {
     const symbols = await call('astSearch', { operation: 'symbols', path: path.join(root, hub) });
     const exported = declarations(symbols).filter(o => typeof o.name === 'string' && typeof o.line === 'number' && o.exported && ['function', 'class', 'constant', 'struct'].includes(o.kind));
     for (const symbol of exported.slice(0, 2)) {
-      const refs = await call('lspSearch', { uri: path.join(root, hub), symbolName: symbol.name, lineHint: symbol.line, operation: 'references', pageSize: 25, groupByFile: true });
-      const refPages = await walkPages(refs, 'nextPage', 40);
-      const refFiles = [...new Set(refPages.flatMap(pg => collect(rowData(pg)?.payload, o => typeof o.path === 'string' || typeof o.uri === 'string').map(o => sourcePath(pg, o, path.join(root, hub)))))];
-      const allDependents = await topo(root, 'dependents', { file: hub, depth: 6, pageSize: 25 });
-      const depPages = await walkPages(allDependents, 'nextPage', 80);
+      const refs = await call('lspSearch', { path: path.join(root, hub), symbolName: symbol.name, lineHint: symbol.line, operation: 'references', pageSize: 25, groupByFile: true });
+      const refPages = await walk(client, refs, 'nextPage', 40, { rowErrors: false });
+      const refFiles = [...new Set(refPages.flatMap(pg => collect(rowData(pg)?.payload, o => typeof o.path === 'string').map(o => sourcePath(pg, o, path.join(root, hub)))))];
+      const allDependents = await topo(root, 'dependents', { source: hub, depth: 6, pageSize: 25 });
+      const depPages = await walk(cliClient, allDependents, 'nextPage', 80, { rowErrors: false });
       const allowed = new Set(depPages.flatMap(pg => results(pg).map(r => r.file)));
       // Files whose imports the graph declares it cannot link (macro-generated
       // Rust paths) are disclosed gaps, not wrong edges.
-      const diagPages = await walkPages(allDependents, 'nextDiagnostics', 60);
+      const diagLead = findHint(allDependents.sc, 'readDiagnostics');
+      const diagPages = diagLead ? await walk(cliClient, await cliClient.follow(diagLead), 'nextDiagnosticPage', 60, { rowErrors: false }) : [];
       const diagnosed = new Set(diagPages.flatMap(pg => collect(rowData(pg)?.coverage, o => (typeof o.file === 'string' || Array.isArray(o.files)) && /macro|unsupported/.test(o.message ?? '')).flatMap(o => o.files ? o.files.map(f => f.replace(/:\d+$/, '')) : [o.file])));
       const inRoot = refFiles.map(f => path.relative(root, f));
       const outside = inRoot.filter(f => !allowed.has(f) && !diagnosed.has(f) && f !== hub && !f.endsWith(path.basename(hub)));

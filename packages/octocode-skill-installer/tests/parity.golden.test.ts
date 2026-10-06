@@ -5,9 +5,7 @@
  * Each scenario is fully self-describing: the fixture records the setup
  * (pre-existing trees), the install options for each run, the returned
  * result object, and the resulting filesystem tree — all with the temp root
- * normalized to "<ROOT>". The native (Rust) implementation replays the SAME
- * fixtures (see crates/runtime/src/skill_install/ in octocode-native); that
- * parity gate is what allows the TS implementation to be deleted (S7).
+ * normalized to "<ROOT>".
  *
  * Fixture format (paths normalized: temp root → "<ROOT>", "/" separators):
  *   {

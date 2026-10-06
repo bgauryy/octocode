@@ -16,12 +16,16 @@ import {
   getSkillEnvStatus,
   getSkillsEnvStatus,
   missingHint,
-  isGroupSatisfied,
+  envParamRows,
 } from '../env-params.js';
-import { parsePlatforms, type Platform } from '../platforms.js';
+import {
+  parseSkillPlatforms,
+  type SkillPlatform,
+} from '@octocodeai/octocode-skill-installer';
 import { getSkillsHome } from '../home.js';
 import { installSkill } from '../installer.js';
 import { runRemove } from './remove.js';
+import { reportFailure } from './fail.js';
 import { bold, c, dim } from '../../../../utils/colors.js';
 
 export interface CheckOptions {
@@ -35,16 +39,10 @@ export interface CheckOptions {
   jsonErrors?: boolean;
 }
 
-function fail(message: string, json: boolean, jsonErrors = false): void {
-  if (jsonErrors)
-    console.log(
-      JSON.stringify({ kind: 'octocode.toolError', version: 1, error: message })
-    );
-  else if (json)
-    console.log(JSON.stringify({ success: false, error: message }));
-  else console.error(`  ${c('red', '✗')} ${message}`);
-  process.exitCode = 1;
-}
+const fail = (message: string, json: boolean, jsonErrors = false): void =>
+  reportFailure(message, json, jsonErrors, {
+    human: `  ${c('red', '✗')} ${message}`,
+  });
 
 const needsRepair = (location: CheckedLocation): boolean =>
   location.status === 'broken' || location.content === 'stale';
@@ -63,7 +61,7 @@ function fixSkill(
   if (!skill) return;
   const platforms = result.platforms
     .filter(needsRepair)
-    .map(location => location.label as Platform);
+    .map(location => location.label as SkillPlatform);
   const repairWorkspace = workspace && needsRepair(result.workspace);
   if (dryRun) {
     const where = [
@@ -102,9 +100,9 @@ export function runCheck(opts: CheckOptions): void {
       opts.jsonErrors
     );
 
-  let platforms: Platform[] = SCAN_PLATFORMS;
+  let platforms: SkillPlatform[] = SCAN_PLATFORMS;
   if (opts.platform) {
-    const parsed = parsePlatforms(opts.platform);
+    const parsed = parseSkillPlatforms(opts.platform);
     if (parsed.error) return fail(parsed.error, opts.json, opts.jsonErrors);
     platforms = parsed.platforms;
   }
@@ -185,19 +183,7 @@ export function runCheck(opts: CheckOptions): void {
       },
       env: {
         readiness: env.readiness,
-        params: env.params.map(param => ({
-          key: param.param.key,
-          status: param.status,
-          required: param.param.required,
-          description: param.param.description,
-          ...(param.param.group
-            ? {
-                group: param.param.group,
-                groupSatisfied: isGroupSatisfied(param, env.params),
-              }
-            : {}),
-          ...(param.param.link ? { link: param.param.link } : {}),
-        })),
+        params: envParamRows(env),
         hint: missingHint(env),
       },
     };

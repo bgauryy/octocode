@@ -131,7 +131,21 @@ pub(super) async fn resolve_definition_chain(
             }
             let (hop_line, hop_character) =
                 (snippet.range.start.line, snippet.range.start.character);
-            let mut nested = match definition(target.clone(), hop_line, hop_character).await {
+            let mut nested = definition(target.clone(), hop_line, hop_character).await;
+            if let Ok(found) = &nested {
+                let has_distinct_target = found
+                    .iter()
+                    .any(|candidate| snippet_identity(candidate) != identity);
+                if should_retry_definition_hop(depth, path, &target, has_distinct_target) {
+                    cancellable(
+                        cancel,
+                        tokio::time::sleep(Duration::from_millis(DEFINITION_ALIAS_SETTLE_MS)),
+                    )
+                    .await?;
+                    nested = definition(target, hop_line, hop_character).await;
+                }
+            }
+            let nested = match nested {
                 Ok(nested) => nested,
                 Err(failure) if failure.code == "lsp.cancelled" => return Err(failure),
                 Err(failure) => {
@@ -140,25 +154,6 @@ pub(super) async fn resolve_definition_chain(
                     continue;
                 }
             };
-            let has_distinct_target = nested
-                .iter()
-                .any(|candidate| snippet_identity(candidate) != identity);
-            if should_retry_definition_hop(depth, path, &target, has_distinct_target) {
-                cancellable(
-                    cancel,
-                    tokio::time::sleep(Duration::from_millis(DEFINITION_ALIAS_SETTLE_MS)),
-                )
-                .await?;
-                nested = match definition(target, hop_line, hop_character).await {
-                    Ok(nested) => nested,
-                    Err(failure) if failure.code == "lsp.cancelled" => return Err(failure),
-                    Err(failure) => {
-                        warnings.push(hop_failure_warning(&snippet, depth, &failure));
-                        next.push(snippet);
-                        continue;
-                    }
-                };
-            }
             let nested = nested
                 .into_iter()
                 .filter(|candidate| snippet_identity(candidate) != identity)
@@ -332,7 +327,7 @@ pub(super) fn disclose_alias_cap(
     if let Some(coverage) = row.pointer_mut("/payload/coverage") {
         coverage["aliasScan"] = serde_json::json!("capped");
     }
-    super::inferred_project::flag_partial(
+    super::failure::flag_partial(
         row,
         query,
         ALIAS_SCAN_CAPPED_REASON,
@@ -343,9 +338,42 @@ pub(super) fn disclose_alias_cap(
     );
 }
 
+/// Whether `source` spells a rename of `symbol`: the word followed by `as`
+/// (`import { f as g }`, `use a::f as g`) or by one `:` (`const { f: g }`).
+/// Files without one cannot hold an aliasing import, so they are not parsed.
+pub(super) fn may_rename(source: &str, symbol: &str) -> bool {
+    if symbol.is_empty() {
+        return false;
+    }
+    let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    let mut from = 0;
+    while let Some(offset) = source[from..].find(symbol) {
+        let start = from + offset;
+        let end = start + symbol.len();
+        from = end;
+        if source[..start].chars().next_back().is_some_and(is_word)
+            || source[end..].chars().next().is_some_and(is_word)
+        {
+            continue;
+        }
+        let rest = source[end..].trim_start();
+        let renamed = rest
+            .strip_prefix("as")
+            .is_some_and(|after| after.starts_with(char::is_whitespace))
+            || (rest.starts_with(':') && !rest.starts_with("::"));
+        if renamed {
+            return true;
+        }
+    }
+    false
+}
+
 /// Zero-based positions of the local names of imports in `source` that
 /// rename `symbol` (`imported == symbol`, `local != imported`).
 fn aliasing_imports(source: &str, file: &str, symbol: &str) -> Vec<(u32, u32)> {
+    if !may_rename(source, symbol) {
+        return Vec::new();
+    }
     let Some(facts) = octocode_engine::portable::extract_graph_facts(source, file) else {
         return Vec::new();
     };

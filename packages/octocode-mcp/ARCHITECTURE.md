@@ -22,16 +22,18 @@ missing or invalid, startup fails closed.
 
 ## Tool registration
 
-The canonical/native catalog contains sixteen tools. MCP can register fourteen
+The canonical/native catalog contains sixteen tools. MCP can register thirteen
 read tools when all availability gates pass; it registers only the available
-subset: `astTopology` is a beta feature requiring `OCTOCODE_BETA=true` (or
-`local.beta:true`), filtered from discovery while the gate is off.
-`ghCloneRepo` and `astRewrite` mutate the machine and are CLI-only: the native
-catalog marks them `unavailableReason: "cliOnly"` on MCP and rejects direct
-calls, and
+subset. `ghCloneRepo`, `astTopology` and `astRewrite` are CLI-only (core policy
+`cliOnly`; `OCTOCODE_BETA` gates the last two on the CLI): the native catalog
+marks them `unavailableReason: "cliOnly"` on MCP and rejects direct calls, and
 `clasify` requires a nonblank `OCTOCODE_CLASSIFICATION_API`.
 
-`createNativeMcp()` constructs one `NativeRuntime` and calls `catalog()`. The
+`createNativeMcp()` constructs one `NativeRuntime`, awaits
+`probeClassification()`, then calls `catalog()`. When clasify is available,
+the probe sends one minimal judgment (5 s cap, one retry); any failure except a
+rate limit makes native drop clasify from the catalog (`unavailableReason:
+"providerUnreachable"`) and the adapter logs the reason to stderr. The
 adapter omits tools with `available: false`; this keeps both default-off tools
 out of MCP discovery rather than advertising unusable contracts. For every
 available tool, it:

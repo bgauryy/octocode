@@ -8,7 +8,7 @@ Load when evaluating what a tool returns through CLI and MCP, or whether an agen
 - Windows glued together need a gap marker; clipped lines or context need a flag.
 
 ## Redundancy — nothing said twice
-- Values repeated per row that could hoist to `shared`/`base` (CLI compact already hoists; check MCP structured output too).
+- Values repeated per row that could hoist to `shared`/`root` (CLI compact already hoists; check MCP structured output too).
 - Echoed input fields, debug-only fields in default output, and text and structured content that carry divergent data.
 - Evidence repeated across `meta.evidence`, diagnostics, and hints. Measure chars per useful fact before and after with a fixed query.
 

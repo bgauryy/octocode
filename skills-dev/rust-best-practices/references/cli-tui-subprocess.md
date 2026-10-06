@@ -1,6 +1,6 @@
 # CLI, TUI, and subprocesses
 
-Load for a Rust command-line tool (args, output, exit codes, config, errors, progress, signals, tests), an interactive terminal UI, or code that spawns child processes (language servers, compilers, CLIs) and reads their output. CLI canon: the Command Line Book (`references/sources-and-crates.md`) and clig.dev. TUI stack: `ratatui` (0.30 verified) + `crossterm`; use `tui-realm`/`cursive` only for a retained widget framework.
+Load for a Rust command-line tool (args, output, exit codes, config, errors, progress, signals, tests), an interactive terminal UI, or code that spawns child processes (language servers, compilers, CLIs) and reads their output. Why: CLIs fail at the edges (exit codes, broken pipes, signals, orphaned children), not on the happy path. CLI canon: the Command Line Book (`references/sources-and-crates.md`) and clig.dev. TUI stack: `ratatui` (0.30 verified) + `crossterm`; use `tui-realm`/`cursive` only for a retained widget framework.
 
 ## CLI: Shape
 - `fn main() -> ExitCode` (or `Result<(), E>` for simple tools); `octocode-native/crates/cli/src/main.rs` returns `std::process::ExitCode`. Avoid deep `std::process::exit`: it skips destructors (unflushed buffers, temp-file cleanup).

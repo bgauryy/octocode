@@ -7,8 +7,10 @@ import { runInstall, type InstallOptions } from './skills/commands/install.js';
 import { runRemove } from './skills/commands/remove.js';
 import { runInfo } from './skills/commands/info.js';
 import { runCheck } from './skills/commands/check.js';
-import type { InstallMode } from './skills/installer.js';
-import { formatSkillPlatformHelp } from '@octocodeai/octocode-skill-installer';
+import {
+  formatSkillPlatformHelp,
+  type SkillInstallMode,
+} from '@octocodeai/octocode-skill-installer';
 
 const SUBCOMMANDS = new Set([
   'list',
@@ -155,7 +157,7 @@ function platformOption(args: ParsedArgs): string | null {
   return getString(args.options, 'platform');
 }
 
-function installMode(args: ParsedArgs): InstallMode {
+function installMode(args: ParsedArgs): SkillInstallMode {
   const rawMode = getString(args.options, 'mode');
   return rawMode === 'copy' || rawMode === 'auto' ? rawMode : 'symlink';
 }

@@ -24,7 +24,7 @@ pub(super) fn validate_topology_queries(input: &Value) -> Result<(), ContractVal
             .get("path")
             .and_then(Value::as_str)
             .is_some_and(|s| !s.is_empty())
-            || absolute(query.get("file"))
+            || absolute(query.get("source"))
             || absolute(query.get("target"))
             || query
                 .get("entrypoints")

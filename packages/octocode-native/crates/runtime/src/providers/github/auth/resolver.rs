@@ -5,7 +5,16 @@ use super::{
     normalize_host,
 };
 use crate::config::ConfigOutput;
-use std::{future::Future, sync::Arc, time::Instant};
+use std::{
+    collections::HashMap,
+    future::Future,
+    sync::{Arc, Mutex, Once},
+    time::{Duration, Instant},
+};
+
+/// How long "no credential" is remembered, so a login made in another
+/// process is picked up without a restart.
+const ANONYMOUS_MEMO: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum AuthMode {
@@ -13,6 +22,7 @@ pub enum AuthMode {
     Request,
 }
 
+#[derive(Clone)]
 pub struct AuthSelection {
     pub credential: ResolvedCredential,
     pub username: Option<String>,
@@ -32,12 +42,52 @@ impl AuthSelection {
     }
 }
 
+/// A request credential remembered for one host.
+struct Remembered {
+    selection: Option<AuthSelection>,
+    at: Instant,
+}
+
 pub struct Authentication {
     config: Arc<ConfigOutput>,
+    /// Request credentials resolve once per host per process: a `gh` spawn or
+    /// a store read per query row is pure overhead.
+    memo: Mutex<HashMap<String, Remembered>>,
 }
 impl Authentication {
     pub fn new(config: Arc<ConfigOutput>) -> Self {
-        Self { config }
+        Self {
+            config,
+            memo: Mutex::default(),
+        }
+    }
+    /// Drop the remembered credential for `host` (GitHub rejected it).
+    pub fn forget(&self, host: &str) {
+        self.memo
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&normalize_host(host));
+    }
+    fn remembered(&self, host: &str) -> Option<Option<AuthSelection>> {
+        let memo = self
+            .memo
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let entry = memo.get(host)?;
+        (entry.selection.is_some() || entry.at.elapsed() < ANONYMOUS_MEMO)
+            .then(|| entry.selection.clone())
+    }
+    fn remember(&self, host: &str, selection: &Option<AuthSelection>) {
+        self.memo
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(
+                host.to_owned(),
+                Remembered {
+                    selection: selection.clone(),
+                    at: Instant::now(),
+                },
+            );
     }
     pub async fn resolve(
         &self,
@@ -82,6 +132,25 @@ impl Authentication {
                 username: None,
             }));
         }
+        if mode == AuthMode::Request
+            && let Some(selection) = self.remembered(&host)
+        {
+            return Ok(selection);
+        }
+        let selection = self.resolve_stored(&host, mode, budget, backend).await?;
+        if mode == AuthMode::Request {
+            self.remember(&host, &selection);
+        }
+        Ok(selection)
+    }
+    async fn resolve_stored(
+        &self,
+        host: &str,
+        mode: AuthMode,
+        budget: &RequestContext,
+        backend: &impl AuthBackend,
+    ) -> Result<Option<AuthSelection>, ProviderError> {
+        let host = host.to_owned();
         // Keychain calls are blocking OS operations. Await their worker to completion,
         // then check the budget before starting any further I/O.
         let stored = backend.load(&host).await;
@@ -127,10 +196,28 @@ impl Authentication {
             }));
         }
         match storage_error {
+            // No token and no usable store (headless, CI, sandboxed home):
+            // requests run anonymously instead of failing.
+            Some(error)
+                if mode == AuthMode::Request
+                    && error.kind == ProviderErrorKind::CredentialStoreUnavailable =>
+            {
+                warn_anonymous(&host);
+                Ok(None)
+            }
             Some(error) => Err(error),
             None => Ok(None),
         }
     }
+}
+/// Once per process on stderr (stdout carries results and JSON-RPC).
+fn warn_anonymous(host: &str) {
+    static WARNED: Once = Once::new();
+    WARNED.call_once(|| {
+        eprintln!(
+            "[octocode] warning: no GitHub credential for {host} and the secure credential store is unavailable; GitHub tools run unauthenticated (60 requests/hour). Set GITHUB_TOKEN or run octocode auth login for a higher limit."
+        );
+    });
 }
 fn from_stored(stored: StoredCredentials, source: CredentialSource) -> AuthSelection {
     AuthSelection {

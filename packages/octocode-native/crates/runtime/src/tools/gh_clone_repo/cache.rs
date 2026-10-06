@@ -1,7 +1,7 @@
 use super::{CloneContext, CloneError, check_control, hash};
 use crate::cache::evictions::log_eviction;
-use crate::cache::write_private;
 use crate::civil_date::{civil_from_days, days_from_civil};
+use crate::private_file::write_atomic;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Write};
@@ -29,6 +29,10 @@ pub(super) struct CacheMeta {
     pub source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<u64>,
+    /// Checked-out bytes outside `.git` at publication: a clean checkout's
+    /// size cannot change, so a hit reads it instead of walking the tree.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkout_bytes: Option<u64>,
     /// Whether the checkout was integrity-verified when it was created. Persisted
     /// so a cache hit reports the state it was created with instead of a bare
     /// `false`. Defaults to `false` for caches written before this field existed.
@@ -67,6 +71,7 @@ impl CacheMeta {
             sparse_path: identity.sparse_key.map(str::to_owned),
             source: "clone".into(),
             size_bytes: None,
+            checkout_bytes: None,
             // new() is only called on the fresh-clone path, which verifies the
             // checkout before reporting success.
             verified: true,
@@ -105,11 +110,17 @@ struct DefaultBranchAlias {
 
 fn alias_path(home: &Path, owner: &str, repo: &str, endpoint: &str) -> PathBuf {
     // A file beside the branch directories: eviction walks directories only.
+    repo_dir(home, owner, repo).join(format!(".default-branch__host_{}.json", hash(endpoint, 16)))
+}
+
+/// The directory holding every checkout of `owner/repo`. GitHub owner/repo
+/// names are case-insensitive: Foo/Bar and foo/bar are one repository and
+/// must share one checkout.
+fn repo_dir(home: &Path, owner: &str, repo: &str) -> PathBuf {
     home.join("tmp")
         .join("clone")
         .join(owner.to_ascii_lowercase())
         .join(repo.to_ascii_lowercase())
-        .join(format!(".default-branch__host_{}.json", hash(endpoint, 16)))
 }
 
 pub(super) fn default_branch_alias(
@@ -140,11 +151,8 @@ pub(super) fn write_default_branch_alias(
     }) else {
         return;
     };
-    let temporary = path.with_extension(format!("tmp-{}", std::process::id()));
     // Best effort: without an alias the next unbranched call clones again.
-    if write_private(&temporary, &bytes).is_ok() && fs::rename(&temporary, &path).is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
+    let _ = write_atomic(&path, &bytes, false);
 }
 
 #[derive(Deserialize, Serialize)]
@@ -191,16 +199,10 @@ pub(super) fn clone_dir(
     } else {
         String::new()
     };
-    // GitHub owner/repo names are case-insensitive: Foo/Bar and foo/bar are
-    // one repository and must share one checkout.
-    home.join("tmp")
-        .join("clone")
-        .join(owner.to_ascii_lowercase())
-        .join(repo.to_ascii_lowercase())
-        .join(format!(
-            "{safe_branch}{sparse}{history}__host_{}",
-            hash(endpoint, 16)
-        ))
+    repo_dir(home, owner, repo).join(format!(
+        "{safe_branch}{sparse}{history}__host_{}",
+        hash(endpoint, 16)
+    ))
 }
 
 pub(super) fn lock_dir(home: &Path, clone_dir: &Path) -> PathBuf {
@@ -216,9 +218,9 @@ pub(super) struct CloneLock {
 impl CloneLock {
     pub fn acquire(clone_dir: &Path, context: &CloneContext<'_>) -> Result<Self, CloneError> {
         let path = lock_dir(&context.config.cache_home, clone_dir);
-        let parent = path.parent().ok_or_else(|| {
-            CloneError::new("clone.cache.invalid", "Clone lock path has no parent")
-        })?;
+        let parent = path
+            .parent()
+            .ok_or_else(|| CloneError::new("cacheUnavailable", "Clone lock path has no parent"))?;
         fs::create_dir_all(parent).map_err(cache_io)?;
         let started = std::time::Instant::now();
         loop {
@@ -237,7 +239,7 @@ impl CloneLock {
                     }
                     if started.elapsed() >= context.config.lock_wait {
                         return Err(CloneError::new(
-                            "clone.cache.lockTimeout",
+                            "timeout",
                             format!(
                                 "Timed out waiting for clone cache lock '{}'.",
                                 path.display()
@@ -280,8 +282,8 @@ fn write_lock_meta(path: &Path) -> Result<(), CloneError> {
         pid: std::process::id(),
         created_at: now_millis(),
     })
-    .map_err(|error| CloneError::new("clone.cache.invalid", error.to_string()))?;
-    write_private(&path.join(LOCK_META_FILE), &bytes).map_err(cache_io)
+    .map_err(|error| CloneError::new("cacheUnavailable", error.to_string()))?;
+    write_atomic(&path.join(LOCK_META_FILE), &bytes, false).map_err(cache_io)
 }
 
 fn recover_stale_lock(path: &Path) -> bool {
@@ -294,7 +296,7 @@ fn recover_stale_lock(path: &Path) -> bool {
         .and_then(|bytes| serde_json::from_slice::<LockMeta>(&bytes).ok());
     let stale = if let Some(meta) = meta {
         now_millis().saturating_sub(meta.created_at) > STALE_LOCK_AGE.as_millis() as i64
-            && !process_alive(meta.pid)
+            && !crate::process_status::is_alive(meta.pid)
     } else {
         fs::metadata(path)
             .and_then(|value| value.modified())
@@ -307,10 +309,6 @@ fn recover_stale_lock(path: &Path) -> bool {
     }
     let tombstone = path.with_extension(format!("stale-{}", now_millis()));
     fs::rename(path, &tombstone).is_ok() && fs::remove_dir_all(tombstone).is_ok()
-}
-
-fn process_alive(pid: u32) -> bool {
-    crate::process_status::is_alive(pid)
 }
 
 pub(super) fn valid_clone(path: &Path, ttl: Duration) -> Option<CacheMeta> {
@@ -351,7 +349,7 @@ impl CacheAge {
 
 pub(super) fn write_meta(path: &Path, meta: &CacheMeta) -> Result<(), CloneError> {
     let bytes = serde_json::to_vec_pretty(meta)
-        .map_err(|error| CloneError::new("clone.cache.invalid", error.to_string()))?;
+        .map_err(|error| CloneError::new("cacheUnavailable", error.to_string()))?;
     let destination = path.join(META_FILE);
     // Metadata is written only in the hidden stage before directory promotion.
     // Exclusive creation protects source files arriving after the early check.
@@ -378,7 +376,7 @@ pub(super) fn metadata_conflict(meta: &CacheMeta) -> CloneError {
             "Read path:\".octocode-clone-meta.json\" with ghGetFileContent at this ref, or browse the repository with ghStructure.".into(),
         ],
         ..CloneError::new(
-            "clone.cache.metadataConflict",
+            "cacheUnavailable",
             format!(
                 "Repository {}/{}@{} contains reserved path '{}'; no checkout was replaced.",
                 meta.owner, meta.repo, meta.commit_sha, META_FILE,
@@ -407,7 +405,7 @@ pub(super) fn stage_dir(home: &Path, clone_dir: &Path) -> Result<PathBuf, CloneE
 pub(super) fn promote(home: &Path, stage: &Path, destination: &Path) -> Result<(), CloneError> {
     let parent = destination
         .parent()
-        .ok_or_else(|| CloneError::new("clone.cache.invalid", "Clone destination has no parent"))?;
+        .ok_or_else(|| CloneError::new("cacheUnavailable", "Clone destination has no parent"))?;
     fs::create_dir_all(parent).map_err(cache_io)?;
     let previous = stage.with_extension("previous");
     remove_dir(&previous);
@@ -424,7 +422,7 @@ pub(super) fn promote(home: &Path, stage: &Path, destination: &Path) -> Result<(
     if let Err(error) = fs::rename(stage, destination) {
         if had_previous && let Err(restore) = fs::rename(&previous, destination) {
             return Err(CloneError::new(
-                "clone.cache.rollbackFailed",
+                "cacheUnavailable",
                 format!(
                     "Clone publication failed ({error}); previous checkout remains at '{}' because rollback failed ({restore}).",
                     previous.display()
@@ -583,7 +581,7 @@ fn directory_size(path: &Path) -> u64 {
 
 fn cache_io(error: io::Error) -> CloneError {
     CloneError::new(
-        "clone.cache.io",
+        "cacheUnavailable",
         format!("Clone cache operation failed: {error}"),
     )
 }

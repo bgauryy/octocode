@@ -1,6 +1,6 @@
 ---
 name: octocode-clean-agentic-code
-description: "Use when behavior-preserving cleanup must remove dead exports, shims, aliases, duplicate logic, patch kludges, stale prose/config/schemas/dependencies/tests, misplaced or oversized files/folders, agent residue such as reinvention, scope creep, narration, type/lint suppressions, speculative abstraction, error masking, and test or grader gaming, or dated instruction cruft in prompts, AGENTS.md/CLAUDE.md, skills, and tool descriptions (verification rituals, emphasis boosters, scaffolds, stale few-shot, contradictory rules, dated model config). Triggers include clean up, remove legacy, dead code audit, god file, spaghetti code, unused deps, test hygiene, remove AI slop/metadata, prompt cruft, outdated instructions, and stale numbers. Not for feature work, behavioral refactors, or critique-only requests → octocode-roast."
+description: "Use when behavior-preserving cleanup must remove dead code, legacy shims, aliases, duplicate logic, unused deps, stale prose/config/schemas/tests, god files, AI slop and agent residue (scope creep, narration, lint suppressions, error masking, test or grader gaming), or dated instruction cruft in prompts, AGENTS.md/CLAUDE.md, skills, and tool descriptions. Not for feature work or behavioral refactors → octocode-architect; changing what a prompt makes an agent do → octocode-agentic-prompts; skill folder structure → octocode-skills; critique only → octocode-roast."
 ---
 
 # Octocode clean agentic code

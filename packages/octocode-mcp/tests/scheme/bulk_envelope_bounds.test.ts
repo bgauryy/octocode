@@ -23,11 +23,11 @@ describe('bulk envelope numeric bounds', () => {
       }
     });
 
-    it('does not expose responseCharOffset or responseCharLength', () => {
+    it('does not expose responseOffset or responseLength', () => {
       const result = schema.safeParse({ queries: baseQueries });
       if (result.success) {
-        expect(result.data).not.toHaveProperty('responseCharOffset');
-        expect(result.data).not.toHaveProperty('responseCharLength');
+        expect(result.data).not.toHaveProperty('responseOffset');
+        expect(result.data).not.toHaveProperty('responseLength');
       }
     });
 

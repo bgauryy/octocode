@@ -47,8 +47,6 @@ The portal applies additional checks and security review. Review the whole skill
 
 ## Official sources
 
-Checked 2026-10-01:
-
 - [Manifest and authoritative validation](https://code.claude.com/docs/en/plugins-reference)
 - [Marketplace reference and npm plugin sources](https://code.claude.com/docs/en/plugins/marketplace-reference)
 - [Publish and distribute](https://code.claude.com/docs/en/plugins/publish)

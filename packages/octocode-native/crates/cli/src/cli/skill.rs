@@ -69,14 +69,14 @@ fn rerun_hint(args: &[String]) -> String {
         .join(" ")
 }
 
-fn find_launcher(path_var: Option<&OsStr>) -> Option<PathBuf> {
+pub(super) fn find_launcher(path_var: Option<&OsStr>) -> Option<PathBuf> {
     std::env::split_paths(path_var?)
         .filter(|dir| !dir.as_os_str().is_empty())
         .flat_map(|dir| LAUNCHER_NAMES.map(|name| dir.join(name)))
         .find(|candidate| candidate.is_file())
 }
 
-fn is_current_exe(candidate: &Path) -> bool {
+pub(super) fn is_current_exe(candidate: &Path) -> bool {
     let Ok(current) = std::env::current_exe().and_then(std::fs::canonicalize) else {
         return false;
     };

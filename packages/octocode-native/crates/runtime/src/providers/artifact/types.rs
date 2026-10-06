@@ -111,27 +111,22 @@ impl ArtifactSearchQuery {
             _ => None,
         }
     }
-    pub fn cursor(&self) -> Option<&str> {
+    /// The 1-based discovery page (`page`); exact lookups have one.
+    pub fn page(&self) -> u64 {
         match self {
-            Self::NpmDiscovery(query) => query.cursor.as_ref().map(|value| value.as_str()),
-            Self::RegistryDiscovery(query) => query.cursor.as_ref().map(|value| value.as_str()),
-            _ => None,
+            Self::NpmDiscovery(query) => query.page.map_or(1, |page| page.get()),
+            Self::RegistryDiscovery(query) => query.page.map_or(1, |page| page.get()),
+            _ => 1,
         }
     }
-    pub fn set_cursor(&mut self, value: &str) -> Result<(), ArtifactError> {
-        let invalid =
-            |_| ArtifactError::new("invalid_query", "Invalid artifact continuation cursor.");
+    /// Points a discovery query at `page`.
+    pub fn set_page(&mut self, page: u64) {
+        let page = std::num::NonZeroU64::new(page);
         match self {
-            Self::NpmDiscovery(query) => query.cursor = Some(value.parse().map_err(invalid)?),
-            Self::RegistryDiscovery(query) => query.cursor = Some(value.parse().map_err(invalid)?),
-            _ => {
-                return Err(ArtifactError::new(
-                    "invalid_query",
-                    "Exact lookups do not accept cursors.",
-                ));
-            }
+            Self::NpmDiscovery(query) => query.page = page,
+            Self::RegistryDiscovery(query) => query.page = page,
+            _ => {}
         }
-        Ok(())
     }
     pub fn page_size(&self) -> Option<usize> {
         match self {
@@ -182,10 +177,40 @@ pub(crate) fn artifact_query(
     serde_json::from_value(value).expect("valid artifactSearch query")
 }
 
+/// A request budget no artifact test exhausts.
+#[cfg(test)]
+pub(crate) fn test_budget() -> crate::providers::RequestBudget {
+    crate::providers::RequestBudget::with_timeout(std::time::Duration::from_secs(10), 10_000_000)
+}
+
+/// Answers every request with status 200 and one fixed body.
+#[cfg(test)]
+pub(crate) struct StaticHttp(pub(crate) Vec<u8>);
+
+#[cfg(test)]
+impl StaticHttp {
+    pub(crate) fn json(body: serde_json::Value) -> Self {
+        Self(serde_json::to_vec(&body).expect("test body serializes"))
+    }
+}
+
+#[cfg(test)]
+impl super::http::ArtifactHttp for StaticHttp {
+    fn get<'a>(
+        &'a self,
+        _req: super::http::ArtifactHttpRequest,
+        _budget: &'a crate::providers::RequestBudget,
+    ) -> super::http::ArtifactHttpFuture<'a> {
+        let body = self.0.clone();
+        Box::pin(async move { Ok(super::http::ArtifactHttpResponse { status: 200, body }) })
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactItem {
-    #[serde(rename = "type")]
+    /// The queried registry; the request states it, so rows omit it.
+    #[serde(skip)]
     pub artifact_type: ArtifactType,
     pub name: String,
     pub registry_url: String,
@@ -217,6 +242,10 @@ pub struct ArtifactItem {
     /// Runtime dependency count of this version.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dependencies: Option<usize>,
+    /// Those runtime dependencies as the registry declares them
+    /// (`name@range`, a PEP 508 requirement, `name req`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dependency_list: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer_dependencies: Option<usize>,
     /// npm `engines.node` range.
@@ -237,6 +266,14 @@ pub struct ArtifactItem {
     /// tarball and repository, not from an unchecked registry field.
     #[serde(skip)]
     pub source_attested: bool,
+    /// `source_ref` is an upstream release tag checked to exist.
+    #[serde(skip)]
+    pub source_tag: bool,
+    /// Directory of the published entry point inside the package directory,
+    /// when it is shipped source (npm `main` without a build step); it
+    /// points the source lead and is not a public row field.
+    #[serde(skip)]
+    pub entry_directory: Option<String>,
 }
 
 impl ArtifactItem {
@@ -257,6 +294,7 @@ impl ArtifactItem {
             deprecated: None,
             yanked: None,
             dependencies: None,
+            dependency_list: Vec::new(),
             peer_dependencies: None,
             engines: None,
             requires_python: None,
@@ -264,6 +302,8 @@ impl ArtifactItem {
             downloads_monthly: None,
             source_ref: None,
             source_attested: false,
+            source_tag: false,
+            entry_directory: None,
         }
     }
 }

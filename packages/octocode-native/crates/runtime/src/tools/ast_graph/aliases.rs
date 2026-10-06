@@ -18,13 +18,14 @@ use std::{
     sync::Arc,
 };
 
+/// Largest project manifest or config the graph reads.
 const MAX_CONFIG_BYTES: usize = 1_000_000;
 const MAX_EXTENDS_DEPTH: usize = 8;
 const MAX_CONDITION_DEPTH: usize = 8;
 const MAX_OUTER_CONFIG_LEVELS: usize = 6;
 const MAX_PYTHON_ROOTS: usize = 64;
 const MAX_INCLUDE_DIRS: usize = 64;
-const MAX_COMPILE_COMMANDS_BYTES: u64 = 32 * 1024 * 1024;
+const MAX_COMPILE_COMMANDS_BYTES: usize = 32 * 1024 * 1024;
 
 /// Export/import conditions in preference order: source-first so a workspace
 /// package links to its sources instead of its build output.
@@ -885,6 +886,22 @@ struct RawTsConfig {
     references: Vec<PathBuf>,
 }
 
+/// A project manifest or config the graph reads beside its sources: inside
+/// the path policy, a regular file of at most [`MAX_CONFIG_BYTES`], decoded
+/// and scanned by the content policy.
+pub(super) fn read_config_text(
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+    path: &Path,
+) -> Option<String> {
+    let validated = paths.validate_read(path).ok()?;
+    let bytes = crate::tools::source::read_bounded(&validated.canonical, MAX_CONFIG_BYTES).ok()?;
+    security
+        .validate_text_bytes(&bytes, Some(&validated.canonical), MAX_CONFIG_BYTES)
+        .ok()
+        .map(|safe| safe.content)
+}
+
 struct ConfigReader<'a> {
     root: &'a Path,
     paths: &'a PathPolicy,
@@ -894,13 +911,7 @@ struct ConfigReader<'a> {
 
 impl ConfigReader<'_> {
     fn read_json(&self, path: &Path) -> Option<Value> {
-        let validated = self.paths.validate_read(path).ok()?;
-        let bytes = std::fs::read(&validated.canonical).ok()?;
-        let safe = self
-            .security
-            .validate_text_bytes(&bytes, Some(&validated.canonical), MAX_CONFIG_BYTES)
-            .ok()?;
-        parse_jsonc(&safe.content)
+        parse_jsonc(&read_config_text(self.paths, self.security, path)?)
     }
 
     fn raw(&mut self, path: &Path, depth: usize) -> Option<Arc<RawTsConfig>> {
@@ -1167,13 +1178,9 @@ fn compile_command_include_dirs(root: &Path, file: &Path, paths: &PathPolicy) ->
     let Ok(validated) = paths.validate_read(file) else {
         return Vec::new();
     };
-    if std::fs::metadata(&validated.canonical)
-        .map(|meta| meta.len() > MAX_COMPILE_COMMANDS_BYTES)
-        .unwrap_or(true)
-    {
-        return Vec::new();
-    }
-    let Ok(bytes) = std::fs::read(&validated.canonical) else {
+    let Ok(bytes) =
+        crate::tools::source::read_bounded(&validated.canonical, MAX_COMPILE_COMMANDS_BYTES)
+    else {
         return Vec::new();
     };
     let Ok(Value::Array(commands)) = serde_json::from_slice::<Value>(&bytes) else {
@@ -1245,25 +1252,34 @@ fn enclosing_python_package(root: &Path) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::policy::path::PathPolicyConfig;
-
-    fn known(files: &[&str]) -> BTreeSet<String> {
-        files.iter().map(|file| (*file).to_owned()).collect()
-    }
-
-    fn write(root: &Path, file: &str, text: &str) {
-        let path = root.join(file);
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, text).unwrap();
-    }
+    use crate::tools::ast_graph::test_support::{known, write_file};
 
     fn load(root: &Path, files: &BTreeSet<String>) -> ResolveContext {
-        let policy = PathPolicy::new(PathPolicyConfig {
-            workspace_root: Some(root.to_path_buf()),
-            ..Default::default()
-        })
-        .unwrap();
+        let policy = crate::tools::test_support::workspace_policy(root);
         ResolveContext::load(root, files, &policy, &ContentSecurity::new())
+    }
+
+    #[test]
+    fn config_reads_stay_inside_the_policy_and_the_size_bound() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let policy = crate::tools::test_support::workspace_policy(root.path());
+        let security = ContentSecurity::new();
+        write_file(root.path(), "package.json", r#"{"name":"inside"}"#);
+        write_file(outside.path(), "package.json", r#"{"name":"outside"}"#);
+        assert_eq!(
+            read_config_text(&policy, &security, &root.path().join("package.json")).as_deref(),
+            Some(r#"{"name":"inside"}"#)
+        );
+        assert_eq!(
+            read_config_text(&policy, &security, &outside.path().join("package.json")),
+            None
+        );
+        write_file(root.path(), "big.json", &" ".repeat(MAX_CONFIG_BYTES + 1));
+        assert_eq!(
+            read_config_text(&policy, &security, &root.path().join("big.json")),
+            None
+        );
     }
 
     #[test]
@@ -1311,17 +1327,17 @@ mod tests {
     fn tsconfig_paths_resolve_through_relative_extends_chains() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        write(
+        write_file(
             &root,
             "tsconfig.base.json",
             "{\n  // shared\n  \"compilerOptions\": {\n    \"baseUrl\": \".\",\n    \"paths\": {\n      \"@lib/*\": [\"missing/*\", \"packages/lib/src/*\"],\n      \"@lib\": [\"packages/lib/src/index.ts\"],\n      \"@/*\": [\"packages/app/src/*\"],\n    },\n  },\n}\n",
         );
-        write(
+        write_file(
             &root,
             "packages/app/tsconfig.json",
             "{ \"extends\": \"../../tsconfig.base\", \"compilerOptions\": {} }",
         );
-        write(
+        write_file(
             &root,
             "packages/other/tsconfig.json",
             "{ \"compilerOptions\": { \"paths\": { \"~x/*\": [\"./src/x/*\"] } } }",
@@ -1373,12 +1389,12 @@ mod tests {
     fn base_url_resolves_non_relative_modules_and_references_are_followed() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        write(
+        write_file(
             &root,
             "tsconfig.json",
             "{ \"files\": [], \"references\": [{ \"path\": \"./tsconfig.app.json\" }] }",
         );
-        write(
+        write_file(
             &root,
             "tsconfig.app.json",
             "{ \"compilerOptions\": { \"baseUrl\": \"src\", \"paths\": { \"@/*\": [\"./*\"] } } }",
@@ -1403,7 +1419,7 @@ mod tests {
     fn workspace_packages_prefer_sources_over_build_output() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        write(
+        write_file(
             &root,
             "packages/core/package.json",
             r##"{
@@ -1418,7 +1434,7 @@ mod tests {
               "imports": { "#internal/*": { "source": "./src/internal/*.ts", "default": "./dist/internal/*.js" } }
             }"##,
         );
-        write(
+        write_file(
             &root,
             "packages/legacy/package.json",
             r#"{ "name": "legacy", "module": "lib/index.js", "types": "lib/index.d.ts" }"#,
@@ -1471,12 +1487,12 @@ mod tests {
     fn python_roots_include_src_layout_project_roots() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().canonicalize().unwrap();
-        write(
+        write_file(
             &root,
             "libs/tool/pyproject.toml",
             "[project]\nname='tool'\n",
         );
-        write(&root, "libs/tool/src/tool/__init__.py", "");
+        write_file(&root, "libs/tool/src/tool/__init__.py", "");
         let files = known(&["libs/tool/src/tool/__init__.py", "app/main.py"]);
         let context = load(&root, &files);
         assert_eq!(
@@ -1493,19 +1509,15 @@ mod tests {
     fn subtree_scans_use_the_package_tsconfig_above_the_root() {
         let dir = tempfile::tempdir().unwrap();
         let workspace = dir.path().canonicalize().unwrap();
-        write(
+        write_file(
             &workspace,
             "app/tsconfig.json",
             "{ \"compilerOptions\": { \"paths\": { \"@ui/*\": [\"./src/ui/*\"] } } }",
         );
-        write(&workspace, "app/package.json", "{}");
+        write_file(&workspace, "app/package.json", "{}");
         let root = workspace.join("app/src");
         let files = known(&["main.ts", "ui/button.ts"]);
-        let policy = PathPolicy::new(PathPolicyConfig {
-            workspace_root: Some(workspace.clone()),
-            ..Default::default()
-        })
-        .unwrap();
+        let policy = crate::tools::test_support::workspace_policy(&workspace);
         let context = ResolveContext::load(&root, &files, &policy, &ContentSecurity::new());
         assert_eq!(
             context
@@ -1523,8 +1535,8 @@ mod tests {
             {"directory": root.join("build"), "command": "c++ -I../third/include -I /outside -iquote ../quoted -c ../src/a.cpp", "file": "../src/a.cpp"},
             {"directory": root, "arguments": ["cc", "-I", "gen", "-c", "b.c"], "file": "b.c"}
         ]);
-        write(&root, "compile_commands.json", &commands.to_string());
-        write(&root, "src/a.cpp", "");
+        write_file(&root, "compile_commands.json", &commands.to_string());
+        write_file(&root, "src/a.cpp", "");
         let files = known(&["src/a.cpp"]);
         let context = load(&root, &files);
         assert_eq!(

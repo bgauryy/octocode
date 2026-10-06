@@ -13,7 +13,7 @@
 
 use super::LspExecutionConfig;
 use crate::policy::path::PathPolicy;
-use octocode_engine::lsp::config::{LspDiscoveryOptions, default_server_for_file_with_options};
+use octocode_engine::lsp::config::default_server_for_file;
 use octocode_engine::lsp::pool::{LspClientPool, canonical_lsp_key};
 use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use serde_json::Value;
@@ -71,8 +71,8 @@ pub fn targeted_enabled(value: Option<&str>) -> bool {
 }
 
 /// The anchor file of the first `lspSearch` call a tool row offers (a lead
-/// or page `{tool, query}` anywhere in `data`), when it names an absolute
-/// file path or `file://` uri of an existing file.
+/// or page `{tool, query}` anywhere in `data`), when its `path` names an
+/// absolute file path or `file://` uri of an existing file.
 #[must_use]
 pub fn lead_file(data: &Value) -> Option<PathBuf> {
     fn find(value: &Value, depth: usize) -> Option<PathBuf> {
@@ -82,8 +82,10 @@ pub fn lead_file(data: &Value) -> Option<PathBuf> {
         match value {
             Value::Object(map) => {
                 if map.get("tool").and_then(Value::as_str) == Some("lspSearch") {
-                    let uri = map.get("query")?.get("uri")?.as_str()?;
-                    let path = PathBuf::from(uri.strip_prefix("file://").unwrap_or(uri));
+                    let path = crate::tools::result::continuation_row(value)?
+                        .get("path")?
+                        .as_str()?;
+                    let path = PathBuf::from(path.strip_prefix("file://").unwrap_or(path));
                     return (path.is_absolute() && path.is_file()).then_some(path);
                 }
                 map.values().find_map(|child| find(child, depth + 1))
@@ -130,12 +132,8 @@ pub fn schedule(
         },
         None => None,
     };
-    let discovery = LspDiscoveryOptions {
-        config_path,
-        trust_project_config: execution.trust_project_config,
-    };
-    let Some(config) = default_server_for_file_with_options(file.clone(), workspace, &discovery)
-    else {
+    let discovery = execution.discovery(config_path);
+    let Some(config) = default_server_for_file(&file, &workspace, &discovery) else {
         return false;
     };
     let Ok(key) = canonical_lsp_key(&config) else {
@@ -238,11 +236,13 @@ mod tests {
         let file = dir.join("a.ts");
         std::fs::write(&file, "export const a = 1;\n").expect("file");
         let uri = format!("file://{}", file.display());
-        let data = json!({"results":[{"file":"a.ts"}],"next":{"verifyReferences":{"tool":"lspSearch","query":{"uri":uri,"symbolName":"a","lineHint":1}}}});
+        let data = json!({"results":[{"file":"a.ts"}],"next":{"verifyReferences":{"tool":"lspSearch","query":{"queries":[{"path":uri,"symbolName":"a","lineHint":1}]}}}});
         assert_eq!(lead_file(&data), Some(file.clone()));
-        let other = json!({"next":{"read":{"tool":"localFetch","query":{"path":file}}}});
+        let other =
+            json!({"next":{"read":{"tool":"localFetch","query":{"queries":[{"path":file}]}}}});
         assert_eq!(lead_file(&other), None);
-        let relative = json!({"hints":{"refs":{"tool":"lspSearch","query":{"uri":"a.ts"}}}});
+        let relative =
+            json!({"hints":{"refs":{"tool":"lspSearch","query":{"queries":[{"path":"a.ts"}]}}}});
         assert_eq!(lead_file(&relative), None);
         let _ = std::fs::remove_dir_all(dir);
     }

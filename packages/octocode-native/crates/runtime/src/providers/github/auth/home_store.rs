@@ -9,8 +9,7 @@ use aes_gcm::{
 use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
-    fs::{self, File, OpenOptions},
-    io::{Read, Write},
+    fs::{self, File},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -212,33 +211,8 @@ impl HomeStore {
         if exists(&target)? {
             let _ = private_open(&target, false)?;
         }
-        let mut random_name = [0u8; 16];
-        random(&mut random_name)?;
-        let temporary = self
-            .home
-            .join(format!(".credentials-{}.tmp", hex::encode(random_name)));
-        let result = (|| {
-            let mut options = OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-            }
-            let mut file = options
-                .open(&temporary)
-                .map_err(|_| failure("cannot create credential file"))?;
-            file.write_all(bytes)
-                .and_then(|_| file.sync_all())
-                .map_err(|_| failure("cannot write credentials"))?;
-            drop(file);
-            fs::rename(&temporary, &target).map_err(|_| failure("cannot replace credentials"))?;
-            self.sync_home()
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&temporary);
-        }
-        result
+        crate::private_file::write_atomic(&target, bytes, true)
+            .map_err(|_| failure("cannot replace credentials"))
     }
     fn sync_home(&self) -> Result<(), ProviderError> {
         #[cfg(unix)]
@@ -273,30 +247,14 @@ fn exists(path: &Path) -> Result<bool, ProviderError> {
     }
 }
 fn private_open(path: &Path, create: bool) -> Result<File, ProviderError> {
-    if let Ok(meta) = fs::symlink_metadata(path)
-        && !meta.is_file()
-    {
-        return Err(failure("credential path is not a regular file"));
-    }
-    let mut options = OpenOptions::new();
-    options.read(true).write(create).create(create);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    }
-    let file = options
-        .open(path)
+    let file = crate::private_file::open_no_follow(path, create)
         .map_err(|_| failure("cannot open credential file"))?;
-    let meta = file
-        .metadata()
-        .map_err(|_| failure("cannot inspect credential file"))?;
-    if !meta.is_file() {
-        return Err(failure("credential path is not a regular file"));
-    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let meta = file
+            .metadata()
+            .map_err(|_| failure("cannot inspect credential file"))?;
         if meta.nlink() != 1 {
             return Err(failure("credential file has multiple links"));
         }
@@ -311,15 +269,9 @@ fn read_private(path: &Path, limit: u64) -> Result<Option<Vec<u8>>, ProviderErro
     if !exists(path)? {
         return Ok(None);
     }
-    let file = private_open(path, false)?;
-    let mut data = Vec::new();
-    file.take(limit + 1)
-        .read_to_end(&mut data)
-        .map_err(|_| failure("cannot read credential file"))?;
-    if data.len() as u64 > limit {
-        return Err(failure("credential file is too large"));
-    }
-    Ok(Some(data))
+    crate::private_file::read_limited(private_open(path, false)?, limit)
+        .map(Some)
+        .map_err(|_| failure("cannot read credential file"))
 }
 #[cfg(test)]
 mod tests;

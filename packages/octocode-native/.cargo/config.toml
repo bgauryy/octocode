@@ -8,21 +8,17 @@
 #
 # Install:
 #   sccache : brew install sccache            (cross-branch compile cache)
-#   lld     : brew install lld                (fast linker on macOS)
 #   mold    : apt install mold                (fast linker on Linux)
 #
 # ── Disk hygiene (target/ grows unbounded) ────────────────────────────────────
-# `target/debug/incremental` alone reached 78 GB here (163 GB across all
-# incremental dirs). Incremental caches are regenerable scratch — safe to delete;
-# `deps/` (the compiled dependency crates) stays, so builds stay warm.
-# `split-debuginfo = "unpacked"` also leaves per-CGU `deps/*.o` that cargo never
-# prunes: 1.39M files / 96 GB here, making every rustc/linker directory scan slow
-# (`ls target/debug/deps` alone took 95s). clean:cache deletes them too; debug
-# backtraces lose file:line only until the next rebuild.
-#   yarn clean:cache          # rm target/**/incremental + stale deps/*.o, print size
-#   yarn clean:cache:sweep    # + `cargo sweep --maxsize 30` (needs cargo-sweep)
-# Make it periodic without a daemon, e.g. weekly cron:
-#   0 9 * * 1  cd <repo>/packages/octocode-native && yarn clean:cache
+# Stable Cargo has no target/ GC (`cargo clean gc` is nightly-only; Cargo 1.88+
+# only auto-cleans ~/.cargo caches). Every distinct feature/package selection
+# compiles its own copy of the workspace crates, and `split-debuginfo =
+# "unpacked"` keeps ~2k `.o` per copy — target/ reached 303 GB / 1M files in one
+# deps/ here. Keep cargo invocations on the same package+feature selection so
+# copies are not created, and reset the dev profile when it grows:
+#   yarn clean:cache          # cargo clean --workspace --profile dev: drops every
+#                             # copy of our crates (88% of debug/ here), keeps deps warm
 
 # ── sccache: cache rustc invocations across branches / clean builds ───────────
 # 60–80% faster on a warm cache. Tradeoff: sccache disables incremental
@@ -34,18 +30,10 @@
 # [build]
 # rustc-wrapper = "sccache"
 
-# ── macOS (Apple Silicon): lld from `brew install lld` ────────────────────────
-# lld links large Rust binaries faster than Apple ld; pure win (no incremental
-# tradeoff). Path is the standalone `lld` formula's ld64.lld. Adjust for Intel
-# (/usr/local) or a MacPorts/nonstandard install.
-#
-# [target.aarch64-apple-darwin]
-# linker = "clang"
-# rustflags = ["-C", "link-arg=-fuse-ld=/opt/homebrew/opt/lld/bin/ld64.lld"]
-#
-# [target.x86_64-apple-darwin]
-# linker = "clang"
-# rustflags = ["-C", "link-arg=-fuse-ld=/usr/local/opt/lld/bin/ld64.lld"]
+# ── macOS: keep Apple's default linker ────────────────────────────────────────
+# Measured 2026-10-06 (octocode-cli, Apple Silicon): relink after a cli edit
+# 1.4–1.8s with lld vs 1.2–1.6s with Apple ld-prime, cold build 90s vs 88s.
+# No win, so no linker override — matches the Rust perf book for macOS.
 
 # ── Linux: mold (apt install mold) ────────────────────────────────────────────
 # mold is 5–10× faster than GNU BFD at linking large Rust binaries. CI already

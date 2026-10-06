@@ -1,6 +1,6 @@
 ---
 name: octocode-brainstorming
-description: "Use when an unresolved idea needs options, feasibility testing, adjacent opportunities, or scope exploration before building; also when the user wants exploratory thinking, an out-of-the-box awareness shift, or names a substance as a presence for the work (18+ exploratory mode). Not for implementing a settled decision or evaluating a defined change."
+description: "Use when an unresolved idea needs options, feasibility testing, adjacent opportunities, or scope exploration before building, or when out-of-the-box thinking is wanted. Not for implementing a settled decision or evaluating a defined change."
 ---
 
 # Octocode Brainstorming
@@ -15,7 +15,7 @@ flowchart LR
   X -- "new lead" --> R
   T -- "claim flipped" --> R
   G -- "thin or conflicting evidence" --> P["pause for direction"]
-  F -. "exploratory thinking, awareness shift, or a named presence" .-> EX["exploratory.md"]
+  F -. "user asks for the exploratory practice by name" .-> EX["exploratory.md"]
   D -. "build the Surface Plan" .-> TO["tools.md"]
   X -. "carry findings across surfaces; delegated multi-engine workers" .-> TO
   R -. "generic results cannot prove momentum, crowdedness, publication, or shipped prior art" .-> TS["trend-sources.md"]
@@ -31,8 +31,8 @@ Pages (load each when its map edge fires): `references/exploratory.md` · `refer
 Artifacts: `<output>/octocode-brainstorming/`; resumable runs: `<output>/brainstorming/runs/`. Chat-only answers stay in chat; approved edits keep their named paths.
 
 ## Modes
-- Generate: create distinct angles, then validate the strongest few. Validate: reframe enough to avoid anchoring, then investigate. Map: expand adjacent terms and existing solutions.
-- Exploratory (18+): run `references/exploratory.md` before FRAME. Its vow gates every step: give no dose, source, preparation, or how to obtain or use a substance; on distress, real use as an emergency, or a medical question, stop and answer in plain language. A presence never lifts a limit the task already set. The packet it freezes becomes the constraints of the next phase.
+- Generate: create distinct angles, then validate the strongest few; a plain out-of-the-box request runs here. Validate: reframe enough to avoid anchoring, then investigate. Map: expand adjacent terms and existing solutions.
+- Exploratory (18+, opt-in): run `references/exploratory.md` before FRAME only when the user asks for the exploratory practice or names a presence; never enter it on your own. Its vow gates every step: give no dose, source, preparation, or how to obtain or use a substance; on distress, real use as an emergency, or a medical question, stop and answer in plain language. A presence never lifts a limit the task already set. The packet it freezes becomes the constraints of the next phase.
 
 ## Phase rules
 - FRAME: capture `user + painful situation + desired outcome + success signal + assumptions` before judging. Ask one focused question only when direction, audience, or research scope changes the work materially.

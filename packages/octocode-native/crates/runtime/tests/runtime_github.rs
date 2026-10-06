@@ -1,7 +1,7 @@
 // Integration test crate — assertions use unwrap/expect/panic freely.
 #![allow(clippy::expect_used, clippy::panic)]
 
-mod support;
+use crate::support;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -51,11 +51,11 @@ async fn malformed_remote_regex_keeps_original_error_and_required_file_path() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     for debug in [false, true] {
-        let out = call(&runtime, "ghGetFileContent", json!({"owner":"a","repo":"b","path":"README.md","branch":sha,"matchString":"(","matchStringIsRegex":true,"debug":debug})).await.expect("error row");
+        let out = call(&runtime, "ghGetFileContent", json!({"owner":"a","repo":"b","path":"README.md","ref":sha,"matchString":"(","regex":"rust","debug":debug})).await.expect("error row");
         assert_eq!(row_status(&out), "error", "{}", out.structured_content);
         let data = row_data(&out);
         assert_ne!(data["errorCode"], "outputContractViolation", "{data}");
-        assert_eq!(data["files"][0]["path"], "README.md", "{data}");
+        assert_eq!(data["path"], "README.md", "{data}");
         assert!(data.to_string().contains("Invalid regex pattern"), "{data}");
     }
     runtime.close().await;
@@ -93,10 +93,10 @@ async fn github_file_read_goes_through_execute_and_redacts() {
             "owner": "a",
             "repo": "b",
             "path": "src/lib.rs",
-            "branch": "main",
+            "ref": "main",
             "forceRefresh": true,
-            "chunkType": "lines",
-            "chunkSize": 2
+            "unit": "lines",
+            "length": 2
         }),
     )
     .await
@@ -107,7 +107,7 @@ async fn github_file_read_goes_through_execute_and_redacts() {
         "{}",
         outcome.structured_content
     );
-    let file = &row_data(&outcome)["files"][0];
+    let file = row_data(&outcome);
     let content = file["content"].as_str().unwrap_or("");
     assert!(content.contains("one\n"), "{content}");
     assert!(
@@ -193,11 +193,21 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
     );
     let data = row_data(&outcome);
     assert!(data["location"]["localPath"].as_str().is_some(), "{}", data);
-    let exhausted = call(&runtime, "ghStructure", json!({"owner":"a","repo":"b","branch":sha,"pageSize":1,"materialize":true,"materializeOffset":1})).await.expect("boundary offset");
+    // Only the path and coverage: kind/source/cached are constants, hasMore
+    // restates `complete`, and the ref is the snapshot the path names.
+    let mut keys: Vec<&str> = data["location"]
+        .as_object()
+        .expect("location")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["complete", "localPath"], "{data}");
+    let exhausted = call(&runtime, "ghStructure", json!({"owner":"a","repo":"b","ref":sha,"pageSize":1,"materialize":true,"materializeOffset":1})).await.expect("boundary offset");
     let boundary = row_data(&exhausted);
     assert_eq!(boundary["pagination"]["hasMore"], true, "{boundary}");
-    let next = &boundary["next"]["continueMaterialize"]["query"];
-    assert_eq!(next["branch"], sha, "{boundary}");
+    let next = &boundary["next"]["continueMaterialize"]["query"]["queries"][0];
+    assert_eq!(next["ref"], sha, "{boundary}");
     assert_eq!(next["page"], 2, "{boundary}");
     assert_eq!(next["materializeOffset"], 0, "{boundary}");
     let last = call(&runtime, "ghStructure", next.clone())
@@ -205,6 +215,105 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
         .expect("replay boundary continuation");
     let completed = row_data(&last);
     assert_eq!(completed["location"]["complete"], true, "{completed}");
+    runtime.close().await;
+}
+
+/// E8: a materialize that lists folders below its depth without writing
+/// them is not complete, and `next.expandDepth` writes them.
+#[tokio::test]
+async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents"))
+        .and(query_param("ref", sha))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"name":"one.rs","path":"one.rs","type":"file","size":4,"sha":"1".repeat(40)},
+            {"name":"router","path":"router","type":"dir","sha":"2".repeat(40)}
+        ])))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex("/api/v3/repos/a/b/commits/(main|HEAD)$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/one.rs"))
+        .and(query_param("ref", sha))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type": "file", "encoding": "base64", "content": STANDARD.encode("fn x(){}\n"),
+            "size": 8, "sha": "a".repeat(40), "path": "one.rs"
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json!({"owner": "a", "repo": "b", "materialize": true}),
+    )
+    .await
+    .expect("tree materialize");
+    let data = row_data(&outcome);
+    assert_eq!(data["location"]["complete"], false, "{data}");
+    assert_eq!(data["isPartial"], true, "{data}");
+    assert!(
+        data["partialReasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.contains(&json!("materializeDepth"))),
+        "{data}"
+    );
+    let deeper = &data["next"]["expandDepth"];
+    assert_eq!(deeper["tool"], "ghStructure", "{data}");
+    let row = &deeper["query"]["queries"][0];
+    assert_eq!(row["maxDepth"], 20, "{data}");
+    assert_eq!(row["materialize"], true, "{data}");
+    assert_eq!(row["ref"], sha, "{data}");
+    runtime.close().await;
+}
+
+/// E21/D4: ghSearchCode on a repository that does not exist is notFound
+/// (exit 3), not an empty partial search.
+#[tokio::test]
+async fn gh_search_code_on_a_missing_repository_is_not_found() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"total_count":0,"incomplete_results":true,"items":[]})),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/psf/zz-nope-repo"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghSearchCode",
+        json!({"owner":"psf","repo":"zz-nope-repo","keywords":["needle"]}),
+    )
+    .await
+    .expect("search");
+    let row = &outcome.structured_content["results"][0];
+    assert_eq!(
+        row_status(&outcome),
+        "error",
+        "{}",
+        outcome.structured_content
+    );
+    assert_eq!(row["data"]["errorCode"], "notFound", "{row}");
     runtime.close().await;
 }
 
@@ -263,7 +372,7 @@ async fn three_github_bulk_queries_are_concurrent_and_preserve_order() {
             "owner": "a",
             "repo": "b",
             "path": name,
-            "branch": sha,
+            "ref": sha,
             "forceRefresh": true,
             "mainGoal": "test", "reasoning": format!("Read {name} through the GitHub bulk path."),
             "debug": true
@@ -346,7 +455,7 @@ async fn three_sequential_queries_each_hit_the_server() {
             &runtime,
             "ghGetFileContent",
             json!({"owner": "a", "repo": "b", "path": name,
-                   "branch": "main", "forceRefresh": true}),
+                   "ref": "main", "forceRefresh": true}),
         )
         .await
         .unwrap_or_else(|e| panic!("{name}: {e:?}"));
@@ -565,7 +674,7 @@ async fn gh_get_history_item_commit_fetches_via_rest() {
     assert_eq!(data["sha"], sha, "{data}");
     assert!(data.get("ref").is_none(), "{data}");
     assert_eq!(
-        data["hints"]["findPullRequest"]["query"]["keywords"],
+        data["hints"]["findPullRequest"]["query"]["queries"][0]["keywords"],
         json!([sha]),
         "{data}"
     );
@@ -602,7 +711,7 @@ async fn squash_merge_commit_reads_its_pull_request_directly() {
     let data = row_data(&outcome);
     let read = &data["hints"]["readPullRequest"];
     assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
-    assert_eq!(read["query"]["number"], 8506, "{data}");
+    assert_eq!(read["query"]["queries"][0]["number"], 8506, "{data}");
     assert!(data["hints"].get("findPullRequest").is_none(), "{data}");
     assert!(
         !outcome
@@ -747,7 +856,7 @@ async fn gh_clone_repo_makes_no_metadata_call_before_git() {
     .expect("clone error row");
     let data = row_data(&outcome);
     assert_eq!(row_status(&outcome), "error", "{data}");
-    assert_eq!(data["errorCode"], "clone.endpoint.unsupported", "{data}");
+    assert_eq!(data["errorCode"], "configuration", "{data}");
     assert!(
         !data.to_string().contains("defaultBranchUnavailable"),
         "{data}"
@@ -799,13 +908,154 @@ async fn artifact_search_lookup_goes_through_execute() {
     runtime.close().await;
 }
 
+/// npm credentials come from the runtime's resolved environment, never the
+/// process's: each runtime's own userconfig (or its `HOME/.npmrc`) and its
+/// own `${VAR}` values decide the Authorization header a registry receives.
+#[tokio::test]
+async fn artifact_search_npm_credentials_follow_the_runtime_env() {
+    let workspace = Workspace::new();
+    let empty = workspace.home.join("empty.npmrc");
+    std::fs::write(&empty, "").expect("empty npmrc");
+    for (case, expected) in [
+        ("userconfig", Some("Bearer from-runtime-env")),
+        ("home", Some("Bearer from-runtime-home")),
+        ("empty", None),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/runtime-env-auth/latest"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "name": "runtime-env-auth",
+                "version": "1.0.0"
+            })))
+            .mount(&server)
+            .await;
+        let port = server.address().port();
+        let injected = workspace.home.join("injected.npmrc");
+        std::fs::write(
+            &injected,
+            format!("//127.0.0.1:{port}/:_authToken=${{RUNTIME_NPM_TOKEN}}\n"),
+        )
+        .expect("injected npmrc");
+        std::fs::write(
+            workspace.home.join(".npmrc"),
+            format!("//127.0.0.1:{port}/:_authToken=from-runtime-home\n"),
+        )
+        .expect("home npmrc");
+        let mut settings = vec![
+            ("OCTOCODE_ALLOW_PRIVATE_REGISTRY", "true".to_owned()),
+            ("OCTOCODE_STORAGE_MODE", "memory".to_owned()),
+            ("RUNTIME_NPM_TOKEN", "from-runtime-env".to_owned()),
+            ("HOME", workspace.home.to_string_lossy().into_owned()),
+        ];
+        match case {
+            "userconfig" => settings.push((
+                "NPM_CONFIG_USERCONFIG",
+                injected.to_string_lossy().into_owned(),
+            )),
+            "empty" => settings.push((
+                "npm_config_userconfig",
+                empty.to_string_lossy().into_owned(),
+            )),
+            _ => {}
+        }
+        let runtime = workspace.runtime(&settings);
+        let outcome = call(
+            &runtime,
+            "artifactSearch",
+            json!({"type": "npm", "packageName": "runtime-env-auth", "registry": server.uri()}),
+        )
+        .await
+        .expect("artifactSearch");
+        assert_eq!(
+            row_status(&outcome),
+            "success",
+            "{case}: {}",
+            outcome.structured_content
+        );
+        runtime.close().await;
+        let seen: Vec<Option<String>> = server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .map(|request| {
+                request
+                    .headers
+                    .get("authorization")
+                    .and_then(|value| value.to_str().ok())
+                    .map(str::to_owned)
+            })
+            .collect();
+        assert!(!seen.is_empty(), "{case}");
+        assert!(
+            seen.iter().all(|header| header.as_deref() == expected),
+            "{case}: {seen:?}"
+        );
+    }
+}
+
+/// A workspace `.octocode/.env` is repository-controlled: it never chooses
+/// the npm userconfig, so a repository cannot point credential discovery at
+/// its own npmrc and route a user's token to a registry it names.
+#[tokio::test]
+async fn artifact_search_npm_userconfig_never_comes_from_the_workspace_env() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/runtime-env-auth/latest"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "name": "runtime-env-auth",
+            "version": "1.0.0"
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let port = server.address().port();
+    let planted = workspace.write(
+        "planted.npmrc",
+        format!("//127.0.0.1:{port}/:_authToken=${{OCTOCODE_TOKEN}}\n"),
+    );
+    let mut input = workspace.config(&[
+        ("OCTOCODE_ALLOW_PRIVATE_REGISTRY", "true".to_owned()),
+        ("OCTOCODE_STORAGE_MODE", "memory".to_owned()),
+        ("HOME", workspace.home.to_string_lossy().into_owned()),
+    ]);
+    input.project_env = octocode_native::config::FileInput::Read {
+        path: workspace.workspace.join(".octocode/.env"),
+        text: format!("NPM_CONFIG_USERCONFIG={}\n", planted.display()),
+    };
+    let runtime = octocode_native::runtime::ToolRuntime::new(input).expect("runtime");
+    let outcome = call(
+        &runtime,
+        "artifactSearch",
+        json!({"type": "npm", "packageName": "runtime-env-auth", "registry": server.uri()}),
+    )
+    .await
+    .expect("artifactSearch");
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    runtime.close().await;
+    let requests = server.received_requests().await.unwrap_or_default();
+    assert!(!requests.is_empty());
+    assert!(
+        requests
+            .iter()
+            .all(|request| request.headers.get("authorization").is_none()),
+        "a workspace .env steered npm credentials"
+    );
+}
+
 // ── Audit regressions: ghGetHistoryItem pullRequest ─────────────────────────
 
 #[tokio::test]
 async fn gh_get_history_item_pull_request_without_content_passes_output_contract() {
     // Regression: the per-row `next` menu omitted required pageSize, so every
     // plain PR fetch tripped outputContractViolation. The summary row carries
-    // no body: a multibyte body rides the file-list read instead.
+    // a body preview: the multibyte body rides the file-list read whole.
     let server = MockServer::start().await;
     let body = "修复并发缓冲区的内存泄漏问题。".repeat(60);
     Mock::given(method("GET"))
@@ -842,16 +1092,20 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
         outcome.structured_content
     );
     let pr = &row_data(&outcome)["pullRequests"][0];
+    // The summary previews the body (whole multibyte chars); the file-list
+    // read carries it whole.
+    assert!(pr.get("body").is_none(), "{pr}");
+    let preview = pr["bodyPreview"].as_str().expect("preview");
     assert!(
-        pr.get("body").is_none() && pr.get("bodyPreview").is_none(),
+        preview.starts_with("修复并发") && preview.ends_with('…'),
         "{pr}"
     );
     // The body rides the file-list read.
-    let get_body = &pr["hints"]["getChangedFiles"]["query"];
+    let get_body = &row_data(&outcome)["hints"]["readFiles"]["query"]["queries"][0];
     // Continuations omit defaulted fields; validation restores them on replay.
     assert!(get_body.get("pageSize").is_none(), "{get_body}");
     assert!(get_body.get("minify").is_none(), "{get_body}");
-    assert_eq!(get_body["include"], json!(["files", "body"]), "{get_body}");
+    assert_eq!(get_body["sections"], json!(["body", "files"]), "{get_body}");
     let replayed = octocode_native::contracts::validate_query("ghGetHistoryItem", get_body.clone())
         .expect("compact continuation validates");
     // pageSize has no contract default: each surface sizes its own page.
@@ -880,7 +1134,7 @@ async fn history_repository_without_owner_is_rejected_before_provider_requests()
     assert_eq!(issues[0].rule_id, "history.repository-scope");
     assert_eq!(
         serde_json::to_value(&issues[0].path).unwrap(),
-        json!(["owner"])
+        json!(["queries", "0", "owner"])
     );
     assert!(issues[0].message.contains("repo requires owner"));
     let payload = outcome.payload.as_ref().expect("transport error payload");
@@ -1089,7 +1343,7 @@ async fn gh_get_file_content_on_directory_returns_tree_recovery() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"a","repo":"b","path":"src","branch":"main","forceRefresh":true}),
+        json!({"owner":"a","repo":"b","path":"src","ref":"main","forceRefresh":true}),
     )
     .await
     .expect("directory read is a row error, not a contract violation");
@@ -1107,7 +1361,10 @@ async fn gh_get_file_content_on_directory_returns_tree_recovery() {
             .contains("is a directory"),
         "{data}"
     );
-    assert_eq!(data["hints"]["viewTree"]["query"]["path"], "src", "{data}");
+    assert_eq!(
+        data["hints"]["viewTree"]["query"]["queries"][0]["path"], "src",
+        "{data}"
+    );
     runtime.close().await;
 }
 
@@ -1135,17 +1392,17 @@ async fn gh_file_read_of_binary_content_reports_size_and_blob() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"a","repo":"b","path":"icon.png","branch":sha,"forceRefresh":true}),
+        json!({"owner":"a","repo":"b","path":"icon.png","ref":sha,"forceRefresh":true}),
     )
     .await
     .expect("error row");
     let data = row_data(&outcome);
-    assert_eq!(data["errorCode"], "validation", "{data}");
+    assert_eq!(data["errorCode"], "invalidInput", "{data}");
     let message = data["error"].as_str().unwrap_or_default();
     assert!(message.contains("12 bytes"), "{data}");
     assert!(message.contains(&blob), "{data}");
     assert!(
-        octocode_native::runtime::response::is_invalid_input_code("validation"),
+        octocode_native::response::rows::is_invalid_input_code("invalidInput"),
         "binary reads must exit as caller errors"
     );
     runtime.close().await;
@@ -1203,31 +1460,32 @@ async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
     }
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let read = |file: &str| json!({"owner":"a","repo":"b","path":file,"branch":"main","forceRefresh":true});
+    let read =
+        |file: &str| json!({"owner":"a","repo":"b","path":file,"ref":"main","forceRefresh":true});
     let outcome = call(&runtime, "ghGetFileContent", read("Tokio/src/lib.rs"))
         .await
         .expect("error row");
     let data = row_data(&outcome);
     assert_eq!(data["errorCode"], "notFound", "{data}");
     assert_eq!(
-        data["hints"]["readFile"]["query"]["path"], "tokio/src/lib.rs",
+        data["hints"]["read"]["query"]["queries"][0]["path"], "tokio/src/lib.rs",
         "{data}"
     );
     assert_eq!(
-        data["hints"]["readFile"]["query"]["branch"], "main",
+        data["hints"]["read"]["query"]["queries"][0]["ref"], "main",
         "{data}"
     );
     assert_eq!(
-        data["hints"]["viewTree"]["query"]["path"], "tokio/src",
+        data["hints"]["viewTree"]["query"]["queries"][0]["path"], "tokio/src",
         "{data}"
     );
     let outcome = call(&runtime, "ghGetFileContent", read("tokio/src/nope.rs"))
         .await
         .expect("error row");
     let data = row_data(&outcome);
-    assert!(data["hints"].get("readFile").is_none(), "{data}");
+    assert!(data["hints"].get("read").is_none(), "{data}");
     assert_eq!(
-        data["hints"]["viewTree"]["query"]["path"], "tokio/src",
+        data["hints"]["viewTree"]["query"]["queries"][0]["path"], "tokio/src",
         "{data}"
     );
     // R4: a hint is not proof, so no continuation carries confidence:"exact".
@@ -1280,7 +1538,7 @@ async fn gh_structure_of_a_missing_path_recovers_to_the_nearest_directory() {
     }
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
-    let tree = |dir: &str| json!({"owner":"a","repo":"b","path":dir,"branch":"main"});
+    let tree = |dir: &str| json!({"owner":"a","repo":"b","path":dir,"ref":"main"});
     for (requested, nearest) in [
         ("src/nope", "src"),
         ("src/tools", "src/Tools"),
@@ -1299,11 +1557,11 @@ async fn gh_structure_of_a_missing_path_recovers_to_the_nearest_directory() {
         assert_eq!(data["errorCode"], "notFound", "{data}");
         assert_eq!(data["hints"]["viewTree"]["tool"], "ghStructure", "{data}");
         assert_eq!(
-            data["hints"]["viewTree"]["query"]["path"], nearest,
+            data["hints"]["viewTree"]["query"]["queries"][0]["path"], nearest,
             "{data}"
         );
         assert_eq!(
-            data["hints"]["viewTree"]["query"]["branch"], "main",
+            data["hints"]["viewTree"]["query"]["queries"][0]["ref"], "main",
             "{data}"
         );
         // R4: a hint is not proof, so no continuation carries confidence:"exact".
@@ -1344,6 +1602,17 @@ async fn gh_search_concise_repositories_are_contract_valid() {
     .await
     .expect("concise repositories");
     assert_eq!(row_data(&outcome)["repositories"], json!(["o/r"]));
+    // The top repository's tree lead is a hint, not a page.
+    let lead = &row_data(&outcome)["hints"]["viewRepo"];
+    assert_eq!(lead["tool"], "ghStructure", "{}", row_data(&outcome));
+    assert_eq!(
+        (
+            &lead["query"]["queries"][0]["owner"],
+            &lead["query"]["queries"][0]["repo"]
+        ),
+        (&json!("o"), &json!("r"))
+    );
+    assert!(row_data(&outcome).get("next").is_none());
     runtime.close().await;
 }
 
@@ -1379,7 +1648,7 @@ async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_process
         let outcome = call(
             &runtime,
             "ghGetFileContent",
-            json!({"owner": "a", "repo": "b", "path": name, "branch": sha, "forceRefresh": true}),
+            json!({"owner": "a", "repo": "b", "path": name, "ref": sha, "forceRefresh": true}),
         )
         .await
         .expect("row-level error");
@@ -1441,7 +1710,7 @@ async fn anonymous_rate_limit_advises_authentication() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner": "a", "repo": "b", "path": "x.rs", "branch": sha, "forceRefresh": true}),
+        json!({"owner": "a", "repo": "b", "path": "x.rs", "ref": sha, "forceRefresh": true}),
     )
     .await
     .expect("row-level error");
@@ -1505,7 +1774,7 @@ async fn gh_get_history_item_capped_file_scan_is_not_a_complete_count() {
     runtime.close().await;
 }
 
-// ── Validation-bench regressions (2026-09-30) ───────────────────────────────
+// ── Validation-bench regressions ───────────────────────────────
 
 /// Every hint string anywhere in a row.
 fn all_hints(value: &serde_json::Value) -> Vec<String> {
@@ -1553,8 +1822,8 @@ async fn github_recovery_hints_are_never_cut_mid_sentence() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     for query in [
-        json!({"owner":"a","repo":"b","path":"README.md","branch":"locked","debug":false}),
-        json!({"owner":"a","repo":"b","path":"img.png","branch":sha,"debug":false}),
+        json!({"owner":"a","repo":"b","path":"README.md","ref":"locked","debug":false}),
+        json!({"owner":"a","repo":"b","path":"img.png","ref":sha,"debug":false}),
     ] {
         let outcome = call(&runtime, "ghGetFileContent", query)
             .await
@@ -1603,6 +1872,45 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
     runtime.close().await;
 }
 
+/// A failed read's provider status, retry flag, request id and
+/// documentation link are support diagnostics (debug field class): a
+/// default row drops them; `debug: true` keeps them.
+#[tokio::test]
+async fn gh_file_error_keeps_provider_diagnostics_for_debug_only() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/src%2Fmissing.rs"))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .insert_header("x-github-request-id", "R1")
+                .set_body_json(json!({
+                    "message":"Not Found",
+                    "documentation_url":"https://docs.github.com/rest/repos/contents#get-repository-content"
+                })),
+        )
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    for debug in [false, true] {
+        let outcome = call(
+            &runtime,
+            "ghGetFileContent",
+            json!({"owner":"a","repo":"b","path":"src/missing.rs","ref":sha,"debug":debug}),
+        )
+        .await
+        .expect("error row");
+        let data = row_data(&outcome);
+        assert_eq!(data["errorCode"], "notFound", "{data}");
+        assert_eq!(data.get("httpStatus").is_some(), debug, "{data}");
+        assert_eq!(data.get("retryable").is_some(), debug, "{data}");
+        assert_eq!(data.get("requestId").is_some(), debug, "{data}");
+        assert_eq!(data.get("documentationUrl").is_some(), debug, "{data}");
+    }
+    runtime.close().await;
+}
+
 /// D11: a pull-request read of a number that is an issue offers the issue
 /// read instead of a generic not-found.
 #[tokio::test]
@@ -1631,7 +1939,7 @@ async fn gh_pull_request_read_of_an_issue_number_offers_read_issue() {
     .expect("error row");
     let data = row_data(&outcome);
     assert_eq!(row_status(&outcome), "error", "{data}");
-    let read = &data["hints"]["readIssue"]["query"];
+    let read = &data["hints"]["readIssue"]["query"]["queries"][0];
     assert_eq!(read["operation"], "issue", "{data}");
     assert_eq!(read["number"], 9, "{data}");
     assert!(
@@ -1693,16 +2001,16 @@ async fn compare_pages_carry_one_collection_each_and_pin_both_refs() {
     let data = row_data(&first).clone();
     assert_eq!(data["head"], HEAD_SHA, "{data}");
     assert_eq!(data["base"], BASE_SHA, "{data}");
-    assert_ne!(data["filesPagination"]["countScope"], "complete", "{data}");
+    assert_ne!(data["filePagination"]["countScope"], "complete", "{data}");
     // The commit list carries each whole message, not its headline.
     assert_eq!(
         data["commits"][0]["message"], "c0\n\nWhy: detail 0",
         "{data}"
     );
-    let commit_page = data["next"]["nextPage"]["query"].clone();
+    let commit_page = data["next"]["nextPage"]["query"]["queries"][0].clone();
     assert!(commit_page.get("filePage").is_none(), "{commit_page}");
     assert_eq!(commit_page["head"], HEAD_SHA, "{commit_page}");
-    let file_page = data["next"]["nextFilePage"]["query"].clone();
+    let file_page = data["next"]["nextFilePage"]["query"]["queries"][0].clone();
     assert_eq!(file_page["head"], HEAD_SHA, "{file_page}");
 
     let files = call(&runtime, "ghGetHistoryItem", file_page)
@@ -1729,6 +2037,158 @@ async fn compare_pages_carry_one_collection_each_and_pin_both_refs() {
         Some(50),
         "{commits}"
     );
+    runtime.close().await;
+}
+
+/// A path scope past GitHub's 300-file compare list is not "unchanged": the
+/// row warns and leads to the path's commits up to the pinned head.
+#[tokio::test]
+async fn capped_compare_with_a_path_leads_to_the_path_history() {
+    let server = MockServer::start().await;
+    mount_capped_compare(&server).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let out = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"compare","owner":"a","repo":"b","base":"v1","head":"v2","path":"lib/late.rs","debug":false}),
+    )
+    .await
+    .expect("compare");
+    let data = row_data(&out).clone();
+    assert_eq!(data["files"], json!([]), "{data}");
+    let lead = &data["hints"]["narrowScope"];
+    assert_eq!(lead["tool"], "ghSearchHistory", "{data}");
+    let row = &lead["query"]["queries"][0];
+    assert_eq!(row["operation"], "commit", "{data}");
+    assert_eq!(row["path"], "lib/late.rs", "{data}");
+    assert_eq!(row["ref"], HEAD_SHA, "{data}");
+    assert!(
+        data["warnings"].to_string().contains("lib/late.rs"),
+        "{data}"
+    );
+    // FIX §0 #3: the range's commit list is not path-scoped, so it names
+    // each commit by its headline only.
+    let commit = &data["commits"][0];
+    assert_eq!(commit["messageHeadline"], "c0", "{data}");
+    assert!(commit.get("message").is_none(), "{data}");
+    runtime.close().await;
+}
+
+/// E17: a commit's patch view names the commit by its headline once; the
+/// full message is one `readCommit` lead away.
+#[tokio::test]
+async fn commit_patch_view_carries_the_headline_not_the_whole_message() {
+    let server = MockServer::start().await;
+    let sha = "abc123def456abc123def456abc123def456abc1";
+    let message = format!("Fix the parser (#42)\n\n{}", "Long rationale. ".repeat(400));
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/commits/{sha}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": sha,
+            "commit": {"message": message, "author": {"name": "A", "date": "2024-01-01T00:00:00Z"}},
+            "files": [{"filename": "src/a.rs", "status": "modified", "additions": 1, "deletions": 1,
+                       "patch": "@@ -1 +1 @@\n-a\n+b"}]
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"sections":["patches"],"debug":false}),
+    )
+    .await
+    .expect("commit patches");
+    let data = row_data(&outcome);
+    assert!(data.get("message").is_none(), "{data}");
+    assert_eq!(data["messageHeadline"], "Fix the parser (#42)", "{data}");
+    assert!(!data.to_string().contains("Long rationale"), "{data}");
+    let lead = &data["hints"]["readCommit"];
+    assert_eq!(lead["tool"], "ghGetHistoryItem", "{data}");
+    assert!(
+        lead["query"]["queries"][0].get("sections").is_none(),
+        "{data}"
+    );
+    runtime.close().await;
+}
+
+/// E18: an issue comment page fits one response page: the comments that
+/// fit are shown, and the one comment cursor resumes exactly at the first
+/// unshown comment (no second, response-level cursor).
+#[tokio::test]
+async fn issue_comment_pages_fit_the_response_with_one_cursor() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/7"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 7, "title": "Big thread", "state": "open", "body": "repro",
+            "user": {"login": "alice"}, "labels": [], "comments": 30,
+            "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-09-25T00:00:00Z"
+        })))
+        .mount(&server)
+        .await;
+    let comments = (0..30)
+        .map(|n| json!({"id": n, "user": {"login": "bob"}, "body": format!("comment {n} {}", "x".repeat(900)),
+                        "created_at": "2026-09-21T00:00:00Z", "updated_at": "2026-09-21T00:00:00Z"}))
+        .collect::<Vec<_>>();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/7/comments"))
+        .and(query_param("page", "1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!(comments)))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"queries":[{"operation":"issue","owner":"a","repo":"b","number":7,
+               "sections":["comments"],"pageSize":30,"debug":false}],"responseLength":12000}),
+    )
+    .await
+    .expect("issue comments");
+    let structured = &outcome.structured_content;
+    assert!(
+        structured
+            .get("responsePagination")
+            .is_none_or(|page| page["hasMore"] != true),
+        "{structured}"
+    );
+    let data = row_data(&outcome);
+    let shown = data["issues"][0]["comments"].as_array().map_or(0, Vec::len);
+    assert!((1..30).contains(&shown), "{shown}: {data}");
+    let next = &data["next"]["nextCommentPage"]["query"]["queries"][0];
+    let (page, size) = (
+        next["commentPage"].as_u64().expect("page"),
+        next["pageSize"].as_u64().expect("size"),
+    );
+    assert_eq!((page - 1) * size, shown as u64, "{data}");
+    // Each comment's whole body restates no window.
+    assert!(!data.to_string().contains("bodyPagination"), "{data}");
+    runtime.close().await;
+}
+
+/// A comparison's patch window past the first carries files only: the
+/// commit list rode the first window with its own page cursor.
+#[tokio::test]
+async fn compare_patch_windows_do_not_resend_the_commit_list() {
+    let server = MockServer::start().await;
+    mount_capped_compare(&server).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let hop = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"compare","owner":"a","repo":"b","base":"v1","head":"v2",
+               "pageSize":100,"sections":["patches"],"offset":5,"debug":false}),
+    )
+    .await
+    .expect("compare hop");
+    let data = row_data(&hop);
+    assert!(data.get("commits").is_none(), "{data}");
+    assert!(data["next"].get("nextPage").is_none(), "{data}");
     runtime.close().await;
 }
 
@@ -1761,13 +2221,13 @@ async fn path_scoped_commit_labels_whole_commit_totals() {
     .await
     .expect("commit");
     let data = row_data(&outcome);
-    assert_eq!(data["changedFiles"], 1, "{data}");
+    assert_eq!(data["changedFilesCount"], 1, "{data}");
     assert!(
         data.get("additions").is_none(),
         "unlabeled whole-commit total: {data}"
     );
     assert_eq!(data["commitTotals"]["additions"], 30, "{data}");
-    assert_eq!(data["commitTotals"]["changedFiles"], 2, "{data}");
+    assert_eq!(data["commitTotals"]["changedFilesCount"], 2, "{data}");
     runtime.close().await;
 }
 
@@ -1794,7 +2254,7 @@ async fn gh_full_content_first_page_stays_under_the_host_output_cap() {
     let outcome = call(
         &runtime,
         "ghGetFileContent",
-        json!({"owner":"a","repo":"b","path":"src/big.rs","branch":sha,"fullContent":true,"debug":false}),
+        json!({"owner":"a","repo":"b","path":"src/big.rs","ref":sha,"fullContent":true,"debug":false}),
     )
     .await
     .expect("full content");
@@ -1813,7 +2273,7 @@ async fn gh_full_content_first_page_stays_under_the_host_output_cap() {
 }
 
 /// An issue read lists the pull requests that closed it
-/// (merged first) and offers the merged fix as `next.readFixPr`; without
+/// (merged first) and offers the merged fix as `next.readFixPullRequest`; without
 /// GraphQL the read falls back to the keyword search hop.
 #[tokio::test]
 async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
@@ -1858,10 +2318,13 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
         ]),
         "{data}"
     );
-    let read = &data["hints"]["readFixPr"];
+    let read = &data["hints"]["readFixPullRequest"];
     assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
-    assert_eq!(read["query"]["operation"], "pullRequest", "{data}");
-    assert_eq!(read["query"]["number"], 13825, "{data}");
+    assert_eq!(
+        read["query"]["queries"][0]["operation"], "pullRequest",
+        "{data}"
+    );
+    assert_eq!(read["query"]["queries"][0]["number"], 13825, "{data}");
     runtime.close().await;
 
     // GraphQL unavailable: no closedBy, the search hop instead.
@@ -1884,9 +2347,13 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
     .expect("issue read");
     let data = row_data(&outcome);
     assert!(data["issues"][0].get("closedBy").is_none(), "{data}");
-    let find = &data["hints"]["findFixPr"];
+    let find = &data["hints"]["findFixPullRequest"];
     assert_eq!(find["tool"], "ghSearchHistory", "{data}");
-    assert_eq!(find["query"]["keywords"], json!(["42"]), "{data}");
+    assert_eq!(
+        find["query"]["queries"][0]["keywords"],
+        json!(["42"]),
+        "{data}"
+    );
     runtime.close().await;
 }
 
@@ -1920,7 +2387,7 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let mut query = json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42,
-        "charLength": 5, "debug": false});
+        "length": 5, "debug": false});
     let mut bodies = Vec::new();
     for window in 0..3 {
         let outcome = call(&runtime, "ghGetHistoryItem", query.clone())
@@ -1951,11 +2418,17 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
         let warning = data["warnings"][0].as_str().unwrap_or_default();
         assert!(warning.contains("25 of 31"), "window {window}: {data}");
         if window < 2 {
+            // `partialReasons` say why the row is partial; the page line
+            // still names the continuation that reaches the remaining body.
+            assert!(
+                data["next"]["continueBody"].is_object(),
+                "window {window}: {data}"
+            );
             assert!(
                 data["warnings"]
                     .to_string()
-                    .contains("more body chars: follow next.continueBody"),
-                "window {window} names its remaining body: {data}"
+                    .contains("follow next.continueBody"),
+                "window {window}: {data}"
             );
         }
         if window == 0 {
@@ -1966,7 +2439,7 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
             );
         } else {
             assert!(data["issues"][0].get("closedBy").is_none(), "{data}");
-            assert!(data["hints"].get("readFixPr").is_none(), "{data}");
+            assert!(data["hints"].get("readFixPullRequest").is_none(), "{data}");
         }
         match data["next"]["continueBody"]["query"].as_object() {
             Some(next) => query = serde_json::Value::Object(next.clone()),
@@ -2031,7 +2504,7 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
     let out = call(
         &runtime,
         "ghSearchCode",
-        json!({"owner":"a","repo":"b","keywords":["class"],"path":"pkg","branch":"dev"}),
+        json!({"owner":"a","repo":"b","keywords":["class"],"path":"pkg","ref":"dev"}),
     )
     .await
     .expect("search");
@@ -2044,8 +2517,8 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
     );
     let lead = &data["hints"]["viewRepo"];
     assert_eq!(lead["tool"], "ghStructure", "{data}");
-    assert_eq!(lead["query"]["branch"], at_ref, "{data}");
-    assert_eq!(lead["query"]["path"], "pkg", "{data}");
+    assert_eq!(lead["query"]["queries"][0]["ref"], at_ref, "{data}");
+    assert_eq!(lead["query"]["queries"][0]["path"], "pkg", "{data}");
     assert_eq!(
         data["hints"]
             .as_object()
@@ -2054,5 +2527,344 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
         Some("viewRepo"),
         "{data}"
     );
+    runtime.close().await;
+}
+
+// ── H lane: numbered sides, side reads, compare scope, comment pages ───────
+
+/// Patch gutters number each line on the side of its sign (` `/`+`: the
+/// commit, `-`: its first parent); `readAtCommit` reads the top file whole
+/// at the commit and `readParent` reads its old-side hunk windows at the
+/// parent, so a gutter number is a direct `ranges` entry on its side.
+#[tokio::test]
+async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
+    let server = MockServer::start().await;
+    let sha = "abc123def456abc123def456abc123def456abc1";
+    let parent = "9999999def456abc123def456abc123def456abc";
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/commits/{sha}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": sha, "parents": [{"sha": parent}],
+            "commit": {"message": "Fix f", "author": {"name": "A", "date": "2024-01-01T00:00:00Z"}},
+            "files": [{"filename": "src/a.rs", "status": "modified", "additions": 2, "deletions": 1,
+                       "patch": "@@ -40,3 +60,4 @@ fn f\n a\n-b\n+c\n+d\n e"}]
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"sections":["patches"],"debug":false}),
+    )
+    .await
+    .expect("commit patches");
+    let data = row_data(&outcome);
+    assert_eq!(
+        data["files"][0]["patch"], "@@ -40,3 +60,4 @@ fn f\n60\t a\n41\t-b\n61\t+c\n62\t+d\n63\t e",
+        "{data}"
+    );
+    assert_eq!(
+        data["hints"]["readAtCommit"]["query"],
+        json!({"queries":[{"owner":"a","repo":"b","path":"src/a.rs","ref":sha}]}),
+        "{data}"
+    );
+    assert_eq!(
+        data["hints"]["readParent"]["query"],
+        json!({"queries":[{"owner":"a","repo":"b","path":"src/a.rs","ref":parent,"ranges":["30-52"]}]}),
+        "{data}"
+    );
+    runtime.close().await;
+}
+
+/// A bogus commit SHA (GitHub 422 "No commit found") is a missing commit:
+/// `notFound`, not an invalid query.
+#[tokio::test]
+async fn bad_commit_sha_is_not_found() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/deadbeef"))
+        .respond_with(
+            ResponseTemplate::new(422)
+                .set_body_json(json!({"message":"No commit found for SHA: deadbeef"})),
+        )
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"commit","owner":"a","repo":"b","ref":"deadbeef","debug":false}),
+    )
+    .await
+    .expect("commit row");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "notFound", "{data}");
+    assert!(
+        data["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("Commit not found")),
+        "{data}"
+    );
+    runtime.close().await;
+}
+
+/// `include` scopes a comparison's files like a pull request's; past
+/// GitHub's 300-file compare list a scoped path is disclosed as possibly
+/// missing, with the path's commit history as the lead.
+#[tokio::test]
+async fn compare_include_scopes_files_and_capped_scope_leads_to_path_history() {
+    let server = MockServer::start().await;
+    mount_capped_compare(&server).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let listed = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"compare","owner":"a","repo":"b","base":"v1","head":"v2",
+               "include":["src/f001.rs","src/f2*.rs"],"debug":false}),
+    )
+    .await
+    .expect("compare include");
+    let data = row_data(&listed).clone();
+    assert_eq!(row_status(&listed), "success", "{data}");
+    let files = data["files"].to_string();
+    assert!(
+        files.contains("f001.rs") && files.contains("f200.rs"),
+        "{data}"
+    );
+    assert!(!files.contains("f002.rs"), "{data}");
+    assert_eq!(data["changedFilesCount"], 101, "{data}");
+    let beyond = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"compare","owner":"a","repo":"b","base":"v1","head":"v2",
+               "include":["lib/**"],"debug":false}),
+    )
+    .await
+    .expect("compare include beyond cap");
+    let data = row_data(&beyond).clone();
+    assert!(
+        data["warnings"].to_string().contains("300 changed files"),
+        "{data}"
+    );
+    let row = &data["hints"]["narrowScope"]["query"]["queries"][0];
+    assert_eq!(
+        data["hints"]["narrowScope"]["tool"], "ghSearchHistory",
+        "{data}"
+    );
+    assert_eq!(row["path"], "lib/", "{data}");
+    assert_eq!(row["ref"], HEAD_SHA, "{data}");
+    runtime.close().await;
+}
+
+/// A comparison's patch view reads its top file at the head and at the
+/// merge base (the old side of a three-dot diff).
+#[tokio::test]
+async fn compare_patch_view_reads_head_and_merge_base() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path_regex(format!("^/api/v3/repos/a/b/compare/{BASE_SHA}\\.\\.\\.{HEAD_SHA}$")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status":"ahead","ahead_by":1,"behind_by":0,"total_commits":1,
+            "base_commit":{"sha":BASE_SHA},"merge_base_commit":{"sha":"3333333ccccccccccccccccccccccccccccccccc"},
+            "commits":[{"sha":HEAD_SHA,"commit":{"message":"m","author":{"name":"a","date":"2024-01-01T00:00:00Z"}}}],
+            "files":[{"filename":"src/a.rs","status":"modified","additions":1,"deletions":1,
+                      "patch":"@@ -5,1 +7,1 @@\n-x\n+y"}]
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"compare","owner":"a","repo":"b","base":BASE_SHA,"head":HEAD_SHA,
+               "sections":["patches"],"debug":false}),
+    )
+    .await
+    .expect("compare patches");
+    let data = row_data(&outcome);
+    assert_eq!(
+        data["files"][0]["patch"], "@@ -5,1 +7,1 @@\n5\t-x\n7\t+y",
+        "{data}"
+    );
+    assert_eq!(
+        data["hints"]["readAtCommit"]["query"]["queries"][0]["ref"], HEAD_SHA,
+        "{data}"
+    );
+    let parent = &data["hints"]["readParent"]["query"]["queries"][0];
+    assert_eq!(
+        parent["ref"], "3333333ccccccccccccccccccccccccccccccccc",
+        "{data}"
+    );
+    assert_eq!(parent["ranges"], json!(["1-15"]), "{data}");
+    runtime.close().await;
+}
+
+/// GitHub issue comments paged by `per_page`/`page` from one list.
+struct CommentList(Vec<serde_json::Value>, String);
+
+impl Respond for CommentList {
+    fn respond(&self, request: &Request) -> ResponseTemplate {
+        let param = |name: &str| {
+            request
+                .url
+                .query_pairs()
+                .find(|(key, _)| key == name)
+                .and_then(|(_, value)| value.parse::<usize>().ok())
+        };
+        let per = param("per_page").unwrap_or(30);
+        let page = param("page").unwrap_or(1);
+        let start = (page - 1) * per;
+        let items = self
+            .0
+            .iter()
+            .skip(start)
+            .take(per)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut response = ResponseTemplate::new(200).set_body_json(json!(items));
+        if start + per < self.0.len() {
+            response = response.insert_header(
+                "link",
+                format!(
+                    "<{}/api/v3/repos/a/b/issues/7/comments?per_page={per}&page={}>; rel=\"next\"",
+                    self.1,
+                    page + 1
+                )
+                .as_str(),
+            );
+        }
+        response
+    }
+}
+
+/// A 105-comment issue thread (two bot comments) walked by its own
+/// cursor: every human comment arrives once, hidden bots are counted with
+/// an `includeBots` lead, each page's remainder count is exact, and pages
+/// fill the response budget (few calls).
+#[tokio::test]
+async fn issue_comment_walk_discloses_bots_and_counts_the_rest() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/7"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 7, "title": "Big thread", "state": "open", "body": "repro",
+            "user": {"login": "alice"}, "labels": [], "comments": 105,
+            "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-09-25T00:00:00Z"
+        })))
+        .mount(&server)
+        .await;
+    let comments = (0..105)
+        .map(|n| {
+            let login = if n == 40 || n == 90 { "github-actions[bot]" } else { "bob" };
+            json!({"id": n, "user": {"login": login}, "body": format!("comment {n} {}", "x".repeat(700)),
+                   "created_at": "2026-09-21T00:00:00Z", "updated_at": "2026-09-21T00:00:00Z"})
+        })
+        .collect::<Vec<_>>();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/7/comments"))
+        .respond_with(CommentList(comments, server.uri()))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH", "20000".into()),
+    ]);
+    let mut query = json!({"operation":"issue","owner":"a","repo":"b","number":7,"sections":["comments"],"debug":false});
+    let mut ids = Vec::new();
+    let (mut bots, mut calls, mut bot_lead) = (0, 0, false);
+    loop {
+        calls += 1;
+        assert!(calls <= 20, "walk did not finish");
+        let outcome = call(
+            &runtime,
+            "ghGetHistoryItem",
+            json!({"queries":[query.clone()]}),
+        )
+        .await
+        .expect("comment page");
+        let structured = &outcome.structured_content;
+        assert!(
+            structured.get("responsePagination").is_none(),
+            "{structured}"
+        );
+        let data = row_data(&outcome).clone();
+        let issue = &data["issues"][0];
+        assert!(issue["comments"].is_array(), "call {calls}: {data}");
+        for comment in issue["comments"].as_array().into_iter().flatten() {
+            assert!(comment.get("commentType").is_none(), "{comment}");
+            assert!(comment.get("updatedAt").is_none(), "{comment}");
+            ids.push(comment["id"].as_str().expect("id").to_owned());
+        }
+        let page = &issue["contentPagination"]["comments"];
+        bots += page["botsHidden"].as_u64().unwrap_or(0);
+        bot_lead |= data["hints"]["includeBots"]["query"]["queries"][0]["includeBots"] == true;
+        let consumed = ids.len() as u64 + bots;
+        match data["next"]["nextCommentPage"]["query"]["queries"][0].as_object() {
+            Some(next) => {
+                let left = 105 - consumed;
+                assert!(
+                    data["warnings"]
+                        .to_string()
+                        .contains(&format!("{left} more comments")),
+                    "consumed {consumed}: {data}"
+                );
+                query = serde_json::Value::Object(next.clone());
+            }
+            None => break,
+        }
+    }
+    let unique = ids.iter().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!((ids.len(), unique.len(), bots), (103, 103, 2));
+    assert!(bot_lead, "no includeBots lead");
+    // ~73 KB of comments at a 20k page: budget-filled pages.
+    assert!(calls <= 5, "{calls} calls");
+    runtime.close().await;
+}
+
+/// A PR summary previews its body (template comments minified away) and
+/// leads to the whole body.
+#[tokio::test]
+async fn pr_summary_previews_the_body() {
+    let server = MockServer::start().await;
+    let body = format!(
+        "<!-- template: describe the change -->\nFixes the cache race.\n\n{}",
+        "Details. ".repeat(100)
+    );
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/pulls/7"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 7, "title": "Fix cache", "state": "open", "draft": false, "body": body,
+            "user": {"login": "bob"}, "head": {"sha": "def456", "ref": "feat"}, "base": {"ref": "main"},
+            "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-02T00:00:00Z",
+            "changed_files": 2, "additions": 3, "deletions": 1
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 7}),
+    )
+    .await
+    .expect("PR summary");
+    let data = row_data(&outcome);
+    let preview = data["pullRequests"][0]["bodyPreview"]
+        .as_str()
+        .expect("preview");
+    assert!(preview.starts_with("Fixes the cache race."), "{preview}");
+    assert!(
+        preview.ends_with('…') && preview.chars().count() <= 301,
+        "{preview}"
+    );
+    let leads = data["hints"].to_string();
+    assert!(leads.contains("\"body\""), "no whole-body read: {data}");
     runtime.close().await;
 }

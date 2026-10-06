@@ -4,7 +4,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use super::extract_graph_facts_inner;
+use super::tests::extract_graph_facts_inner;
 
 const TRIALS: usize = 9;
 const ITERATIONS: usize = 80;

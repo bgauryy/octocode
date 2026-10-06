@@ -118,11 +118,11 @@ mod tests {
 
     #[test]
     fn reserve_ignores_free_text_and_cursor_fields() {
-        let first = json!({"mainGoal": "g", "reasoning": "r", "path": "src", "searchText": "x"});
+        let first = json!({"mainGoal": "g", "reasoning": "r", "path": "src", "matchString": "x"});
         let later = json!({"mainGoal": "a much longer goal", "reasoning": "reworded",
-            "path": "src", "searchText": "x", "page": 7, "snapshot": "lexical-live-v1:abc"});
+            "path": "src", "matchString": "x", "page": 7, "snapshot": "lexical-live-v1:abc"});
         assert_eq!(reserve_chars(&first, 2), reserve_chars(&later, 2));
-        let wider = json!({"path": "src", "searchText": "a longer search"});
+        let wider = json!({"path": "src", "matchString": "a longer search"});
         assert!(reserve_chars(&wider, 2) > reserve_chars(&first, 2));
     }
 }

@@ -13,7 +13,9 @@ use std::hint::black_box;
 use std::time::Duration;
 
 use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
-use octocode_engine::portable::{extract_declarations, structural_search_detailed};
+use octocode_engine::portable::{
+    extract_declarations, extract_graph_facts, structural_search_detailed,
+};
 
 /// Build a realistic TypeScript module of roughly `blocks` service methods,
 /// each with a `console.log(...)` call site the pattern will match, plus enough
@@ -94,9 +96,39 @@ fn bench_exported_declarations(c: &mut Criterion) {
     group.finish();
 }
 
+fn rust_source(blocks: usize) -> String {
+    let mut out = String::from("use std::collections::HashMap;\n\n");
+    for i in 0..blocks {
+        out.push_str(&format!(
+            "/// Handler {i}.\npub fn handle{i}(map: &HashMap<String, u32>) -> u32 {{\n    \
+             let total = map.values().sum::<u32>();\n    \
+             helper{i}(total)\n\
+             }}\n\nfn helper{i}(value: u32) -> u32 {{\n    value + {i}\n}}\n\n"
+        ));
+    }
+    out
+}
+
+fn bench_graph_facts(c: &mut Criterion) {
+    let mut group = c.benchmark_group("graph_facts");
+    group.sample_size(10);
+    group.warm_up_time(Duration::from_millis(500));
+    group.measurement_time(Duration::from_secs(2));
+    for (label, file, source) in [
+        ("oxc_ts_1000", "service.ts", typescript_source(1_000)),
+        ("tree_sitter_rs_2000", "service.rs", rust_source(2_000)),
+    ] {
+        group.bench_with_input(BenchmarkId::from_parameter(label), &source, |b, source| {
+            b.iter(|| black_box(extract_graph_facts(black_box(source), file).expect("facts")));
+        });
+    }
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_structural_search,
-    bench_exported_declarations
+    bench_exported_declarations,
+    bench_graph_facts
 );
 criterion_main!(benches);

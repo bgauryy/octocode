@@ -3,18 +3,9 @@ use super::dotenv::{
 };
 use super::loader::load_config;
 use super::types::*;
-use super::validation::config_issues;
+use super::validation::{config_issues, get_path, is_http_url, is_local_path};
 use serde_json::{Number, Value, json};
 use std::collections::BTreeMap;
-use std::path::Path;
-
-fn get_path<'a>(root: &'a Value, field_path: &str) -> Option<&'a Value> {
-    let mut current = root;
-    for part in field_path.split('.') {
-        current = current.as_object()?.get(part)?;
-    }
-    Some(current)
-}
 
 fn set_path(root: &mut Value, field_path: &str, value: Value) -> Result<(), String> {
     let parts = field_path.split('.').collect::<Vec<_>>();
@@ -37,24 +28,6 @@ fn set_path(root: &mut Value, field_path: &str, value: Value) -> Result<(), Stri
     Ok(())
 }
 
-fn is_http_url(value: &str) -> bool {
-    matches!(url::Url::parse(value), Ok(url) if matches!(url.scheme(), "http" | "https"))
-}
-
-fn is_local_path(value: &str) -> bool {
-    let windows_absolute = value.as_bytes().get(1) == Some(&b':')
-        && value
-            .as_bytes()
-            .get(2)
-            .is_some_and(|separator| matches!(separator, b'/' | b'\\'));
-    let absolute_or_home = Path::new(value).is_absolute()
-        || value == "~"
-        || value.starts_with("~/")
-        || value.starts_with("~\\")
-        || windows_absolute;
-    absolute_or_home && !value.split(['/', '\\']).any(|part| part == "..")
-}
-
 fn normalize_string(value: &str, normalize: Option<ConfigNormalize>) -> String {
     let trimmed = value.trim();
     match normalize {
@@ -63,7 +36,7 @@ fn normalize_string(value: &str, normalize: Option<ConfigNormalize>) -> String {
     }
 }
 
-fn parse_candidate(
+pub(super) fn parse_candidate(
     field: &ConfigFieldSpec,
     raw: &Value,
     from_environment: bool,
@@ -193,20 +166,7 @@ fn resolve_fields(
                 .find_map(|raw| parse_candidate(field, raw, false, None));
         }
 
-        if selected.is_none() {
-            selected = if let Some(source) = field.default_from {
-                get_path(&resolved, source).cloned()
-            } else {
-                Some(default)
-            };
-        }
-        let value = selected.ok_or_else(|| {
-            format!(
-                "generated default dependency for {} could not be resolved",
-                field.path
-            )
-        })?;
-        set_path(&mut resolved, field.path, value)?;
+        set_path(&mut resolved, field.path, selected.unwrap_or(default))?;
     }
 
     serde_json::from_value(resolved)
@@ -259,24 +219,24 @@ fn apply_credential_file_fallbacks(files: &[&Value], effective: &mut BTreeMap<St
 /// bindings may come from a workspace `.env` — the same trust boundary, so a
 /// checked-out repository gains no power through one file it lacks via the
 /// other.
-/// A workspace file may still set a persistence field to its safe value
-/// (`memory`): protection stops it widening persistence, not opting out.
-fn workspace_narrows_storage(value: &Value, field_path: &str) -> bool {
-    let env_key = match field_path {
-        "storage.mode" => "OCTOCODE_STORAGE_MODE",
-        "extension.storage.mode" => "OCTOCODE_EXTENSION_STORAGE_MODE",
-        _ => return false,
-    };
-    get_path(value, field_path)
-        .and_then(Value::as_str)
-        .is_some_and(|mode| super::dotenv::workspace_may_narrow(env_key, mode))
-}
-
 pub(super) fn workspace_file_allowed(field: &ConfigFieldSpec) -> bool {
     !field
         .env
         .iter()
         .any(|binding| PROTECTED_KEYS.contains(&binding.name))
+}
+
+/// A workspace file may still set a protected field to a value its
+/// environment binding may narrow to (`storage.mode: memory`): protection
+/// stops it widening, not opting out.
+pub(super) fn workspace_setting_allowed(field: &ConfigFieldSpec, value: &Value) -> bool {
+    workspace_file_allowed(field)
+        || value.as_str().is_some_and(|value| {
+            field
+                .env
+                .iter()
+                .any(|binding| super::dotenv::workspace_may_narrow(binding.name, value))
+        })
 }
 
 #[cfg(test)]
@@ -387,11 +347,8 @@ fn load_layer(
         ));
     }
     if workspace {
-        for field in CONFIG_FIELDS
-            .iter()
-            .filter(|field| !workspace_file_allowed(field))
-        {
-            if workspace_narrows_storage(&value, field.path) {
+        for field in CONFIG_FIELDS.iter() {
+            if get_path(&value, field.path).is_none_or(|v| workspace_setting_allowed(field, v)) {
                 continue;
             }
             if remove_path(&mut value, field.path) {
@@ -495,9 +452,6 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         (global_state != LayerState::Absent).then(|| input.config_file.path().clone());
     let project_config_path =
         (project_state != LayerState::Absent).then(|| input.project_config_file.path().clone());
-    let child_env = ChildEnvPlan {
-        set: effective.clone(),
-    };
     ConfigOutput {
         home: super::octocode_home(&input.env, &input.cwd, &input.os_home),
         resolved,
@@ -505,23 +459,16 @@ pub fn resolve_config(input: &ConfigInput) -> ConfigOutput {
         dotenv,
         diagnostics,
         token,
-        child_env,
         source,
         config_path,
         project_config_path,
-        revision: input.revision,
     }
 }
 pub fn get_config_value(resolved: &ResolvedConfig, path: &str) -> Option<Value> {
-    let value = serde_json::to_value(resolved).ok()?;
     if path.is_empty() {
         return None;
     }
-    let mut cur = &value;
-    for p in path.split('.') {
-        cur = cur.as_object()?.get(p)?;
-    }
-    Some(cur.clone())
+    get_path(&serde_json::to_value(resolved).ok()?, path).cloned()
 }
 pub fn is_stats_enabled(resolved: &ResolvedConfig) -> bool {
     resolved.storage.mode == "persistent" && resolved.session.enable_stats
@@ -529,16 +476,8 @@ pub fn is_stats_enabled(resolved: &ResolvedConfig) -> bool {
 pub fn is_persistent_storage_enabled(resolved: &ResolvedConfig) -> bool {
     resolved.storage.mode == "persistent"
 }
-pub fn is_persistent_storage_enabled_for_extension(resolved: &ResolvedConfig) -> bool {
-    resolved.extension.storage.mode == "persistent"
-}
 pub fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> ConfigInspectorData {
-    let home = input
-        .config_file
-        .path()
-        .parent()
-        .unwrap_or(&input.os_home)
-        .to_path_buf();
+    let home = output.home.clone();
     let top_level_keys = |file: &FileInput| -> Vec<String> {
         let mut keys: Vec<String> = load_config(file)
             .config
@@ -591,7 +530,6 @@ pub fn inspector_data(input: &ConfigInput, output: &ConfigOutput) -> ConfigInspe
         project_config_path: output.project_config_path.clone(),
         project_config_keys: top_level_keys(&input.project_config_file),
         diagnostics: output.diagnostics.clone(),
-        revision: output.revision,
     }
 }
 
@@ -631,7 +569,6 @@ mod tests {
                 path: "/synthetic/cwd/.octocode/.octocoderc".into(),
             },
             runtime_surface: RuntimeSurface::Mcp,
-            revision: 1,
         };
         assert_eq!(
             resolve_config(&input(BTreeMap::new())).env_value("OCTOCODE_CLASSIFICATION_API"),

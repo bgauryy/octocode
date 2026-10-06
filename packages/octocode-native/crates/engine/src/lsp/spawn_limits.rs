@@ -10,9 +10,9 @@
 //! memory is sampled every [`MEMORY_WATCHDOG_INTERVAL`] and a tree over the
 //! cap is killed and its connection failed with a clear error.
 
-use crate::error::Result;
 #[cfg(windows)]
-use crate::error::{Error, Status};
+use crate::error::Error;
+use crate::error::Result;
 use std::time::Duration;
 use tokio::process::{Child, Command};
 
@@ -162,13 +162,10 @@ impl MemoryCapGuard {
             return Ok(Self(None));
         };
         let failure = |what: &str| {
-            Error::new(
-                Status::GenericFailure,
-                format!(
-                    "Failed to {what} for the language server process guard: {}",
-                    std::io::Error::last_os_error()
-                ),
-            )
+            Error::new(format!(
+                "Failed to {what} for the language server process guard: {}",
+                std::io::Error::last_os_error()
+            ))
         };
         // Always create a kill-on-close Job Object so the entire server tree is
         // torn down when the guard drops — even when no memory cap is configured

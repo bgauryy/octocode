@@ -1,24 +1,12 @@
 import { afterAll, describe, expect, it } from 'vitest';
-import { DIRECT_TOOL_DEFINITIONS } from '@octocodeai/config/schema';
-import { loadNativeBinding, toolInputSchema } from '../../src/native/index.js';
+import { loadNativeBinding } from '../../src/native/index.js';
 
-// One case list, two surfaces: the MCP message (core Zod issues shaped by
-// validationMessages) and the native CLI details from the real addon must give
-// the same repair guidance. Needs a current native build.
-type Issue = {
-  message: string;
-  path?: ReadonlyArray<PropertyKey | { key: PropertyKey }>;
-};
-type Standard = {
-  '~standard': {
-    validate: (
-      value: unknown
-    ) => { issues?: readonly Issue[] } | Promise<{ issues?: readonly Issue[] }>;
-  };
-};
+// One case list, two surfaces of the real addon: the MCP error text and the
+// CLI error details must give the same repair guidance, because native is the
+// only validator. Needs a current native build.
 type Runtime = {
-  normalizeInput(tool: string, input: unknown): unknown;
   execute(requestId: string, tool: string, input: unknown): Promise<unknown>;
+  executeMcp(requestId: string, tool: string, input: unknown): Promise<unknown>;
   close(): Promise<void>;
 };
 
@@ -26,25 +14,20 @@ const { NativeRuntime } = loadNativeBinding() as unknown as {
   NativeRuntime: new (options: { surface: string }) => Runtime;
 };
 const runtime = new NativeRuntime({ surface: 'cli' });
-afterAll(() => runtime.close());
+const mcpRuntime = new NativeRuntime({ surface: 'mcp' });
+afterAll(() => Promise.all([runtime.close(), mcpRuntime.close()]));
 
-const brief = { goal: 'g', reasoning: 'r' };
+const brief = { mainGoal: 'g', reasoning: 'r' };
 
 const mcpMessage = async (tool: string, input: unknown) => {
-  const definition = DIRECT_TOOL_DEFINITIONS.find(d => d.name === tool)!;
-  const schema = toolInputSchema(definition, value =>
-    runtime.normalizeInput(tool, value)
-  ) as Standard;
-  const result = await schema['~standard'].validate(input);
-  return (result.issues ?? [])
-    .map(issue =>
-      issue.path?.length
-        ? `${issue.path
-            .map(p => String(typeof p === 'object' ? p.key : p))
-            .join('.')}: ${issue.message}`
-        : issue.message
-    )
-    .join(', ');
+  const result = (await mcpRuntime.executeMcp(
+    `mcp-${request++}`,
+    tool,
+    input
+  )) as { isError?: boolean; content?: { text?: string }[] };
+  return result.isError
+    ? (result.content ?? []).map(block => block.text ?? '').join('\n')
+    : '';
 };
 
 let request = 0;
@@ -70,14 +53,14 @@ const cases: ReadonlyArray<{
   {
     name: 'boolean for an on/off enum',
     tool: 'localSearch',
-    query: { path: '.', searchText: 'needle', regex: true },
+    query: { path: '.', matchString: 'needle', regex: true },
     says: ['booleans are not accepted; use "rust"'],
   },
   {
     name: 'number outside its range',
     tool: 'structureSearch',
     query: { path: '.', maxDepth: 50 },
-    says: ['maxDepth: Number is outside the allowed range (0-20)'],
+    says: ['maxDepth: Number is outside the allowed range (1-20)'],
   },
   {
     name: 'a field the published view leaves out',
@@ -86,9 +69,9 @@ const cases: ReadonlyArray<{
       operation: 'pullRequest',
       owner: 'a',
       repo: 'b',
-      mergedAt: '2026-01-01',
+      qualifers: 'author:x',
     },
-    says: ["Remove unknown field 'mergedAt'", "did you mean 'merged-at'?"],
+    says: ["Remove unknown field 'qualifers'", "did you mean 'qualifiers'?"],
   },
   {
     name: 'core-authored required-field guidance',
@@ -117,10 +100,10 @@ const cases: ReadonlyArray<{
     never: ['context.candidateEvidence'],
   },
   {
-    name: 'a path sent to lspSearch',
+    name: 'a misspelled lspSearch path',
     tool: 'lspSearch',
-    query: { path: 'package.json', symbolName: 'name', lineHint: 1 },
-    says: ["did you mean 'uri'?"],
+    query: { pth: 'package.json', symbolName: 'name', lineHint: 1 },
+    says: ["did you mean 'path'?"],
     never: ["did you mean 'page'?"],
   },
   {
@@ -130,7 +113,7 @@ const cases: ReadonlyArray<{
     says: [
       "Remove 'include' from queries[0]: it applies only with pattern or rule",
     ],
-    never: ['namedOnly', 'nodeLimit', 'send queries[0] to localSearch'],
+    never: ['namedOnly', 'send queries[0] to localSearch'],
   },
 ];
 

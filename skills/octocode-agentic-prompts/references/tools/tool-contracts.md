@@ -51,7 +51,7 @@ Keep the older branch when the peer negotiates it. In `2025-11-25`, `structuredC
 | Split owner | same rule in server instructions and a description, worded differently | one owner; delete the copy |
 | Name drift | `path` vs. `directory`, `limit` vs. `maxResults` for one input | one canonical name |
 | Type drift | required in one tool, optional in another, no reason | align or document the difference |
-| Semantic drift | `page` 1-based in one tool, a byte offset in another | one meaning per name (`page`, `charOffset`, `cursor`) |
+| Semantic drift | `page` 1-based in one tool, a byte offset in another | one meaning per name (`page`, `offset`, `length`) |
 | Enum drift | guidance suggests a value the operation rejects | validate against that operation's schema |
 | Phantom next | points to a missing tool, field, or mode | fix the pointer or delete the claim |
 | Silent-failure drift | tools disagree on whether empty proves absence | state it once in server instructions |

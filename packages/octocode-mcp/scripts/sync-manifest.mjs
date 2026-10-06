@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 /**
- * The DXT manifest's `tools` list is derived, never authored: every tool the
- * public catalog exposes over MCP (core policy excludes CLI-only tools), with
- * core's short description and the gate env var from the config contract.
+ * Derived, never authored: the DXT manifest's `tools` list (every tool the
+ * public catalog exposes over MCP, with core's short description and the gate
+ * env var from the config contract) and the release version of manifest.json
+ * and server.json, which is package.json's.
  *
- *   node scripts/sync-manifest.mjs          rewrite manifest.json
- *   node scripts/sync-manifest.mjs --check  fail when manifest.json is stale
+ *   node scripts/sync-manifest.mjs          rewrite manifest.json and server.json
+ *   node scripts/sync-manifest.mjs --check  fail when either is stale
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { configFieldEnvNames } from '@octocodeai/config';
 import { getPublicToolCatalog, TOOL_NAMES } from '@octocodeai/config/schema';
 
-const manifestPath = resolve(import.meta.dirname, '..', 'manifest.json');
 const check = process.argv.includes('--check');
 
 function gateEnv(fieldPath) {
@@ -38,18 +38,40 @@ function manifestTools() {
     .map(tool => ({ name: tool.name, description: describe(tool) }));
 }
 
-const source = readFileSync(manifestPath, 'utf8');
-const manifest = JSON.parse(source);
-const next = `${JSON.stringify({ ...manifest, tools: manifestTools() }, null, 2)}\n`;
+const packageRoot = resolve(import.meta.dirname, '..');
+const { version } = JSON.parse(
+  readFileSync(resolve(packageRoot, 'package.json'), 'utf8')
+);
+const derived = {
+  'manifest.json': manifest => ({
+    ...manifest,
+    version,
+    tools: manifestTools(),
+  }),
+  'server.json': server => ({
+    ...server,
+    version,
+    packages: server.packages.map(entry =>
+      entry.identifier === 'octocode-mcp' ? { ...entry, version } : entry
+    ),
+  }),
+};
 
-if (next === source) {
-  console.log('✓ manifest.json tools match the public catalog');
-} else if (check) {
-  console.error(
-    'manifest.json tools differ from the public catalog; run `node scripts/sync-manifest.mjs` in packages/octocode-mcp.'
-  );
-  process.exit(1);
-} else {
-  writeFileSync(manifestPath, next);
-  console.log('✓ manifest.json tools synced from the public catalog');
+let stale = false;
+for (const [name, derive] of Object.entries(derived)) {
+  const path = resolve(packageRoot, name);
+  const source = readFileSync(path, 'utf8');
+  const next = `${JSON.stringify(derive(JSON.parse(source)), null, 2)}\n`;
+  if (next === source) {
+    console.log(`✓ ${name} matches the public catalog and package version`);
+  } else if (check) {
+    console.error(
+      `${name} differs from the public catalog or package version; run \`node scripts/sync-manifest.mjs\` in packages/octocode-mcp.`
+    );
+    stale = true;
+  } else {
+    writeFileSync(path, next);
+    console.log(`✓ ${name} synced from the public catalog and package version`);
+  }
 }
+if (stale) process.exit(1);

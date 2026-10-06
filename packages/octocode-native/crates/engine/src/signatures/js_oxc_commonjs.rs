@@ -6,7 +6,8 @@ use std::collections::{HashMap, HashSet};
 use oxc_ast::{AstKind, ast::*};
 use oxc_semantic::SemanticBuilder;
 
-use super::js_oxc_shared::{GraphCommonJsLoad, LineIndex, module_export_name};
+use super::js_oxc_shared::{LineIndex, module_export_name};
+use crate::graph::GraphFactCommonJs;
 
 /// Skip scope construction only when OXC's tokens rule out every supported
 /// loader spelling. Comments, regexes, and ordinary prose strings cannot create
@@ -36,7 +37,7 @@ pub(super) fn may_contain_loader(tokens: &[oxc_parser::Token], source: &str) -> 
     })
 }
 
-pub(super) fn collect_common_js_loads(program: &Program, li: &LineIndex) -> Vec<GraphCommonJsLoad> {
+pub(super) fn collect_common_js_loads(program: &Program, li: &LineIndex) -> Vec<GraphFactCommonJs> {
     let semantic = SemanticBuilder::new()
         .with_build_nodes(true)
         .build(program)
@@ -196,8 +197,8 @@ pub(super) fn collect_common_js_loads(program: &Program, li: &LineIndex) -> Vec<
                 }
                 _ => continue,
             },
-            Expression::StaticMemberExpression(member) if member.property.name == "require" => {
-                let Expression::Identifier(identifier) = inner(&member.object) else {
+            callee => {
+                let Some(Expression::Identifier(identifier)) = require_member_object(callee) else {
                     continue;
                 };
                 if identifier.name != "module" || reference_symbol(identifier).is_some() {
@@ -208,20 +209,6 @@ pub(super) fn collect_common_js_loads(program: &Program, li: &LineIndex) -> Vec<
                     module_reassigned(call).then_some("loader-reassigned"),
                 )
             }
-            Expression::ComputedMemberExpression(member) if matches!(inner(&member.expression), Expression::StringLiteral(literal) if literal.value == "require") =>
-            {
-                let Expression::Identifier(identifier) = inner(&member.object) else {
-                    continue;
-                };
-                if identifier.name != "module" || reference_symbol(identifier).is_some() {
-                    continue;
-                }
-                (
-                    "unshadowed-global",
-                    module_reassigned(call).then_some("loader-reassigned"),
-                )
-            }
-            _ => continue,
         };
         let specifier = if loader_reason.is_none() && !call.optional && call.arguments.len() == 1 {
             call.arguments[0]
@@ -237,12 +224,12 @@ pub(super) fn collect_common_js_loads(program: &Program, li: &LineIndex) -> Vec<
         };
         let reason =
             loader_reason.or_else(|| specifier.is_none().then_some("non-literal-specifier"));
-        loads.push(GraphCommonJsLoad {
+        loads.push(GraphFactCommonJs {
             specifier,
             line: li.range(call.span).start.line + 1,
-            kind: "commonjs-require",
-            binding,
-            reason,
+            kind: "commonjs-require".to_owned(),
+            binding: binding.to_owned(),
+            reason: reason.map(str::to_owned),
         });
     }
     loads
@@ -255,4 +242,17 @@ fn is_import_meta_url(expression: &Expression) -> bool {
 
 fn inner<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
     expression.get_inner_expression()
+}
+
+/// The unwrapped object of a `x.require` or `x["require"]` callee.
+fn require_member_object<'a>(callee: &'a Expression<'a>) -> Option<&'a Expression<'a>> {
+    match callee {
+        Expression::StaticMemberExpression(member) if member.property.name == "require" => {
+            Some(inner(&member.object))
+        }
+        Expression::ComputedMemberExpression(member) if matches!(inner(&member.expression), Expression::StringLiteral(literal) if literal.value == "require") => {
+            Some(inner(&member.object))
+        }
+        _ => None,
+    }
 }

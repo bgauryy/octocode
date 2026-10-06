@@ -1,6 +1,6 @@
 # Sources and crates
 
-Load when an idiom or API claim needs an authoritative anchor, or when you choose a library or vet one already in `Cargo.toml`. `rustup doc` serves the canon offline. Vetting rules (std first, upstream source, consent) are in SKILL.md.
+Load when an idiom or API claim needs an authoritative anchor, or when you choose a library or vet one already in `Cargo.toml`. Why: memory and registry popularity are not evidence; upstream source and the canon are. `rustup doc` serves the canon offline. Vetting rules (std first, upstream source, consent) are in SKILL.md.
 
 ## Canonical sources
 

@@ -1,8 +1,8 @@
 //! Bounded large-stack worker pool for recursive parsers and AST walks.
 //!
 //! oxc parse/visit (and the tree-sitter signature recursion) have no depth
-//! guard, so they run on threads with a 64 MB native stack instead of napi's
-//! calling thread. Jobs go to one lazily built rayon pool (`POOL_THREADS`
+//! guard, so they run on threads with a 64 MB native stack instead of the
+//! caller's thread. Jobs go to one lazily built rayon pool (`POOL_THREADS`
 //! workers) rather than a fresh thread per call, so concurrent or timed-out
 //! calls can never grow the thread count past the pool size.
 //!

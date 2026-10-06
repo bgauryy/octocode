@@ -28,15 +28,13 @@ impl CargoCrates {
 // Refresh metadata on every graph build. A root manifest/lock stamp cannot
 // account for member manifests, glob membership, Cargo config, or environment.
 // Keep the bounded offline process; do not cache an incomplete input fingerprint.
-pub(super) fn load_cargo_crates(root: &Path) -> Result<CargoCrates, String> {
+/// `cargo` is the configured `OCTOCODE_CARGO` path; `None` runs `cargo`
+/// from PATH.
+pub(super) fn load_cargo_crates(root: &Path, cargo: Option<&str>) -> Result<CargoCrates, String> {
     const MAX_METADATA_BYTES: usize = 32 * 1024 * 1024;
-    // Resolve cargo from an explicit env-provided path when available rather than
-    // trusting the ambient PATH against an untrusted working directory. `--no-deps`
-    // keeps metadata to the workspace's own crates, cutting work and attack surface.
-    let cargo = std::env::var_os("OCTOCODE_CARGO")
-        .or_else(|| std::env::var_os("CARGO"))
-        .unwrap_or_else(|| std::ffi::OsString::from("cargo"));
-    let mut child = std::process::Command::new(&cargo)
+    // `--no-deps` keeps metadata to the workspace's own crates, cutting work
+    // and attack surface.
+    let mut child = std::process::Command::new(cargo.unwrap_or("cargo"))
         .args([
             "metadata",
             "--format-version",
@@ -115,51 +113,13 @@ fn parse_cargo_crates(root: &Path, value: &serde_json::Value) -> CargoCrates {
         .unwrap_or_default();
     // Collect every library before resolving dependencies: Cargo package order
     // does not imply dependency order. Paths disambiguate versions/renames.
-    let mut libraries: BTreeMap<PathBuf, (String, String, String)> = BTreeMap::new();
-    for package in packages {
-        let Some(manifest) = package["manifest_path"].as_str() else {
-            continue;
-        };
-        let Some(directory) = Path::new(manifest).parent() else {
-            continue;
-        };
-        let Some(name) = package["name"].as_str() else {
-            continue;
-        };
-        for target in package["targets"].as_array().into_iter().flatten() {
-            let library = target["kind"].as_array().into_iter().flatten().any(|kind| {
-                matches!(
-                    kind.as_str(),
-                    Some("lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro")
-                )
-            });
-            if !library {
-                continue;
-            }
-            let (Some(source), Some(crate_name)) =
-                (target["src_path"].as_str(), target["name"].as_str())
-            else {
-                continue;
-            };
-            let Ok(relative) = Path::new(source).strip_prefix(&root) else {
-                continue;
-            };
-            libraries.insert(
-                directory.to_path_buf(),
-                (
-                    name.to_owned(),
-                    crate_name.replace('-', "_"),
-                    normalize(&relative.to_string_lossy()),
-                ),
-            );
-        }
-    }
+    let libraries = packages
+        .iter()
+        .filter_map(|package| package_library(package, &root))
+        .collect::<Libraries>();
     let mut crates = CargoCrates::default();
     for package in packages {
-        let Some(manifest) = package["manifest_path"].as_str() else {
-            continue;
-        };
-        let Some(directory) = Path::new(manifest).parent() else {
+        let Some(directory) = package_dir(package) else {
             continue;
         };
         let scope = if let Ok(relative) = directory.strip_prefix(&root) {
@@ -169,68 +129,139 @@ fn parse_cargo_crates(root: &Path, value: &serde_json::Value) -> CargoCrates {
         } else {
             continue;
         };
-        let mut candidates: BTreeMap<String, BTreeSet<Option<String>>> = BTreeMap::new();
-        if let Some((_, crate_name, source)) = libraries.get(directory) {
-            candidates
-                .entry(crate_name.clone())
-                .or_default()
-                .insert(Some(source.clone()));
-        }
-        for dependency in package["dependencies"].as_array().into_iter().flatten() {
-            let Some(name) = dependency["name"].as_str() else {
-                continue;
-            };
-            let alias = dependency["rename"].as_str();
-            // Only a path dependency identifies one of these local packages.
-            // A same-named registry dependency must not link to a workspace file.
-            let library = dependency["path"].as_str().and_then(|path| {
-                let dependency_path = Path::new(path)
-                    .canonicalize()
-                    .unwrap_or_else(|_| PathBuf::from(path));
-                libraries
-                    .get(&dependency_path)
-                    .filter(|(package_name, _, _)| package_name == name)
-            });
-            if let Some((_, crate_name, source)) = library {
-                let import_name = alias
-                    .map(|alias| alias.replace('-', "_"))
-                    .unwrap_or_else(|| crate_name.clone());
-                candidates
-                    .entry(import_name)
-                    .or_default()
-                    .insert(Some(source.clone()));
-            } else {
-                // An external/unindexed target using this same alias is also a
-                // competing configuration; do not silently keep the local one.
-                candidates
-                    .entry(alias.unwrap_or(name).replace('-', "_"))
-                    .or_default()
-                    .insert(None);
-            }
-        }
-        // Conditional dependencies can reuse an alias for different targets.
-        // Without a configured Cargo resolve graph, leave such names unresolved.
-        let dependencies = candidates
-            .into_iter()
-            .filter_map(|(name, sources)| {
-                if sources.len() == 1 {
-                    sources
-                        .into_iter()
-                        .next()
-                        .flatten()
-                        .map(|source| (name, source))
-                } else {
-                    None
-                }
-            })
-            .collect();
-        crates.packages.insert(scope, dependencies);
+        crates
+            .packages
+            .insert(scope, package_dependencies(package, directory, &libraries));
     }
     crates
 }
 
+/// Package directory → `(package name, crate import name, root-relative
+/// library source)`.
+type Libraries = BTreeMap<PathBuf, (String, String, String)>;
+
+fn package_dir(package: &serde_json::Value) -> Option<&Path> {
+    Path::new(package["manifest_path"].as_str()?).parent()
+}
+
+/// The package's library target, when it has one under `root`.
+fn package_library(
+    package: &serde_json::Value,
+    root: &Path,
+) -> Option<(PathBuf, (String, String, String))> {
+    let directory = package_dir(package)?;
+    let name = package["name"].as_str()?;
+    let mut found = None;
+    for target in package["targets"].as_array().into_iter().flatten() {
+        let library = target["kind"].as_array().into_iter().flatten().any(|kind| {
+            matches!(
+                kind.as_str(),
+                Some("lib" | "rlib" | "dylib" | "cdylib" | "staticlib" | "proc-macro")
+            )
+        });
+        if !library {
+            continue;
+        }
+        let (Some(source), Some(crate_name)) =
+            (target["src_path"].as_str(), target["name"].as_str())
+        else {
+            continue;
+        };
+        let Ok(relative) = Path::new(source).strip_prefix(root) else {
+            continue;
+        };
+        found = Some((
+            directory.to_path_buf(),
+            (
+                name.to_owned(),
+                crate_name.replace('-', "_"),
+                normalize(&relative.to_string_lossy()),
+            ),
+        ));
+    }
+    found
+}
+
+/// Import name → library source for the package itself and its path
+/// dependencies on local libraries.
+fn package_dependencies(
+    package: &serde_json::Value,
+    directory: &Path,
+    libraries: &Libraries,
+) -> BTreeMap<String, String> {
+    let mut candidates: BTreeMap<String, BTreeSet<Option<String>>> = BTreeMap::new();
+    if let Some((_, crate_name, source)) = libraries.get(directory) {
+        candidates
+            .entry(crate_name.clone())
+            .or_default()
+            .insert(Some(source.clone()));
+    }
+    for dependency in package["dependencies"].as_array().into_iter().flatten() {
+        let Some(name) = dependency["name"].as_str() else {
+            continue;
+        };
+        let alias = dependency["rename"].as_str();
+        // Only a path dependency identifies one of these local packages.
+        // A same-named registry dependency must not link to a workspace file.
+        let library = dependency["path"].as_str().and_then(|path| {
+            let dependency_path = Path::new(path)
+                .canonicalize()
+                .unwrap_or_else(|_| PathBuf::from(path));
+            libraries
+                .get(&dependency_path)
+                .filter(|(package_name, _, _)| package_name == name)
+        });
+        if let Some((_, crate_name, source)) = library {
+            let import_name = alias
+                .map(|alias| alias.replace('-', "_"))
+                .unwrap_or_else(|| crate_name.clone());
+            candidates
+                .entry(import_name)
+                .or_default()
+                .insert(Some(source.clone()));
+        } else {
+            // An external/unindexed target using this same alias is also a
+            // competing configuration; do not silently keep the local one.
+            candidates
+                .entry(alias.unwrap_or(name).replace('-', "_"))
+                .or_default()
+                .insert(None);
+        }
+    }
+    // Conditional dependencies can reuse an alias for different targets.
+    // Without a configured Cargo resolve graph, leave such names unresolved.
+    candidates
+        .into_iter()
+        .filter_map(|(name, sources)| {
+            if sources.len() == 1 {
+                sources
+                    .into_iter()
+                    .next()
+                    .flatten()
+                    .map(|source| (name, source))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cargo_metadata_runs_the_configured_cargo_only() {
+        let root = tempfile::tempdir().expect("fixture");
+        std::fs::write(
+            root.path().join("Cargo.toml"),
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n",
+        )
+        .expect("manifest");
+        // The configured path is used as-is: no ambient `CARGO` fallback.
+        let missing = root.path().join("no-such-cargo");
+        let result = super::load_cargo_crates(root.path(), missing.to_str());
+        assert!(result.is_err(), "a missing configured cargo cannot run");
+    }
+
     #[test]
     fn conflicting_conditional_aliases_and_registry_names_do_not_fabricate_edges() {
         let root = tempfile::tempdir().unwrap();

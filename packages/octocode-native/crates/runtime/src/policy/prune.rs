@@ -10,9 +10,10 @@
 //!   `SyntaxVisible` prunes plus the tool-config directories, where a text hit
 //!   is noise or leaks editor/CI state.
 //!
-//! A caller `excludeDir` always adds names; it never replaces the defaults.
+//! A caller `exclude` glob skips more paths; it never replaces the defaults.
 //! The engine walkers carry no default list of their own: they prune exactly
-//! the names [`PruneMode::directories`] hands them.
+//! the names [`PruneMode::directories`] hands them, and report each pruned
+//! directory so a listing or an empty result can disclose it.
 //!
 //! Names that are routinely real source (`output/`, `cache/`, `vendor/`,
 //! `release/`, `tmp/`, …) are deliberately absent: pruning them silently hid
@@ -91,22 +92,14 @@ impl PruneMode {
             .copied()
     }
 
-    /// The names a walk prunes: this mode's defaults (unless the caller set
-    /// `defaultExcludes: false`) plus the caller's `excludeDir` (trailing
-    /// separators trimmed), without duplicates.
-    pub fn directories(self, exclude_dir: &[String], defaults: bool) -> Vec<String> {
-        let mut names = if defaults {
-            self.defaults().map(str::to_owned).collect::<Vec<_>>()
+    /// The names a walk prunes: this mode's defaults, or none when the
+    /// caller set `defaultExcludes: false`.
+    pub fn directories(self, defaults: bool) -> Vec<String> {
+        if defaults {
+            self.defaults().map(str::to_owned).collect()
         } else {
             Vec::new()
-        };
-        for name in exclude_dir {
-            let name = name.trim_end_matches(['/', '\\']);
-            if !name.is_empty() && !names.iter().any(|known| known == name) {
-                names.push(name.to_owned());
-            }
         }
-        names
     }
 }
 
@@ -159,14 +152,11 @@ mod tests {
     }
 
     #[test]
-    fn exclude_dir_adds_to_the_defaults_without_duplicates() {
-        let names = PruneMode::SyntaxVisible.directories(
-            &["generated/".to_owned(), "target".to_owned(), String::new()],
-            true,
+    fn default_excludes_false_prunes_nothing() {
+        assert!(PruneMode::SearchSafe.directories(false).is_empty());
+        assert_eq!(
+            PruneMode::SyntaxVisible.directories(true).len(),
+            PruneMode::SyntaxVisible.defaults().count()
         );
-        assert!(names.contains(&"node_modules".to_owned()));
-        assert_eq!(names.iter().filter(|name| *name == "target").count(), 1);
-        assert_eq!(names.last().map(String::as_str), Some("generated"));
-        assert_eq!(names.len(), PruneMode::SyntaxVisible.defaults().count() + 1);
     }
 }

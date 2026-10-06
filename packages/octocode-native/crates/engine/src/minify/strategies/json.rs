@@ -1,35 +1,4 @@
 // ── JSON ─────────────────────────────────────────────────────────────────────
-//
-// Numbers round-trip exactly (the crate's `arbitrary_precision` feature is
-// enabled) and object keys keep their original order (`preserve_order`) —
-// without these, a 30-digit integer would come back as lossy scientific
-// notation and keys would be alphabetized rather than preserved.
-//
-// KNOWN LIMITATION: duplicate object keys still collapse to last-wins.
-// `serde_json::Value`'s map can hold only one entry per key regardless of
-// these features — surviving duplicates would require a custom
-// non-`Value`-based parser, which is out of scope here. This only affects
-// non-conformant JSON (the spec doesn't define duplicate-key semantics).
-
-pub fn minify_json_core_inner(content: &str) -> (String, bool) {
-    // Try direct parse first
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(content) {
-        return (
-            serde_json::to_string(&v).unwrap_or_else(|_| content.trim().to_owned()),
-            false,
-        );
-    }
-    // JSONC / JSON5: strip comments + trailing commas then parse
-    let cleaned = strip_json_noise(content);
-    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&cleaned) {
-        (
-            serde_json::to_string(&v).unwrap_or_else(|_| content.trim().to_owned()),
-            false,
-        )
-    } else {
-        (content.trim().to_owned(), true)
-    }
-}
 
 pub fn minify_json_readable_inner(content: &str) -> (String, bool) {
     if serde_json::from_str::<serde_json::Value>(content).is_ok() {
@@ -68,52 +37,54 @@ fn strip_json_noise(s: &str) -> String {
 }
 
 fn strip_json_comments(content: &str) -> String {
-    let bytes = content.as_bytes();
-    let mut result = String::with_capacity(content.len());
-    let mut i = 0;
-    let mut in_str = false;
-    let mut escaped = false;
-    while i < bytes.len() {
-        let ch = bytes[i];
-        if in_str {
-            if escaped {
-                escaped = false;
-            } else if ch == b'\\' {
-                escaped = true;
-            } else if ch == b'"' {
-                in_str = false;
-            }
-            i = super::copy_seq(content, i, &mut result);
-            continue;
+    rewrite_outside_strings(content, b"\"", |bytes, i| {
+        if bytes[i] != b'/' {
+            return None;
         }
-        if ch == b'"' {
-            in_str = true;
-            result.push('"');
-            i += 1;
-            continue;
-        }
-        if ch == b'/' && bytes.get(i + 1) == Some(&b'/') {
-            while i < bytes.len() && bytes[i] != b'\n' {
-                i += 1;
+        match bytes.get(i + 1) {
+            Some(b'/') => {
+                let mut i = i;
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+                Some(i)
             }
-            continue;
-        }
-        if ch == b'/' && bytes.get(i + 1) == Some(&b'*') {
-            i += 2;
-            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
-                i += 1;
+            Some(b'*') => {
+                let mut i = i + 2;
+                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                if i + 1 < bytes.len() {
+                    i += 2;
+                }
+                Some(i)
             }
-            if i + 1 < bytes.len() {
-                i += 2;
-            }
-            continue;
+            _ => None,
         }
-        i = super::copy_seq(content, i, &mut result);
-    }
-    result
+    })
 }
 
 fn strip_trailing_commas(content: &str) -> String {
+    rewrite_outside_strings(content, b"\"'", |bytes, i| {
+        if bytes[i] != b',' {
+            return None;
+        }
+        let mut look = i + 1;
+        while look < bytes.len() && matches!(bytes[look], b' ' | b'\t' | b'\n' | b'\r') {
+            look += 1;
+        }
+        (look < bytes.len() && matches!(bytes[look], b'}' | b']')).then_some(i + 1)
+    })
+}
+
+/// Copy `content`; a string opened by any byte in `quotes` runs (with `\`
+/// escapes) to the next byte in `quotes` and is copied verbatim. Outside
+/// strings `skip` may drop bytes by returning the next index to copy from.
+fn rewrite_outside_strings(
+    content: &str,
+    quotes: &[u8],
+    mut skip: impl FnMut(&[u8], usize) -> Option<usize>,
+) -> String {
     let bytes = content.as_bytes();
     let mut result = String::with_capacity(content.len());
     let mut i = 0;
@@ -126,27 +97,21 @@ fn strip_trailing_commas(content: &str) -> String {
                 escaped = false;
             } else if ch == b'\\' {
                 escaped = true;
-            } else if ch == b'"' || ch == b'\'' {
+            } else if quotes.contains(&ch) {
                 in_str = false;
             }
             i = super::copy_seq(content, i, &mut result);
             continue;
         }
-        if ch == b'"' || ch == b'\'' {
+        if quotes.contains(&ch) {
             in_str = true;
             result.push(ch as char);
             i += 1;
             continue;
         }
-        if ch == b',' {
-            let mut look = i + 1;
-            while look < bytes.len() && matches!(bytes[look], b' ' | b'\t' | b'\n' | b'\r') {
-                look += 1;
-            }
-            if look < bytes.len() && matches!(bytes[look], b'}' | b']') {
-                i += 1;
-                continue;
-            }
+        if let Some(next) = skip(bytes, i) {
+            i = next;
+            continue;
         }
         i = super::copy_seq(content, i, &mut result);
     }

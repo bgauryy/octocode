@@ -4,7 +4,7 @@
 
 ## Runtime boundary
 
-`src/cli/index.ts` owns catalog presentation, skill materialization, and the bare TTY install picker. Bare invocation and `scheme` compose core presentation with native availability. Root `--help`, `-h`, and `help` append canonical agent instructions after native help. Every other argv is forwarded verbatim—parsing, subcommand help, version, and validation included—to the native binary. `src/cli/native-delegate.ts` resolves `@octocodeai/octocode-native/bin/octocode.cjs` and delegates with inherited stdio and environment. There is no TypeScript execution registry or fallback for native-owned commands.
+`src/cli/index.ts` owns catalog presentation, skill materialization, and the bare TTY install picker. Bare invocation and `scheme` compose core presentation with native availability. Root `--help`, `-h`, and `help` append canonical agent instructions after native help. `config view` starts the bundled local server with a fixed native JSON transport. Other argv is forwarded verbatim—parsing, subcommand help, version, and validation included—to the native binary. `src/cli/native-delegate.ts` resolves `@octocodeai/octocode-native/bin/octocode.cjs` and delegates with inherited stdio and environment. There is no TypeScript execution registry or fallback for native-owned commands.
 
 ```text
 npx octocode → Node launcher → native CLI → Rust ToolRuntime
@@ -21,16 +21,18 @@ TypeScript remains only for:
   validate or execute tool requests;
 - bare output and root help, which expose the same core-owned agent instructions
   once per output, scoped to CLI availability (including CLI-only `ghCloneRepo`);
+- `config view`, which lazily loads `src/cli/config-view/server.ts`; fixed native `config --manage` requests carry the expected contract fingerprint before any mutation;
 - `skill`, backed by the shared skill installer;
 - the TTY picker for `install` without `--ide`, which discovers client ids from `native install --list --json` and delegates the selected id back to native.
 
-Everything else—`showConfig`, `config`, `auth`, `lsp-server`, tool invocations (`<toolName> '<json>'`), and non-interactive `install`—is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
+Everything else—`showConfig`, other `config` operations, `auth`, `lsp-server`, tool invocations (`<toolName> '<json>'`), and non-interactive `install`—is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
 
 ## Build and packaging
 
 - `build.mjs` bundles `src/index.ts` to `out/octocode.js` as an ESM launcher.
 - `@octocodeai/octocode-native` is a runtime dependency; its optional platform packages supply the native binary and N-API addon.
 - `@octocodeai/config` (bundled into the tarball via `bundledDependencies`) supplies public contracts and instructions; the skill installer is inlined at build time.
+- `src/cli/config-view/` holds the temporary authenticated loopback server; its browser assets (`assets/`) are inlined as strings through `?raw` imports (Vite in tests, the `raw-text` esbuild plugin in `build.mjs`). Native owns paths, field policy, secret redaction, agent adapters, and file writes.
 - The build fails when a bare external import is not declared.
 - `__APP_VERSION__` is injected from `package.json`.
 

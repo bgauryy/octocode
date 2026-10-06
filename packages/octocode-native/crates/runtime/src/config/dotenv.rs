@@ -1,5 +1,6 @@
 use super::types::{
     CONFIG_FIELDS, ENV_TOKEN_VARS, EnvApplyReport, HOME_TRUSTED_ENV_KEYS, PROTECTED_KEYS,
+    WORKSPACE_NARROW_ONLY,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -8,15 +9,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// may refill it.
 pub const CLASSIFICATION_KILL_SWITCH: &str = "OCTOCODE_CLASSIFICATION_API";
 
-/// Persistence switches a workspace may only turn off. They are home-trusted
-/// (a checked-out repository must not widen where octocode writes), but
-/// `memory` narrows what the trusted layers allow, so a project that opts out
-/// of disk persistence keeps working.
-pub(super) const WORKSPACE_NARROW_ONLY: [(&str, &str); 2] = [
-    ("OCTOCODE_STORAGE_MODE", "memory"),
-    ("OCTOCODE_EXTENSION_STORAGE_MODE", "memory"),
-];
-
+/// Home-trusted switches stay home-trusted (a checked-out repository must not
+/// widen where octocode writes), but a workspace may set the narrowing value
+/// the contract names, so a project that opts out of persistence keeps working.
 pub(super) fn workspace_may_narrow(key: &str, value: &str) -> bool {
     WORKSPACE_NARROW_ONLY
         .iter()
@@ -98,11 +93,8 @@ pub fn apply_env(
         }
     }
     for (key, value) in map {
-        let home_trusted = HOME_TRUSTED_ENV_KEYS.contains(&key.as_str())
-            && report.sources.get(key).map(String::as_str) == Some("global");
-        let narrows = report.sources.get(key).map(String::as_str) == Some("project")
-            && workspace_may_narrow(key, value);
-        if is_protected_key(key) && !home_trusted && !narrows {
+        let workspace = report.sources.get(key).map(String::as_str) == Some("project");
+        if !dotenv_may_set(key, value, workspace) {
             report.skipped_protected.push(key.clone());
         } else if target.get(key).is_some_and(|v| !v.trim().is_empty())
             || shadowed.contains(key.as_str())
@@ -115,6 +107,18 @@ pub fn apply_env(
         }
     }
     report
+}
+
+/// Whether a `.env` in this scope may set `key=value`. A protected key loads
+/// only from the home file when it is home-trusted, or from a workspace file
+/// when the value narrows. Loading and editing share this one rule.
+pub(super) fn dotenv_may_set(key: &str, value: &str, workspace: bool) -> bool {
+    !is_protected_key(key)
+        || if workspace {
+            workspace_may_narrow(key, value)
+        } else {
+            HOME_TRUSTED_ENV_KEYS.contains(&key)
+        }
 }
 
 // Windows env vars are case-insensitive: match protected keys the same way
@@ -149,7 +153,7 @@ pub fn merged_env(
         {
             // A workspace value for a protected key is dropped later; it must
             // not also evict the trusted home value for that key.
-            if map.contains_key(&k) && is_protected_key(&k) && !workspace_may_narrow(&k, &v) {
+            if map.contains_key(&k) && !dotenv_may_set(&k, &v, true) {
                 continue;
             }
             sources.insert(k.clone(), "project".into());

@@ -1,5 +1,6 @@
 pub(crate) mod declarations_cache;
 mod matches;
+mod output;
 #[cfg(test)]
 mod policy_tests;
 mod symbols;
@@ -53,6 +54,9 @@ impl From<&str> for AstError {
 
 impl From<PolicyError> for AstError {
     fn from(error: PolicyError) -> Self {
+        if let Some(code) = error.shared_code() {
+            return Self::new(code, error.message);
+        }
         let suffix = match error.code {
             PolicyErrorCode::EmptyPath => "emptyPath",
             PolicyErrorCode::OutsideAllowedRoots => "outsideAllowedRoots",
@@ -76,14 +80,45 @@ pub(super) fn cancelled(error: String) -> AstError {
     AstError::new("ast.execution.cancelled", error)
 }
 
-pub(super) fn io_error(error: std::io::Error) -> AstError {
-    let code = match error.kind() {
-        std::io::ErrorKind::NotFound => "ast.policy.notFound",
-        std::io::ErrorKind::PermissionDenied => "ast.policy.permissionDenied",
-        std::io::ErrorKind::InvalidInput => "ast.policy.invalidInput",
-        _ => "ast.execution.io",
-    };
-    AstError::new(code, error.to_string())
+/// The source astSearch parses, read bounded at [`MAX_PARSE_SOURCE_BYTES`];
+/// `None` when the file is larger.
+pub(super) fn read_parse_source(path: &std::path::Path) -> Result<Option<Vec<u8>>, AstError> {
+    use crate::tools::source::{BoundedRead, read_bounded};
+    match read_bounded(path, MAX_PARSE_SOURCE_BYTES) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(BoundedRead::TooLarge(_)) => Ok(None),
+        Err(BoundedRead::NotRegular) => Err(io_error(
+            &display_name(path),
+            std::io::Error::new(std::io::ErrorKind::InvalidInput, "not a regular file"),
+        )),
+        Err(BoundedRead::Io(error)) => Err(io_error(&display_name(path), error)),
+    }
+}
+
+/// The terminal row of a source larger than [`MAX_PARSE_SOURCE_BYTES`].
+pub(super) fn source_limit(path: &str) -> Value {
+    serde_json::json!({"status":"error","path":path,"errorCode":"ast.source.limit","error":"Source exceeds the native parser byte limit.","isPartial":true,"terminalLimit":true})
+}
+
+/// An I/O failure on `path` (as the caller wrote it); a missing path says
+/// so in the path policy's words.
+pub(super) fn io_error(path: &str, error: std::io::Error) -> AstError {
+    match error.kind() {
+        std::io::ErrorKind::NotFound => path_not_found(path),
+        std::io::ErrorKind::PermissionDenied => {
+            AstError::new("permissionDenied", error.to_string())
+        }
+        std::io::ErrorKind::InvalidInput => AstError::new("invalidInput", error.to_string()),
+        _ => AstError::new("ast.execution.io", error.to_string()),
+    }
+}
+
+/// `pathNotFound` with the path policy's message.
+fn path_not_found(path: &str) -> AstError {
+    AstError::new(
+        crate::policy::PATH_NOT_FOUND,
+        format!("Path does not exist: {path}"),
+    )
 }
 
 pub(super) fn native_error(error: impl ToString) -> AstError {
@@ -92,15 +127,33 @@ pub(super) fn native_error(error: impl ToString) -> AstError {
         && let Some((code, _)) = rest.split_once(']')
         && (code.starts_with("structural.") || code.starts_with("ast."))
     {
-        return AstError::new(code.to_owned(), message);
+        let code = match code {
+            "structural.query.compileFailed" | "structural.query.invalid" => {
+                crate::tools::ast_rule::INVALID_PATTERN
+            }
+            other => other,
+        };
+        return AstError::new(code.to_owned(), crate::tools::ast_rule::untagged(&message));
     }
     let lower = message.to_ascii_lowercase();
-    let code = if lower.contains("no such file") || lower.contains("not found") {
-        "ast.policy.notFound"
-    } else if lower.contains("permission denied") {
-        "ast.policy.permissionDenied"
+    if lower.contains("no such file") || lower.contains("not found") {
+        // The engine quotes the path it could not access ('…').
+        let quoted = message
+            .split_once('\'')
+            .and_then(|(_, rest)| rest.split_once('\''))
+            .map(|(path, _)| path.to_owned());
+        return match quoted {
+            Some(path) => path_not_found(&path),
+            None => AstError::new(
+                crate::policy::PATH_NOT_FOUND,
+                format!("Path does not exist ({message})"),
+            ),
+        };
+    }
+    let code = if lower.contains("permission denied") {
+        "permissionDenied"
     } else if lower.contains("invalid") && lower.contains("regex") {
-        "ast.query.invalidPattern"
+        "invalidPattern"
     } else {
         "ast.execution.failed"
     };
@@ -118,12 +171,7 @@ pub(super) fn allow_discovery(
     Ok(paths.permits_discovery(path))
 }
 
-pub(super) fn display_name(path: &std::path::Path) -> String {
-    path.file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned()
-}
+pub(super) use crate::tools::display_name;
 
 /// A `.h` suffix is shared by C and C++. Keep C as the default and allow an
 /// explicit C++ parser only for a single ambiguous header.
@@ -144,20 +192,22 @@ pub(super) fn validate_file_language(
         if language.trim().is_empty() || matches!(language, ".") {
             return Err(AstError::new(
                 "ast.language.unsupported",
-                "langType must name a registered grammar.",
+                "language must name a registered grammar.",
             ));
         }
-        let selected = matches::language_extensions(language).ok_or_else(|| {
+        let selected = crate::tools::ast_rule::language_extensions(language).ok_or_else(|| {
             AstError::new(
                 "ast.language.unsupported",
-                format!("langType \"{language}\" is not a supported structural grammar."),
+                format!("language \"{language}\" is not a supported structural grammar."),
             )
         })?;
-        if !matches::has_extension_in(path, &selected) && !cpp_header_override(path, selector) {
+        if !crate::tools::ast_rule::has_extension_in(path, &selected)
+            && !cpp_header_override(path, selector)
+        {
             return Err(AstError::new(
                 "ast.language.mismatch",
                 format!(
-                    "{} is not a {language} source file; omit langType or choose the grammar matching its extension.",
+                    "{} is not a {language} source file; omit language or choose the grammar matching its extension.",
                     display_name(path)
                 ),
             ));
@@ -178,19 +228,6 @@ pub(super) fn rooted_display(root: &std::path::Path, relative: &std::path::Path)
     }
 }
 
-/// Shared `ast.snapshot.changed` continuation guard payload. Emitted when a
-/// page>1 request carries a snapshot that no longer matches the freshly
-/// computed digest of the query shape and ordered result set — i.e. the corpus
-/// or query changed underneath a continuation cursor.
-pub(super) fn snapshot_changed(snapshot: &str) -> Value {
-    serde_json::json!({
-        "status":"error",
-        "errorCode":"ast.snapshot.changed",
-        "error":"The source or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.",
-        "snapshot":snapshot,
-        "complete":false
-    })
-}
 pub type AstResult = Result<Value, AstError>;
 
 /// Largest source astSearch parses (match, symbols, syntaxTree). Sized for
@@ -220,7 +257,7 @@ pub fn execute_ast(
 }
 
 pub use matches::execute_match;
-pub(crate) use matches::{grammar_selector, present_grammars};
+pub(crate) use output::Output;
 pub use symbols::execute_symbols;
 pub use syntax::execute_syntax;
 
@@ -240,13 +277,6 @@ mod tests {
     impl CancellationCheck for Cancelled {
         fn check(&self) -> Result<(), String> {
             Err("cancelled by test".to_owned())
-        }
-    }
-
-    struct Active;
-    impl CancellationCheck for Active {
-        fn check(&self) -> Result<(), String> {
-            Ok(())
         }
     }
 
@@ -295,12 +325,7 @@ mod tests {
         let root = tempfile::tempdir().expect("fixture directory");
         let source = root.path().join("fixture.ts");
         std::fs::write(&source, "export const value = 1;\n").expect("fixture source");
-        let paths = PathPolicy::new(PathPolicyConfig {
-            workspace_root: Some(root.path().to_path_buf()),
-            ..Default::default()
-        })
-        .expect("fixture path policy");
-        let security = ContentSecurity::new();
+        let (paths, security) = crate::tools::test_support::simple_policy(root.path());
 
         let syntax = execute_row(
             json!({
@@ -309,35 +334,41 @@ mod tests {
             }),
             &paths,
             &security,
-            &Active,
+            &crate::tools::cancel::NeverCancel,
         )
         .expect("syntax tree");
         assert_eq!(syntax["operation"], "syntaxTree");
         assert!(syntax.get("treeKind").is_none(), "{syntax}");
-        // Line/column locate nodes; byte offsets are verbose (the verbose
-        // stage drops them unless the row asked for `debug`).
-        let root_node = &syntax["nodes"][0];
-        assert!(root_node.get("startLine").is_some(), "{root_node}");
-        for offset in ["startByte", "endByte"] {
-            assert!(
-                crate::tools::id::ToolId::AstSearch
-                    .verbose_paths()
-                    .contains(&format!("results[].data.nodes[].{offset}").as_str()),
-                "{offset}"
-            );
-        }
-        let debug = execute_row(
+        // One compact row per node: id, kind (an anonymous token quoted),
+        // 1-based line:0-based column span, and `^parent`. Byte offsets are
+        // verbose (the verbose stage drops `nodeBytes` unless `debug`).
+        let nodes = syntax["nodes"].as_array().expect("node rows");
+        assert_eq!(nodes[0], "0 program 1:0-2:0", "{syntax}");
+        assert_eq!(nodes[1], "1 export_statement 1:0-1:23 ^0", "{syntax}");
+        assert!(syntax.get("nextOffset").is_none(), "{syntax}");
+        let tokens = execute_row(
             json!({
-                "operation":"syntaxTree","mainGoal": "test", "reasoning":"test","debug":true,
-                "path":source.to_string_lossy()
+                "operation":"syntaxTree","mainGoal": "test", "reasoning":"test",
+                "path":source.to_string_lossy(),"namedOnly":false
             }),
             &paths,
             &security,
-            &Active,
+            &crate::tools::cancel::NeverCancel,
         )
-        .expect("debug syntax tree");
-        assert_eq!(debug["nodes"][0]["startByte"], 0, "{debug}");
-        assert!(debug["nodes"][0]["endByte"].as_u64().is_some(), "{debug}");
+        .expect("token tree");
+        assert_eq!(tokens["nodes"][2], "2 \"export\" 1:0-1:6 ^1", "{tokens}");
+        assert_eq!(syntax["nodeBytes"][0], "0-24", "{syntax}");
+        assert_eq!(
+            syntax["nodeBytes"].as_array().map(Vec::len),
+            Some(nodes.len()),
+            "{syntax}"
+        );
+        assert!(
+            crate::tools::id::ToolId::AstSearch
+                .verbose_paths()
+                .contains(&"results[].data.nodeBytes"),
+            "nodeBytes is verbose"
+        );
 
         for retired in [
             json!({"operation":"tree","mainGoal": "test", "reasoning":"test","treeKind":"filesystem","path":root.path().to_string_lossy()}),
@@ -356,15 +387,31 @@ mod tests {
 
     #[test]
     fn policy_and_native_failures_keep_specific_codes() {
+        // Path failures share the local tools' codes.
         let policy = AstError::from(PolicyError::new(PolicyErrorCode::SymlinkEscape, "escape"));
-        assert_eq!(policy.code, "ast.policy.symlinkEscape");
+        assert_eq!(policy.code, "symlinkEscape");
+        let missing = AstError::from(PolicyError::new(PolicyErrorCode::NotFound, "missing"));
+        assert_eq!(missing.code, "pathNotFound");
+        let gone = io_error(
+            "src/gone.rs",
+            std::io::Error::from(std::io::ErrorKind::NotFound),
+        );
+        assert_eq!(gone.code, "pathNotFound");
+        assert_eq!(gone.message, "Path does not exist: src/gone.rs");
+        let engine = native_error(
+            "Cannot access structural search path '/w/x': No such file or directory (os error 2)",
+        );
+        assert_eq!(engine.code, "pathNotFound");
+        assert_eq!(engine.message, "Path does not exist: /w/x");
+        let denied = AstError::from(PolicyError::new(PolicyErrorCode::PermissionDenied, "no"));
+        assert_eq!(denied.code, "permissionDenied");
         assert_eq!(
             native_error("[structural.query.compileFailed] bad pattern").code,
-            "structural.query.compileFailed"
+            "invalidPattern"
         );
         assert_eq!(
             native_error("invalid regex: unclosed group").code,
-            "ast.query.invalidPattern"
+            "invalidPattern"
         );
     }
 }

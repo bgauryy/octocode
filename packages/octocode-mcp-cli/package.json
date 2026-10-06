@@ -1,0 +1,61 @@
+{
+  "name": "octocode-mcp-cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Map MCP tools and instructions to a Zod CLI, and map that CLI back to MCP.",
+  "author": "Guy Bary <bgauryy@octocodeai.com>",
+  "homepage": "https://octocode.ai",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bgauryy/octocode.git",
+    "directory": "packages/octocode-mcp-cli"
+  },
+  "bugs": "https://github.com/bgauryy/octocode/issues",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**",
+    "examples/**",
+    "ARCHITECTURE.md",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": "^24.15.0"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "clean": "rm -rf dist/",
+    "lint": "node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
+    "test": "node ../../node_modules/vitest/vitest.mjs run",
+    "test:coverage": "node ../../node_modules/vitest/vitest.mjs run --coverage",
+    "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
+    "test:servers": "node ../../node_modules/vitest/vitest.mjs run --config vitest.servers.config.ts",
+    "typecheck": "yarn lint",
+    "verify": "yarn lint && yarn test:coverage && yarn build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
+    "zod": "^4.6.2"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@types/node": "^24.13.4",
+    "@vitest/coverage-v8": "^5.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.0"
+  }
+}

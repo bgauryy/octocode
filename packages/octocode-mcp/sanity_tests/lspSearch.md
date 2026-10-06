@@ -7,7 +7,7 @@
 > Automated schema-contract checks live in `tests/tools/all-tools.pagination-contract.test.ts`; cursor-uniformity in `tests/tools/all-tools.pagination.test.ts`.
 
 ## 1. Scheme
-- [ ] Tool is registered and accepts the bulk envelope: `queries[]`, `responseCharOffset`, `responseCharLength`.
+- [ ] Tool is registered and accepts the bulk envelope: `queries[]`, `responseOffset`, `responseLength`.
 - [ ] `operation` exposes the current enum: `definition`, `references`, `callers`, `callees`, `callHierarchy`, `hover`, `documentSymbols`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`, `subtypes`, `diagnostic`.
 - [ ] `uri`, `workspaceRoot`, `symbolName`, and `lineHint` are documented as operation-specific anchors.
 - [ ] A minimal valid query parses (see Example).

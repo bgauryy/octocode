@@ -174,26 +174,39 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 "application/vnd.github+json"
             }),
         );
-        // The transport outlives any one credential (it is resolved per
-        // request), so the key carries the endpoint+credential partition.
+        // The partition carries the endpoint and credential.
         let partition = self.cache_partition(context, None).await?;
-        let key = format!(
-            "{}\u{0}{}\u{0}{}",
-            partition.identity(),
-            spec.url,
-            request.include_fragments
-        );
-        if let Some(page) = self.search_results.get(&key) {
-            return Ok((*page).clone());
+        let key = {
+            use sha2::{Digest, Sha256};
+            let mut digest = Sha256::new();
+            digest.update(spec.url.as_str().as_bytes());
+            digest.update([u8::from(request.include_fragments)]);
+            format!("github-code-search:{}", hex::encode(digest.finalize()))
+        };
+        if let Some(cached) = self.cache.get(&partition, &key).await
+            && let Ok(page) = serde_json::from_slice::<CodeSearchPage>(&cached.bytes)
+        {
+            return Ok(page);
         }
         let page: CodeSearchPage = decode(
             self.execute(spec, context).await?.body.as_ref(),
             "invalid GitHub code search response",
         )?;
         // An incomplete page is exactly what a retry must not get back.
-        if !page.incomplete_results {
-            self.search_results
-                .insert(key, std::sync::Arc::new(page.clone()));
+        if !page.incomplete_results
+            && let Ok(bytes) = serde_json::to_vec(&page)
+        {
+            self.cache
+                .put(
+                    &partition,
+                    key,
+                    super::CachedContent {
+                        etag: None,
+                        bytes,
+                        resolved_ref: String::new(),
+                    },
+                )
+                .await;
         }
         Ok(page)
     }

@@ -24,13 +24,13 @@ vi.mock('@modelcontextprotocol/server/stdio', () => ({
 import {
   createNativeMcp,
   loadNativeBinding,
+  type ClassificationProbe,
   startNativeMcp,
   type NativeCatalog,
   type NativeCatalogTool,
   type NativeRuntime,
   type NativeRuntimeOptions,
 } from '../../src/native/index.js';
-import { wrapBareQuery } from './wrapBareQuery.js';
 import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
 
 const fixture = (name: string) =>
@@ -69,15 +69,14 @@ class FakeRuntime implements NativeRuntime {
     this.options = options;
   }
 
-  catalog(): NativeCatalog {
-    return this.makeCatalog();
+  probe: ClassificationProbe = { probed: false, available: false };
+
+  async probeClassification(): Promise<ClassificationProbe> {
+    return this.probe;
   }
 
-  readonly normalized: { tool: string; input: unknown }[] = [];
-
-  normalizeInput(tool: string, input: unknown): unknown {
-    this.normalized.push({ tool, input });
-    return wrapBareQuery(input);
+  catalog(): NativeCatalog {
+    return this.makeCatalog();
   }
 
   readonly cancelled: string[] = [];
@@ -150,7 +149,7 @@ afterEach(() => {
 
 describe('createNativeMcp registration + execution', () => {
   it('gives MCP executions headroom beyond the worst cold LSP budget', async () => {
-    const instance = createNativeMcp({
+    const instance = await createNativeMcp({
       env: {},
       binding: bindingFor(() => ({
         fingerprint: getNativeContractFingerprint(),
@@ -175,7 +174,7 @@ describe('createNativeMcp registration + execution', () => {
     async (_label, credential, nativeAvailable) => {
       // Native owns credential resolution. This fixture supplies the catalog
       // availability state that the adapter must honor without reinterpreting it.
-      const instance = createNativeMcp({
+      const instance = await createNativeMcp({
         env: { OCTOCODE_CLASSIFICATION_API: credential },
         binding: bindingFor(() => ({
           fingerprint: getNativeContractFingerprint(),
@@ -206,7 +205,7 @@ describe('createNativeMcp registration + execution', () => {
   );
 
   it('exposes clasify when OCTOCODE_CLASSIFICATION_API is nonblank', async () => {
-    const instance = createNativeMcp({
+    const instance = await createNativeMcp({
       env: {
         OCTOCODE_CLASSIFICATION_API: 'test-key',
       },
@@ -230,20 +229,84 @@ describe('createNativeMcp registration + execution', () => {
       TOOL_NAMES.CLASIFY,
     ]);
     expect(list.tools.every(t => !Object.hasOwn(t, 'outputSchema'))).toBe(true);
+    // Core authors one MCP hint: every registered tool only reads.
+    for (const listed of list.tools)
+      expect(listed.annotations, listed.name).toEqual({ readOnlyHint: true });
 
     await client.close();
     await instance.close();
   });
 
-  it('accepts the advertised bare clasify matrix and normalizes it before execution', async () => {
-    const instance = createNativeMcp({
+  it('probes clasify before reading the catalog and hides it when the provider fails', async () => {
+    const stderr = vi
+      .spyOn(process.stderr, 'write')
+      .mockImplementation(() => true);
+    let probed = false;
+    let clasifyAvailable = true;
+    const binding = {
+      NativeRuntime: class extends FakeRuntime {
+        constructor(options?: NativeRuntimeOptions) {
+          super(
+            () => ({
+              fingerprint: getNativeContractFingerprint(),
+              tools: [
+                tool('localFetch', true),
+                tool(TOOL_NAMES.CLASIFY, clasifyAvailable),
+              ],
+            }),
+            options
+          );
+        }
+        override catalog(): NativeCatalog {
+          expect(probed).toBe(true);
+          return super.catalog();
+        }
+        override async probeClassification(): Promise<ClassificationProbe> {
+          // Native removes clasify from its catalog on a failed probe.
+          probed = true;
+          clasifyAvailable = false;
+          return {
+            probed: true,
+            available: false,
+            code: 'classificationProviderError',
+            message: 'Classification provider returned HTTP 401',
+          };
+        }
+      },
+    };
+    const instance = await createNativeMcp({ env: {}, binding });
+
+    const client = new Client({ name: 'clasify-probe', version: '1' });
+    const [serverTransport, clientTransport] =
+      InMemoryTransport.createLinkedPair();
+    await Promise.all([
+      instance.server.connect(serverTransport),
+      client.connect(clientTransport),
+    ]);
+
+    const list = await client.listTools();
+    expect(list.tools.map(t => t.name)).toEqual(['localFetch']);
+    expect(client.getInstructions()).not.toContain(TOOL_NAMES.CLASIFY);
+    expect(stderr).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'clasify disabled: provider check failed (classificationProviderError)'
+      )
+    );
+
+    stderr.mockRestore();
+    await client.close();
+    await instance.close();
+  });
+
+  it('accepts a clasify queries[] matrix and normalizes it before execution', async () => {
+    const instance = await createNativeMcp({
       env: { OCTOCODE_CLASSIFICATION_API: 'test-key' },
       binding: bindingFor(() => ({
         fingerprint: getNativeContractFingerprint(),
         tools: [tool('localFetch', true), tool(TOOL_NAMES.CLASIFY, true)],
       })),
     });
-    const client = new Client({ name: 'clasify-bare', version: '1' });
+    const client = new Client({ name: 'clasify-queries', version: '1' });
     const [serverTransport, clientTransport] =
       InMemoryTransport.createLinkedPair();
     await Promise.all([
@@ -254,24 +317,14 @@ describe('createNativeMcp registration + execution', () => {
     const matrix = {
       mainGoal: 'test goal',
       reasoning: 'Locate one fact without caller-authored IDs.',
-      resources: [{ context: { value: 'captured source' } }],
-      questions: [
-        {
-          questionType: 'locate',
-          target: 'The fact to locate',
-        },
-      ],
+      resources: [{ value: 'captured source' }],
+      questions: [{ type: 'locate', ask: 'The fact to locate' }],
     };
     const response = await client.callTool({
       name: TOOL_NAMES.CLASIFY,
-      arguments: matrix,
+      arguments: { queries: [matrix] },
     });
     expect(response.isError).toBe(false);
-    // The runtime's own normalizeInput runs before SDK validation.
-    expect(FakeRuntime.last?.normalized).toContainEqual({
-      tool: TOOL_NAMES.CLASIFY,
-      input: matrix,
-    });
     expect(FakeRuntime.last?.executions.at(-1)).toMatchObject({
       tool: TOOL_NAMES.CLASIFY,
       input: { queries: [matrix] },
@@ -291,7 +344,7 @@ describe('createNativeMcp registration + execution', () => {
   ])(
     'keeps semantic checks in clasify when provider capability is %s',
     async (_label, clasifyAvailable) => {
-      const instance = createNativeMcp({
+      const instance = await createNativeMcp({
         env: clasifyAvailable
           ? {
               OCTOCODE_CLASSIFICATION_API: 'test-key',
@@ -347,14 +400,15 @@ describe('createNativeMcp registration + execution', () => {
   );
 
   it('registers only available tools and routes calls to executeMcp', async () => {
-    const instance = createNativeMcp({
+    const instance = await createNativeMcp({
       env: {},
       binding: bindingFor(() => ({
         fingerprint: getNativeContractFingerprint(),
         tools: [
           tool('localFetch', true),
           tool('ghSearchCode', false),
-          tool('astTopology', false),
+          // CLI-only: never loaded, even when a runtime reports it available.
+          tool('astTopology', true),
         ],
       })),
     });
@@ -367,7 +421,7 @@ describe('createNativeMcp registration + execution', () => {
       client.connect(clientTransport),
     ]);
 
-    // Unavailable tools, including beta-gated astTopology, are not loaded.
+    // Unavailable and CLI-only tools are not loaded.
     const list = await client.listTools();
     expect(list.tools.map(t => t.name)).toEqual(['localFetch']);
     expect(list.tools.every(t => !Object.hasOwn(t, 'outputSchema'))).toBe(true);
@@ -420,7 +474,7 @@ describe('createNativeMcp registration + execution', () => {
   });
 
   it('forwards client cancellation (notifications/cancelled) to runtime.cancel with the JSON-RPC id', async () => {
-    const instance = createNativeMcp({
+    const instance = await createNativeMcp({
       env: {},
       binding: bindingFor(() => ({
         fingerprint: getNativeContractFingerprint(),
@@ -465,7 +519,7 @@ describe('createNativeMcp registration + execution', () => {
   it('never registers CLI-only tools even when native reports them available', async () => {
     const cliOnly = Object.keys(TOOL_POLICIES).filter(isCliOnlyTool);
     expect(cliOnly.length).toBeGreaterThan(0);
-    const instance = createNativeMcp({
+    const instance = await createNativeMcp({
       env: {},
       binding: bindingFor(() => ({
         fingerprint: getNativeContractFingerprint(),
@@ -492,7 +546,7 @@ describe('createNativeMcp registration + execution', () => {
   // Hosts truncate server instructions near 2 KB; the grammar inventory is
   // served by `octocode scheme`, not the MCP instructions.
   it('keeps the grammar inventory out of the size-bounded MCP instructions', async () => {
-    const instance = createNativeMcp({
+    const instance = await createNativeMcp({
       env: {},
       binding: bindingFor(() => ({
         fingerprint: getNativeContractFingerprint(),
@@ -525,8 +579,8 @@ describe('createNativeMcp registration + execution', () => {
     await instance.close();
   });
 
-  it('throws and closes the runtime when a catalog tool has no core contract', () => {
-    expect(() =>
+  it('throws and closes the runtime when a catalog tool has no core contract', async () => {
+    await expect(
       createNativeMcp({
         env: {},
         binding: bindingFor(() => ({
@@ -534,12 +588,12 @@ describe('createNativeMcp registration + execution', () => {
           tools: [tool('not-a-real-octocode-tool', true)],
         })),
       })
-    ).toThrow(/no contract/i);
+    ).rejects.toThrow(/no contract/i);
     expect(FakeRuntime.last!.closed).toBe(true);
   });
 
-  it('throws and closes the runtime when no tools are available', () => {
-    expect(() =>
+  it('throws and closes the runtime when no tools are available', async () => {
+    await expect(
       createNativeMcp({
         env: {},
         binding: bindingFor(() => ({
@@ -547,11 +601,11 @@ describe('createNativeMcp registration + execution', () => {
           tools: [tool('localFetch', false)],
         })),
       })
-    ).toThrow(/No native tools are available/i);
+    ).rejects.toThrow(/No native tools are available/i);
     expect(FakeRuntime.last!.closed).toBe(true);
   });
 
-  it('throws and closes the runtime on an ABI mismatch', () => {
+  it('throws and closes the runtime on an ABI mismatch', async () => {
     const binding = {
       NativeRuntime: class extends FakeRuntime {
         readonly abiVersion = 999999;
@@ -563,12 +617,12 @@ describe('createNativeMcp registration + execution', () => {
         }
       },
     };
-    expect(() => createNativeMcp({ env: {}, binding })).toThrow(/ABI/);
+    await expect(createNativeMcp({ env: {}, binding })).rejects.toThrow(/ABI/);
     expect(FakeRuntime.last!.closed).toBe(true);
   });
 
-  it('throws and closes the runtime when the catalog exposes no fingerprint', () => {
-    expect(() =>
+  it('throws and closes the runtime when the catalog exposes no fingerprint', async () => {
+    await expect(
       createNativeMcp({
         env: {},
         binding: bindingFor(() => ({
@@ -576,7 +630,7 @@ describe('createNativeMcp registration + execution', () => {
           tools: [tool('localFetch', true)],
         })),
       })
-    ).toThrow(/does not expose a contract fingerprint/i);
+    ).rejects.toThrow(/does not expose a contract fingerprint/i);
     expect(FakeRuntime.last!.closed).toBe(true);
   });
 });

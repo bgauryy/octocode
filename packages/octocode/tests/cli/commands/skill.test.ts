@@ -20,10 +20,8 @@ vi.mock('../../../src/utils/colors.js', () => ({
 }));
 
 import { skillCommand } from '../../../src/cli/commands/skill.js';
-import {
-  getPlatformSkillsDir,
-  parsePlatforms,
-} from '../../../src/cli/commands/skills/platforms.js';
+import { getPlatformSkillsDir } from '../../../src/cli/commands/skills/platforms.js';
+import { parseSkillPlatforms } from '@octocodeai/octocode-skill-installer';
 import type { ParsedArgs } from '../../../src/cli/types.js';
 import { EXIT } from '../../../src/cli/exit-codes.js';
 
@@ -458,14 +456,14 @@ describe('skill command', () => {
       path.join(homedir(), '.claude', 'skills')
     );
     expect(
-      parsePlatforms('claude,claude-desktop,cursor,codex,codex-native')
+      parseSkillPlatforms('claude,claude-desktop,cursor,codex,codex-native')
     ).toEqual({
       platforms: ['claude', 'cursor', 'codex'],
     });
   });
 
   it('normalizes shared skill-directory aliases', () => {
-    expect(parsePlatforms('shared,common,agents,codex')).toEqual({
+    expect(parseSkillPlatforms('shared,common,agents,codex')).toEqual({
       platforms: ['codex'],
     });
   });
@@ -480,7 +478,7 @@ describe('skill command', () => {
       'gemini-cli',
       'agent',
     ]) {
-      expect(parsePlatforms(removed).error).toContain('Unknown platform');
+      expect(parseSkillPlatforms(removed).error).toContain('Unknown platform');
     }
   });
 

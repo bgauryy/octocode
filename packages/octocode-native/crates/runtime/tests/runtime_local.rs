@@ -1,7 +1,7 @@
 // Integration test crate — assertions use unwrap/expect/panic freely.
 #![allow(clippy::expect_used, clippy::panic)]
 
-mod support;
+use crate::support;
 
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -26,16 +26,16 @@ async fn ordinary_tools_take_an_optional_brief() {
             json!({"path":path,"mainGoal": "  ", "reasoning":"   "}),
         ),
         (
-            "brief-legacy-goal",
-            json!({"path":path,"goal": "Read the fixture."}),
-        ),
-        (
             "brief-valid",
             json!({"path":path,"mainGoal": "test", "reasoning":"Read the fixture."}),
         ),
     ] {
         let outcome = runtime
-            .execute(label.into(), "localFetch".into(), query)
+            .execute(
+                label.into(),
+                "localFetch".into(),
+                json!({"queries":[query]}),
+            )
             .await
             .unwrap_or_else(|error| panic!("{label} must be accepted: {error:?}"));
         assert_eq!(
@@ -104,7 +104,7 @@ async fn local_fetch_pages_and_unions_through_the_runtime() {
     let first = call(
         &runtime,
         "localFetch",
-        query_path(&path, json!({"chunkType":"lines","chunkSize":1})),
+        query_path(&path, json!({"unit":"lines","length":1})),
     )
     .await
     .expect("first page");
@@ -134,14 +134,14 @@ async fn mcp_local_fetch_snapshots_stale_only_the_mutated_batch_row() {
             json!({"queries":[
                 {
                     "path":first_path,
-                    "chunkType":"lines",
-                    "chunkSize":1,
+                    "unit":"lines",
+                    "length":1,
                     "mainGoal": "test", "reasoning":"Page the first snapshot fixture."
                 },
                 {
                     "path":second_path,
-                    "chunkType":"lines",
-                    "chunkSize":1,
+                    "unit":"lines",
+                    "length":1,
                     "mainGoal": "test", "reasoning":"Page the second snapshot fixture."
                 }
             ]}),
@@ -154,7 +154,8 @@ async fn mcp_local_fetch_snapshots_stale_only_the_mutated_batch_row() {
         "the replayable query carries source identity; no cursor duplicate: {structured}"
     );
     let rows = structured["results"].as_array().expect("MCP result rows");
-    let continuation = |row: usize| rows[row]["data"]["next"]["continue"]["query"].clone();
+    let continuation =
+        |row: usize| rows[row]["data"]["next"]["continue"]["query"]["queries"][0].clone();
     let (first_next, second_next) = (continuation(0), continuation(1));
     assert_eq!(
         first_next["snapshot"].as_str().map(str::len),
@@ -176,8 +177,8 @@ async fn mcp_local_fetch_snapshots_stale_only_the_mutated_batch_row() {
         .expect("resumed rows");
     assert_eq!(rows[0]["status"], "error", "{}", rows[0]);
     assert_eq!(rows[0]["data"]["errorCode"], "staleSnapshot", "{}", rows[0]);
-    let restart = &rows[0]["data"]["next"]["restart"]["query"];
-    assert_eq!(restart["path"], json!(first_path), "{}", rows[0]);
+    let restart = &rows[0]["data"]["next"]["restart"]["query"]["queries"][0];
+    assert_eq!(restart["path"], first_next["path"], "{}", rows[0]);
     assert!(restart.get("snapshot").is_none(), "{restart}");
     assert!(restart.get("offset").is_none(), "{restart}");
     assert_eq!(rows[1]["data"]["content"], "2\tsecond-2\n", "{}", rows[1]);
@@ -211,7 +212,7 @@ async fn local_search_finds_literal_matches() {
         "localSearch",
         json!({
             "path": workspace.workspace,
-            "searchText": "needle",
+            "matchString": "needle",
             "regex": "literal"
         }),
     )
@@ -258,15 +259,16 @@ async fn structure_search_dispatches_on_both_surfaces_and_owns_file_discovery() 
         tree.structured_content
     );
     let rendered = serde_json::to_string(row_data(&tree)).expect("json");
-    assert!(
-        rendered.contains("src/") && rendered.contains("docs/"),
-        "{rendered}"
-    );
+    // A directory is a `{dir}` group, or a bare `name/` entry without one.
+    let listed = |dir: &str| {
+        rendered.contains(&format!("{dir}/")) || rendered.contains(&format!("\"dir\":\"{dir}\""))
+    };
+    assert!(listed("src") && listed("docs"), "{rendered}");
 
     let files = call(
         &runtime,
         "structureSearch",
-        json!({"operation":"files","path":workspace.workspace,"names":["*.ts"],"entryType":"f"}),
+        json!({"operation":"files","path":workspace.workspace,"include":["*.ts"],"entryType":"f"}),
     )
     .await
     .expect("files");
@@ -319,8 +321,7 @@ async fn beta_ast_tools_require_the_shared_opt_in() {
         "astRewrite",
         json!({
             "path": workspace.workspace,
-            "langType": "typescript",
-            "ruleKind": "pattern",
+            "language": "typescript",
             "pattern": "console.log($A)",
             "rewrite": "logger.info($A)"
         }),
@@ -333,7 +334,7 @@ async fn beta_ast_tools_require_the_shared_opt_in() {
         &runtime,
         "astTopology",
         json!({
-            "analysis": "cycles",
+            "operation": "cycles",
             "path": workspace.workspace
         }),
     )
@@ -362,18 +363,29 @@ async fn host_options_environment_controls_embedded_tool_availability() {
         ..HostOptions::default()
     })
     .expect("embedded runtime with explicit environment");
-    // Beta enables astTopology on MCP; astRewrite mutates files and is CLI-only.
-    assert!(runtime.is_available("astTopology"));
-    assert!(!runtime.is_available("astRewrite"));
+    // Beta never opens a CLI-only tool on MCP.
+    assert!(runtime.is_available("astSearch"));
     let catalog = runtime.catalog().expect("catalog");
-    let rewrite = catalog["tools"]
-        .as_array()
-        .expect("tools")
-        .iter()
-        .find(|tool| tool["name"] == "astRewrite")
-        .expect("astRewrite entry");
-    assert_eq!(rewrite["available"], false);
-    assert_eq!(rewrite["unavailableReason"], "cliOnly");
+    for name in ["astTopology", "astRewrite"] {
+        assert!(!runtime.is_available(name), "{name}");
+        let entry = catalog["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .find(|tool| tool["name"] == name)
+            .unwrap_or_else(|| panic!("{name} entry"));
+        assert_eq!(entry["available"], false, "{name}");
+        assert_eq!(entry["unavailableReason"], "cliOnly", "{name}");
+    }
+    let error = runtime
+        .execute_mcp(
+            "mcp-topology".into(),
+            "astTopology".into(),
+            json!({"queries":[{"operation":"cycles","path":workspace.workspace}]}),
+        )
+        .await
+        .expect_err("astTopology is CLI-only");
+    assert_eq!(error.code, "toolUnavailable");
     runtime.close().await;
 }
 
@@ -459,13 +471,13 @@ async fn ast_topology_executes_only_after_beta_opt_in() {
         &runtime,
         "astTopology",
         json!({
-            "analysis": "cycles",
+            "operation": "cycles",
             "path": workspace.workspace
         }),
     )
     .await
     .expect("astTopology");
-    assert_eq!(row_data(&outcome)["analysis"], "cycles");
+    assert_eq!(row_data(&outcome)["operation"], "cycles");
     runtime.close().await;
 }
 
@@ -479,7 +491,7 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
         "lspSearch",
         json!({
             "operation": "documentSymbols",
-            "uri": path
+            "path": path
         }),
     )
     .await
@@ -495,7 +507,7 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
         "lspSearch",
         json!({
             "operation": "definition",
-            "uri": path,
+            "path": path,
             "symbolName": "title",
             "lineHint": 1
         }),
@@ -504,7 +516,7 @@ async fn lsp_search_returns_a_typed_row_when_no_server_is_configured() {
     .expect("symbol recovery output satisfies its contract");
     assert_eq!(row_status(&symbol_failure), "error");
     assert_eq!(
-        row_data(&symbol_failure)["hints"]["readFile"]["tool"],
+        row_data(&symbol_failure)["hints"]["read"]["tool"],
         "localFetch"
     );
     runtime.close().await;
@@ -550,7 +562,7 @@ async fn lsp_search_rejects_files_outside_allowed_roots_before_server_discovery(
         "lspSearch",
         json!({
             "operation": "documentSymbols",
-            "uri": outside
+            "path": outside
         }),
     )
     .await
@@ -561,7 +573,7 @@ async fn lsp_search_rejects_files_outside_allowed_roots_before_server_discovery(
         rendered.contains("outside allowed directories"),
         "expected path-policy denial, got {rendered}"
     );
-    assert_eq!(row_data(&outcome)["errorCode"], "pathOutsideAllowedRoots");
+    assert_eq!(row_data(&outcome)["errorCode"], "outsideAllowedRoots");
     runtime.close().await;
 }
 
@@ -576,16 +588,13 @@ async fn local_tools_share_the_path_outside_allowed_roots_code() {
         ("localFetch", json!({"path": outside})),
         (
             "localSearch",
-            json!({"path": outside, "searchText": "denied"}),
+            json!({"path": outside, "matchString": "denied"}),
         ),
     ] {
         let outcome = call(&runtime, tool, query).await.expect("typed denial");
         assert_eq!(row_status(&outcome), "error", "{tool}");
         let data = row_data(&outcome);
-        assert_eq!(
-            data["errorCode"], "pathOutsideAllowedRoots",
-            "{tool}: {data}"
-        );
+        assert_eq!(data["errorCode"], "outsideAllowedRoots", "{tool}: {data}");
         assert!(
             data["hints"].to_string().contains("ALLOWED_PATHS"),
             "{tool}: {data}"
@@ -611,7 +620,7 @@ async fn resolved_lsp_config_path_reaches_engine_discovery() {
         "lspSearch",
         json!({
             "operation": "documentSymbols",
-            "uri": path
+            "path": path
         }),
     )
     .await
@@ -635,7 +644,7 @@ fn resolve_ast_row_path(
     outcome: &octocode_native::runtime::ToolOutcome,
     path: &str,
 ) -> std::path::PathBuf {
-    let base = outcome.structured_content["base"]
+    let base = outcome.structured_content["root"]
         .as_str()
         .unwrap_or_else(|| {
             panic!(
@@ -656,7 +665,7 @@ async fn ast_search_match_and_symbol_paths_resolve_against_the_base() {
     let matched = call(
         &runtime,
         "astSearch",
-        json!({"operation":"match","path":scope,"langType":"rust","pattern":"helper($A)"}),
+        json!({"operation":"match","path":scope,"language":"rust","pattern":"helper($A)"}),
     )
     .await
     .expect("astSearch match");
@@ -704,7 +713,7 @@ async fn ast_topology_dead_code_verify_references_is_a_valid_lsp_query() {
     let outcome = call(
         &runtime,
         "astTopology",
-        json!({"analysis":"deadCode","path":workspace.workspace}),
+        json!({"operation":"deadCode","path":workspace.workspace}),
     )
     .await
     .expect("astTopology deadCode");
@@ -720,12 +729,12 @@ async fn ast_topology_dead_code_verify_references_is_a_valid_lsp_query() {
         "{}",
         outcome.structured_content
     );
-    let mut query = verify["query"].clone();
+    let mut query = verify["query"]["queries"][0].clone();
     assert!(query.get("format").is_none(), "{query}");
-    let uri = query["uri"].as_str().expect("uri");
+    let path = query["path"].as_str().expect("path");
     assert!(
-        std::path::Path::new(uri).is_file(),
-        "uri must be a real file: {uri}"
+        workspace.workspace.join(path).is_file(),
+        "path must name a real file: {path}"
     );
     query["reasoning"] = json!("Verify the dead-code candidate.");
     octocode_native::contracts::validate_query("lspSearch", query)
@@ -783,7 +792,7 @@ async fn ast_topology_result_pages_reject_a_changed_graph() {
     let first = call(
         &runtime,
         "astTopology",
-        json!({"analysis":"dependencies","path":root,"file":"a.ts","pageSize":1}),
+        json!({"operation":"dependencies","path":root,"source":"a.ts","pageSize":1}),
     )
     .await
     .expect("first topology page");
@@ -807,9 +816,9 @@ async fn ast_topology_result_pages_reject_a_changed_graph() {
         .await
         .expect("typed stale row");
     let data = row_data(&stale);
-    assert_eq!(data["errorCode"], "graphSnapshotChanged", "{data}");
+    assert_eq!(data["errorCode"], "staleSnapshot", "{data}");
     assert_eq!(data["results"], json!([]), "{data}");
-    let restart = &data["next"]["restartDiagnostics"]["query"];
+    let restart = &data["next"]["restartDiagnostics"]["query"]["queries"][0];
     // Page 1 is the default, so compaction may omit it.
     assert!(restart.get("page").is_none_or(|page| page == 1), "{data}");
     assert!(restart.get("diagnosticSnapshot").is_none(), "{data}");
@@ -840,7 +849,7 @@ async fn local_fetch_redacted_content_is_marked_not_verbatim() {
     );
     let clean = workspace.write("clean.ts", "export const clean = 1;\n");
     let runtime = workspace.runtime(&[]);
-    for extra in [json!({}), json!({"chunkType":"lines","chunkSize":5})] {
+    for extra in [json!({}), json!({"unit":"lines","length":5})] {
         let outcome = call(&runtime, "localFetch", query_path(&path, extra.clone()))
             .await
             .expect("redacted read");
@@ -875,11 +884,11 @@ async fn local_fetch_redacted_content_is_marked_not_verbatim() {
 }
 
 /// Every local walk prunes one default directory set, and a caller
-/// `excludeDir` adds to it rather than replacing it. `localSearch` (search-safe)
+/// `exclude` glob skips more rather than replacing it. `localSearch` (search-safe)
 /// also prunes tool-config directories such as `.github`; structure and AST
 /// walks (syntax-visible) keep them.
 #[tokio::test]
-async fn local_walks_share_one_default_prune_and_exclude_dir_adds() {
+async fn local_walks_share_one_default_prune_and_exclude_adds() {
     let workspace = Workspace::new();
     let source = "pub fn needle() {}\n";
     workspace.write("src/lib.rs", source);
@@ -948,7 +957,7 @@ async fn local_walks_share_one_default_prune_and_exclude_dir_adds() {
     let searched = call(
         &runtime,
         "localSearch",
-        json!({"path":root,"searchText":"needle","hidden":true,"excludeDir":exclude}),
+        json!({"path":root,"matchString":"needle","hidden":true,"exclude":exclude}),
     )
     .await
     .expect("localSearch");
@@ -957,7 +966,7 @@ async fn local_walks_share_one_default_prune_and_exclude_dir_adds() {
     let files = call(
         &runtime,
         "structureSearch",
-        json!({"operation":"files","path":root,"names":["*.rs"],"entryType":"f","excludeDir":exclude}),
+        json!({"operation":"files","path":root,"include":["*.rs"],"entryType":"f","exclude":exclude}),
     )
     .await
     .expect("structureSearch files");
@@ -971,26 +980,27 @@ async fn local_walks_share_one_default_prune_and_exclude_dir_adds() {
     let tree = call(
         &runtime,
         "structureSearch",
-        json!({"operation":"tree","path":root,"hidden":true,"excludeDir":exclude}),
+        json!({"operation":"tree","path":root,"hidden":true,"exclude":exclude}),
     )
     .await
     .expect("structureSearch tree");
-    let rendered = serde_json::to_string(row_data(&tree)).expect("json");
+    // Listed entries only: the withheld notice names `secrets/` by policy.
+    let rendered = serde_json::to_string(&row_data(&tree)["entries"]).expect("json");
     for dir in pruned {
         assert!(
             !rendered.contains(&format!("{dir}/")),
             "{dir} in {rendered}"
         );
     }
-    assert!(
-        rendered.contains(".github/") && rendered.contains("src/"),
-        "{rendered}"
-    );
+    let listed = |dir: &str| {
+        rendered.contains(&format!("{dir}/")) || rendered.contains(&format!("\"dir\":\"{dir}\""))
+    };
+    assert!(listed(".github") && listed("src"), "{rendered}");
 
     let matched = call(
         &runtime,
         "astSearch",
-        json!({"operation":"match","path":root,"langType":"rust","pattern":"pub fn needle() {}","hidden":true,"excludeDir":exclude}),
+        json!({"operation":"match","path":root,"language":"rust","pattern":"pub fn needle() {}","hidden":true,"exclude":exclude}),
     )
     .await
     .expect("astSearch match");
@@ -1004,7 +1014,7 @@ async fn local_walks_share_one_default_prune_and_exclude_dir_adds() {
     let symbols = call(
         &runtime,
         "astSearch",
-        json!({"operation":"symbols","path":root,"excludeDir":exclude}),
+        json!({"operation":"symbols","path":root,"exclude":exclude}),
     )
     .await
     .expect("astSearch symbols");
@@ -1030,22 +1040,22 @@ async fn continuations_carry_the_input_brief_and_replay() {
         .execute(
             "page-1".into(),
             "localSearch".into(),
-            json!({"path":workspace.workspace,"searchText":"needle","pageSize":1,
-                "mainGoal":"Find every needle file for the audit.","reasoning":"List files one page at a time."}),
+            json!({"queries":[{"path":workspace.workspace,"matchString":"needle","pageSize":1,
+                "mainGoal":"Find every needle file for the audit.","reasoning":"List files one page at a time."}]}),
         )
         .await
         .expect("first page");
     let next = &first.structured_content["results"][0]["data"]["next"]["nextPage"];
     let query = next["query"].clone();
-    assert!(query.get("followUp").is_none(), "{next}");
     assert_eq!(
-        query["mainGoal"], "Find every needle file for the audit.",
+        query["queries"][0]["mainGoal"], "Find every needle file for the audit.",
         "{next}"
     );
     assert_eq!(
-        query["reasoning"], "List files one page at a time.",
+        query["queries"][0]["reasoning"], "List files one page at a time.",
         "{next}"
     );
+    // The continuation is the whole call: it runs exactly as emitted.
     let second = runtime
         .execute(
             "page-2".into(),
@@ -1075,19 +1085,27 @@ async fn default_excludes_false_walks_dependency_directories() {
     let pruned = call(
         &runtime,
         "localSearch",
-        json!({"path":workspace.workspace,"searchText":"needle"}),
+        json!({"path":workspace.workspace,"matchString":"needle"}),
     )
     .await
     .expect("default prune");
+    // Not searched, and disclosed: only the warning names it.
     assert!(
-        !names(&pruned).contains("node_modules"),
+        !serde_json::to_string(&row_data(&pruned)["files"])
+            .unwrap_or_default()
+            .contains("node_modules"),
+        "{}",
+        names(&pruned)
+    );
+    assert!(
+        names(&pruned).contains("Default excludes skipped 1 dir (node_modules/)"),
         "{}",
         names(&pruned)
     );
     let all = call(
         &runtime,
         "localSearch",
-        json!({"path":workspace.workspace,"searchText":"needle","defaultExcludes":false}),
+        json!({"path":workspace.workspace,"matchString":"needle","defaultExcludes":false}),
     )
     .await
     .expect("defaults off");
@@ -1100,5 +1118,150 @@ async fn default_excludes_false_walks_dependency_directories() {
     .await
     .expect("structure defaults off");
     assert!(names(&tree).contains("index.js"), "{}", names(&tree));
+    runtime.close().await;
+}
+
+/// Directories named like credential stores (`secrets/`, `private/`) stay
+/// withheld by the security path policy, and every local tool says so
+/// truthfully: a policy denial with what it matched and that no flag or
+/// config setting lifts it — never "check spelling" or "retry the path".
+#[tokio::test]
+async fn policy_withheld_dirs_are_disclosed_never_advised_as_retry_or_spelling() {
+    let workspace = Workspace::new();
+    let secret = workspace.write(
+        "src/secrets/common/secrets.ts",
+        "export interface ISecretStorageService {}\n",
+    );
+    workspace.write(
+        "src/private/store.ts",
+        "export interface ISecretStorageService {}\n",
+    );
+    workspace.write("src/other.ts", "export const other = 1;\n");
+    let runtime = workspace.runtime(&[]);
+    let root = workspace.workspace.join("src");
+
+    let searched = call(
+        &runtime,
+        "localSearch",
+        json!({"path":root,"matchString":"ISecretStorageService"}),
+    )
+    .await
+    .expect("search");
+    let text = searched.structured_content.to_string();
+    assert_eq!(row_status(&searched), "empty", "{text}");
+    assert!(
+        text.contains("2 entries withheld by path policy: security-policy dirs private/, secrets/"),
+        "{text}"
+    );
+    assert!(
+        text.contains("No flag or config setting lifts it"),
+        "{text}"
+    );
+    assert!(!text.contains("shorter term"), "{text}");
+    assert!(!text.contains("all-lowercase"), "{text}");
+
+    let fetched = call(&runtime, "localFetch", json!({"path":secret}))
+        .await
+        .expect("fetch");
+    let data = row_data(&fetched);
+    let text = fetched.structured_content.to_string();
+    assert_eq!(data["errorCode"], "pathPolicyDenied", "{text}");
+    assert!(
+        data["error"]
+            .as_str()
+            .is_some_and(|error| error
+                .contains("withheld by the security path policy (a `secrets/` directory)")),
+        "{text}"
+    );
+    assert!(!text.to_lowercase().contains("then retry"), "{text}");
+    assert!(text.contains("Do not retry or respell"), "{text}");
+
+    let listed = call(
+        &runtime,
+        "structureSearch",
+        json!({"operation":"files","path":root,"extensions":["ts"]}),
+    )
+    .await
+    .expect("files");
+    let text = listed.structured_content.to_string();
+    assert!(
+        text.contains("2 entries withheld by path policy: security-policy dirs private/, secrets/"),
+        "{text}"
+    );
+    let tree = call(
+        &runtime,
+        "structureSearch",
+        json!({"operation":"tree","path":root}),
+    )
+    .await
+    .expect("tree");
+    let text = tree.structured_content.to_string();
+    assert!(
+        text.contains("withheld by path policy: security-policy dirs private/, secrets/"),
+        "{text}"
+    );
+    runtime.close().await;
+}
+
+/// A localSearch that found matches still discloses what the default
+/// excludes skipped (pruned build dirs and generated files such as
+/// `*.lock`/`*.min.js`), with the same search over them one call away; the
+/// escape flag really searches them.
+#[tokio::test]
+async fn local_search_discloses_default_excluded_dirs_and_files_with_a_rerun() {
+    let workspace = Workspace::new();
+    workspace.write("drivers/scsi/core.c", "transport_free_cmd(cmd);\n");
+    workspace.write(
+        "drivers/target/transport.c",
+        "void transport_free_cmd(void) {}\n",
+    );
+    workspace.write("dist/bundle.js", "transport_free_cmd();\n");
+    workspace.write("Cargo.lock", "transport_free_cmd = 1\n");
+    workspace.write("vendor/lib.min.js", "transport_free_cmd();\n");
+    let runtime = workspace.runtime(&[]);
+    let root = workspace.workspace.clone();
+    let files_of = |outcome: &octocode_native::runtime::ToolOutcome| -> Vec<String> {
+        let mut files = row_data(outcome)["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|file| file["path"].as_str().or_else(|| file.as_str()))
+            .map(|path| path.split(' ').next().unwrap_or(path).to_owned())
+            .collect::<Vec<_>>();
+        files.sort();
+        files
+    };
+
+    let found = call(
+        &runtime,
+        "localSearch",
+        json!({"path":root,"matchString":"transport_free_cmd","resultView":"files"}),
+    )
+    .await
+    .expect("search");
+    let text = found.structured_content.to_string();
+    assert_eq!(files_of(&found).len(), 1, "{text}");
+    assert!(
+        text.contains("Default excludes skipped 2 dirs (dist/, target/) and 2 files (*.lock, *.min.js); the same search with defaultExcludes:false covers them."),
+        "{text}"
+    );
+    let lead = found
+        .structured_content
+        .pointer("/results/0/data/hints/includeIgnored")
+        .or_else(|| {
+            found
+                .structured_content
+                .pointer("/results/0/data/next/includeIgnored")
+        })
+        .unwrap_or_else(|| panic!("includeIgnored lead: {text}"));
+    assert_eq!(
+        lead["query"]["queries"][0]["defaultExcludes"], false,
+        "{lead}"
+    );
+
+    let all = call(&runtime, "localSearch", lead["query"].clone())
+        .await
+        .expect("rerun");
+    assert_eq!(files_of(&all).len(), 5, "{}", all.structured_content);
     runtime.close().await;
 }

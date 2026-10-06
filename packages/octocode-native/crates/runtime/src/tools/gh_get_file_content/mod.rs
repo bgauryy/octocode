@@ -1,7 +1,9 @@
+pub(crate) mod errors;
+
 use std::path::Path;
 
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::providers::github::{
     ConditionalCache, ContentRequest, CredentialResolver, GitHubProvider, ProviderError,
@@ -9,18 +11,39 @@ use crate::providers::github::{
 };
 use crate::security::scan::ContentScan;
 use crate::tools::cancel::CancellationCheck;
+use crate::tools::gh_shared::{GhFailure, locate_path, missing_path};
 use crate::tools::local_fetch::{
-    ChunkType, LocalFetchQuery, MatchString, MinifyMode, RegexMatch, process_fetched_content,
+    LocalFetchQuery, MinifyMode, RegexMatch, WindowUnit, process_fetched_content,
 };
+use crate::tools::result::ToolData;
 
 pub use crate::contracts::tool_types::GhGetFileContentQuery;
 
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
+/// One read's result. The wire row is flat: the read file's fields beside
+/// `owner`/`repo`, with no `files` wrapper (a query reads one path).
+#[derive(Clone, Debug)]
 pub struct GhGetFileContentResult {
     pub owner: String,
     pub repo: String,
     pub files: Vec<GhGetFileContentFile>,
+}
+
+impl Serialize for GhGetFileContentResult {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Flat<'a> {
+            owner: &'a str,
+            repo: &'a str,
+            #[serde(flatten)]
+            file: Option<&'a GhGetFileContentFile>,
+        }
+        Flat {
+            owner: &self.owner,
+            repo: &self.repo,
+            file: self.files.first(),
+        }
+        .serialize(serializer)
+    }
 }
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -34,8 +57,6 @@ pub struct GhGetFileContentFile {
     pub file_type: Option<&'static str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub match_not_found: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub searched_for: Option<String>,
     #[serde(skip)]
     pub etag: Option<String>,
     #[serde(skip)]
@@ -50,11 +71,89 @@ pub struct GhGetFileContentFile {
     pub last_modified_by: Option<String>,
 }
 
+/// One ghGetFileContent row as the runtime emits it.
+pub struct FileRead {
+    pub output: ToolData,
+    /// Every byte came from the content cache.
+    pub cache: bool,
+}
+
+/// Run one ghGetFileContent row: the read, or the failure with its one
+/// recovery (a missing path walks to the case-corrected file or the nearest
+/// existing directory).
+pub async fn run<R, C>(
+    provider: &GitHubProvider<R, C>,
+    query: &GhGetFileContentQuery,
+    request: Result<&RequestContext, ProviderError>,
+    window: Option<usize>,
+    security: &impl ContentScan,
+    cancel: &impl CancellationCheck,
+    regex: &impl RegexMatch,
+) -> Result<FileRead, GhFailure>
+where
+    R: CredentialResolver,
+    C: ConditionalCache,
+{
+    let request_context = request.map_err(|error| errors::failure(error, query, None))?;
+    let error = match execute(
+        provider,
+        query,
+        request_context,
+        window,
+        security,
+        cancel,
+        regex,
+    )
+    .await
+    {
+        Ok(result) => return Ok(file_read(result, query)),
+        Err(error) => error,
+    };
+    let found = if missing_path(&error, Some(query.path.as_str())) {
+        locate_path(provider, &errors::repo_path(query), request_context).await
+    } else {
+        None
+    };
+    Err(errors::failure(error, query, found))
+}
+
+/// The row of a read: its status from the file, and the resolved commit
+/// unless the caller already named that full SHA.
+fn file_read(result: GhGetFileContentResult, query: &GhGetFileContentQuery) -> FileRead {
+    let status = match result
+        .files
+        .first()
+        .map(|file| file.content.status.as_str())
+    {
+        Some("error") => Some("error"),
+        Some("empty") => Some("empty"),
+        _ => None,
+    };
+    let cache = !result.files.is_empty() && result.files.iter().all(|file| file.from_cache);
+    let mut data = serde_json::to_value(&result).unwrap_or_default();
+    if data["commitSha"].as_str() == query.ref_.as_deref()
+        && let Some(map) = data.as_object_mut()
+    {
+        map.remove("commitSha");
+    }
+    // An empty file (not a missed match, which says why) names what to check.
+    if status == Some("empty") && data.get("hints").is_none() && data.get("isPartial").is_none() {
+        data["hints"] = json!(["The file is empty at this ref; verify ref and path."]);
+    }
+    FileRead {
+        output: ToolData {
+            status,
+            ..ToolData::from(data)
+        },
+        cache,
+    }
+}
+
 pub async fn execute<R, C>(
     provider: &GitHubProvider<R, C>,
     query: &GhGetFileContentQuery,
     request_context: &RequestContext,
-    session_id: Option<&str>,
+    window: Option<usize>,
     security: &impl ContentScan,
     cancel: &impl CancellationCheck,
     regex: &impl RegexMatch,
@@ -65,46 +164,26 @@ where
 {
     // Resolve the ref once (memoized across a batch), then read the body at
     // the immutable SHA.
-    let fetched = match provider
+    let sha = provider
         .resolve_reference(
             &query.owner,
             &query.repo,
-            query.branch.as_deref(),
+            query.ref_.as_deref(),
             query.force_refresh.unwrap_or(false),
             request_context,
         )
-        .await
-    {
-        Ok(sha) => {
-            let content_request = ContentRequest {
-                owner: query.owner.to_string(),
-                repo: query.repo.to_string(),
-                path: query.path.to_string(),
-                reference: Some(sha),
-                force_refresh: query.force_refresh.unwrap_or(false),
-                session_id: session_id.map(str::to_owned),
-            };
-            provider
-                .get_file_content(&content_request, request_context)
-                .await
-        }
-        Err(error) => Err(error),
+        .await?;
+    let content_request = ContentRequest {
+        owner: query.owner.to_string(),
+        repo: query.repo.to_string(),
+        path: query.path.to_string(),
+        reference: Some(sha),
+        force_refresh: query.force_refresh.unwrap_or(false),
+        session_id: None,
     };
-    let acquired = match fetched {
-        Ok(value) => value,
-        Err(mut error)
-            if error.kind == crate::providers::github::ProviderErrorKind::NotFound
-                || error.status == Some(404) =>
-        {
-            if let Ok(hints) = path_suggestions(provider, query, request_context).await
-                && !hints.is_empty()
-            {
-                error.message = format!("{}. {}", error.message, hints.join(" ")).into();
-            }
-            return Err(error);
-        }
-        Err(error) => return Err(error),
-    };
+    let acquired = provider
+        .get_file_content(&content_request, request_context)
+        .await?;
     // The last-commit timestamp is diagnostic: only a debug read of the first
     // page asks for it, after the body arrived, so a failed or throttled read
     // never spends a second request.
@@ -114,11 +193,16 @@ where
         (None, None)
     };
     let local = local_fetch_query(query)?;
+    // The configured response window bounds a whole-file view.
+    let facts = crate::tools::local_fetch::SourceFacts {
+        modified: None,
+        window,
+    };
     let content = process_fetched_content(
         &local,
         &acquired.bytes,
         Path::new(query.path.as_str()),
-        None,
+        &facts,
         security,
         cancel,
         regex,
@@ -143,69 +227,13 @@ where
             "offset must be on a UTF-8 code point boundary",
         ));
     }
-    if content.error_code.as_deref() == Some("noMatches") && content.error.is_some() {
-        let raw = String::from_utf8_lossy(&acquired.bytes);
-        content.path = query.path.to_string();
-        content.error = None;
-        content.content = Some(String::new());
-        content.content_view = Some(MinifyMode::None);
-        content.total_lines = Some(raw.lines().count());
-        content.source_chars = Some(raw.encode_utf16().count());
-        content.source_bytes = Some(raw.len());
-        content.returned_chars = Some(0);
-        content.returned_bytes = Some(0);
-        content.returned_lines = Some(0);
-        content.pagination = Some(crate::tools::local_fetch::Pagination {
-            chunk_type: local.chunk_type.unwrap_or(ChunkType::Lines),
-            offset: 0,
-            length: 0,
-            chunk_size: local.chunk_size().unwrap_or(
-                match local.chunk_type.unwrap_or(ChunkType::Lines) {
-                    ChunkType::Lines => 1,
-                    ChunkType::Bytes => 16384,
-                },
-            ),
-            total_lines: 0,
-            total_bytes: 0,
-            has_more: false,
-            next_offset: None,
-        });
+    let match_not_found = content.selected_match_count == Some(0)
+        || (content.error_code.as_deref() == Some("noMatches") && content.error.is_some());
+    if match_not_found {
+        no_match(&mut content, &local, query, &acquired.bytes);
     }
     if content.returned_bytes == Some(0) {
         content.source_line_ranges.clear();
-    }
-    // An exhausted match selection, an empty file, or a bounded complete view
-    // with no content is an empty read.
-    let match_not_found = content.selected_match_count == Some(0);
-    if match_not_found {
-        content.error_code = None;
-        content.hints = vec![crate::tools::local_fetch::no_match_hint(
-            query.match_string_is_regex.unwrap_or(false),
-            query.match_string_case_sensitive.unwrap_or(false),
-            crate::tools::id::ToolId::GhSearchCode.as_str(),
-        )];
-        content.pagination = Some(crate::tools::local_fetch::Pagination {
-            chunk_type: local.chunk_type.unwrap_or(ChunkType::Lines),
-            offset: 0,
-            length: 0,
-            chunk_size: local.chunk_size().unwrap_or(
-                match local.chunk_type.unwrap_or(ChunkType::Lines) {
-                    ChunkType::Lines => 1,
-                    ChunkType::Bytes => 16384,
-                },
-            ),
-            total_lines: 0,
-            total_bytes: 0,
-            has_more: false,
-            next_offset: None,
-        });
-        if let Some(requested) = query.minify.filter(|mode| *mode != MinifyMode::None) {
-            content.minify_fallback = Some(crate::tools::local_fetch::MinifyFallback {
-                requested,
-                applied: MinifyMode::None,
-                reason: "match-evidence".into(),
-            });
-        }
     }
     if content.error.is_none() {
         content.status = if match_not_found {
@@ -224,24 +252,26 @@ where
     if content.path.is_empty() {
         content.path = query.path.to_string();
     }
-    let next = rewrite_continuations(&mut content, query, &acquired.resolved_ref);
+    let mut next = rewrite_continuations(&mut content, query, &acquired.resolved_ref);
+    if match_not_found
+        && let Some((name, lead)) = empty_match_lead(
+            query,
+            &local,
+            content.total_lines.unwrap_or(0),
+            &acquired.resolved_ref,
+        )
+        && let Some(calls) = next.get_or_insert_with(|| json!({})).as_object_mut()
+    {
+        calls.insert(name.into(), lead);
+    }
     Ok(GhGetFileContentResult {
         owner: query.owner.to_string(),
         repo: query.repo.to_string(),
         files: vec![GhGetFileContentFile {
             content,
             commit_sha: acquired.resolved_ref,
-            file_type: match crate::content::classify_file_type(&query.path) {
-                Some(crate::content::FileType::Config) => Some("config"),
-                Some(crate::content::FileType::Lock) => Some("lock"),
-                Some(crate::content::FileType::Doc) => Some("doc"),
-                Some(crate::content::FileType::Code) => Some("code"),
-                None => None,
-            },
+            file_type: file_type(&query.path),
             match_not_found: match_not_found.then_some(true),
-            searched_for: match_not_found
-                .then(|| query.match_string.as_ref().map(MatchString::display))
-                .flatten(),
             etag: acquired.etag,
             raw_response_bytes: acquired.raw_response_bytes,
             from_cache: acquired.from_cache,
@@ -250,6 +280,124 @@ where
             last_modified_by,
         }],
     })
+}
+
+/// A selection with no hit in the file is an empty read that says why: the
+/// hint and the file's size, with the contract's empty `content` (as in
+/// localFetch) and no zero counters.
+fn no_match(
+    content: &mut crate::tools::local_fetch::LocalFetchResult,
+    local: &LocalFetchQuery,
+    query: &GhGetFileContentQuery,
+    bytes: &[u8],
+) {
+    let raw = String::from_utf8_lossy(bytes);
+    content.path = query.path.to_string();
+    content.error = None;
+    content.error_code = None;
+    content.content = Some(String::new());
+    content.content_view = None;
+    content.total_lines = Some(raw.lines().count());
+    content.source_chars = None;
+    content.source_bytes = None;
+    content.returned_chars = None;
+    content.returned_bytes = None;
+    content.returned_lines = None;
+    content.pagination = None;
+    content.source_line_ranges.clear();
+    content.hints = vec![crate::tools::local_fetch::no_match_hint(
+        local.is_regex(),
+        local
+            .match_strings()
+            .iter()
+            .any(|pattern| local.case_sensitive_for(pattern)),
+        crate::tools::id::ToolId::GhSearchCode.as_str(),
+    )];
+    if let Some(requested) = query.minify.filter(|mode| *mode != MinifyMode::None) {
+        content.minify_fallback = Some(crate::tools::local_fetch::MinifyFallback {
+            requested,
+            applied: MinifyMode::None,
+            reason: "match-evidence".into(),
+        });
+    }
+}
+
+/// Lines from which a missed literal is located semantically (clasify)
+/// rather than searched for again: the size where the clasify gate starts.
+const LOCATE_FILE_LINES: usize = 1000;
+
+/// The runnable next step of a match that found nothing: in a large file,
+/// a clasify locate of the same file at the same commit (the literal was a
+/// guess); otherwise a ghSearchCode of the repository for the literal (it
+/// may live in another file). A regex has no literal to search.
+fn empty_match_lead(
+    query: &GhGetFileContentQuery,
+    local: &LocalFetchQuery,
+    total_lines: usize,
+    sha: &str,
+) -> Option<(&'static str, Value)> {
+    let literals = local.match_strings();
+    let first = literals.first()?.trim();
+    if total_lines >= LOCATE_FILE_LINES {
+        let ask = format!(
+            "Which lines of {} handle {}?",
+            query.path.as_str(),
+            literals.join(" or ")
+        );
+        let goal: String = query
+            .main_goal
+            .as_ref()
+            .map_or(ask.as_str(), |goal| goal.as_str())
+            .chars()
+            .take(crate::tools::id::query_limits::clasify::MAIN_GOAL_MAX_LENGTH)
+            .collect();
+        let ask: String = ask
+            .chars()
+            .take(crate::tools::id::query_limits::clasify::MAIN_GOAL_MAX_LENGTH)
+            .collect();
+        let resource = json!({
+            "id": "file",
+            "tool": crate::tools::id::ToolId::GhGetFileContent.as_str(),
+            "query": {"owner": query.owner.as_str(), "repo": query.repo.as_str(), "path": query.path.as_str(), "ref": sha},
+        });
+        return Some((
+            "clasify",
+            crate::tools::result::Continuation::new(
+                crate::tools::id::ToolId::Clasify,
+                json!({
+                    "mainGoal": goal,
+                    "resources": [resource],
+                    "questions": [{"id": "target", "type": "locate", "ask": ask}],
+                }),
+            )
+            .why("Locate what the missed literal names in this large file.")
+            .confidence("medium")
+            .build(),
+        ));
+    }
+    if local.is_regex() || first.is_empty() {
+        return None;
+    }
+    Some((
+        "searchContent",
+        crate::tools::result::Continuation::new(
+            crate::tools::id::ToolId::GhSearchCode,
+            json!({"owner": query.owner.as_str(), "repo": query.repo.as_str(), "keywords": [first]}),
+        )
+        .why("Find the file that holds the literal.")
+        .confidence("medium")
+        .build(),
+    ))
+}
+
+/// The kind of file a read returned (`fileType`).
+fn file_type(path: &str) -> Option<&'static str> {
+    match crate::content::classify_file_type(path)? {
+        crate::content::FileType::Config => Some("config"),
+        crate::content::FileType::Lock => Some("lock"),
+        crate::content::FileType::Doc => Some("doc"),
+        crate::content::FileType::Code => Some("code"),
+    }
 }
 
 /// Small files a window mostly covers come back whole.
@@ -277,13 +425,23 @@ fn complete_small_file(
         .iter()
         .map(|range| range.end + 1 - range.start)
         .sum();
+    // The whole file holds the rest of every declaration a window cut, so a
+    // `readBlock` lead never blocks completion; any other continuation does.
+    let only_read_block = content.next.as_ref().is_none_or(|next| {
+        next.read_block.is_some()
+            && crate::tools::local_fetch::NextCalls {
+                read_block: None,
+                ..next.clone()
+            }
+            .is_empty()
+    });
     let windowed = local.full_content != Some(true)
         && local.minify_mode() == MinifyMode::None
         && local.context_bytes.is_none()
-        && (local.match_string.is_some() || local.start_line.is_some() || local.has_ranges());
+        && (local.match_string.is_some() || local.has_ranges());
     if !windowed
         || content.error.is_some()
-        || content.next.is_some()
+        || !only_read_block
         || total > SMALL_FILE_LINES
         || source_bytes > SMALL_FILE_BYTES
         || returned == 0
@@ -294,16 +452,23 @@ fn complete_small_file(
     }
     let mut whole = local.clone();
     whole.match_string = None;
-    whole.match_string_is_regex = None;
-    whole.match_string_case_sensitive = None;
+    whole.regex = None;
+    whole.case_mode = None;
     whole.context_lines = None;
-    whole.chunk_type = None;
-    whole.chunk_size = None;
+    whole.unit = None;
+    whole.length = None;
     whole.offset = None;
     whole.clear_block_selectors();
-    whole.start_line = crate::tools::local_fetch::wire_positive(1);
-    whole.end_line = crate::tools::local_fetch::wire_positive(total);
-    let mut completed = process_fetched_content(&whole, bytes, path, None, security, cancel, regex);
+    whole.set_line_span(1, total);
+    let mut completed = process_fetched_content(
+        &whole,
+        bytes,
+        path,
+        &Default::default(),
+        security,
+        cancel,
+        regex,
+    );
     if completed.error.is_some() || completed.source_line_ranges.len() != 1 {
         return content;
     }
@@ -401,46 +566,6 @@ where
     stamp
 }
 
-async fn path_suggestions<R, C>(
-    provider: &GitHubProvider<R, C>,
-    query: &GhGetFileContentQuery,
-    context: &RequestContext,
-) -> Result<Vec<String>, ProviderError>
-where
-    R: CredentialResolver,
-    C: ConditionalCache,
-{
-    let Some((parent, name)) = query.path.rsplit_once('/') else {
-        return Ok(Vec::new());
-    };
-    let listing = provider
-        .transport
-        .repository_contents(
-            &query.owner,
-            &query.repo,
-            parent,
-            query.branch.as_deref().unwrap_or("HEAD"),
-            context,
-        )
-        .await?;
-    let target = name.to_ascii_lowercase();
-    let stem = name.rsplit_once('.').map(|(stem, _)| stem).unwrap_or(name);
-    let mut suggestions = Vec::new();
-    for entry in listing.entries {
-        if entry.name != name
-            && (entry.name.to_ascii_lowercase() == target
-                || entry.name.starts_with(&format!("{stem}.")))
-        {
-            suggestions.push(entry.path);
-        }
-    }
-    Ok(suggestions
-        .into_iter()
-        .take(3)
-        .map(|path| format!("Try path \"{path}\"; GitHub paths are case-sensitive."))
-        .collect())
-}
-
 fn rewrite_continuations(
     result: &mut crate::tools::local_fetch::LocalFetchResult,
     source: &GhGetFileContentQuery,
@@ -450,34 +575,46 @@ fn rewrite_continuations(
     let Value::Object(object) = &mut value else {
         return None;
     };
+    // Each localFetch call becomes the same read of the GitHub file.
     for continuation in object.values_mut() {
-        let Value::Object(fields) = continuation else {
+        let Some(Value::Object(mut query)) =
+            crate::tools::result::continuation_row(continuation).cloned()
+        else {
             continue;
         };
-        fields.insert(
-            "tool".into(),
-            Value::String(crate::tools::id::ToolId::GhGetFileContent.as_str().into()),
-        );
-        if let Some(Value::Object(query)) = fields.get_mut("query") {
-            query.insert("owner".into(), Value::String(source.owner.to_string()));
-            query.insert("repo".into(), Value::String(source.repo.to_string()));
-            query.insert("branch".into(), Value::String(resolved_ref.to_owned()));
-            query.insert("fullContent".into(), Value::Bool(false));
-            query.insert(
-                "minify".into(),
-                Value::String(
-                    match source.minify.unwrap_or(MinifyMode::None) {
-                        MinifyMode::None => "none",
-                        MinifyMode::Standard => "standard",
-                        MinifyMode::Symbols => "symbols",
-                    }
-                    .to_owned(),
-                ),
-            );
-            if let Some(force) = source.force_refresh {
-                query.insert("forceRefresh".into(), Value::Bool(force));
+        query.insert("owner".into(), Value::String(source.owner.to_string()));
+        query.insert("repo".into(), Value::String(source.repo.to_string()));
+        query.insert("ref".into(), Value::String(resolved_ref.to_owned()));
+        // A continuation reads a window, never the whole file, and keeps
+        // the caller's view; the default view (`minify: none`) is omitted.
+        query.remove("fullContent");
+        match source.minify.unwrap_or(MinifyMode::None) {
+            MinifyMode::None => {
+                query.remove("minify");
+            }
+            mode => {
+                let name = if mode == MinifyMode::Standard {
+                    "standard"
+                } else {
+                    "symbols"
+                };
+                query.insert("minify".into(), Value::String(name.to_owned()));
             }
         }
+        if let Some(force) = source.force_refresh {
+            query.insert("forceRefresh".into(), Value::Bool(force));
+        }
+        let mut call = crate::tools::result::Continuation::new(
+            crate::tools::id::ToolId::GhGetFileContent,
+            Value::Object(query),
+        );
+        if let Some(why) = continuation["why"].as_str() {
+            call = call.why(why);
+        }
+        if let Some(confidence) = continuation["confidence"].as_str() {
+            call = call.confidence(confidence);
+        }
+        *continuation = call.build();
     }
     Some(value)
 }
@@ -488,25 +625,23 @@ fn rewrite_continuations(
 fn local_fetch_query(query: &GhGetFileContentQuery) -> Result<LocalFetchQuery, ProviderError> {
     let mut value = serde_json::to_value(query).map_err(decode_error)?;
     if let Value::Object(object) = &mut value {
-        for key in ["owner", "repo", "branch", "forceRefresh"] {
+        for key in ["owner", "repo", "ref", "forceRefresh"] {
             object.remove(key);
         }
     }
     let mut local: LocalFetchQuery = serde_json::from_value(value).map_err(decode_error)?;
-    let paged = local.full_content != Some(true)
-        && local.match_string.is_none()
-        && !local.has_ranges()
-        && !(local.start_line.is_some() && local.end_line.is_some());
-    if local.chunk_size.is_none() && paged {
-        local.chunk_size = crate::tools::local_fetch::wire_positive(default_chunk_size(&local));
+    let paged =
+        local.full_content != Some(true) && local.match_string.is_none() && !local.has_ranges();
+    if local.length.is_none() && paged {
+        local.length = crate::tools::local_fetch::wire_positive(default_chunk_size(&local));
     }
     Ok(local)
 }
 
 fn default_chunk_size(local: &LocalFetchQuery) -> usize {
-    match local.chunk_type.unwrap_or(ChunkType::Lines) {
-        ChunkType::Lines => crate::tools::local_fetch::DEFAULT_LINE_CHUNK,
-        ChunkType::Bytes => 16384,
+    match local.unit.unwrap_or(WindowUnit::Lines) {
+        WindowUnit::Lines => crate::tools::local_fetch::DEFAULT_LINE_CHUNK,
+        WindowUnit::Bytes => 16384,
     }
 }
 
@@ -517,35 +652,30 @@ fn decode_error(error: serde_json::Error) -> ProviderError {
     )
 }
 
-pub fn continuation_query(
-    source: &GhGetFileContentQuery,
-    local_query: &LocalFetchQuery,
-    resolved_ref: &str,
-) -> Value {
-    let mut value = serde_json::to_value(local_query).unwrap_or(Value::Null);
-    if let Value::Object(ref mut object) = value {
-        object.insert("owner".into(), Value::String(source.owner.to_string()));
-        object.insert("repo".into(), Value::String(source.repo.to_string()));
-        object.insert("branch".into(), Value::String(resolved_ref.to_owned()));
-        if let Some(force) = source.force_refresh {
-            object.insert("forceRefresh".into(), Value::Bool(force));
-        }
+/// This tool's output facts for the shared response stages.
+pub(crate) struct Output;
+impl crate::tools::output::ToolOutput for Output {
+    fn fallback_hint(&self, _query: &serde_json::Value) -> &'static str {
+        "Verify owner/repo/ref/path, or remove matchString."
     }
-    value
+    fn evidence_kind(&self, _query: &serde_json::Value, _data: &serde_json::Value) -> &'static str {
+        "provider"
+    }
+    fn text_shape(&self) -> crate::tools::output::TextShape {
+        crate::tools::output::TextShape::FileText
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::github::{
-        CredentialSource, GitHubEndpoint, GitHubTransport, NoCache, RetryPolicy,
-        StaticCredentialResolver,
-    };
+    use crate::providers::github::{NoCache, RetryPolicy, StaticCredentialResolver};
     use crate::security::scan::{MemoizedScan, SanitizedViewMemo};
     use crate::tools::cancel::NeverCancel;
+    use crate::tools::gh_shared::test_support::{mock_provider, mount_json};
     use crate::tools::local_fetch::wire_positive;
     use base64::{Engine as _, engine::general_purpose::STANDARD};
-    use std::{path::Path, sync::Arc, time::Duration};
+    use std::{path::Path, time::Duration};
     use wiremock::{
         Mock, MockServer, ResponseTemplate,
         matchers::{method, path, query_param},
@@ -555,7 +685,7 @@ mod tests {
         provider: &GitHubProvider<R, C>,
         query: &GhGetFileContentQuery,
         request_context: &RequestContext,
-        session_id: Option<&str>,
+        window: Option<usize>,
         security: &impl ContentScan,
         cancel: &impl CancellationCheck,
     ) -> Result<GhGetFileContentResult, ProviderError>
@@ -567,7 +697,7 @@ mod tests {
             provider,
             query,
             request_context,
-            session_id,
+            window,
             security,
             cancel,
             &crate::tools::local_fetch::LocalFetchRegex::default(),
@@ -614,16 +744,16 @@ mod tests {
         for offset in [0, 100, 200] {
             let request = LocalFetchQuery {
                 path: "big.txt".parse().expect("path"),
-                chunk_type: Some(ChunkType::Lines),
+                unit: Some(WindowUnit::Lines),
                 offset: Some(offset),
-                chunk_size: wire_positive(100),
+                length: wire_positive(100),
                 ..LocalFetchQuery::test_default()
             };
             let page = process_fetched_content(
                 &request,
                 body.as_bytes(),
                 Path::new("big.txt"),
-                None,
+                &Default::default(),
                 &security,
                 &NeverCancel,
                 &crate::tools::local_fetch::LocalFetchRegex::default(),
@@ -654,38 +784,25 @@ mod tests {
     async fn shared_pipeline_ranges_redacts_and_emits_remote_continuation() {
         let server = MockServer::start().await;
         let sha = "0123456789abcdef0123456789abcdef01234567";
-        Mock::given(method("GET"))
-            .and(path("/api/v3/repos/a/b/commits/main"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"sha":sha})))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET")).and(path("/api/v3/repos/a/b/contents/src%2Flib.rs")).and(query_param("ref",sha)).respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\nneedle TOKEN\nthree\n")}))).mount(&server).await;
-        let endpoint =
-            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-                .expect("endpoint");
-        let transport = GitHubTransport::new(
-            endpoint,
-            Arc::new(StaticCredentialResolver::new(
-                "fixture",
-                CredentialSource::Override,
-            )),
-            RetryPolicy::default(),
+        mount_json(
+            &server,
+            "/api/v3/repos/a/b/commits/main",
+            200,
+            serde_json::json!({"sha":sha}),
         )
-        .expect("transport");
-        let provider = GitHubProvider {
-            transport,
-            cache: NoCache,
-        };
+        .await;
+        Mock::given(method("GET")).and(path("/api/v3/repos/a/b/contents/src%2Flib.rs")).and(query_param("ref",sha)).respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\nneedle TOKEN\nthree\n")}))).mount(&server).await;
+        let provider = mock_provider(&server, RetryPolicy::default());
         let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
-            "owner": "a", "repo": "b", "path": "src/lib.rs", "branch": "main",
-            "chunkType": "lines", "chunkSize": 2, "mainGoal": "test", "reasoning": "test"
+            "owner": "a", "repo": "b", "path": "src/lib.rs", "ref": "main",
+            "unit": "lines", "length": 2, "mainGoal": "test", "reasoning": "test"
         }))
         .expect("ghGetFileContent query");
         let result = execute_default_regex(
             &provider,
             &query,
             &RequestContext::with_timeout(Duration::from_secs(2), 4096),
-            Some("s"),
+            None,
             &Safe,
             &NeverCancel,
         )
@@ -698,45 +815,28 @@ mod tests {
         assert_eq!(result.files[0].commit_sha, sha);
         let wire = serde_json::to_value(&result.files[0]).expect("file json");
         assert_eq!(wire["commitSha"], sha);
-        assert!(wire.get("resolvedBranch").is_none(), "{wire}");
+        assert!(wire.get("resolvedRef").is_none(), "{wire}");
         let next = result.files[0].next.clone().expect("continuation");
         assert_eq!(next["continue"]["tool"], "ghGetFileContent");
-        assert_eq!(next["continue"]["query"]["owner"], "a");
-        assert_eq!(next["continue"]["query"]["branch"], sha);
+        assert_eq!(next["continue"]["query"]["queries"][0]["owner"], "a");
+        assert_eq!(next["continue"]["query"]["queries"][0]["ref"], sha);
     }
 
     #[tokio::test]
     async fn match_string_runs_on_redacted_text() {
         let server = MockServer::start().await;
         let sha = "0123456789abcdef0123456789abcdef01234567";
-        Mock::given(method("GET"))
-            .and(path("/api/v3/repos/a/b/commits/main"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"sha":sha})))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/api/v3/repos/a/b/contents/src%2Flib.rs"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\nkey TOKEN\nthree\n")})))
-            .mount(&server)
-            .await;
-        let endpoint =
-            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-                .expect("endpoint");
-        let transport = GitHubTransport::new(
-            endpoint,
-            Arc::new(StaticCredentialResolver::new(
-                "fixture",
-                CredentialSource::Override,
-            )),
-            RetryPolicy::default(),
+        mount_json(
+            &server,
+            "/api/v3/repos/a/b/commits/main",
+            200,
+            serde_json::json!({"sha":sha}),
         )
-        .expect("transport");
-        let provider = GitHubProvider {
-            transport,
-            cache: NoCache,
-        };
+        .await;
+        mount_json(&server, "/api/v3/repos/a/b/contents/src%2Flib.rs", 200, serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\nkey TOKEN\nthree\n")})).await;
+        let provider = mock_provider(&server, RetryPolicy::default());
         let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
-            "owner": "a", "repo": "b", "path": "src/lib.rs", "branch": "main",
+            "owner": "a", "repo": "b", "path": "src/lib.rs", "ref": "main",
             "matchString": "TOKEN", "contextLines": 0, "mainGoal": "test", "reasoning": "test"
         }))
         .expect("query");
@@ -744,7 +844,7 @@ mod tests {
             &provider,
             &query,
             &RequestContext::with_timeout(Duration::from_secs(2), 4096),
-            Some("s"),
+            None,
             &Safe,
             &NeverCancel,
         )
@@ -756,24 +856,6 @@ mod tests {
             "{:?}",
             result.files[0].content
         );
-    }
-
-    fn mock_provider(server: &MockServer) -> GitHubProvider<StaticCredentialResolver, NoCache> {
-        let endpoint =
-            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-                .expect("endpoint");
-        GitHubProvider {
-            transport: GitHubTransport::new(
-                endpoint,
-                Arc::new(StaticCredentialResolver::new(
-                    "fixture",
-                    CredentialSource::Override,
-                )),
-                RetryPolicy::default(),
-            )
-            .expect("transport"),
-            cache: NoCache,
-        }
     }
 
     async fn read(
@@ -788,7 +870,7 @@ mod tests {
             provider,
             &query,
             &RequestContext::with_timeout(Duration::from_secs(5), 1 << 20),
-            Some("s"),
+            Some(50_000),
             &Safe,
             &NeverCancel,
         )
@@ -803,21 +885,14 @@ mod tests {
     async fn timestamp_is_requested_only_by_a_successful_debug_read() {
         let server = MockServer::start().await;
         let sha = "0123456789abcdef0123456789abcdef01234567";
-        Mock::given(method("GET"))
-            .and(path("/api/v3/repos/a/b/contents/a.txt"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(
-                serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\n")}),
-            ))
-            .mount(&server)
-            .await;
-        Mock::given(method("GET"))
-            .and(path("/api/v3/repos/a/b/contents/missing.txt"))
-            .respond_with(
-                ResponseTemplate::new(404)
-                    .set_body_json(serde_json::json!({"message":"Not Found"})),
-            )
-            .mount(&server)
-            .await;
+        mount_json(&server, "/api/v3/repos/a/b/contents/a.txt", 200, serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\n")}),).await;
+        mount_json(
+            &server,
+            "/api/v3/repos/a/b/contents/missing.txt",
+            404,
+            serde_json::json!({"message":"Not Found"}),
+        )
+        .await;
         Mock::given(method("GET"))
             .and(path("/api/v3/repos/a/b/commits"))
             .and(wiremock::matchers::query_param("path", "a.txt"))
@@ -827,8 +902,8 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        let provider = mock_provider(&server);
-        let base = serde_json::json!({"owner":"a","repo":"b","path":"a.txt","branch":sha});
+        let provider = mock_provider(&server, RetryPolicy::default());
+        let base = serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha});
         let plain = read(&provider, base.clone()).await;
         assert_eq!(plain.files[0].last_modified, None);
         let mut debug = base;
@@ -839,7 +914,8 @@ mod tests {
             Some("2026-01-02T00:00:00Z")
         );
         assert_eq!(stamped.files[0].last_modified_by.as_deref(), Some("Ada"));
-        let mut missing = serde_json::json!({"owner":"a","repo":"b","path":"missing.txt","branch":sha,"debug":true});
+        let mut missing =
+            serde_json::json!({"owner":"a","repo":"b","path":"missing.txt","ref":sha,"debug":true});
         missing["mainGoal"] = "test".into();
         missing["reasoning"] = "test".into();
         let missing: GhGetFileContentQuery = serde_json::from_value(missing).expect("query");
@@ -848,7 +924,7 @@ mod tests {
                 &provider,
                 &missing,
                 &RequestContext::with_timeout(Duration::from_secs(5), 1 << 20),
-                Some("s"),
+                None,
                 &Safe,
                 &NeverCancel,
             )
@@ -878,17 +954,10 @@ mod tests {
         let small: String = (1..=30).map(|i| format!("line {i}\n")).collect();
         let large: String = (1..=300).map(|i| format!("line {i}\n")).collect();
         for (name, body) in [("small.py", &small), ("large.py", &large)] {
-            Mock::given(method("GET"))
-                .and(path(format!("/api/v3/repos/a/b/contents/{name}")))
-                .respond_with(ResponseTemplate::new(200).set_body_json(
-                    serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode(body)}),
-                ))
-                .mount(&server)
-                .await;
+            mount_json(&server, format!("/api/v3/repos/a/b/contents/{name}"), 200, serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode(body)}),).await;
         }
-        let provider = mock_provider(&server);
-        let base =
-            |path: &str| serde_json::json!({"owner":"a","repo":"b","path":path,"branch":sha});
+        let provider = mock_provider(&server, RetryPolicy::default());
+        let base = |path: &str| serde_json::json!({"owner":"a","repo":"b","path":path,"ref":sha});
         let mut matched = base("small.py");
         matched["matchString"] = "line 12".into();
         matched["contextLines"] = 10.into();
@@ -902,8 +971,7 @@ mod tests {
         assert_eq!(file.matched_lines, vec![12]);
 
         let mut ranged = base("small.py");
-        ranged["startLine"] = 1.into();
-        ranged["endLine"] = 15.into();
+        ranged["ranges"] = serde_json::json!(["1-15"]);
         let whole = read(&provider, ranged).await;
         assert_eq!(
             whole.files[0].content.content.as_deref(),
@@ -911,8 +979,7 @@ mod tests {
         );
 
         let mut narrow = base("small.py");
-        narrow["startLine"] = 1.into();
-        narrow["endLine"] = 5.into();
+        narrow["ranges"] = serde_json::json!(["1-5"]);
         let window = read(&provider, narrow).await;
         assert_eq!(
             window.files[0].content.content.as_deref(),
@@ -920,8 +987,7 @@ mod tests {
         );
 
         let mut big = base("large.py");
-        big["startLine"] = 1.into();
-        big["endLine"] = 200.into();
+        big["ranges"] = serde_json::json!(["1-200"]);
         let window = read(&provider, big).await;
         assert_eq!(
             window.files[0].content.source_line_ranges,
@@ -929,33 +995,82 @@ mod tests {
         );
     }
 
+    /// Continuations and leads carry only fields that change the read: a
+    /// default view (`fullContent` off, `minify: none`) is omitted, a chosen
+    /// minify mode is kept, and a whole-file read pages without `fullContent`.
+    #[tokio::test]
+    async fn continuations_omit_default_view_fields() {
+        let server = MockServer::start().await;
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let body: String = (1..=6000).map(|i| format!("line of text {i}\n")).collect();
+        mount_json(
+            &server,
+            "/api/v3/repos/a/b/contents/big.txt",
+            200,
+            serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode(&body)}),
+        )
+        .await;
+        let provider = mock_provider(&server, RetryPolicy::default());
+        let base = serde_json::json!({"owner":"a","repo":"b","path":"big.txt","ref":sha});
+        let mut paged = base.clone();
+        paged["unit"] = "lines".into();
+        paged["length"] = 100.into();
+        let mut standard = paged.clone();
+        standard["minify"] = "standard".into();
+        let mut whole = base;
+        whole["fullContent"] = true.into();
+        for (query, minify) in [(paged, None), (standard, Some("standard")), (whole, None)] {
+            let result = read(&provider, query).await;
+            let next = result.files[0].next.clone().expect("continuation");
+            let page = &next["continue"]["query"]["queries"][0];
+            assert!(page.get("fullContent").is_none(), "{next}");
+            assert_eq!(page.get("minify").and_then(Value::as_str), minify, "{next}");
+            assert_eq!(page["ref"], sha, "{next}");
+        }
+    }
+
+    /// A small file a match window mostly covers comes back whole even when
+    /// the window cut a declaration: the whole file holds the declaration's
+    /// rest, so no `readBlock` lead remains.
+    #[tokio::test]
+    async fn small_file_completion_replaces_the_read_block_lead() {
+        let server = MockServer::start().await;
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let mut body = String::from("fn configure_runtime_defaults() {\n");
+        for i in 1..=14 {
+            body.push_str(&format!(
+                "    let setting_number_{i:02} = compute_value({i});\n"
+            ));
+        }
+        body.push_str("}\n");
+        mount_json(
+            &server,
+            "/api/v3/repos/a/b/contents/src%2Fdefaults.rs",
+            200,
+            serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode(&body)}),
+        )
+        .await;
+        let provider = mock_provider(&server, RetryPolicy::default());
+        let result = read(
+            &provider,
+            serde_json::json!({"owner":"a","repo":"b","path":"src/defaults.rs","ref":sha,
+                "matchString":"setting_number_08","contextLines":4}),
+        )
+        .await;
+        let file = &result.files[0];
+        assert_eq!(file.content.content.as_deref(), Some(body.as_str()));
+        assert_eq!(file.content.matched_lines, vec![9]);
+        assert!(file.next.is_none(), "{:?}", file.next);
+    }
+
     #[tokio::test]
     async fn oversized_full_content_is_partial_not_empty() {
         let server = MockServer::start().await;
         let sha = "0123456789abcdef0123456789abcdef01234567";
-        Mock::given(method("GET"))
-            .and(path("/api/v3/repos/a/b/contents/big.txt"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("line of text\n".repeat(6000))})))
-            .mount(&server)
-            .await;
-        let endpoint =
-            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-                .expect("endpoint");
-        let transport = GitHubTransport::new(
-            endpoint,
-            Arc::new(StaticCredentialResolver::new(
-                "fixture",
-                CredentialSource::Override,
-            )),
-            RetryPolicy::default(),
-        )
-        .expect("transport");
-        let provider = GitHubProvider {
-            transport,
-            cache: NoCache,
-        };
+        mount_json(&server, "/api/v3/repos/a/b/contents/big.txt", 200, serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("line of text\n".repeat(6000))})).await;
+        let provider = mock_provider(&server, RetryPolicy::default());
         let query: GhGetFileContentQuery = serde_json::from_value(serde_json::json!({
-            "owner": "a", "repo": "b", "path": "big.txt", "branch": sha,
+            "owner": "a", "repo": "b", "path": "big.txt", "ref": sha,
             "fullContent": true, "mainGoal": "test", "reasoning": "test"
         }))
         .expect("query");
@@ -963,7 +1078,7 @@ mod tests {
             &provider,
             &query,
             &RequestContext::with_timeout(Duration::from_secs(2), 1 << 20),
-            Some("s"),
+            Some(50_000),
             &Safe,
             &NeverCancel,
         )
@@ -985,5 +1100,164 @@ mod tests {
                 .as_ref()
                 .is_some_and(|next| next.get("continue").is_some())
         );
+    }
+
+    async fn run_default(
+        provider: &GitHubProvider<StaticCredentialResolver, NoCache>,
+        query: Value,
+    ) -> Result<FileRead, crate::tools::gh_shared::GhFailure> {
+        let mut query = query;
+        query["mainGoal"] = "test".into();
+        query["reasoning"] = "test".into();
+        let query: GhGetFileContentQuery = serde_json::from_value(query).expect("query");
+        run(
+            provider,
+            &query,
+            Ok(&RequestContext::with_timeout(
+                Duration::from_secs(5),
+                1 << 20,
+            )),
+            None,
+            &Safe,
+            &NeverCancel,
+            &crate::tools::local_fetch::LocalFetchRegex::default(),
+        )
+        .await
+    }
+
+    /// A path whose case differs is answered by one listing walk at the
+    /// resolved commit: one case-corrected `read` lead, and the one hint
+    /// names where that lead is. No listing at `HEAD` is spent.
+    #[tokio::test]
+    async fn wrong_case_path_leads_once_to_the_case_corrected_read() {
+        let server = MockServer::start().await;
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/commits/HEAD"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(sha))
+            .mount(&server)
+            .await;
+        mount_json(
+            &server,
+            "/api/v3/repos/a/b/contents/src%2FLib.rs",
+            404,
+            serde_json::json!({"message":"Not Found"}),
+        )
+        .await;
+        mount_json(
+            &server,
+            "/api/v3/repos/a/b/contents/src",
+            200,
+            serde_json::json!([
+                {"name":"lib.rs","path":"src/lib.rs","type":"file"},
+                {"name":"main.rs","path":"src/main.rs","type":"file"}
+            ]),
+        )
+        .await;
+        let provider = mock_provider(&server, RetryPolicy::default());
+        let failure = match run_default(
+            &provider,
+            serde_json::json!({"owner":"a","repo":"b","path":"src/Lib.rs"}),
+        )
+        .await
+        {
+            Err(failure) => failure,
+            Ok(_) => panic!("a missing path is a failure"),
+        };
+        let next = failure.next.expect("recovery leads");
+        assert_eq!(
+            next["read"]["query"]["queries"][0]["path"], "src/lib.rs",
+            "{next}"
+        );
+        assert_eq!(
+            failure.hints,
+            vec!["Only the path's case differs; run hints.read.".to_owned()]
+        );
+        let requests = server.received_requests().await.unwrap_or_default();
+        assert!(
+            !requests
+                .iter()
+                .any(|request| request.url.query().is_some_and(|q| q.contains("ref=HEAD"))),
+            "a listing at HEAD was spent: {requests:?}"
+        );
+    }
+
+    /// A matchString with no hit in an existing file says so with the
+    /// file-specific tip and an empty `content` (the contract requires it, as
+    /// in localFetch); it carries no zero counters or echo of the request.
+    #[tokio::test]
+    async fn no_match_read_keeps_its_tip_without_empty_echo() {
+        let server = MockServer::start().await;
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        mount_json(&server, "/api/v3/repos/a/b/contents/a.txt", 200, serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\ntwo\n")}),).await;
+        let provider = mock_provider(&server, RetryPolicy::default());
+        let read = run_default(
+            &provider,
+            serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha,"matchString":"absent"}),
+        )
+        .await
+        .expect("read");
+        let data = &read.output.data;
+        assert_eq!(read.output.status, Some("empty"), "{data}");
+        assert_eq!(data["matchNotFound"], true, "{data}");
+        assert_eq!(data["content"], "", "{data}");
+        // As shipped: the response stage moves prose hints under hints.text.
+        let mut shipped = data.clone();
+        shipped["hints"] = serde_json::json!({"text": data["hints"]});
+        crate::contracts::validate_output(
+            "ghGetFileContent",
+            &serde_json::json!({"results":[{"index":0,"status":"empty","data":shipped}]}),
+        )
+        .expect("an empty match row satisfies the output contract");
+        for junk in [
+            "returnedLines",
+            "returnedChars",
+            "searchedFor",
+            "pagination",
+        ] {
+            assert!(data.get(junk).is_none(), "{junk}: {data}");
+        }
+        let hint = data["hints"][0].as_str().unwrap_or_default();
+        assert!(hint.starts_with("No line contains this text"), "{data}");
+        assert_eq!(data["hints"].as_array().map(Vec::len), Some(1), "{data}");
+        // FIX §0 #4: a runnable lead beside the tip, a repository search for
+        // a small file.
+        let lead = &data["next"]["searchContent"];
+        assert_eq!(lead["tool"], "ghSearchCode", "{data}");
+        assert_eq!(
+            lead["query"]["queries"][0]["keywords"],
+            serde_json::json!(["absent"]),
+            "{data}"
+        );
+    }
+
+    /// FIX §0 #4: a literal missed in a large file leads to a clasify locate
+    /// of that file at the read's commit.
+    #[tokio::test]
+    async fn no_match_in_a_large_file_leads_to_clasify() {
+        let server = MockServer::start().await;
+        let sha = "0123456789abcdef0123456789abcdef01234567";
+        let text = (0..1200).map(|n| format!("line {n}\n")).collect::<String>();
+        mount_json(
+            &server,
+            "/api/v3/repos/a/b/contents/big.txt",
+            200,
+            serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode(&text)}),
+        )
+        .await;
+        let provider = mock_provider(&server, RetryPolicy::default());
+        let read = run_default(
+            &provider,
+            serde_json::json!({"owner":"a","repo":"b","path":"big.txt","ref":sha,"matchString":"absent"}),
+        )
+        .await
+        .expect("read");
+        let data = &read.output.data;
+        let lead = &data["next"]["clasify"];
+        assert_eq!(lead["tool"], "clasify", "{data}");
+        let matrix = &lead["query"]["queries"][0];
+        assert_eq!(matrix["resources"][0]["query"]["ref"], sha, "{data}");
+        assert_eq!(matrix["resources"][0]["query"]["path"], "big.txt", "{data}");
+        assert_eq!(matrix["questions"][0]["type"], "locate", "{data}");
     }
 }

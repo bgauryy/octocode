@@ -53,9 +53,9 @@ describe('generated tool types', () => {
 
   it('names shared types only where core names them (titles and ids)', () => {
     const defs = buildToolTypesBundle().bundle.$defs as Record<string, unknown>;
-    expect(defs.ChunkType).toEqual({ title: 'ChunkType', type: 'string', enum: ['lines', 'bytes'] });
+    expect(defs.WindowUnit).toEqual({ title: 'WindowUnit', type: 'string', enum: ['lines', 'bytes'] });
     for (const tool of ['GhGetFileContentQuery', 'LocalFetchQuery']) {
-      expect(JSON.stringify(defs[tool])).toContain('"$ref":"#/$defs/ChunkType"');
+      expect(JSON.stringify(defs[tool])).toContain('"$ref":"#/$defs/WindowUnit"');
     }
     expect(defs.AstRule).toBeDefined();
     // No positional or heuristic names leak out of the bundle.

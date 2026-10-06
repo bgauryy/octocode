@@ -15,6 +15,17 @@ pub trait ContentScan {
     }
 }
 
+/// A test scan double that returns every text unchanged.
+#[cfg(test)]
+pub(crate) struct Passthrough;
+
+#[cfg(test)]
+impl ContentScan for Passthrough {
+    fn sanitize(&self, text: &str, _: &Path) -> Result<(String, Vec<String>), (String, String)> {
+        Ok((text.to_owned(), vec![]))
+    }
+}
+
 impl ContentScan for super::ContentSecurity {
     fn sanitize(&self, text: &str, path: &Path) -> Result<(String, Vec<String>), (String, String)> {
         let result = self.sanitize_text(text, Some(path));

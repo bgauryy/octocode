@@ -1,34 +1,39 @@
 //! GitHub history *item fetch* — a single pull request, issue, commit, or
 //! comparison by number / ref.
 //!
-//! **Cache bypass is intentional.**  Like `gh_search_history`, this tool calls
-//! `transport` directly instead of going through the `GitHubProvider` cache
-//! wrapper.  History items are mutable (comments are added, reviews change,
-//! commits land): serving a cached snapshot would produce incorrect data.  The
-//! GitHub API's own rate-limit and conditional-request machinery is used
-//! implicitly through the transport layer.
+//! History items are mutable (comments are added, reviews change, commits
+//! land), so every REST read revalidates its stored copy (an ETag
+//! conditional request: a 304 costs no body and no primary rate limit);
+//! a read pinned to a commit SHA is immutable.
 //!
 //! Layout: this module owns the public query, validation, dispatch and the
 //! response boundary (sanitize, size cap). `pull_request`/`pr_sections`,
-//! `issue` and `commit_compare` shape each operation; `files` owns changed
-//! files and patch windows, `window` provider-batch paging, `continuations`
-//! every `next.*`, and `graphql` the PR fast path.
+//! `issue` and `commit_compare` shape each operation; `filter`, `inventory` and
+//! `patch` own changed files and patch windows, `window` provider-batch paging, `pr_menu`,
+//! `patch_hop` and `promotion` every `next.*`, and `graphql` the PR fast path.
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason,
     RequestContext,
 };
 use crate::security::scan::ContentScan;
+use crate::tools::num::usize_of;
 use crate::tools::result::remove_nulls;
 use serde_json::Value;
 use std::path::Path;
 
 mod commit_compare;
-mod continuations;
-mod files;
+mod filter;
 mod graphql;
+mod inventory;
 mod issue;
+mod output;
+mod patch;
+mod patch_hop;
+mod pr_menu;
 mod pr_sections;
+mod promotion;
 mod pull_request;
+mod recovery;
 mod util;
 mod window;
 
@@ -37,21 +42,15 @@ mod window;
 /// issue, commit and compare variants declare. The pull-request variant
 /// declares none (an omitted patch-free inventory sizes itself to the
 /// response page) and pages its collections by the same default.
-pub(crate) fn default_page_size() -> usize {
-    crate::contracts::query_schema_number(
-        crate::tools::id::ToolId::GhGetHistoryItem,
-        Some("issue"),
-        "pageSize",
-        "default",
-    )
-    .and_then(|size| usize::try_from(size).ok())
-    .unwrap_or(1)
-}
+pub(crate) const DEFAULT_PAGE_SIZE: usize =
+    crate::tools::id::query_limits::gh_get_history_item::issue::PAGE_SIZE_DEFAULT;
 /// Largest page of a provider collection (GitHub's `per_page` maximum).
 const MAX_COLLECTION_PAGE: usize = 100;
 const DEFAULT_TEXT_WINDOW: usize = 12_000;
 
 pub use crate::contracts::tool_types::GhGetHistoryItemQuery;
+pub(crate) use output::Output;
+pub use recovery::attach_recovery;
 
 /// The operation discriminant of a [`GhGetHistoryItemQuery`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -66,144 +65,69 @@ pub enum ItemOperation {
 #[derive(Clone, Debug)]
 pub struct HistoryItemRequest {
     pub query: GhGetHistoryItemQuery,
-    /// The row's `content` selector. typify projects the contract's
-    /// `content.patches` anyOf as flattened optional subtypes that share
-    /// `mode`, which loses selectors on a round trip, so the validated row
-    /// stays authoritative for this one field.
+    /// The sections the row reads, as the nested selector every handler
+    /// reads (`body`, `files`, `patches{mode,files,ranges}`,
+    /// `comments{discussion,reviewInline,includeBots}`, `reviews`,
+    /// `commits{includeFiles}`); built from `sections`, `patchRanges` and
+    /// `includeBots` ([`selection`]). Runtime-only, never on the wire.
     content: Option<Value>,
-    /// Effective automatic response page (`output.pagination.defaultCharLength`).
+    /// Commit/compare rows that read patch text (`sections:["patches"]`).
+    include_diff: bool,
+    /// The response page this row's output fits: the call's explicit page
+    /// (`responseLength`) or the configured automatic page, shared by the
+    /// rows of one call.
     pub auto_page_chars: Option<usize>,
-    /// The call's explicit response page (`responseCharLength`), if any.
-    pub response_page: Option<usize>,
-    /// Rows of this call that read patches: they share one patch budget.
-    pub patch_rows: usize,
-    /// Commit/compare `files` scope (paths or globs); pull requests carry
-    /// theirs as `fileFilter.paths`.
+    /// Commit/compare `include` scope (paths or globs); pull requests
+    /// filter their changed files by `include` ([`filter::InventoryFilter`]).
     pub(super) file_scope: Vec<String>,
-}
-
-/// Runtime-only row key carrying the call's patch-reading row count. It is
-/// added after validation and removed before parsing, so it never reaches
-/// the wire contract or a continuation.
-pub const PATCH_ROWS_KEY: &str = "\u{0}patchRows";
-/// Runtime-only row key carrying the call's explicit response page
-/// (`responseCharLength`), which then sizes default patch windows in place
-/// of the configured automatic page. Same lifecycle as [`PATCH_ROWS_KEY`].
-pub const RESPONSE_PAGE_KEY: &str = "\u{0}responsePage";
-
-/// Whether a validated row reads patch text.
-fn reads_patches(row: &Value) -> bool {
-    let patches_selected = row
-        .pointer("/content/patches/mode")
-        .and_then(Value::as_str)
-        .is_some_and(|mode| mode != "none");
-    let included = row
-        .get("include")
-        .and_then(Value::as_array)
-        .is_some_and(|include| include.iter().any(|item| item == "patches"));
-    match row.get("operation").and_then(Value::as_str) {
-        Some("pullRequest") => patches_selected || included || row.get("matchString").is_some(),
-        Some("commit" | "compare") => {
-            included || row.get("includeDiff").and_then(Value::as_bool) == Some(true)
-        }
-        _ => false,
-    }
-}
-
-/// Whether a validated row reads patch text without an explicit window.
-fn reads_default_patch_window(row: &Value) -> bool {
-    row.get("charLength").is_none() && reads_patches(row)
-}
-
-/// One patch budget per call: when two or more rows read patches with the
-/// default window, each row is stamped with that count so the windows split
-/// one response page instead of each taking a whole one, which would push
-/// a multi-row read into response pagination. An explicit response page
-/// (`responseCharLength`) is stamped on every patch-reading row, so a walk
-/// that asks for larger pages gets larger patch windows (fewer hops) and an
-/// explicit `charLength` is clamped to that page, not the configured one.
-/// `None` leaves rows as-is.
-pub fn share_patch_budget(rows: &[Value], response_page: Option<usize>) -> Option<Vec<Value>> {
-    let count = rows
-        .iter()
-        .filter(|row| reads_default_patch_window(row))
-        .count();
-    let paged = response_page.is_some() && rows.iter().any(reads_patches);
-    (count > 1 || paged).then(|| {
-        rows.iter()
-            .map(|row| {
-                let mut row = row.clone();
-                let shared = count > 1 && reads_default_patch_window(&row);
-                let stamped = response_page.filter(|_| reads_patches(&row));
-                if let Some(fields) = row.as_object_mut() {
-                    if shared {
-                        fields.insert(PATCH_ROWS_KEY.into(), Value::from(count));
-                    }
-                    if let Some(page) = stamped {
-                        fields.insert(RESPONSE_PAGE_KEY.into(), Value::from(page));
-                    }
-                }
-                row
-            })
-            .collect()
-    })
+    /// File text at the pull request's head that widens `matchString` hunks
+    /// past GitHub's diff context (read once per file and call).
+    head_sources: Option<std::sync::Arc<patch::HeadSources>>,
 }
 
 impl HistoryItemRequest {
     /// Parses a validated `ghGetHistoryItem` row.
     pub fn from_row(mut row: Value) -> Result<Self, serde_json::Error> {
-        let patch_rows = row
-            .as_object_mut()
-            .and_then(|fields| fields.remove(PATCH_ROWS_KEY))
-            .and_then(|count| count.as_u64())
-            .map_or(1, |count| usize::try_from(count).unwrap_or(1).max(1));
-        let response_page = row
-            .as_object_mut()
-            .and_then(|fields| fields.remove(RESPONSE_PAGE_KEY))
-            .and_then(|page| page.as_u64())
-            .and_then(|page| usize::try_from(page).ok())
-            .filter(|page| *page > 0);
-        let file_scope = normalize_aliases(&mut row);
-        imply_patch_search(&mut row);
-        let content = row.get("content").cloned();
+        let (content, include_diff, file_scope) = selection(&mut row);
         Ok(Self {
             query: serde_json::from_value(row)?,
             content,
+            include_diff,
             auto_page_chars: None,
-            response_page,
-            patch_rows,
             file_scope,
+            head_sources: None,
         })
     }
     /// The `content` selector as JSON, for the shaping code's key lookups.
     pub fn content_value(&self) -> Option<Value> {
         self.content.clone()
     }
+    /// Commit/compare rows that read patch text.
+    pub fn include_diff(&self) -> bool {
+        self.include_diff
+    }
 }
 
-/// The flat read selectors (`include`, `files`, `status`, commit `base`)
-/// map onto the nested shapes every handler reads (`content.*`,
-/// `fileFilter`, `includeDiff`, `operation:"compare"`), so the old and the
-/// new spellings of one read run the same code. Returns the commit/compare
-/// `files` scope, which has no nested spelling.
-fn normalize_aliases(row: &mut Value) -> Vec<String> {
+/// The sections a row reads, as the nested selector the handlers share
+/// (internal keys `body`, `files`, `patches`, `comments`, `reviews`,
+/// `commits`):
+/// pull-request and issue `sections`/`patchRanges`/`includeBots` become
+/// `content`; commit/compare `sections:["patches"]` reads patch text and
+/// `include` scopes the files. A commit with a `base` is the comparison
+/// base...ref. Returns `(content, include_diff, file_scope)`.
+fn selection(row: &mut Value) -> (Option<Value>, bool, Vec<String>) {
     let Some(fields) = row.as_object_mut() else {
-        return Vec::new();
+        return (None, false, Vec::new());
     };
-    let strings = |value: Option<Value>| {
+    let strings = |value: Option<&Value>| {
         value
-            .and_then(|value| match value {
-                Value::Array(items) => Some(items),
-                _ => None,
-            })
-            .unwrap_or_default()
+            .and_then(Value::as_array)
             .into_iter()
+            .flatten()
             .filter_map(|item| item.as_str().map(str::to_owned))
             .collect::<Vec<_>>()
     };
-    let include = strings(fields.remove("include"));
-    let files = strings(fields.remove("files"));
-    let status = fields.remove("status");
+    let sections = strings(fields.get("sections"));
     let operation = fields
         .get("operation")
         .and_then(Value::as_str)
@@ -211,84 +135,80 @@ fn normalize_aliases(row: &mut Value) -> Vec<String> {
         .to_owned();
     match operation.as_str() {
         "pullRequest" | "issue" => {
-            let had_content = fields.contains_key("content");
-            let content = fields
-                .entry("content")
-                .or_insert_with(|| serde_json::json!({}));
-            if let Some(content) = content.as_object_mut() {
-                for item in &include {
-                    match item.as_str() {
-                        "body" => {
-                            content.insert("body".into(), Value::Bool(true));
-                        }
-                        "files" => {
-                            content.insert("changedFiles".into(), Value::Bool(true));
-                        }
-                        "patches" => {
-                            content
-                                .entry("patches")
-                                .or_insert_with(|| serde_json::json!({"mode":"all"}));
-                        }
-                        "comments" => {
-                            let comments = content
-                                .entry("comments")
-                                .or_insert_with(|| serde_json::json!({}));
-                            if let Some(comments) = comments.as_object_mut() {
-                                comments.insert("discussion".into(), Value::Bool(true));
-                                if operation == "pullRequest" {
-                                    comments.insert("reviewInline".into(), Value::Bool(true));
-                                }
-                            }
-                        }
-                        "reviews" => {
-                            content.insert("reviews".into(), Value::Bool(true));
-                        }
-                        "commits" => {
-                            content
-                                .entry("commits")
-                                .or_insert_with(|| serde_json::json!({}));
-                        }
-                        _ => {}
+            let mut content = serde_json::Map::new();
+            let mut comments = serde_json::Map::new();
+            for section in &sections {
+                match section.as_str() {
+                    "body" => {
+                        content.insert("body".into(), Value::Bool(true));
                     }
+                    "files" => {
+                        content.insert("files".into(), Value::Bool(true));
+                    }
+                    "patches" => {
+                        content
+                            .entry("patches")
+                            .or_insert_with(|| serde_json::json!({"mode":"all"}));
+                    }
+                    "comments" => {
+                        comments.insert("discussion".into(), Value::Bool(true));
+                    }
+                    "reviewComments" => {
+                        comments.insert("reviewInline".into(), Value::Bool(true));
+                    }
+                    "reviews" => {
+                        content.insert("reviews".into(), Value::Bool(true));
+                    }
+                    "commits" => {
+                        content
+                            .entry("commits")
+                            .or_insert_with(|| serde_json::json!({}));
+                    }
+                    "commitFiles" => {
+                        content.insert("commits".into(), serde_json::json!({"includeFiles": true}));
+                    }
+                    _ => {}
                 }
             }
-            if !had_content
-                && fields
-                    .get("content")
-                    .and_then(Value::as_object)
-                    .is_some_and(serde_json::Map::is_empty)
+            if !comments.is_empty() {
+                if fields.get("includeBots").and_then(Value::as_bool) == Some(true) {
+                    comments.insert("includeBots".into(), Value::Bool(true));
+                }
+                content.insert("comments".into(), Value::Object(comments));
+            }
+            // `patchRanges` select patch lines per file; with them, the exact
+            // paths in `include` are selected files too (globs need a scan).
+            if let Some(ranges) = fields
+                .get("patchRanges")
+                .filter(|ranges| ranges.as_array().is_some_and(|ranges| !ranges.is_empty()))
             {
-                fields.remove("content");
-            }
-            if operation == "pullRequest" && (!files.is_empty() || status.is_some()) {
-                let filter = fields
-                    .entry("fileFilter")
-                    .or_insert_with(|| serde_json::json!({}));
-                if let Some(filter) = filter.as_object_mut() {
-                    if !files.is_empty() {
-                        let paths = filter
-                            .entry("paths")
-                            .or_insert_with(|| serde_json::json!([]));
-                        if let Some(paths) = paths.as_array_mut() {
-                            for file in &files {
-                                if !paths.iter().any(|path| path == file.as_str()) {
-                                    paths.push(Value::String(file.clone()));
-                                }
-                            }
-                        }
-                    }
-                    if let Some(status) = status {
-                        filter.insert("status".into(), status);
-                    }
+                let files = strings(fields.get("include"))
+                    .into_iter()
+                    .filter(|path| !path.contains(['*', '?', '[', '{']))
+                    .collect::<Vec<_>>();
+                let mut patches = serde_json::json!({"mode":"selected","ranges":ranges});
+                if !files.is_empty() {
+                    patches["files"] = serde_json::json!(files);
                 }
+                content.insert("patches".into(), patches);
             }
-            Vec::new()
+            // `matchString` on a pull request filters its patches; with no
+            // section selected it searches every patch.
+            if operation == "pullRequest"
+                && content.is_empty()
+                && fields.get("matchString").and_then(Value::as_str).is_some()
+            {
+                content.insert("patches".into(), serde_json::json!({"mode":"all"}));
+            }
+            (
+                (!content.is_empty()).then_some(Value::Object(content)),
+                false,
+                Vec::new(),
+            )
         }
         "commit" | "compare" => {
-            if include.iter().any(|item| item == "patches") {
-                fields.insert("includeDiff".into(), Value::Bool(true));
-            }
-            // A commit with a base is the comparison base...ref.
+            let include_diff = sections.iter().any(|section| section == "patches");
+            let scope = strings(fields.get("include"));
             if operation == "commit"
                 && let Some(base) = fields.remove("base")
             {
@@ -297,27 +217,12 @@ fn normalize_aliases(row: &mut Value) -> Vec<String> {
                     fields.insert("head".into(), head);
                 }
                 fields.insert("base".into(), base);
+                fields.remove("include");
                 fields.entry("page").or_insert_with(|| Value::from(1));
             }
-            files
+            (None, include_diff, scope)
         }
-        _ => Vec::new(),
-    }
-}
-
-/// `matchString` on a pull request filters its patches (and selected
-/// comments and reviews). With no content selected there is nothing for it
-/// to filter, so the literal implies a search of every patch, still narrowed
-/// by `fileFilter`.
-fn imply_patch_search(row: &mut Value) {
-    let selects_nothing = row
-        .get("content")
-        .is_none_or(|content| content.as_object().is_some_and(serde_json::Map::is_empty));
-    if row.get("operation").and_then(Value::as_str) == Some("pullRequest")
-        && row.get("matchString").and_then(Value::as_str).is_some()
-        && selects_nothing
-    {
-        row["content"] = serde_json::json!({"patches": {"mode": "all"}});
+        _ => (None, false, Vec::new()),
     }
 }
 
@@ -344,10 +249,6 @@ impl std::ops::Deref for HistoryItemRequest {
     fn deref(&self) -> &GhGetHistoryItemQuery {
         &self.query
     }
-}
-
-fn usize_of(value: u64) -> usize {
-    usize::try_from(value).unwrap_or(usize::MAX)
 }
 
 /// Operation-independent views over the generated wire query, in the
@@ -421,15 +322,24 @@ impl GhGetHistoryItemQuery {
     /// patch file pages): `pageSize` capped at one provider batch.
     pub fn collection_page_size(&self) -> usize {
         self.page_size()
-            .unwrap_or_else(default_page_size)
+            .unwrap_or(DEFAULT_PAGE_SIZE)
             .clamp(1, MAX_COLLECTION_PAGE)
     }
-    /// The pull-request changed-file narrowing (`fileFilter`).
-    pub fn file_filter(&self) -> Option<&crate::contracts::tool_types::PullRequestFileFilter> {
+    /// Whether a pull request narrows its changed files (`include`,
+    /// `status`, `minChanges`).
+    /// Pull-request `patchRanges` (selected patch lines per file).
+    pub fn patch_ranges(&self) -> &[crate::contracts::tool_types::HiPatchRange] {
         match self {
-            Self::PullRequest { file_filter, .. } => file_filter.as_ref(),
-            _ => None,
+            Self::PullRequest { patch_ranges, .. } => patch_ranges,
+            _ => &[],
         }
+    }
+    pub fn has_file_filter(&self) -> bool {
+        matches!(
+            self,
+            Self::PullRequest { include, status, min_changes, .. }
+                if include.is_some() || status.is_some() || min_changes.is_some()
+        )
     }
     pub fn file_page(&self) -> Option<usize> {
         match self {
@@ -460,14 +370,7 @@ impl GhGetHistoryItemQuery {
             _ => None,
         }
     }
-    pub fn include_diff(&self) -> bool {
-        match self {
-            Self::Commit { include_diff, .. } | Self::Compare { include_diff, .. } => {
-                include_diff.as_ref().is_some_and(|include| include.0)
-            }
-            _ => false,
-        }
-    }
+
     pub fn path(&self) -> Option<&str> {
         match self {
             Self::Commit { path, .. } | Self::Compare { path, .. } => {
@@ -476,23 +379,23 @@ impl GhGetHistoryItemQuery {
             _ => None,
         }
     }
+    /// The text window offset (`offset`, characters).
     pub fn char_offset(&self) -> Option<usize> {
         match self {
-            Self::PullRequest { char_offset, .. } | Self::Issue { char_offset, .. } => {
-                char_offset.map(usize_of)
-            }
-            Self::Commit { char_offset, .. } | Self::Compare { char_offset, .. } => {
-                char_offset.as_ref().map(|offset| usize_of(offset.0))
+            Self::PullRequest { offset, .. } | Self::Issue { offset, .. } => offset.map(usize_of),
+            Self::Commit { offset, .. } | Self::Compare { offset, .. } => {
+                offset.as_ref().map(|offset| usize_of(offset.0))
             }
         }
     }
+    /// The text window length (`length`, characters).
     pub fn char_length(&self) -> Option<usize> {
         match self {
-            Self::PullRequest { char_length, .. } | Self::Issue { char_length, .. } => {
-                char_length.map(|length| usize_of(length.get()))
+            Self::PullRequest { length, .. } | Self::Issue { length, .. } => {
+                length.map(|length| usize_of(length.get()))
             }
-            Self::Commit { char_length, .. } | Self::Compare { char_length, .. } => {
-                char_length.as_ref().map(|length| usize_of(length.0.get()))
+            Self::Commit { length, .. } | Self::Compare { length, .. } => {
+                length.as_ref().map(|length| usize_of(length.0.get()))
             }
         }
     }
@@ -502,27 +405,19 @@ impl GhGetHistoryItemQuery {
             _ => None,
         }
     }
-    /// Lines kept around each `matchString` hit in a patch (`matchContext`).
+    /// Lines kept around each `matchString` hit in a patch (`contextLines`).
     pub fn match_context(&self) -> Option<usize> {
         match self {
-            Self::PullRequest { match_context, .. } => {
-                match_context.and_then(|lines| usize::try_from(lines).ok())
+            Self::PullRequest { context_lines, .. } => {
+                context_lines.and_then(|lines| usize::try_from(lines).ok())
             }
             _ => None,
         }
     }
-    pub fn comment_body_offset(&self) -> Option<usize> {
-        match self {
-            Self::PullRequest {
-                comment_body_offset,
-                ..
-            } => comment_body_offset.map(usize_of),
-            _ => None,
-        }
-    }
     /// Whether the query reads a later page of a pull request (a file, commit,
-    /// review or comment page after the first, or a text window past the
-    /// start): the caller already holds the item header and menu from page one.
+    /// review or comment page after the first, or a text window that names
+    /// its offset): the caller already holds the item header and menu from
+    /// page one.
     pub fn later_page(&self) -> bool {
         let after_first = |page: Option<usize>| page.is_some_and(|page| page > 1);
         matches!(self, Self::PullRequest { .. })
@@ -530,8 +425,7 @@ impl GhGetHistoryItemQuery {
                 || after_first(self.comment_page())
                 || after_first(self.commit_page())
                 || after_first(self.review_page())
-                || self.char_offset().is_some_and(|offset| offset > 0)
-                || self.comment_body_offset().is_some_and(|offset| offset > 0))
+                || self.char_offset().is_some())
     }
     /// `debug: true` keeps diagnostic fields a default response omits.
     pub fn debug(&self) -> bool {
@@ -559,10 +453,28 @@ pub async fn execute<R: CredentialResolver>(
     let mut value = match result {
         Ok(value) => value,
         Err(mut error) => {
+            // A direct read of a SHA GitHub does not have (422 "No commit
+            // found for SHA") is a missing commit, not an invalid query.
+            if error.kind == ProviderErrorKind::Validation
+                && error.status == Some(422)
+                && error.message.starts_with("No commit found")
+            {
+                error.kind = ProviderErrorKind::NotFound;
+                error.reason = Some(ProviderErrorReason::RefNotFound);
+                error.message =
+                    "Commit not found - verify the ref/SHA exists in this repository".into();
+            }
             match error.kind {
-                // The number names an issue: the message already says so.
+                // The number names an issue, or the missing commit: the
+                // message already says so.
                 ProviderErrorKind::NotFound
-                    if error.reason == Some(ProviderErrorReason::PullRequestIsIssue) => {}
+                    if matches!(
+                        error.reason,
+                        Some(
+                            ProviderErrorReason::PullRequestIsIssue
+                                | ProviderErrorReason::RefNotFound
+                        )
+                    ) => {}
                 ProviderErrorKind::NotFound => {
                     let canonical = "Repository, resource, or path not found";
                     error.message = if matches!(query.operation(), ItemOperation::PullRequest) {
@@ -702,11 +614,7 @@ mod tests {
     fn false_content_selectors_do_not_request_sections() {
         let query = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest", "owner":"o", "repo":"r", "number":1,
-            "mainGoal":"Read the pull request.","reasoning":"False selectors must stay off.",
-            "content":{
-                "body":false,"changedFiles":false,"reviews":false,
-                "comments":{"discussion":false,"reviewInline":false,"includeBots":false}
-            }
+            "mainGoal":"Read the pull request.","reasoning":"False selectors must stay off."
         }))
         .expect("false selectors are valid booleans");
         let wants = pull_request::content_wants(&query);
@@ -715,32 +623,46 @@ mod tests {
         );
     }
 
-    /// The flat selectors and the nested shapes they replace
-    /// parse to the same request, so old continuations keep working.
+    /// `sections`, `patchRanges` and `includeBots` select the internal
+    /// content model each handler reads.
     #[test]
-    fn flat_selectors_alias_the_nested_shapes() {
-        let flat = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","number":1,
-            "include":["body","files","patches","comments","reviews"],
-            "files":["src/**"],"status":["modified"]
-        }))
-        .expect("flat shape");
-        let nested = HistoryItemRequest::from_row(json!({
-            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","number":1,
-            "content":{"body":true,"changedFiles":true,"patches":{"mode":"all"},
-                "comments":{"discussion":true,"reviewInline":true},"reviews":true},
-            "fileFilter":{"paths":["src/**"],"status":["modified"]}
-        }))
-        .expect("nested shape");
-        assert_eq!(flat.content_value(), nested.content_value());
+    fn sections_select_the_content_model() {
+        let row = |fields: Value| {
+            HistoryItemRequest::from_row(super::util::merge(
+                json!({"operation":"pullRequest","mainGoal":"g","reasoning":"r",
+                    "owner":"o","repo":"r","number":1}),
+                fields,
+            ))
+            .expect("pull request row")
+        };
+        let read = row(json!({
+            "sections":["body","files","patches","comments","reviewComments","reviews"],
+            "include":["src/**"],"status":["modified"],"includeBots":true
+        }));
         assert_eq!(
-            serde_json::to_value(&flat.query).ok(),
-            serde_json::to_value(&nested.query).ok()
+            read.content_value(),
+            Some(
+                json!({"body":true,"files":true,"patches":{"mode":"all"},"reviews":true,
+                "comments":{"discussion":true,"reviewInline":true,"includeBots":true}})
+            )
         );
-        // Commit include patches = includeDiff; base folds compare in.
+        let ranged = row(json!({
+            "include":["src/a.rs","src/*.rs"],
+            "patchRanges":[{"file":"src/a.rs","additions":[1,2]}]
+        }));
+        assert_eq!(
+            ranged.content_value(),
+            Some(json!({"patches":{"mode":"selected",
+                "ranges":[{"file":"src/a.rs","additions":[1,2]}],"files":["src/a.rs"]}}))
+        );
+        assert_eq!(
+            row(json!({"matchString":"needle"})).content_value(),
+            Some(json!({"patches":{"mode":"all"}}))
+        );
+        // Commit sections:["patches"] reads diffs; base folds compare in.
         let commit = HistoryItemRequest::from_row(json!({
             "operation":"commit","mainGoal":"g","reasoning":"r","owner":"o","repo":"r",
-            "ref":"head-sha","base":"base-sha","include":["patches"],"files":["src/*.rs"]
+            "ref":"head-sha","base":"base-sha","sections":["patches"],"include":["src/*.rs"]
         }))
         .expect("commit with base");
         assert_eq!(commit.operation(), ItemOperation::Compare);
@@ -750,7 +672,7 @@ mod tests {
         assert_eq!(commit.file_scope, ["src/*.rs"]);
         let issue = HistoryItemRequest::from_row(json!({
             "operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","number":2,
-            "include":["comments"]
+            "sections":["comments"]
         }))
         .expect("issue include");
         assert_eq!(

@@ -380,7 +380,7 @@ Pick the cheapest surface that answers the next question. Start with tree/discov
 ```
 structureSearch (operation:"tree" to orient)
   → structureSearch (operation:"files" for paths)
-  → localSearch (searchText for snippets)
+  → localSearch (matchString for snippets)
   → localFetch (matchString → returns matchRanges line anchors)
   → lspSearch (operation:"references"/"callers", lineHint from matchRanges)
 ```
@@ -392,7 +392,7 @@ structureSearch (operation:"tree" to orient)
 **2. Symbol-first (you know the name, not the place)**
 
 ```
-localSearch (searchText:"<symbol>", sort:"relevance")
+localSearch (matchString:"<symbol>", sort:"relevance")
   → lspSearch (operation:"references"/"callers", lineHint from the top hit)
 ```
 
@@ -418,7 +418,7 @@ astSearch (operation:"match", pattern or YAML rule)
 
 ```
 ghSearchRepo (concise:true) or artifactSearch (package → source repo)
-  → ghStructure (resolvedBranch confirms the ref)
+  → ghStructure (resolvedRef confirms the ref)
   → ghSearchCode (match:"path" first; match:"file" for snippets)
   → ghGetFileContent (matchString → matchRanges, same anchor contract as local)
 ```
@@ -434,7 +434,7 @@ ghSearchHistory (operation:"commit", path-scoped)       ← who touched this and
   → patches mode:"selected" + files/ranges               ← cheapest diff read
 ```
 
-**7. Remote → local (materialize for proof)** — choose a *bounded* subtree first via structure/search, then `ghCloneRepo (sparsePath)` → `result.location.localPath` → all local workflows apply unchanged. This is the Static/Dynamic Context bridge from Part 3.
+**7. Remote → local (materialize for proof)** — choose a *bounded* subtree first via structure/search, then `ghCloneRepo (path)` → `result.location.localPath` → all local workflows apply unchanged. This is the Static/Dynamic Context bridge from Part 3.
 
 ### Token discipline
 

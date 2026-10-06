@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -45,5 +45,19 @@ describe('skill env params come from the config contract', () => {
     expect(isEnvSet(key)).toBe(false);
     writeFileSync(path.join(home, '.env'), `${key}=from-home\n`);
     expect(isEnvSet(key)).toBe(true);
+  });
+
+  it('honors the workspace .env layer, as the native resolver does', () => {
+    const workspace = mkdtempSync(path.join(tmpdir(), 'octocode-env-ws-'));
+    mkdirSync(path.join(workspace, '.octocode'));
+    vi.spyOn(process, 'cwd').mockReturnValue(workspace);
+    const token = ENV_TOKEN_VARS[0]!;
+    expect(isEnvSet(token)).toBe(false);
+    writeFileSync(
+      path.join(workspace, '.octocode', '.env'),
+      `${token}=from-repo\n`
+    );
+    expect(isEnvSet(token)).toBe(true);
+    rmSync(workspace, { recursive: true, force: true });
   });
 });

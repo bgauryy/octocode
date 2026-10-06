@@ -1,6 +1,6 @@
 # napi-rs: types, binding crate, per-platform packages
 
-Load when you type `#[napi]` signatures, read a generated `.d.ts`, debug a JS↔Rust value mismatch, lay out a binding crate, or ship a `.node` via per-platform npm packages. Sources: napi-rs `PRIMITIVE_TYPES`/`KNOWN_TYPES`, `@napi-rs/cli`, `napi-rs/package-template`, `oxc/napi/parser`. Panics, threads, and boundary errors: `references/safety-and-ffi.md`.
+Load when you type `#[napi]` signatures, read a generated `.d.ts`, debug a JS↔Rust value mismatch, lay out a binding crate, or ship a `.node` via per-platform npm packages. Why: the generated types are the contract JS sees, and a wrong mapping fails at runtime, not compile time. Sources: napi-rs `PRIMITIVE_TYPES`/`KNOWN_TYPES`, `@napi-rs/cli`, `napi-rs/package-template`, `oxc/napi/parser`. Panics, threads, and boundary errors: `references/safety-and-ffi.md`.
 
 ## Types: scalars
 | Rust | TS | Watch |

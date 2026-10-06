@@ -9,7 +9,6 @@ import {
 } from './contract.generated.js';
 import type {
   OctocodeConfig,
-  RequiredExtensionConfig,
   RequiredGitHubConfig,
   RequiredLocalConfig,
   RequiredLspConfig,
@@ -221,9 +220,6 @@ export function resolveConfigFields(
       }
     }
 
-    if (!selected && field.defaultFrom) {
-      setPath(resolved, field.path, structuredClone(getPath(resolved, field.defaultFrom)));
-    }
   }
 
   return resolved as unknown as ResolvedConfigData;
@@ -273,8 +269,3 @@ export function resolveStorage(
   return resolveConfigFields({ storage: fileConfig }).storage;
 }
 
-export function resolveExtensionStorage(
-  fileConfig?: Pick<OctocodeConfig, 'storage' | 'extension'>
-): RequiredExtensionConfig {
-  return resolveConfigFields(fileConfig).extension;
-}

@@ -62,7 +62,8 @@
         "priority": { "type": "integer", "minimum": 0 },
         "dotenv": { "$ref": "#/$defs/dotenvPolicy" },
         "normalize": { "type": "string", "enum": ["trim", "lower"] },
-        "invalid": { "type": "string", "enum": ["skip", "default"] }
+        "invalid": { "type": "string", "enum": ["skip", "default"] },
+        "workspaceNarrowsTo": { "type": "string", "minLength": 1 }
       }
     },
     "envBindings": {
@@ -79,7 +80,6 @@
         "description": { "type": "string", "minLength": 1 },
         "notes": { "type": "string" },
         "env": { "$ref": "#/$defs/envBindings" },
-        "defaultFrom": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*(\\.[a-z][A-Za-z0-9]*)+$" },
         "credential": { "type": "boolean" },
         "displayDefault": { "type": "string" },
         "itemFormat": { "type": "string", "enum": ["path"] },
@@ -194,7 +194,6 @@
               "uniqueItems": true,
               "items": { "type": "string", "minLength": 1 }
             },
-            "defaultFrom": true,
             "displayDefault": true,
             "typeName": true,
             "constantName": true,

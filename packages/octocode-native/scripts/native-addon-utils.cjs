@@ -92,4 +92,4 @@ function verifyBinaryRuns(binaryPath) {
   }
 }
 
-module.exports = { adHocSignDarwinAddon, stageFile, verifyAddonLoads, verifyBinaryRuns };
+module.exports = { SMOKE_TIMEOUT_MS, adHocSignDarwinAddon, stageFile, verifyAddonLoads, verifyBinaryRuns };

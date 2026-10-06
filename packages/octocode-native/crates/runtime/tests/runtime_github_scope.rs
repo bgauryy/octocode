@@ -3,7 +3,7 @@
 //! GitHub tools keep the requested scope and filters, and say when evidence
 //! is bounded or a provider path fell back.
 
-mod support;
+use crate::support;
 
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
@@ -42,7 +42,7 @@ async fn mount_pull_request(server: &MockServer) {
 
 fn reviews_query(debug: bool) -> Value {
     json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 7,
-        "content": {"body": true, "reviews": true}, "debug": debug})
+        "sections":["body","reviews"], "debug": debug})
 }
 
 /// A GraphQL document GitHub rejects falls back to REST with the cause in
@@ -190,11 +190,16 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
             .is_some_and(|w| w.contains("25 of 31")),
         "{data}"
     );
-    assert_eq!(data["hints"]["readFixPr"]["confidence"], "medium", "{data}");
+    assert!(
+        data["hints"]["readFixPullRequest"]
+            .get("confidence")
+            .is_none(),
+        "leads carry no confidence: {data}"
+    );
     runtime.close().await;
 }
 
-/// `archived` filters a scoped pull-request listing through search, with
+/// `archived:` filters a scoped pull-request listing through search, with
 /// or without keywords; the pulls list would silently ignore it.
 #[tokio::test]
 async fn archived_pull_request_listing_enforces_the_filter() {
@@ -226,7 +231,7 @@ async fn archived_pull_request_listing_enforces_the_filter() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "archived": true, "pageSize": 1}),
+        json!({"operation": "pullRequest", "owner": "a", "repo": "b", "qualifiers": "archived:true", "pageSize": 1}),
     )
     .await
     .expect("archived listing");
@@ -336,7 +341,7 @@ async fn pull_request_commit_details_load_concurrently_in_order() {
         &runtime,
         "ghGetHistoryItem",
         json!({"operation": "pullRequest", "owner": "a", "repo": "b", "number": 7,
-            "content": {"commits": {"includeFiles": true}}}),
+            "sections":["commitFiles"]}),
     )
     .await
     .expect("commit details");

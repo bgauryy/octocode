@@ -123,6 +123,3 @@ export function loadProjectConfigSync(cwd?: string): LoadConfigResult {
   return loadConfigFileSync(getProjectConfigFilePath(cwd));
 }
 
-export async function loadConfig(home?: string): Promise<LoadConfigResult> {
-  return loadConfigSync(home);
-}

@@ -22,6 +22,7 @@ mod workspace;
 
 use super::graph::{BuildExtras, build_graph_with};
 use super::types::AstTopologyQuery;
+use crate::private_file::write_atomic;
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
@@ -157,12 +158,6 @@ fn utc_now() -> (String, String) {
     )
 }
 
-fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
-    std::fs::write(&tmp, bytes)?;
-    std::fs::rename(&tmp, path)
-}
-
 /// Whether `dir` is a published snapshot (has a manifest of our kind).
 fn read_manifest(dir: &Path) -> Option<Value> {
     std::fs::read(dir.join(MANIFEST_FILE))
@@ -219,11 +214,13 @@ fn prune(home: &Path, slug: &str, keep: usize) -> Vec<String> {
 }
 
 /// Builds the graph for `options.path` and publishes a new snapshot.
+/// `cargo` is the configured `OCTOCODE_CARGO` for Rust workspace linking.
 pub fn ingest(
     options: &IngestOptions,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
+    cargo: Option<&str>,
 ) -> GraphOutput {
     let started = Instant::now();
     let home = match graph_home(options.workspace.as_deref()) {
@@ -248,42 +245,9 @@ pub fn ingest(
         receipt["totalMs"] = json!(started.elapsed().as_millis() as u64);
         return GraphOutput::ok(receipt);
     }
-    let mut request = json!({
-        "analysis": "cycles",
-        "path": options.path.to_string_lossy(),
-        "maxFiles": max_files,
-        "excludeDir": options.exclude_dir,
-    });
-    // Cargo metadata links `crate::`/workspace-crate imports; syntax-only
-    // Rust linking would leave them unresolved.
-    if options.path.join("Cargo.toml").is_file() {
-        request["rustWorkspace"] = json!("cargo");
-    }
-    let query: AstTopologyQuery = match serde_json::from_value(request) {
-        Ok(query) => query,
-        Err(error) => return GraphOutput::error(2, "graph.input", error.to_string()),
-    };
-    let built = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        build_graph_with(
-            &query,
-            paths,
-            security,
-            cancel,
-            &BuildExtras {
-                respect_gitignore: true,
-                extra_excludes: INGEST_EXCLUDES.iter().map(|x| (*x).to_owned()).collect(),
-            },
-        )
-    })) {
-        Ok(Ok(built)) => built,
-        Ok(Err(error)) => {
-            let exit = if error.code.contains("path") { 3 } else { 5 };
-            return GraphOutput {
-                value: json!({"error": error.message, "errorCode": error.code, "hints": error.hints}),
-                exit,
-            };
-        }
-        Err(_) => return GraphOutput::error(5, "graph.internal", "graph build panicked"),
+    let built = match build_for_ingest(options, paths, security, cancel, max_files, cargo) {
+        Ok(built) => built,
+        Err(output) => return output,
     };
     let build_ms = started.elapsed().as_millis() as u64;
     let files = built.nodes.keys().map(String::as_str).collect::<Vec<_>>();
@@ -298,7 +262,9 @@ pub fn ingest(
         })
         .map(|(file, _)| file.as_str())
         .collect::<std::collections::BTreeSet<_>>();
-    let project = workspace::Workspace::discover(&built.root, &files, &mains);
+    let project = workspace::Workspace::discover(&built.root, &files, &mains, &|path| {
+        super::aliases::read_config_text(paths, security, path)
+    });
     let projection = tables::project(&built, &project);
     let (bytes, digest) = format::encode(&projection.tables);
 
@@ -323,19 +289,7 @@ pub fn ingest(
         exclude_dir: &options.exclude_dir,
         build_ms,
     });
-    let publish = || -> std::io::Result<PathBuf> {
-        std::fs::create_dir_all(&home)?;
-        let tmp = home.join(format!(".tmp-{}-{stamp}", std::process::id()));
-        std::fs::create_dir_all(&tmp)?;
-        std::fs::write(tmp.join(GRAPH_FILE), &bytes)?;
-        let text = serde_json::to_vec_pretty(&manifest).unwrap_or_default();
-        std::fs::write(tmp.join(MANIFEST_FILE), text)?;
-        let target = home.join(&id);
-        std::fs::rename(&tmp, &target)?;
-        write_atomic(&home.join(LATEST_FILE), id.as_bytes())?;
-        Ok(target)
-    };
-    let dir = match publish() {
+    let dir = match publish(&home, &id, &stamp, &bytes, &manifest) {
         Ok(dir) => dir,
         Err(error) => {
             return GraphOutput::error(5, "graph.write", format!("cannot publish graph: {error}"));
@@ -363,6 +317,81 @@ pub fn ingest(
         receipt["pruned"] = json!(pruned);
     }
     GraphOutput::ok(receipt)
+}
+
+/// The linked graph of `options.path`, as an astTopology scan with the
+/// ingest's exclusions and `.gitignore`.
+fn build_for_ingest(
+    options: &IngestOptions,
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+    cancel: &dyn CancellationCheck,
+    max_files: u32,
+    cargo: Option<&str>,
+) -> Result<super::types::BuiltGraph, GraphOutput> {
+    let mut request = json!({
+        "operation": "cycles",
+        "path": options.path.to_string_lossy(),
+        "maxFiles": max_files,
+        "exclude": options.exclude_dir,
+    });
+    // Cargo metadata links `crate::`/workspace-crate imports; syntax-only
+    // Rust linking would leave them unresolved.
+    if options.path.join("Cargo.toml").is_file() {
+        request["rustWorkspace"] = json!("cargo");
+    }
+    let query: AstTopologyQuery = match serde_json::from_value(request) {
+        Ok(query) => query,
+        Err(error) => return Err(GraphOutput::error(2, "graph.input", error.to_string())),
+    };
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        build_graph_with(
+            &query,
+            paths,
+            security,
+            cancel,
+            &BuildExtras {
+                respect_gitignore: true,
+                extra_excludes: INGEST_EXCLUDES.iter().map(|x| (*x).to_owned()).collect(),
+                cargo: cargo.map(str::to_owned),
+            },
+        )
+    })) {
+        Ok(Ok(built)) => Ok(built),
+        Ok(Err(error)) => {
+            let exit = if error.code.contains("path") { 3 } else { 5 };
+            Err(GraphOutput {
+                value: json!({"error": error.message, "errorCode": error.code, "hints": error.hints}),
+                exit,
+            })
+        }
+        Err(_) => Err(GraphOutput::error(
+            5,
+            "graph.internal",
+            "graph build panicked",
+        )),
+    }
+}
+
+/// Writes the snapshot under a temp dir, renames it into place and points
+/// the latest marker at it.
+fn publish(
+    home: &Path,
+    id: &str,
+    stamp: &str,
+    bytes: &[u8],
+    manifest: &Value,
+) -> std::io::Result<PathBuf> {
+    std::fs::create_dir_all(home)?;
+    let tmp = home.join(format!(".tmp-{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&tmp)?;
+    std::fs::write(tmp.join(GRAPH_FILE), bytes)?;
+    let text = serde_json::to_vec_pretty(manifest).unwrap_or_default();
+    std::fs::write(tmp.join(MANIFEST_FILE), text)?;
+    let target = home.join(id);
+    std::fs::rename(&tmp, &target)?;
+    write_atomic(&home.join(LATEST_FILE), id.as_bytes(), false)?;
+    Ok(target)
 }
 
 /// The latest snapshot of `root` when nothing it covers changed: same scan
@@ -402,14 +431,11 @@ fn reuse_current(
         .map(|node| tables.str(node.key))
         .collect::<std::collections::BTreeSet<_>>();
     let extensions = octocode_engine::signatures::graph_facts::graph_fact_extensions();
-    let requested = INGEST_EXCLUDES
-        .iter()
-        .map(|name| (*name).to_owned())
-        .chain(options.exclude_dir.iter().cloned())
-        .collect::<Vec<_>>();
     let excluded = crate::policy::prune::PruneMode::SyntaxVisible
-        .directories(&requested, true)
+        .directories(true)
         .into_iter()
+        .chain(INGEST_EXCLUDES.iter().map(|name| (*name).to_owned()))
+        .chain(options.exclude_dir.iter().cloned())
         .collect::<std::collections::BTreeSet<_>>();
     let walker = ignore::WalkBuilder::new(root)
         .hidden(true)
@@ -445,11 +471,11 @@ fn reuse_current(
     for (node, digest) in &tables.digests {
         let file = tables.str(tables.nodes[*node as usize].key);
         let content = std::fs::read(root.join(file)).ok()?;
-        if octocode_engine::index::content_digest(&content) != tables.str(*digest) {
+        if octocode_engine::digest::sha256(&content) != tables.str(*digest) {
             return None;
         }
     }
-    write_atomic(&home.join(LATEST_FILE), id.as_bytes()).ok()?;
+    write_atomic(&home.join(LATEST_FILE), id.as_bytes(), false).ok()?;
     Some(json!({
         "id": id,
         "dir": dir.to_string_lossy(),

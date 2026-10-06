@@ -6,7 +6,8 @@ use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-fn get_path<'a>(root: &'a Value, field_path: &str) -> Option<&'a Value> {
+/// The value at a dotted contract path.
+pub(super) fn get_path<'a>(root: &'a Value, field_path: &str) -> Option<&'a Value> {
     let mut current = root;
     for part in field_path.split('.') {
         current = current.as_object()?.get(part)?;
@@ -34,7 +35,20 @@ fn is_absolute_or_home_path(value: &str) -> bool {
             .as_bytes()
             .get(2)
             .is_some_and(|separator| matches!(separator, b'/' | b'\\'));
-    value.starts_with('~') || Path::new(value).is_absolute() || windows_absolute
+    Path::new(value).is_absolute()
+        || value == "~"
+        || value.starts_with("~/")
+        || value.starts_with("~\\")
+        || windows_absolute
+}
+
+/// An absolute or `~` path without `..`: the one rule for path settings.
+pub(super) fn is_local_path(value: &str) -> bool {
+    is_absolute_or_home_path(value) && !value.split(['/', '\\']).any(|part| part == "..")
+}
+
+pub(super) fn is_http_url(value: &str) -> bool {
+    matches!(url::Url::parse(value), Ok(url) if matches!(url.scheme(), "http" | "https"))
 }
 
 fn validate_path(field_path: &str, value: &str, errors: &mut Vec<String>) {
@@ -52,14 +66,16 @@ fn validate_path(field_path: &str, value: &str, errors: &mut Vec<String>) {
 }
 
 fn validate_url(field_path: &str, value: &str, errors: &mut Vec<String>) {
-    match url::Url::parse(value) {
-        Ok(url) if matches!(url.scheme(), "http" | "https") => {}
-        Ok(_) => errors.push(format!("{field_path}: Only http/https URLs allowed")),
-        Err(_) => errors.push(format!("{field_path}: Invalid URL format")),
+    if !is_http_url(value) {
+        errors.push(if url::Url::parse(value).is_ok() {
+            format!("{field_path}: Only http/https URLs allowed")
+        } else {
+            format!("{field_path}: Invalid URL format")
+        });
     }
 }
 
-fn validate_field(
+pub(super) fn validate_field(
     field: &ConfigFieldSpec,
     value: Option<&Value>,
     errors: &mut Vec<String>,
@@ -266,6 +282,19 @@ pub fn validate_config(config: &Value) -> ValidationResult {
 mod tests {
     use super::validate_config;
     use serde_json::json;
+
+    #[test]
+    fn home_paths_need_a_separator_after_the_tilde() {
+        for (path, valid) in [
+            ("~", true),
+            ("~/x", true),
+            ("/abs", true),
+            ("~user/x", false),
+        ] {
+            let result = validate_config(&json!({"local": {"workspaceRoot": path}}));
+            assert_eq!(result.valid, valid, "{path}");
+        }
+    }
 
     #[test]
     fn output_format_yaml_validates_clean() {

@@ -1,11 +1,11 @@
 // artifactSearch fidelity: every registry answer is compared with that
-// registry's own public API (ground truth), and hints.viewRepo must name and
-// open the same repository.
+// registry's own public API (ground truth), and the one source lead
+// (hints.viewReleaseSource, else hints.viewRepo) must name and open the same repository.
 import { checks, rowData, startServer, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('artifacts');
 const client = await startServer();
-const { call, raw } = client;
+const { call, follow } = client;
 const UA = { 'user-agent': 'octocode-local-testing (bench; contact: maintainers)' };
 
 async function json(url) {
@@ -49,23 +49,27 @@ for (const c of CASES) {
   const data = rowData(out);
   const artifact = data?.artifacts?.[0];
   const toolRepo = githubSlug(artifact?.repository ?? artifact?.homepage ?? artifact?.sourceUrl);
-  const viewHint = data?.hints?.viewRepo;
-  const view = viewHint?.query;
+  const leads = ['viewReleaseSource', 'viewRepo'].filter(name => data?.hints?.[name]);
+  const viewHint = data?.hints?.[leads[0]];
+  const view = viewHint?.query?.queries?.[0];
   const viewSlug = view ? `${view.owner}/${view.repo}`.toLowerCase() : null;
-  table.push({ type: c.type, name: c.name, tool: artifact?.version, registry: truth.version, repo: toolRepo, truthRepo: truth.repo, viewRepo: viewSlug });
+  table.push({ type: c.type, name: c.name, tool: artifact?.version, registry: truth.version, repo: toolRepo, truthRepo: truth.repo, lead: leads.join('+'), ref: view?.ref ?? '', path: view?.path ?? '' });
   check(`${c.type} ${c.name}: latest version equals the registry`, norm(artifact?.version) === norm(truth.version), `tool=${artifact?.version} registry=${truth.version}`);
   if (truth.repo) {
     check(`${c.type} ${c.name}: repository equals the registry's`, toolRepo === truth.repo, `tool=${toolRepo} registry=${truth.repo}`);
-    check(`${c.type} ${c.name}: hints.viewRepo names that repository`, viewSlug === truth.repo, `viewRepo=${viewSlug}`);
+    check(`${c.type} ${c.name}: the source lead names that repository`, viewSlug === truth.repo, `${leads[0]}=${viewSlug}`);
   }
   if (view) {
-    check(`${c.type}: repository provenance is explicit`, viewHint.source?.scope === 'defaultBranch' && viewHint.source?.verification === 'unverified', JSON.stringify(viewHint.source));
-    const release = data?.hints?.viewReleaseSource;
-    // npm provenance (an attestation bound to this tarball and repository) upgrades the release lead.
-    if (release) check(`${c.type}: release lead states its verification`, release.source?.scope === 'release' && ['unverified', 'provenance'].includes(release.source?.verification), JSON.stringify(release.source));
-    // Replay the continuation verbatim (tool + query, followUp included).
-    const tree = await raw(viewHint.tool, viewHint.query);
-    check(`${c.type} ${c.name}: hints.viewRepo opens the repository`, !tree.isError && (rowData(tree)?.structure ?? []).length > 0, tree.text.slice(0, 120));
+    check(`${c.type}: one source lead`, leads.length === 1, leads.join(','));
+    // An npm provenance attestation or a confirmed upstream tag labels the lead; unchecked refs carry no label.
+    check(`${c.type}: source lead label is provenance, tag or absent`, viewHint.source === undefined && [undefined, 'provenance', 'tag'].includes(viewHint.verification), JSON.stringify(viewHint));
+    // Replay the continuation verbatim (tool + query); an unpushed release ref recovers without ref.
+    let tree = await follow(viewHint);
+    if (tree.rowErrors && view.ref) {
+      const { ref, ...recovery } = view;
+      tree = await follow({ tool: viewHint.tool, query: { queries: [recovery] } });
+    }
+    check(`${c.type} ${c.name}: hints.${leads[0]} opens the repository`, !tree.isError && (rowData(tree)?.entries ?? []).length > 0, tree.text.slice(0, 120));
   }
 }
 console.table(table);

@@ -5,17 +5,14 @@ use serde_json::Value;
 
 const SELECTORS: &[&str] = &[
     "operation",
-    "analysis",
     "type",
-    "questionType",
     "resultView",
     "fullContent",
     "matchString",
-    "startLine",
-    "endLine",
+    "ranges",
     "contextBytes",
-    "matchStringIsRegex",
-    "matchStringCaseSensitive",
+    "regex",
+    "caseMode",
     "packageName",
     "keywords",
 ];
@@ -98,6 +95,7 @@ pub(super) fn validate(
         ));
     };
     widen_literal_issues(&mut selected, &allowed);
+    annotate_sibling_branch_fields(&mut selected, root, branches, value);
     annotate_sibling_selectors(&mut selected, root, branches, value, path);
     annotate_forbidden_fields(&mut selected, root, branches, value, path);
     // Branch scoring may group key errors for parity, but the selected branch
@@ -351,8 +349,12 @@ fn sibling_missing_fields(declaring: &[&Value], value: &Value, field: &str) -> O
 
 /// Branches chosen by a literal selector (e.g. `operation`) need no missing
 /// field: name the selector values of every branch declaring the field, so
-/// `review` on a commit query points at `operation:"pullRequest"`.
+/// `review` on a commit query points at `operation:"pullRequest"` and
+/// `keywords` on a pypi query at every `type` that accepts it.
 fn sibling_selector_values(declaring: &[&Value], value: &Value) -> Option<Vec<Value>> {
+    // One mismatched selector per branch merges by name across branches;
+    // a branch needing several selectors stays its own alternative.
+    let mut merged: Vec<(String, Vec<Value>)> = Vec::new();
     let mut options = Vec::new();
     for branch in declaring {
         let Some(properties) = branch.get("properties").and_then(Value::as_object) else {
@@ -361,18 +363,69 @@ fn sibling_selector_values(declaring: &[&Value], value: &Value) -> Option<Vec<Va
         let selectors = properties
             .iter()
             .filter_map(|(name, schema)| {
-                let literal = single_literal(schema)?;
-                (value.get(name)? != literal).then(|| format!("{name}:{}", render_literal(literal)))
+                let literals = selector_literals(schema)?;
+                (!literals.contains(&value.get(name)?)).then_some((name, literals))
             })
             .collect::<Vec<_>>();
-        if !selectors.is_empty() {
-            let option = selectors.join(" and ");
-            if !options.contains(&option) {
-                options.push(option);
+        match selectors.as_slice() {
+            [] => {}
+            [(name, literals)] => {
+                let index = merged
+                    .iter()
+                    .position(|(merged_name, _)| merged_name == *name)
+                    .unwrap_or_else(|| {
+                        merged.push(((*name).clone(), Vec::new()));
+                        merged.len() - 1
+                    });
+                for literal in literals {
+                    if !merged[index].1.contains(literal) {
+                        merged[index].1.push((*literal).clone());
+                    }
+                }
+            }
+            several => {
+                let option = several
+                    .iter()
+                    .map(|(name, literals)| render_selector(name, literals))
+                    .collect::<Vec<_>>()
+                    .join(" and ");
+                if !options.contains(&option) {
+                    options.push(option);
+                }
             }
         }
     }
-    (!options.is_empty()).then(|| vec![Value::String(options.join(" or "))])
+    let mut rendered = merged
+        .iter()
+        .map(|(name, literals)| render_selector(name, literals))
+        .collect::<Vec<_>>();
+    rendered.extend(options);
+    (!rendered.is_empty()).then(|| vec![Value::String(rendered.join(" or "))])
+}
+
+/// The literal values a `const` or `enum` selector accepts.
+fn selector_literals(schema: &Value) -> Option<Vec<&Value>> {
+    if let Some(literal) = schema.get("const") {
+        return Some(vec![literal]);
+    }
+    schema
+        .get("enum")
+        .and_then(Value::as_array)
+        .map(|values| values.iter().collect())
+}
+
+fn render_selector<V: std::borrow::Borrow<Value>>(name: &str, literals: &[V]) -> String {
+    match literals {
+        [literal] => format!("{name}:{}", render_literal(literal.borrow())),
+        _ => format!(
+            "{name} one of {}",
+            literals
+                .iter()
+                .map(|literal| render_literal(literal.borrow()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    }
 }
 
 fn literal_accepts(schema: &Value, value: &Value) -> bool {
@@ -543,31 +596,50 @@ mod tests {
     #[test]
     fn clasify_question_selectors_report_the_selected_forms_missing_field() {
         for (question, field) in [
-            (
-                json!({"questionType":"addsEvidence","target":"Retry safety"}),
-                "knownEvidence",
-            ),
-            (json!({"questionType":"contribution"}), "target"),
-            (
-                json!({"type":"choice","instructions":"Choose a label"}),
-                "criteria",
-            ),
+            (json!({"type":"adds","ask":"Retry safety"}), "known"),
+            (json!({"type":"relevant"}), "ask"),
+            (json!({"type":"choice","ask":"Choose a label"}), "labels"),
         ] {
             let error = prepare_many_and_validate(
                 "clasify",
-                json!({
+                json!({"queries":[{
                     "id":"missing-question-field",
                     "mainGoal": "test", "reasoning":"Check the selected question.",
-                    "resources":[{"id":"held","context":{"value":"Observed evidence"}}],
+                    "resources":[{"id":"held","value":"Observed evidence"}],
                     "questions":[question]
-                }),
+                }]}),
                 PrepareOptions::default(),
             )
             .expect_err("the selected question lacks a required field");
             assert_eq!(error.issues.len(), 1, "{error:?}");
-            assert_eq!(error.issues[0].path, ["questions", "0", field]);
+            assert_eq!(
+                error.issues[0].path,
+                ["queries", "0", "questions", "0", field]
+            );
             assert_eq!(error.issues[0].rule_id, "schema.required");
         }
+    }
+
+    /// A field that only another form's selector values accept names those
+    /// values, not "unknown field".
+    #[test]
+    fn a_field_of_another_selector_value_names_the_values_that_accept_it() {
+        let error = prepare_many_and_validate(
+            "artifactSearch",
+            json!({"queries":[{"type":"pypi","keywords":["http"]}]}),
+            PrepareOptions::default(),
+        )
+        .expect_err("pypi has no keyword discovery");
+        let projected = crate::contracts::format_input_error("artifactSearch", &error, true);
+        let details = projected["details"].to_string();
+        assert!(
+            details.contains(
+                "Remove 'keywords' from queries[0]: it applies only with type one of \
+                 \\\"npm\\\", \\\"crates\\\""
+            ),
+            "{projected}"
+        );
+        assert!(!details.contains("Unknown field"), "{projected}");
     }
 
     #[test]

@@ -19,6 +19,7 @@ type EnvBinding = {
   dotenv?: 'all' | 'home' | 'never';
   normalize?: 'trim' | 'lower';
   invalid?: 'skip' | 'default';
+  workspaceNarrowsTo?: string;
 };
 type Field = {
   type: 'boolean' | 'number' | 'string' | 'url' | 'path' | 'stringArray' | 'enum' | 'schemaVersion';
@@ -26,7 +27,6 @@ type Field = {
   notes?: string;
   env?: Record<string, EnvBinding>;
   default?: unknown;
-  defaultFrom?: string;
   credential?: boolean;
   displayDefault?: string;
   itemFormat?: 'path';
@@ -160,26 +160,8 @@ function ownDefault(field: FlatField, schemaVersion: number): unknown {
 
 function buildDefaults(contract: Contract, fields: FlatField[]): JsonObject {
   const result: JsonObject = {};
-  const pending = fields.filter(field => field.resolved);
-  while (pending.length > 0) {
-    let progress = false;
-    for (let index = pending.length - 1; index >= 0; index--) {
-      const field = pending[index]!;
-      if (field.defaultFrom) {
-        const inherited = getPath(result, field.defaultFrom);
-        if (inherited === undefined) continue;
-        setPath(result, field.path, structuredClone(inherited));
-      } else {
-        setPath(result, field.path, ownDefault(field, contract.config.schemaVersion));
-      }
-      pending.splice(index, 1);
-      progress = true;
-    }
-    if (!progress) {
-      throw new Error(
-        `Unresolved or cyclic defaultFrom paths: ${pending.map(field => field.path).join(', ')}`
-      );
-    }
+  for (const field of fields.filter(field => field.resolved)) {
+    setPath(result, field.path, ownDefault(field, contract.config.schemaVersion));
   }
   return result;
 }
@@ -351,6 +333,7 @@ function orderedEnvironment(fields: FlatField[], contract: Contract) {
   const protectedNames: string[] = [];
   const homeTrusted: string[] = [];
   const sourceNames: string[] = [];
+  const workspaceNarrowOnly: Record<string, string> = {};
   for (const [name, definition] of Object.entries(contract.environment)) {
     if ((definition.dotenv ?? 'all') !== 'all') protectedNames.push(name);
     if (definition.dotenv === 'home') homeTrusted.push(name);
@@ -359,6 +342,7 @@ function orderedEnvironment(fields: FlatField[], contract: Contract) {
   for (const binding of fieldBindings) {
     if ((binding.dotenv ?? 'all') !== 'all') protectedNames.push(binding.name);
     if (binding.dotenv === 'home') homeTrusted.push(binding.name);
+    if (binding.workspaceNarrowsTo) workspaceNarrowOnly[binding.name] = binding.workspaceNarrowsTo;
     sourceNames.push(binding.name);
   }
   const tokenNames = Object.entries(contract.environment)
@@ -371,13 +355,14 @@ function orderedEnvironment(fields: FlatField[], contract: Contract) {
     homeTrusted: [...new Set(homeTrusted)],
     sourceNames: [...new Set(sourceNames)],
     tokenNames,
+    workspaceNarrowOnly,
   };
 }
 
 function renderConstants(fields: FlatField[], defaults: JsonObject): string {
   const output: string[] = [];
   for (const field of fields) {
-    if (!field.resolved || field.type === 'schemaVersion' || field.defaultFrom) continue;
+    if (!field.resolved || field.type === 'schemaVersion') continue;
     const constantName = field.constantName ?? toScreamingSnake(field.path);
     const value = getPath(defaults, field.path);
     const constAssertion = value === null ? '' : ' as const';
@@ -412,8 +397,7 @@ function render(contract: Contract): string {
     env: Object.entries(field.env ?? {})
       .sort(([, left], [, right]) => left.priority - right.priority)
       .map(([name, binding]) => ({ name, ...binding })),
-    defaultValue: field.defaultFrom ? getPath(defaults, field.path) : ownDefault(field, contract.config.schemaVersion),
-    defaultFrom: field.defaultFrom,
+    defaultValue: ownDefault(field, contract.config.schemaVersion),
     minimum: field.minimum,
     maximum: field.minimum !== undefined ? field.minimum + field.span! : undefined,
     values: field.values,
@@ -433,6 +417,7 @@ export interface ConfigEnvBinding {
   dotenv?: 'all' | 'home' | 'never';
   normalize?: 'trim' | 'lower';
   invalid?: 'skip' | 'default';
+  workspaceNarrowsTo?: string;
 }
 export interface ConfigFieldSpec {
   path: string;
@@ -446,7 +431,6 @@ export interface ConfigFieldSpec {
   notes?: string;
   env: readonly ConfigEnvBinding[];
   defaultValue: unknown;
-  defaultFrom?: string;
   minimum?: number;
   maximum?: number;
   values?: readonly string[];
@@ -464,6 +448,8 @@ export const ENV_TOKEN_VARS = ${JSON.stringify(environment.tokenNames)} as const
 export type EnvTokenVar = (typeof ENV_TOKEN_VARS)[number];
 export const PROTECTED_KEY_NAMES = ${JSON.stringify(environment.protectedNames)} as const;
 export const HOME_TRUSTED_ENV_KEYS = ${JSON.stringify(environment.homeTrusted)} as const;
+/** Home-trusted switches a workspace may set only to this narrowing value. */
+export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = ${JSON.stringify(environment.workspaceNarrowOnly)};
 export const CONFIG_SOURCE_ENV_KEYS = ${JSON.stringify(environment.sourceNames)} as const;
 export type ConfigSourceEnvKey = (typeof CONFIG_SOURCE_ENV_KEYS)[number];
 export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = ${renderTsValue(defaults, '', fieldByPath)};
@@ -487,11 +473,9 @@ async function loadContract(): Promise<Contract> {
   return contract as Contract;
 }
 
-function markdownDefault(field: FlatField, defaults: JsonObject, schemaVersion: number): string {
+function markdownDefault(field: FlatField, schemaVersion: number): string {
   if (field.displayDefault) return field.displayDefault;
-  const value = field.defaultFrom
-    ? getPath(defaults, field.path)
-    : ownDefault(field, schemaVersion);
+  const value = ownDefault(field, schemaVersion);
   return value === null ? 'unset' : `\`${JSON.stringify(value)}\``;
 }
 
@@ -507,12 +491,9 @@ function markdownType(field: FlatField): string {
 
 function renderDocumentation(contract: Contract): string {
   const fields = flattenFields(contract);
-  const defaults = buildDefaults(contract, fields);
   const example: JsonObject = { $schema: `https://octocode.ai/schemas/config-v${contract.config.schemaVersion}.json` };
   for (const field of fields.filter(field => field.file)) {
-    const value = field.defaultFrom
-      ? getPath(defaults, field.path)
-      : ownDefault(field, contract.config.schemaVersion);
+    const value = ownDefault(field, contract.config.schemaVersion);
     setPath(example, field.path, structuredClone(value));
   }
   const rows = fields.map(field => {
@@ -533,7 +514,7 @@ function renderDocumentation(contract: Contract): string {
       .filter(Boolean)
       .join(' ')
       .replace(/\|/g, '\\|');
-    return `| ${filePath} | ${environment} | ${markdownDefault(field, defaults, contract.config.schemaVersion)} | ${markdownType(field)} | ${notes} |`;
+    return `| ${filePath} | ${environment} | ${markdownDefault(field, contract.config.schemaVersion)} | ${markdownType(field)} | ${notes} |`;
   });
   const tokens = Object.entries(contract.environment)
     .filter(([, definition]) => definition.tokenPriority !== undefined)

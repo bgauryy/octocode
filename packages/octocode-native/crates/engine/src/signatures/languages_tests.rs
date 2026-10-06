@@ -12,7 +12,7 @@ fn excluded_grammars_report_unsupported_across_native_capabilities() {
     ] {
         assert!(find_entry(ext).is_none(), ".{ext} must not load a grammar");
         assert!(!supported_extensions().contains(&ext));
-        assert!(!signature_extensions().contains(&ext));
+        assert!(!supported_extensions().contains(&ext));
         let file = format!("fixture.{ext}");
         assert!(crate::lsp::grammar::grammar_for_file(&file).is_none());
         let result = crate::structural::search_detailed(
@@ -62,7 +62,7 @@ fn configured_capabilities_match_the_exact_first_class_extension_set() {
         ),
         (
             "signature",
-            signature_extensions()
+            supported_extensions()
                 .into_iter()
                 .map(str::to_owned)
                 .collect(),
@@ -82,14 +82,14 @@ fn removed_languages_have_no_analysis_minifier_or_builtin_server_route() {
     for ext in ["toml", "lua", "zig"] {
         let file = format!("fixture.{ext}");
         assert!(crate::signatures::extract_signatures_inner("target(value);", &file).is_none());
-        assert!(crate::signatures::extract_graph_facts_inner("target(value);", &file).is_none());
+        assert!(crate::signatures::extract_graph_facts("target(value);", &file).is_none());
         assert!(
             !crate::signatures::graph_facts::graph_fact_extensions()
                 .iter()
                 .any(|item| item == ext)
         );
         assert!(!crate::minify::config::minify_config().contains_key(ext));
-        assert!(crate::lsp::config::detect_language_id(file).is_none());
+        assert!(crate::lsp::config::detect_language_id(&file).is_none());
     }
     assert!(crate::minify::comment_remover::rules_for("lua").is_none());
 }
@@ -221,7 +221,7 @@ fn every_registered_grammar_and_alias_parses_and_searches_real_source() {
             assert_eq!(matches[0].text.trim_end(), source.trim_end(), ".{ext}");
 
             let graph_json =
-                crate::signatures::extract_graph_facts_inner(source, &format!("fixture.{ext}"))
+                crate::signatures::extract_graph_facts(source, &format!("fixture.{ext}"))
                     .unwrap_or_else(|| panic!(".{ext}: advertised graph extraction unavailable"));
             let graph: serde_json::Value = serde_json::from_str(&graph_json)
                 .unwrap_or_else(|error| panic!(".{ext}: invalid graph JSON: {error}"));
@@ -301,43 +301,11 @@ fn every_advertised_signature_query_compiles_and_removes_a_real_body() {
 }
 
 #[test]
-fn aliases_advertise_the_same_graph_language_and_fact_families() {
-    let capabilities: Vec<serde_json::Value> =
-        serde_json::from_str(&crate::signatures::graph_facts::graph_fact_capabilities_json())
-            .expect("graph capabilities JSON");
-    let mut failures = Vec::new();
-    for entry in all_entries()
-        .iter()
-        .filter(|entry| !entry.body_query.is_empty())
-    {
-        let canonical = capabilities
-            .iter()
-            .find(|cap| cap["extension"] == entry.extensions[0])
-            .expect("canonical capability");
-        for ext in entry.extensions {
-            let alias = capabilities
-                .iter()
-                .find(|cap| cap["extension"] == *ext)
-                .expect("alias capability");
-            if alias["language"] != canonical["language"]
-                || alias["factFamilies"] != canonical["factFamilies"]
-            {
-                failures.push(format!(
-                    ".{ext} disagrees with .{}: {alias}",
-                    entry.extensions[0]
-                ));
-            }
-        }
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
-#[test]
 fn grouped_go_imports_emit_each_spec_once() {
     let source =
         "package main\nimport (\n  \"fmt\"\n  lbl \"example.com/app/labels\"\n)\nimport \"os\"\n";
     let facts: serde_json::Value = serde_json::from_str(
-        &crate::signatures::extract_graph_facts_inner(source, "main.go").expect("facts"),
+        &crate::signatures::extract_graph_facts(source, "main.go").expect("facts"),
     )
     .expect("json");
     let imports = facts["imports"]
@@ -418,7 +386,7 @@ fn deeply_nested_iife_outline_stays_inside_the_deadline() {
 fn c_family_function_names_come_from_the_declarator_not_the_return_type() {
     let names = |source: &str, path: &str| -> Vec<String> {
         let facts: serde_json::Value = serde_json::from_str(
-            &crate::signatures::extract_graph_facts_inner(source, path).expect("facts"),
+            &crate::signatures::extract_graph_facts(source, path).expect("facts"),
         )
         .expect("json");
         facts["declarations"]
@@ -465,7 +433,7 @@ fn c_family_function_names_come_from_the_declarator_not_the_return_type() {
 fn declarations_carry_the_comment_block_directly_above_them() {
     let doc_lines = |source: &str, path: &str| -> Vec<(String, Option<u64>)> {
         let facts: serde_json::Value = serde_json::from_str(
-            &crate::signatures::extract_declarations_inner(source, path).expect("facts"),
+            &crate::signatures::extract_declarations(source, path).expect("facts"),
         )
         .expect("json");
         facts["declarations"]
@@ -509,7 +477,7 @@ fn declarations_carry_the_comment_block_directly_above_them() {
 fn csharp_outlines_namespaces_records_properties_and_delegates() {
     let source = "namespace Acme.Core\n{\n    /// <summary>A person.</summary>\n    public record Person(string Name);\n    public class Resolver\n    {\n        public int Count { get; set; }\n        public void Resolve() {}\n    }\n    public delegate void Handler();\n}\n";
     let facts: serde_json::Value = serde_json::from_str(
-        &crate::signatures::extract_declarations_inner(source, "a.cs").expect("facts"),
+        &crate::signatures::extract_declarations(source, "a.cs").expect("facts"),
     )
     .expect("json");
     let rows = facts["declarations"]
@@ -528,7 +496,7 @@ fn csharp_outlines_namespaces_records_properties_and_delegates() {
         ("class", "Person"),
         ("class", "Resolver"),
         ("property", "Count"),
-        ("function", "Resolve"),
+        ("method", "Resolve"),
         ("type", "Handler"),
     ] {
         assert!(
@@ -550,7 +518,7 @@ fn csharp_outlines_namespaces_records_properties_and_delegates() {
 fn go_type_declarations_emit_each_spec_once_without_self_parents() {
     let source = "package main\ntype engineMetrics struct {\n  n int\n}\ntype (\n  ErrA string\n  ErrB string\n)\n";
     let facts: serde_json::Value = serde_json::from_str(
-        &crate::signatures::extract_graph_facts_inner(source, "main.go").expect("facts"),
+        &crate::signatures::extract_graph_facts(source, "main.go").expect("facts"),
     )
     .expect("json");
     let rows: Vec<(String, Option<String>)> = facts["declarations"]
@@ -573,5 +541,72 @@ fn go_type_declarations_emit_each_spec_once_without_self_parents() {
             ("ErrB".to_owned(), None),
         ],
         "{facts}"
+    );
+}
+
+/// A function in a type body is a `method` in every grammar (the JS/TS
+/// extractor's label), so `kinds:["method"]` finds Python and Rust methods.
+#[test]
+fn functions_in_type_bodies_are_methods_in_every_grammar() {
+    let kinds = |source: &str, path: &str| -> Vec<(String, String)> {
+        let facts: serde_json::Value = serde_json::from_str(
+            &crate::signatures::extract_declarations(source, path).expect("facts"),
+        )
+        .expect("json");
+        facts["declarations"]
+            .as_array()
+            .expect("declarations")
+            .iter()
+            .map(|d| {
+                (
+                    d["name"].as_str().unwrap_or_default().to_owned(),
+                    d["kind"].as_str().unwrap_or_default().to_owned(),
+                )
+            })
+            .collect()
+    };
+    let python = kinds(
+        "def top():\n    def inner():\n        pass\n\nclass QuerySet:\n    def get_or_create(self):\n        def helper():\n            pass\n\n    @property\n    def size(self):\n        return 1\n",
+        "q.py",
+    );
+    for (name, kind) in [
+        ("top", "function"),
+        ("inner", "function"),
+        ("get_or_create", "method"),
+        ("helper", "function"),
+        ("size", "method"),
+    ] {
+        assert!(
+            python.contains(&(name.to_owned(), kind.to_owned())),
+            "{name}: {python:?}"
+        );
+    }
+    let rust = kinds(
+        "fn free() {}\nstruct S;\nimpl S { fn operation(&self) { fn nested() {} } }\ntrait T { fn required(&self); fn provided(&self) {} }\nmod m { fn in_mod() {} }\n",
+        "lib.rs",
+    );
+    for (name, kind) in [
+        ("free", "function"),
+        ("operation", "method"),
+        ("nested", "function"),
+        ("provided", "method"),
+        ("in_mod", "function"),
+    ] {
+        assert!(
+            rust.contains(&(name.to_owned(), kind.to_owned())),
+            "{name}: {rust:?}"
+        );
+    }
+    let go = kinds(
+        "package p\nfunc Free() {}\nfunc (s *S) Method() {}\n",
+        "p.go",
+    );
+    assert!(
+        go.contains(&("Free".to_owned(), "function".to_owned())),
+        "{go:?}"
+    );
+    assert!(
+        go.contains(&("Method".to_owned(), "method".to_owned())),
+        "{go:?}"
     );
 }

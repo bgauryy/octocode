@@ -58,7 +58,7 @@ CLI:
 ```bash
 ./octocode-<platform> scheme --compact
 ./octocode-<platform> scheme localSearch --view query --compact
-./octocode-<platform> localSearch '{"path":"/ABS/repo","searchText":"symbol","reasoning":"Locate the symbol."}' --compact
+./octocode-<platform> localSearch '{"queries":[{"path":"/ABS/repo","matchString":"symbol","reasoning":"Locate the symbol."}]}' --compact
 ```
 
 Local tools work with zero setup. GitHub tools read `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN`.

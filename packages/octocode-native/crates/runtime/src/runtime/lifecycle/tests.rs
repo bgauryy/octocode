@@ -50,15 +50,9 @@ where
     runtime.execute_blocking_admitted(admission, work).await
 }
 
-fn spin_until_stopped(context: &ExecutionContext) {
-    while context.check().is_ok() {
-        std::thread::yield_now();
-    }
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn caller_drop_while_queued_releases_admission_without_running_work() {
-    let runtime = runtime();
+/// Run request `"running"` on the one execution slot until it is cancelled;
+/// returns once the work has started.
+async fn occupy(runtime: &RequestRuntime) -> tokio::task::JoinHandle<Result<(), ExecutionError>> {
     let entered = Arc::new(Notify::new());
     let running = {
         let runtime = runtime.clone();
@@ -73,6 +67,19 @@ async fn caller_drop_while_queued_releases_admission_without_running_work() {
         })
     };
     entered.notified().await;
+    running
+}
+
+fn spin_until_stopped(context: &ExecutionContext) {
+    while context.check().is_ok() {
+        std::thread::yield_now();
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn caller_drop_while_queued_releases_admission_without_running_work() {
+    let runtime = runtime();
+    let running = occupy(&runtime).await;
     let admission = runtime.admit("dropped".into()).expect("admitted");
     let mut work = Box::pin(
         runtime.execute_blocking_admitted(admission, |_| -> Result<(), _> {
@@ -193,20 +200,7 @@ async fn timeout_is_observed_before_return_and_worker_panic_releases_slot() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn queue_is_bounded_and_queued_cancellation_never_runs_work() {
     let runtime = runtime();
-    let entered = Arc::new(Notify::new());
-    let first = {
-        let runtime = runtime.clone();
-        let entered = entered.clone();
-        tokio::spawn(async move {
-            run(&runtime, "running", move |context| {
-                entered.notify_one();
-                spin_until_stopped(&context);
-                Ok(())
-            })
-            .await
-        })
-    };
-    entered.notified().await;
+    let first = occupy(&runtime).await;
     let queued = {
         let runtime = runtime.clone();
         tokio::spawn(async move {

@@ -12,16 +12,16 @@ mod civil_date;
 pub mod config;
 pub mod content;
 pub mod contracts;
-pub mod lsp;
+mod digest;
 pub mod policy;
+mod private_file;
 mod process_status;
 pub mod providers;
 pub mod regex;
 pub mod response;
 pub mod runtime;
 pub mod security;
-pub mod skill_install;
 pub mod tools;
 
 /// Identifies the native boundary independently of generated tool contracts.
-pub const NATIVE_ABI_VERSION: u32 = 3;
+pub const NATIVE_ABI_VERSION: u32 = 4;

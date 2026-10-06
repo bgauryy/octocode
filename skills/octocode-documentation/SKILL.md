@@ -1,6 +1,6 @@
 ---
 name: octocode-documentation
-description: "Use when creating, repairing, or reviewing READMEs, API docs, guides, comments, ADRs, runbooks, or stale technical docs, or when explaining a system to an agent or a human in ASD-STE100-style text with flow diagrams."
+description: "Use when creating, repairing, or reviewing READMEs, API docs, guides, comments, ADRs for settled decisions, runbooks, or stale technical docs, or when explaining a system to an agent or a human in ASD-STE100-style text with flow diagrams. Not for deciding an open choice → octocode-rfc-generator; investigating code with no doc to write → octocode-research."
 ---
 
 # Octocode Documentation
@@ -53,7 +53,7 @@ A single-word question: quote its row of `assets/google-word-list.tsv` and stop.
 - Signals tie after one read: ask once with the likely modes, and do not write meanwhile.
 - Human page: one Diátaxis type (tutorial, how-to, reference, explanation) per page; link sibling types.
 - Audience: an agent reader gets flows as Mermaid or an arrow chain, no HTML or images. A human reader gets the diagram first, then the steps. HTML only on request. Reader unclear: write for the agent.
-- ADR only for an expensive-to-reverse choice. Match the existing ADR convention; else `<workspace>/docs/decisions/ADR-NNN-short-title.md`. Supersede old ADRs; never delete them.
+- ADR only for an expensive-to-reverse choice that is already decided; an open choice goes to `octocode-rfc-generator`. Match the existing ADR convention; else `<workspace>/docs/decisions/ADR-NNN-short-title.md`. Supersede old ADRs; never delete them.
 - `AGENTS.md` is an index of links and non-obvious rules, about 60 lines.
 
 ## OUTLINE GATE and WRITE
@@ -77,4 +77,4 @@ A single-word question: quote its row of `assets/google-word-list.tsv` and stop.
 - Check that named commands and linked paths exist and that no secrets or private URLs entered the doc.
 - Finish when the approved docs pass fact, link, safety, structure, and style checks; name unverified claims or residual findings.
 
-Deep repo research → `octocode-research`; architecture decisions → `octocode-research`, then `octocode-rfc-generator`; skill folders → `octocode-skills`; ideation → `octocode-brainstorming`.
+Deep repo research → `octocode-research`; architecture analysis → `octocode-architect`; an open decision that needs review → `octocode-rfc-generator`; skill folders → `octocode-skills`; ideation → `octocode-brainstorming`.

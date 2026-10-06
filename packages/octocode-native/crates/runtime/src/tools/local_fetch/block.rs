@@ -11,7 +11,10 @@ pub const BLOCK_MAX_LINES: usize = 400;
 
 /// 1-based inclusive spans of the multi-line declarations the engine outlines.
 pub(crate) fn declaration_spans(content: &str, path: &str) -> Option<Vec<(usize, usize)>> {
-    let raw = octocode_engine::portable::extract_declarations(content, path)?;
+    // Shared with outline pages and search hits: one parse per file version.
+    let raw = crate::tools::ast_search::declarations_cache::extract(content, path, false, || {
+        octocode_engine::portable::extract_declarations(content, path)
+    })?;
     let facts: serde_json::Value = serde_json::from_str(&raw).ok()?;
     let line = |declaration: &serde_json::Value, pointer: &str| {
         declaration
@@ -33,6 +36,49 @@ pub(crate) fn declaration_spans(content: &str, path: &str) -> Option<Vec<(usize,
     (!spans.is_empty()).then_some(spans)
 }
 
+/// Whether a source line is part of the doc comment or attribute run that
+/// leads a declaration (`///`, `//`, `/*`, `*`, `#[`, `# `, `@`, `--`).
+fn leads_declaration(line: &str) -> bool {
+    let line = line.trim_start();
+    ["//", "/*", "*", "#[", "# ", "@", "--"]
+        .iter()
+        .any(|prefix| line.starts_with(prefix))
+        || line.trim_end() == "#"
+}
+
+/// Declaration spans for a block read: each widened up over the doc
+/// comments and attributes directly above it, so the window holds the
+/// declaration as written. Document headings keep their own spans.
+fn block_spans(content: &str, path: &str) -> Option<Vec<(usize, usize)>> {
+    let lines: Vec<&str> = content.lines().collect();
+    Some(
+        declaration_spans(content, path)?
+            .into_iter()
+            .map(|span| with_docs(&lines, path, span))
+            .collect(),
+    )
+}
+
+/// `span` widened up over the doc comment and attribute run directly above
+/// it; a document heading keeps its span.
+fn with_docs(lines: &[&str], path: &str, (start, end): (usize, usize)) -> (usize, usize) {
+    if matches!(
+        crate::content::classify_file_type(path),
+        Some(crate::content::FileType::Doc)
+    ) {
+        return (start, end);
+    }
+    let mut first = start;
+    while first > 1
+        && lines
+            .get(first - 2)
+            .is_some_and(|line| leads_declaration(line))
+    {
+        first -= 1;
+    }
+    (first, end)
+}
+
 /// The smallest declaration containing `line`.
 fn innermost(spans: &[(usize, usize)], line: usize) -> Option<(usize, usize)> {
     spans
@@ -44,12 +90,14 @@ fn innermost(spans: &[(usize, usize)], line: usize) -> Option<(usize, usize)> {
 
 fn no_outline(path: &str) -> String {
     format!(
-        "block: no declaration outline for {path}; returned the requested lines. Read on with startLine/endLine."
+        "block: no declaration outline for {path}; returned the requested lines. Read on with ranges."
     )
 }
 
 /// The innermost declaration (up to [`BLOCK_MAX_LINES`]) enclosing each hit,
-/// or `None` when the file type has no declaration outline.
+/// or `None` when the file type has no declaration outline. The doc comments
+/// above a declaration are not part of it here: a window that shows its body
+/// whole is not cut.
 pub fn enclosing(content: &str, path: &str, hits: &[usize]) -> Option<Vec<LineRange>> {
     let spans = declaration_spans(content, path)?;
     Some(
@@ -71,7 +119,7 @@ pub fn widen_ranges(
     warnings: &mut Vec<String>,
     rest: &mut Vec<LineRange>,
 ) -> Vec<LineRange> {
-    let Some(spans) = declaration_spans(content, path) else {
+    let Some(spans) = block_spans(content, path) else {
         warnings.push(no_outline(path));
         return ranges;
     };
@@ -124,13 +172,23 @@ pub fn widen_matches(
         warnings.push(no_outline(path));
         return windows;
     };
+    let lines: Vec<&str> = content.lines().collect();
     let mut oversized = 0;
     let mut unenclosed = 0;
     let widened = hits
         .iter()
         .zip(windows)
         .map(|(&hit, window)| match innermost(&spans, hit) {
-            Some((start, end)) if end + 1 - start <= BLOCK_MAX_LINES => LineRange { start, end },
+            // A hit on the declaration's head reads it as written, docs
+            // included; a hit inside reads the declaration it sits in.
+            Some((start, end)) if end + 1 - start <= BLOCK_MAX_LINES => {
+                let (start, end) = if hit == start {
+                    with_docs(&lines, path, (start, end))
+                } else {
+                    (start, end)
+                };
+                LineRange { start, end }
+            }
             Some((start, end)) => {
                 oversized += 1;
                 oversized_spans.push(LineRange { start, end });
@@ -145,7 +203,7 @@ pub fn widen_matches(
     // `matchedLines` names every hit; the warning carries the count.
     if unenclosed > 0 {
         warnings.push(format!(
-            "block: {unenclosed} match(es) sit outside any declaration; those keep their match context window. Read on with startLine/endLine."
+            "block: {unenclosed} match(es) sit outside any declaration; those keep their match context window. Read on with ranges."
         ));
     }
     if oversized > 0 {
@@ -241,6 +299,67 @@ mod tests {
             &mut vec![],
         );
         assert_eq!(windows, vec![LineRange { start: 18, end: 22 }]);
+    }
+
+    /// A window that holds a declaration's whole body is not cut short by
+    /// the doc comments above it: those join only an explicit block read.
+    #[test]
+    fn a_window_cut_ignores_the_doc_comments_above_a_declaration() {
+        let source = "/// Doc one.\n/// Doc two.\nfn target() {\n    body();\n}\n";
+        assert_eq!(
+            enclosing(source, "m.rs", &[4]),
+            Some(vec![LineRange { start: 3, end: 5 }])
+        );
+    }
+
+    /// A declaration's leading doc comments and attributes belong to it:
+    /// a block read starts at the first of them, not at the `fn` line.
+    #[test]
+    fn blocks_include_leading_doc_comments_and_attributes() {
+        let source = "use std::fmt;\n\n/// Doc one.\n/// Doc two.\n#[inline]\nfn target() {\n    body();\n}\n";
+        let mut warnings = vec![];
+        let widened = widen_ranges(
+            source,
+            "m.rs",
+            vec![LineRange { start: 7, end: 7 }],
+            &mut warnings,
+            &mut vec![],
+        );
+        assert_eq!(
+            widened,
+            vec![LineRange { start: 3, end: 8 }],
+            "{warnings:?}"
+        );
+        // A match on the declaration's own head reads it as written; a
+        // match inside its body reads the declaration it sits in.
+        let windows = widen_matches(
+            source,
+            "m.rs",
+            &[6, 7],
+            vec![
+                LineRange { start: 6, end: 6 },
+                LineRange { start: 7, end: 7 },
+            ],
+            &mut warnings,
+            &mut vec![],
+        );
+        assert_eq!(
+            windows,
+            vec![
+                LineRange { start: 3, end: 8 },
+                LineRange { start: 6, end: 8 }
+            ]
+        );
+        // A blank line ends the doc run; a preprocessor line is not a doc.
+        let c = "#define LIMIT 4\nint f(int a) {\n    return a;\n}\n";
+        let widened = widen_ranges(
+            c,
+            "m.c",
+            vec![LineRange { start: 3, end: 3 }],
+            &mut warnings,
+            &mut vec![],
+        );
+        assert_eq!(widened, vec![LineRange { start: 2, end: 4 }]);
     }
 
     #[test]

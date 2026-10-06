@@ -11,8 +11,10 @@ use crate::contracts::tool_types::{StructureSearchQueryFiles, StructureSearchQue
 
 /// Engine-unit views over the generated `files` query.
 impl StructureSearchQueryFiles {
-    fn depth(value: Option<i64>) -> Option<u32> {
-        value.map(|depth| u32::try_from(depth.max(0)).unwrap_or(u32::MAX))
+    /// Levels below `path` (1 = its children), as `tree` and the engine
+    /// count them.
+    fn depth(value: Option<std::num::NonZeroU64>) -> Option<u32> {
+        value.map(|depth| u32::try_from(depth.get()).unwrap_or(u32::MAX))
     }
     pub fn max_depth(&self) -> Option<u32> {
         Self::depth(self.max_depth)
@@ -23,14 +25,14 @@ impl StructureSearchQueryFiles {
     fn non_empty(values: &[String]) -> Option<Vec<String>> {
         (!values.is_empty()).then(|| values.to_vec())
     }
-    pub fn names(&self) -> Option<Vec<String>> {
-        Self::non_empty(&self.names)
+    pub fn include(&self) -> Option<Vec<String>> {
+        Self::non_empty(&self.include).map(|globs| crate::policy::include::include_globs(&globs))
     }
     pub fn extensions(&self) -> Option<Vec<String>> {
         Self::non_empty(&self.extensions)
     }
-    pub fn exclude_dir(&self) -> Option<Vec<String>> {
-        Self::non_empty(&self.exclude_dir)
+    pub fn exclude(&self) -> Option<Vec<String>> {
+        Self::non_empty(&self.exclude)
     }
     pub fn entry_type(&self) -> Option<String> {
         self.entry_type.map(|kind| kind.to_string())
@@ -47,8 +49,8 @@ impl StructureSearchQueryFiles {
     pub fn sort(&self) -> String {
         self.sort.to_string()
     }
-    pub fn limit(&self) -> Option<u32> {
-        self.limit
+    pub fn max_entries(&self) -> Option<u32> {
+        self.max_entries
             .map(|limit| u32::try_from(limit.get()).unwrap_or(u32::MAX))
     }
     pub fn page(&self) -> u32 {
@@ -70,10 +72,31 @@ struct Row {
     /// The entry text inside its directory group ([`entry_text`]).
     entry: String,
     path: String,
+    /// A regular file (not a directory or symlink).
+    is_file: bool,
     name: String,
     size: i64,
     modified: f64,
     lines: usize,
+    /// The walked entry, for the continuation pages' change check.
+    source: std::path::PathBuf,
+}
+
+/// A files walk: its rows in listing order (cut to `maxEntries`) and what
+/// the walk left out.
+struct FilesWalk {
+    rows: Vec<Row>,
+    available: usize,
+    total_discovered: usize,
+    was_capped: bool,
+    uncovered: super::Uncovered,
+    warnings: Vec<String>,
+}
+
+impl super::memo::Listed for FilesWalk {
+    fn sources(&self) -> Vec<&std::path::Path> {
+        self.rows.iter().map(|row| row.source.as_path()).collect()
+    }
 }
 
 pub fn execute_files(
@@ -83,119 +106,28 @@ pub fn execute_files(
     cancel: &dyn CancellationCheck,
     response_window: Option<usize>,
 ) -> super::StructureResult {
-    cancel.check().map_err(super::cancelled)?;
-    let validated = paths
-        .validate(q.path.as_str())
-        .map_err(super::StructureError::from)?;
+    let validated = super::validated_root(q.path.as_str(), paths, cancel)?;
     validate_time(q.time.as_ref())?;
-    let time = &q.time;
-    let access = q.access();
-    let access = access.as_deref();
-    // Leave out what the tree and localSearch leave out: `.gitignore`d
-    // entries, pruned during the walk. `defaultExcludes:false` walks them too.
-    let gitignore = (q.default_excludes.defaults() && q.no_ignore != Some(true))
-        .then(|| crate::policy::gitignore::GitignoreFilter::new(&validated.canonical));
-    let ignored = std::sync::atomic::AtomicUsize::new(0);
-    let withheld = std::sync::atomic::AtomicUsize::new(0);
-    let detail = q.detail();
-    let sort = q.sort();
     let requested = q
-        .limit()
+        .max_entries()
         .unwrap_or_else(super::max_walk)
         .min(super::max_walk()) as usize;
-    // Path order is the walk order (name-sorted, depth-first), so the first
-    // `limit` matches are final once found: stop the walk there. Other sorts
-    // rank the whole walk.
-    let early_exit = sort == "path";
-    let walk_limit = if early_exit {
-        requested as u32
-    } else {
-        super::max_walk()
-    };
-    let native = octocode_engine::portable::query_file_system_filtered(
-        FileSystemQueryOptions {
-            path: validated.canonical.to_string_lossy().into_owned(),
-            include_root: Some(true),
-            recursive: Some(true),
-            max_depth: q.max_depth(),
-            min_depth: q.min_depth(),
-            show_hidden: Some(true),
-            names: q.names(),
-            extensions: q.extensions(),
-            path_pattern: q.path_pattern.clone(),
-            regex: q.path_regex.clone(),
-            entry_type: q.entry_type(),
-            empty: q.empty,
-            modified_within: time.as_ref().and_then(|t| t.modified_within.clone()),
-            modified_before: time.as_ref().and_then(|t| t.modified_before.clone()),
-            accessed_within: time.as_ref().and_then(|t| t.accessed_within.clone()),
-            size_greater: q.size.as_ref().and_then(|s| s.greater.clone()),
-            size_less: q.size.as_ref().and_then(|s| s.less.clone()),
-            permissions: q.permissions(),
-            executable: Some(access == Some("executable")),
-            readable: Some(access == Some("readable")),
-            writable: Some(access == Some("writable")),
-            exclude_dir: Some(
-                PruneMode::SyntaxVisible.directories(&q.exclude_dir, q.default_excludes.defaults()),
-            ),
-            stop_at_limit: Some(true),
-            limit: Some(walk_limit),
-        },
-        &|path| {
-            if gitignore
-                .as_ref()
-                .is_some_and(|filter| filter.is_ignored(path))
-            {
-                ignored.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                return Ok(false);
-            }
-            let allowed = super::allow_discovery(path, paths, cancel)?;
-            if !allowed {
-                withheld.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            }
-            Ok(allowed)
-        },
-    )
-    .map_err(super::walk_error)?;
-    cancel.check().map_err(super::cancelled)?;
-    let mut warnings = walk_warnings(native.skipped, native.permission_denied);
-    let count_lines = detail == "full" || sort == "lines";
-    let mut rows = native
-        .entries
-        .iter()
-        .map(|e| {
-            make_row(
-                e,
-                &validated.canonical,
-                security,
-                &detail,
-                count_lines,
-                paths,
-                cancel,
-            )
-        })
-        .collect::<Result<Vec<_>, super::StructureError>>()?;
-    sort_rows(&mut rows, &sort);
-    let available = rows.len();
-    rows.truncate(requested);
-    let total = rows.len();
     // Snapshot fingerprint over the query shape, the page cut, and the
     // ordered result set, so a continuation cursor (page>1) can be rejected
-    // with `structure.snapshot.changed` when the corpus or query drifted
+    // with `staleSnapshot` when the corpus or query drifted
     // between pages, or a different response window would cut other pages.
     let identity = json!([
         validated.canonical.to_string_lossy(),
         q.max_depth(),
         q.min_depth(),
-        q.names(),
+        q.include(),
         q.extensions(),
-        q.path_pattern,
-        q.path_regex,
+        q.name_regex,
         q.entry_type(),
         q.empty,
         q.permissions(),
         q.access(),
-        q.exclude_dir(),
+        q.exclude(),
         // Effective (not raw) values: the nextPage continuation injects these
         // defaults, so the digest must match what the follow-up request carries.
         q.sort(),
@@ -207,34 +139,200 @@ pub fn execute_files(
         q.time,
         q.size,
     ]);
+    let policy = paths.identity();
+    let page = q.page().max(1) as usize;
+    let (walk, stored) = super::walked(page, q.snapshot(), &policy, || {
+        walk_files(q, &validated.canonical, paths, security, cancel, requested)
+    })?;
     let budget = super::page_budget(response_window, &identity);
     // The row layout cuts pages too, so it is part of the snapshot.
-    let snapshot = super::digest(&json!([
+    let snapshot = crate::digest::json_sha256(&json!([
         identity,
         budget,
         ROW_LAYOUT,
-        rows.iter()
+        walk.rows
+            .iter()
             .map(|r| (&r.dir, &r.entry, &r.path))
             .collect::<Vec<_>>()
     ]));
-    if q.page() > 1 && q.snapshot() != Some(snapshot.as_str()) {
-        return Ok(super::snapshot_changed(q, &snapshot));
+    if let Some(restart) = super::restart_if_stale(q, page, q.snapshot(), &snapshot) {
+        return Ok(restart);
     }
     let page_size = q
         .page_size()
         .map(|size| size.clamp(1, super::structure_max("pageSize") as usize));
-    // A row costs its serialized entry, plus its group's header with the
-    // directory rendered as the response shows it whenever it opens a group
-    // (a page repeats the header of a group it continues). Costs are bound
-    // by the snapshot, so every page of it cuts at the same rows.
-    let mut headers = std::collections::HashMap::<&str, usize>::new();
-    let costs = rows
+    let pages = super::page_ranges(&files_costs(&walk.rows), page_size, budget);
+    if !stored && pages.len() > 1 {
+        super::memo::put(snapshot.clone(), policy, &validated.canonical, &walk);
+    }
+    Ok(files_page(
+        q,
+        &walk,
+        &pages,
+        snapshot,
+        &validated.canonical,
+        requested,
+    ))
+}
+
+/// Path order is the walk order (name-sorted, depth-first), so the first
+/// `limit` matches are final once found: the walk stops there. Other sorts
+/// rank the whole walk.
+fn early_exit(q: &StructureSearchQueryFiles) -> bool {
+    q.sort() == "path"
+}
+
+/// Walk once: rows sorted and cut to `requested`, path-ordered rows grouped
+/// like `tree`, directories with their own group not also listed bare.
+fn walk_files(
+    q: &StructureSearchQueryFiles,
+    root: &std::path::Path,
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+    cancel: &dyn CancellationCheck,
+    requested: usize,
+) -> Result<FilesWalk, super::StructureError> {
+    let time = &q.time;
+    let access = q.access();
+    let access = access.as_deref();
+    // Leave out what the tree and localSearch leave out: `.gitignore`d
+    // entries, pruned during the walk. `defaultExcludes:false` walks them too.
+    let gitignore = (q.default_excludes.defaults() && q.no_ignore != Some(true))
+        .then(|| crate::policy::gitignore::GitignoreFilter::new(root));
+    let probe = super::FilterProbe::new(
+        root,
+        &q.include().unwrap_or_default(),
+        &q.extensions,
+        q.name_regex.as_deref(),
+    );
+    let ignored = std::sync::atomic::AtomicUsize::new(0);
+    let withheld = std::sync::Mutex::new(crate::policy::discovery::Withheld::default());
+    let detail = q.detail();
+    let sort = q.sort();
+    let walk_limit = if early_exit(q) {
+        requested as u32
+    } else {
+        super::max_walk()
+    };
+    let discovery = paths.discovery_walk();
+    let native = octocode_engine::portable::query_file_system_filtered(
+        FileSystemQueryOptions {
+            path: root.to_string_lossy().into_owned(),
+            include_root: Some(true),
+            recursive: Some(true),
+            max_depth: q.max_depth(),
+            min_depth: q.min_depth(),
+            show_hidden: Some(true),
+            names: q.include(),
+            extensions: q.extensions(),
+            path_pattern: None,
+            regex: q.name_regex.clone(),
+            entry_type: q.entry_type(),
+            empty: q.empty,
+            modified_within: time.as_ref().and_then(|t| t.modified_within.clone()),
+            modified_before: time.as_ref().and_then(|t| t.modified_before.clone()),
+            accessed_within: time.as_ref().and_then(|t| t.accessed_within.clone()),
+            size_greater: q.size.as_ref().and_then(|s| s.greater.clone()),
+            size_less: q.size.as_ref().and_then(|s| s.less.clone()),
+            permissions: q.permissions(),
+            executable: Some(access == Some("executable")),
+            readable: Some(access == Some("readable")),
+            writable: Some(access == Some("writable")),
+            exclude_dir: Some(PruneMode::SyntaxVisible.directories(q.default_excludes.defaults())),
+            exclude: q.exclude(),
+            stop_at_limit: Some(true),
+            limit: Some(walk_limit),
+        },
+        &|path| {
+            if gitignore
+                .as_ref()
+                .is_some_and(|filter| filter.is_ignored(path))
+            {
+                ignored.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                return Ok(false);
+            }
+            let allowed = super::allow_discovery(path, &discovery, cancel)?;
+            // Only an entry these filters could list makes absence unproven.
+            if !allowed && probe.could_list(path) {
+                withheld
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .record(path, path.is_dir());
+            }
+            Ok(allowed)
+        },
+    )
+    .map_err(|error| super::walk_error(error, q.path.as_str()))?;
+    cancel.check().map_err(super::cancelled)?;
+    let count_lines = detail == "full" || sort == "lines";
+    let mut rows = native
+        .entries
         .iter()
+        .map(|e| make_row(e, root, security, &detail, count_lines, paths, cancel))
+        .collect::<Result<Vec<_>, super::StructureError>>()?;
+    sort_rows(&mut rows, &sort);
+    let available = rows.len();
+    rows.truncate(requested);
+    // Path order groups like `tree`: `path`'s own entries first, then each
+    // directory once, in walk order (the sort is stable). Other sorts keep
+    // their order, so a directory may open several groups.
+    if sort == "path" {
+        // The root's own `.` entry leads its bare entries.
+        rows.sort_by_key(|row| {
+            (
+                std::path::PathBuf::from(&row.dir),
+                !row.entry.starts_with("./"),
+            )
+        });
+    }
+    drop_grouped_dirs(&mut rows);
+    Ok(FilesWalk {
+        rows,
+        available,
+        total_discovered: native.total_discovered as usize,
+        was_capped: native.was_capped,
+        uncovered: super::Uncovered {
+            ignored: ignored.into_inner(),
+            withheld: withheld
+                .into_inner()
+                .unwrap_or_else(|error| error.into_inner()),
+            hidden: 0,
+            pruned: native.pruned_dirs,
+        },
+        warnings: {
+            let mut warnings = walk_warnings(native.skipped, native.permission_denied);
+            warnings.extend(native.warnings);
+            warnings
+        },
+    })
+}
+
+/// A directory with its own `{dir, files}` group is named by that group; a
+/// bare `"name/"` entry for it under its parent would show it twice, even
+/// across pages. One with fields (`modifiedMs`) keeps them.
+fn drop_grouped_dirs(rows: &mut Vec<Row>) {
+    let grouped = super::group_dirs(rows.iter().map(|row| &row.dir));
+    rows.retain(|row| {
+        !(row.entry.strip_suffix('/').is_some_and(|name| name != ".")
+            && grouped.contains(&row.path))
+    });
+}
+
+/// A row costs its serialized entry, plus its group's header with the
+/// directory rendered as the response shows it whenever it opens a group
+/// (a page repeats the header of a group it continues). Costs are bound
+/// by the snapshot, so every page of it cuts at the same rows.
+fn files_costs(rows: &[Row]) -> Vec<super::RowCost> {
+    let mut headers = std::collections::HashMap::<&str, usize>::new();
+    rows.iter()
         .enumerate()
         .map(|(index, row)| {
             let header = *headers.entry(row.dir.as_str()).or_insert_with(|| {
-                let dir = super::rendered_dir(paths, &validated.canonical, &row.dir);
-                crate::tools::stream_page::json_chars(&json!({"dir":dir,"files":[]})) + 1
+                if row.dir.is_empty() {
+                    0
+                } else {
+                    crate::tools::stream_page::json_chars(&json!({"dir":row.dir,"files":[]})) + 1
+                }
             });
             super::RowCost {
                 entry: crate::tools::stream_page::json_chars(&row.entry) + 1,
@@ -242,73 +340,76 @@ pub fn execute_files(
                 continues: index > 0 && rows[index - 1].dir == row.dir,
             }
         })
-        .collect::<Vec<_>>();
-    let pages = super::page_ranges(&costs, page_size, budget);
+        .collect()
+}
+
+/// The response for this page of a walk.
+fn files_page(
+    q: &StructureSearchQueryFiles,
+    walk: &FilesWalk,
+    pages: &[std::ops::Range<usize>],
+    snapshot: String,
+    root: &std::path::Path,
+    requested: usize,
+) -> Value {
     let page = q.page().max(1) as usize;
-    let total_pages = pages.len().max(1);
-    let shown = pages.get(page - 1).cloned().unwrap_or(total..total);
-    let files = directory_groups(&rows[shown]);
-    let out_of_range = total > 0 && page > total_pages;
-    let has_more = page < total_pages;
+    let total = walk.rows.len();
+    let early_exit = early_exit(q);
     // An early-exit walk that found one more match than the limit has more;
     // only a full walk knows the total.
     let (limit_cut, scan_cut) = if early_exit {
-        (native.was_capped, false)
+        (walk.was_capped, false)
     } else {
-        (available > total, native.was_capped)
+        (walk.available > requested, walk.was_capped)
     };
-    let can_expand = limit_cut && requested < super::max_walk() as usize;
-    let terminal = (has_more && page >= 1000) || ((limit_cut || scan_cut) && !can_expand);
-    let mut out = json!({"path":super::display_name(&validated.canonical),"snapshot":snapshot,"files":files,"pagination":{"currentPage":page,"totalPages":total_pages,"totalFiles":total,"hasMore":has_more}});
-    if let Some(size) = page_size {
-        out["pagination"]["filesPerPage"] = json!(size);
+    let cut = super::Cut {
+        page,
+        total_pages: pages.len().max(1),
+        total,
+        requested,
+        available: walk.available,
+        limit_cut,
+        scan_cut,
+        early_exit,
+        total_discovered: walk.total_discovered,
+        snapshot: snapshot.clone(),
+    };
+    let shown = pages.get(page - 1).cloned().unwrap_or(total..total);
+    let files = super::dir_groups(
+        &walk.rows[shown.clone()],
+        |row| (&row.dir, &row.entry),
+        "files",
+    );
+    let mut out = json!({"path":super::display_name(root),"snapshot":snapshot,"files":files,"pagination":{"currentPage":page,"totalPages":cut.total_pages,"totalItems":total,"hasMore":cut.has_more()}});
+    if let Some(size) = q.page_size() {
+        out["pagination"]["pageSize"] =
+            json!(size.clamp(1, super::structure_max("pageSize") as usize));
     }
     if total == 0 {
         out["status"] = json!("empty")
     }
-    if has_more && !terminal {
-        out["next"]["nextPage"] = super::continuation(q, json!({"page":page+1,"snapshot":snapshot}))
+    let mut warnings = walk.warnings.clone();
+    cut.finish(&mut out, q, &mut warnings);
+    if page == 1
+        && let Some(note) = walk.uncovered.pruned_note()
+    {
+        out["summary"] = json!(note);
     }
-    if can_expand {
-        out["next"]["expandLimit"] = super::continuation(
-            q,
-            json!({"limit":requested.saturating_mul(2).max(requested+1).min(super::max_walk() as usize),"page":1}),
-        )
-    }
-    if terminal {
-        out["terminalLimit"] = json!(true)
-    }
-    if limit_cut || scan_cut {
-        let mut reasons = vec![];
-        if limit_cut {
-            reasons.push("limit")
-        }
-        if scan_cut {
-            reasons.push("walkLimit")
-        }
-        out["truncated"] = json!(true);
-        out["partialReasons"] = json!(reasons);
-        if early_exit {
-            out["atLeast"] = json!(total + 1);
-        } else {
-            out["totalAvailable"] = json!(usize::max(native.total_discovered as usize, available));
-        }
+    if page == 1
+        && let Some(read) = outline_read(&walk.rows[shown], root)
+    {
+        out["next"]["read"] = read;
     }
     if !early_exit
-        && (scan_cut || native.total_discovered as usize > total)
+        && (scan_cut || walk.total_discovered > total)
         && let Some(pagination) = out.get_mut("pagination")
     {
-        pagination["totalFilesFound"] = json!(native.total_discovered)
+        pagination["totalFilesFound"] = json!(walk.total_discovered)
     }
-    if out_of_range {
+    if cut.out_of_range() {
         out["pagination"]["outOfRange"] = json!(true);
-        warnings.push(format!("page:{page} is out of range (only {total_pages} page(s), {total} total file(s)) — returned 0 files. Use page:1..{total_pages}."));
     }
-    let withheld = withheld.into_inner();
-    if withheld > 0 {
-        let warning = format!(
-            "{withheld} entries were withheld by path policy; absence within those entries is unproven."
-        );
+    if let Some(warning) = walk.uncovered.withheld.notice() {
         if total == 0 {
             out["hints"] = json!([warning]);
         }
@@ -317,18 +418,31 @@ pub fn execute_files(
     if !warnings.is_empty() {
         out["warnings"] = json!(warnings)
     }
-    let ignored = ignored.into_inner();
-    super::note_ignored_empty(
-        &mut out,
-        q,
-        ignored,
-        json!({"noIgnore":true,"page":1}),
-        format!(
-            "The walk pruned {ignored} .gitignore'd entries; whether they match these filters is unproven. hints.includeIgnored retries with noIgnore:true."
-        ),
-    );
-    Ok(out)
+    walk.uncovered.note_empty(&mut out, q);
+    out
 }
+
+/// `next.read` on a listing's first page: the outline (localFetch
+/// `minify:"symbols"`) of its first source or doc file, evidence the
+/// listing itself does not hold. Rows name paths relative to the root.
+fn outline_read(rows: &[Row], root: &std::path::Path) -> Option<Value> {
+    let row = rows
+        .iter()
+        .find(|row| row.is_file && crate::tools::outlines(&row.path))?;
+    let path = if row.path.is_empty() || root.is_file() {
+        root.to_path_buf()
+    } else {
+        root.join(&row.path)
+    };
+    Some(
+        crate::tools::result::Continuation::new(
+            crate::tools::id::ToolId::LocalFetch,
+            json!({"path": path.to_string_lossy(), "minify": "symbols"}),
+        )
+        .build(),
+    )
+}
+
 fn make_row(
     e: &FileSystemEntry,
     root: &std::path::Path,
@@ -339,26 +453,25 @@ fn make_row(
     cancel: &dyn CancellationCheck,
 ) -> Result<Row, super::StructureError> {
     let full = detail == "full";
-    // Rows name the root's own directory first; the envelope anchors them on
-    // the root's parent, so every row path resolves against the workspace.
-    let root_name = root.file_name().unwrap_or_default().to_string_lossy();
+    // Rows name paths relative to the walked root, like `tree`: `""` is the
+    // root itself, which a directory root lists as `.`.
     let is_root = e.relative_path.is_empty() || std::path::Path::new(&e.path) == root;
-    let relative = if is_root {
-        root_name.into_owned()
-    } else {
-        format!("{root_name}/{}", e.relative_path)
-    };
-    let path = security.sanitize_text(&relative, None).content;
     let kind = match e.entry_type.as_str() {
         "directory" => "directory",
         "symlink" => "symlink",
         _ => "file",
     };
-    // A directory root lists itself as `.` inside itself; every other entry
-    // is its name inside its parent (a file root's parent is `""`, the
-    // root's parent).
+    let relative = if is_root && kind != "directory" {
+        root.file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned()
+    } else {
+        e.relative_path.clone()
+    };
+    let path = security.sanitize_text(&relative, None).content;
     let (dir, name) = if is_root && kind == "directory" {
-        (path.as_str(), ".")
+        ("", ".")
     } else {
         path.rsplit_once('/').unwrap_or(("", path.as_str()))
     };
@@ -383,14 +496,16 @@ fn make_row(
         dir,
         entry,
         path,
+        is_file: kind == "file",
         name: e.name.clone(),
         size: e.size.unwrap_or(0),
         modified,
         lines,
+        source: std::path::PathBuf::from(&e.path),
     })
 }
 /// Page layout tag folded into the snapshot: rows grouped by directory.
-const ROW_LAYOUT: &str = "dirGroups";
+const ROW_LAYOUT: &str = "pathRelativeDirGroups";
 
 /// One listed entry inside its directory group: the name, `/` after a
 /// directory, then ` (<fields>)` naming the size in bytes (every non-directory
@@ -425,23 +540,6 @@ fn entry_text(
         text.push_str(&format!(" ({})", fields.join(", ")));
     }
     text
-}
-
-/// Consecutive rows under one directory share a `{dir, files}` group, so the
-/// listing keeps its order and every entry once; a page that continues a
-/// group repeats its `dir`.
-fn directory_groups(rows: &[Row]) -> Vec<Value> {
-    let mut groups: Vec<(&str, Vec<&str>)> = Vec::new();
-    for row in rows {
-        match groups.last_mut() {
-            Some((dir, entries)) if *dir == row.dir => entries.push(&row.entry),
-            _ => groups.push((&row.dir, vec![&row.entry])),
-        }
-    }
-    groups
-        .into_iter()
-        .map(|(dir, files)| json!({"dir":dir,"files":files}))
-        .collect()
 }
 
 fn sort_rows(r: &mut [Row], sort: &str) {
@@ -561,7 +659,6 @@ mod tests {
 
     #[test]
     fn line_count_can_be_cancelled_between_bounded_reads() {
-        use crate::policy::path::PathPolicyConfig;
         use std::sync::atomic::{AtomicUsize, Ordering};
         struct Cancel(AtomicUsize);
         impl CancellationCheck for Cancel {
@@ -578,11 +675,7 @@ mod tests {
         std::fs::create_dir_all(&root).expect("fixture");
         let file = root.join("large.rs");
         std::fs::write(&file, "line\n".repeat(20_000)).expect("large source");
-        let paths = PathPolicy::new(PathPolicyConfig {
-            workspace_root: Some(root.clone()),
-            ..Default::default()
-        })
-        .expect("policy");
+        let paths = crate::tools::test_support::workspace_policy(&root);
         let error = line_count(&file, &paths, &Cancel(AtomicUsize::new(0)))
             .expect_err("cancel while reading");
         assert_eq!(error.code, "structure.execution.cancelled");

@@ -49,6 +49,5 @@ export const DEFAULT_LSP_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.lsp);
 export const DEFAULT_OUTPUT_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.output);
 export const DEFAULT_SESSION_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.session);
 export const DEFAULT_STORAGE_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.storage);
-export const DEFAULT_EXTENSION_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE.extension);
 
 export const DEFAULT_CONFIG = Object.freeze(DEFAULT_CONFIG_VALUE);

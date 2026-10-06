@@ -22,7 +22,7 @@ my-skill/
 
 Reference detail means catalogs, examples, long procedures, data, and sources. Move a rule up when it decides the next action. Add a second small diagram only for a loop the map cannot show.
 
-`SKILL.md` opens with the skill map: one Mermaid diagram that shows the flow phases (solid edges) and every reference page (dotted edges labeled with the trigger), then a one-line caption.
+`SKILL.md` opens with the skill map: one Mermaid diagram that shows the flow phases (solid edges) and every reference page (dotted edges labeled with the trigger), then a one-line caption. The 12-node cap counts flow nodes only, so every page fits as a leaf.
 
 ```mermaid
 flowchart LR

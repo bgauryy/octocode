@@ -1,9 +1,7 @@
 //! Native JS/TS symbol outline via `oxc_parser`.
 //!
-//! Produces an LSP-compatible `DocumentSymbol[]` tree (nested, numeric
-//! `SymbolKind`, 0-based UTF-16 ranges) serialized as JSON — byte-for-byte the
-//! shape a language server returns, so the existing `documentSymbols` flatten
-//! path consumes it unchanged.
+//! Builds an LSP-shaped `DocumentSymbol` tree (nested, numeric `SymbolKind`,
+//! 0-based UTF-16 ranges) and flattens it into graph-facts declarations.
 //!
 //! **No type inference.** oxc parses ECMAScript/TypeScript *syntax*; it resolves
 //! in-file scopes/bindings but not types. Callers stamp `source: "native"` so
@@ -28,7 +26,7 @@ use oxc_span::{GetSpan, SourceType, Span};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::text::file_extension::is_js_ts_extension;
+use crate::text::file_extension::JS_TS_EXTENSIONS;
 
 use super::{
     deep_stack::{job_cancelled, run_on_deep_stack_with_timeout, with_thread_allocator},
@@ -36,10 +34,11 @@ use super::{
     js_oxc_calls::collect_program_calls,
     js_oxc_commonjs as commonjs,
     js_oxc_references::{CountTarget, record_import_uses, value_reference_counts},
-    js_oxc_shared::{
-        GraphCall, GraphCommonJsLoad, LineIndex, Position, Range, module_export_name,
-        property_key_name,
-    },
+    js_oxc_shared::{LineIndex, module_export_name, property_key_name},
+};
+use crate::graph::{
+    GraphFactDeclaration, GraphFactEdge, GraphFactExport, GraphFactImport, GraphFactsDocument,
+    GraphRange,
 };
 
 // LSP SymbolKind numeric codes (subset we emit). The TS side maps these back to
@@ -62,50 +61,11 @@ mod kind {
 struct DocumentSymbol {
     name: String,
     kind: u8,
-    range: Range,
+    range: GraphRange,
     #[serde(rename = "selectionRange")]
-    selection_range: Range,
+    selection_range: GraphRange,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     children: Vec<Self>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GraphFacts {
-    kind: &'static str,
-    schema_version: u32,
-    source: &'static str,
-    language: String,
-    file: String,
-    declarations: Vec<GraphDeclaration>,
-    imports: Vec<GraphImport>,
-    exports: Vec<GraphExport>,
-    calls: Vec<GraphCall>,
-    common_js: Vec<GraphCommonJsLoad>,
-    edges: Vec<GraphEdge>,
-    diagnostics: Vec<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GraphDeclaration {
-    id: String,
-    name: String,
-    kind: &'static str,
-    line: u32,
-    range: Range,
-    selection_range: Range,
-    exported: bool,
-    /// Public names of an exported local binding when they differ from
-    /// `name` (`export { foo as bar }` → `["bar"]`, a named default export →
-    /// `["default"]`). Empty when it is exported only under its own name.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    exported_as: Vec<String>,
-    /// 0-based first line of the comment block directly above.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    doc_line: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    parent: Option<String>,
 }
 
 /// Module exports indexed by local binding, with sorted distinct public names.
@@ -125,52 +85,6 @@ impl LocalExports {
             .get(local)
             .map(|names| names.iter().cloned().collect())
     }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GraphImport {
-    id: String,
-    specifier: String,
-    line: u32,
-    import_kind: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    local_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    imported_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    imported_range: Option<Range>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    local_range: Option<Range>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GraphExport {
-    id: String,
-    name: String,
-    line: u32,
-    export_kind: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    local_name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    source: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct GraphEdge {
-    id: String,
-    from: String,
-    to: String,
-    relation: &'static str,
-    source: &'static str,
-    line: u32,
-    resolution: &'static str,
-}
-
-fn span_contains(span: Span, offset: u32) -> bool {
-    span.start <= offset && offset < span.end
 }
 
 fn source_type_for(ext: &str, file_path: &str, content: &str) -> SourceType {
@@ -200,145 +114,51 @@ fn source_type_for(ext: &str, file_path: &str, content: &str) -> SourceType {
 /// Cheap pre-check so non-JS/TS files never pay for the content copy and the
 /// big-stack worker thread; graph scans call this for every file in a repo.
 fn is_oxc_path(file_path: &str) -> bool {
-    is_js_ts_extension(&crate::text::file_extension::get_extension_internal(
-        file_path, true, "ts",
-    ))
+    JS_TS_EXTENSIONS.contains(
+        &crate::text::file_extension::get_extension_internal(file_path, true, "ts").as_str(),
+    )
 }
 
-/// Native JS/TS document symbols as a JSON `DocumentSymbol[]`.
-///
-/// Returns `None` for: oversized input, a hard parse failure (caller falls back
-/// to tree-sitter), or a file with no extractable top-level symbols.
-pub fn extract_js_symbols(content: &str, file_path: &str) -> Option<String> {
+/// Run an oxc `job` on the deep-stack pool under the AST timeout. `None` for
+/// oversized input or a non-JS/TS path. oxc can ICE on pathological input;
+/// the unwind is contained so it never aborts the process.
+fn on_oxc_worker<T: Send + 'static>(
+    content: &str,
+    file_path: &str,
+    job: impl FnOnce(&str, &str) -> Option<T> + Send + 'static,
+) -> Option<T> {
     if content.len() > crate::signatures::MAX_PARSE_SIZE || !is_oxc_path(file_path) {
         return None;
     }
     let content = content.to_owned();
     let file_path = file_path.to_owned();
-    // oxc can ICE on pathological input; contain the unwind so it never crosses
-    // the napi FFI boundary and aborts Node (mirrors the minifier/signature
-    // guards elsewhere in the crate).
     run_on_deep_stack_with_timeout(AST_EXECUTION_TIMEOUT, move || {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            extract_js_symbols_inner(&content, &file_path)
-        }))
-        .unwrap_or(None)
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| job(&content, &file_path)))
+            .unwrap_or(None)
     })
 }
 
-fn extract_js_symbols_inner(content: &str, file_path: &str) -> Option<String> {
+/// Parse JS/TS `content` on the thread arena (`TOKENS` keeps the token
+/// stream) and hand `f` the extension and the parse. `None` for a non-JS/TS
+/// extension, a cancelled job, or a hard parse failure with nothing
+/// recovered: the caller then falls back to the more error-tolerant
+/// tree-sitter path rather than emit a stub.
+fn with_js_program<const TOKENS: bool, R>(
+    content: &str,
+    file_path: &str,
+    f: impl for<'a> FnOnce(String, oxc_parser::ParserReturn<'a>) -> Option<R>,
+) -> Option<R> {
     let ext = crate::text::file_extension::get_extension_internal(file_path, true, "ts");
-    if !is_js_ts_extension(&ext) {
+    if !JS_TS_EXTENSIONS.contains(&ext.as_str()) {
         return None;
     }
-    with_thread_allocator(|allocator| {
-        let parser_ret = Parser::new(
-            allocator,
-            content,
-            source_type_for(&ext, file_path, content),
-        )
-        .parse();
-
-        // Hard parse failure with nothing recovered → let the caller fall back to
-        // the more error-tolerant tree-sitter path rather than emit a stub outline.
-        if job_cancelled()
-            || (parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty())
-        {
-            return None;
-        }
-
-        let line_index = LineIndex::new(content);
-        let mut symbols = Vec::new();
-        collect_program(&parser_ret.program, &line_index, &mut symbols);
-
-        if symbols.is_empty() || job_cancelled() {
-            return None;
-        }
-        serde_json::to_string(&symbols).ok()
-    })
-}
-
-/// Native in-file references to the symbol under `(line, character)` (0-based,
-/// UTF-16), as a JSON `Range[]` covering the declaration and every resolved
-/// in-file reference. **Same-file only** — oxc resolves bindings within one
-/// module, never across files (that needs a language server). The first range
-/// is the declaration.
-///
-/// Returns `None` for non-JS/TS files, oversized content, a hard parse failure,
-/// or when the cursor is not on a resolvable binding/reference.
-pub fn find_in_file_references(
-    content: &str,
-    file_path: &str,
-    line: u32,
-    character: u32,
-) -> Option<String> {
-    if content.len() > crate::signatures::MAX_PARSE_SIZE || !is_oxc_path(file_path) {
-        return None;
-    }
-    let content = content.to_owned();
-    let file_path = file_path.to_owned();
-    run_on_deep_stack_with_timeout(AST_EXECUTION_TIMEOUT, move || {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            find_in_file_references_inner(&content, &file_path, line, character)
-        }))
-        .unwrap_or(None)
-    })
-}
-
-/// Native JS/TS graph facts as JSON.
-///
-/// This is a syntax-level AST inventory: declarations, imports, exports,
-/// function/class containment, and direct call expressions. It deliberately
-/// avoids type inference and cross-file resolution; callers combine it with LSP
-/// proof when they need semantic identity.
-#[cfg(test)]
-pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
-    extract_graph_facts_with_metadata(content, file_path)
-        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
-}
-
-pub(crate) fn extract_graph_facts_with_metadata(
-    content: &str,
-    file_path: &str,
-) -> Option<super::GraphFactsExtraction> {
-    if content.len() > crate::signatures::MAX_PARSE_SIZE || !is_oxc_path(file_path) {
-        return None;
-    }
-    let content = content.to_owned();
-    let file_path = file_path.to_owned();
-    run_on_deep_stack_with_timeout(AST_EXECUTION_TIMEOUT, move || {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            extract_graph_facts_with_metadata_inner::<true>(&content, &file_path)
-        }))
-        .unwrap_or(None)
-    })
-}
-
-#[cfg(test)]
-fn extract_graph_facts_inner<const COMMON_JS: bool>(
-    content: &str,
-    file_path: &str,
-) -> Option<String> {
-    extract_graph_facts_with_metadata_inner::<COMMON_JS>(content, file_path)
-        .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
-}
-
-fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
-    content: &str,
-    file_path: &str,
-) -> Option<super::GraphFactsExtraction> {
-    let ext = crate::text::file_extension::get_extension_internal(file_path, true, "ts");
-    if !is_js_ts_extension(&ext) {
-        return None;
-    }
-
     with_thread_allocator(|allocator| {
         let parser = Parser::new(
             allocator,
             content,
             source_type_for(&ext, file_path, content),
         );
-        let parser_ret = if COMMON_JS {
+        let parser_ret = if TOKENS {
             parser
                 .with_config(oxc_parser::config::TokensParserConfig)
                 .parse()
@@ -350,36 +170,43 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
         {
             return None;
         }
+        f(ext, parser_ret)
+    })
+}
 
+/// Native JS/TS graph facts: a syntax-level AST inventory of declarations,
+/// imports, exports, function/class containment, and direct call expressions.
+/// It deliberately avoids type inference and cross-file resolution; callers
+/// combine it with LSP proof when they need semantic identity.
+pub(crate) fn extract_graph_facts_with_metadata(
+    content: &str,
+    file_path: &str,
+) -> Option<super::GraphFactsExtraction> {
+    on_oxc_worker(
+        content,
+        file_path,
+        extract_graph_facts_with_metadata_inner::<true>,
+    )
+}
+
+fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
+    content: &str,
+    file_path: &str,
+) -> Option<super::GraphFactsExtraction> {
+    with_js_program::<COMMON_JS, _>(content, file_path, |ext, parser_ret| {
         let line_index = LineIndex::new(content);
         let mut symbols = Vec::new();
         collect_program(&parser_ret.program, &line_index, &mut symbols);
-
-        let mut local_exports = LocalExports::default();
-        let mut imports = Vec::new();
-        let mut exports = Vec::new();
-        collect_module_facts(
+        let (declarations, mut edges, imports, exports) = module_outline(
             &parser_ret.program,
             &line_index,
-            &mut imports,
-            &mut exports,
-            &mut local_exports,
-        );
-
-        let mut declarations = Vec::new();
-        let mut edges = Vec::new();
-        flatten_symbols(
             file_path,
+            content,
             &symbols,
-            None,
-            &local_exports,
-            &mut declarations,
-            &mut edges,
         );
         if job_cancelled() {
             return None;
         }
-        attach_doc_lines(content, &mut declarations);
 
         let mut calls = Vec::new();
         let mut heritage = Vec::new();
@@ -394,7 +221,7 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
         } else {
             Vec::new()
         };
-        let mut declarations_by_name: std::collections::HashMap<&str, Vec<&GraphDeclaration>> =
+        let mut declarations_by_name: std::collections::HashMap<&str, Vec<&GraphFactDeclaration>> =
             std::collections::HashMap::new();
         for declaration in &declarations {
             declarations_by_name
@@ -432,7 +259,7 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
                     )
                 });
             call.caller_id = caller.map(|declaration| declaration.id.clone());
-            edges.push(GraphEdge {
+            edges.push(GraphFactEdge {
                 id: format!("edge:{}", call.id),
                 from: call
                     .caller_id
@@ -442,20 +269,15 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
                     "reference:{}@{}:{}:{index}",
                     file_path, call.range.start.line, call.range.start.character
                 ),
-                relation: call.kind,
-                source: "ast",
+                relation: call.kind.clone(),
+                source: "ast".to_owned(),
                 line: call.line,
-                resolution: "unresolved",
+                resolution: "unresolved".to_owned(),
             });
         }
         push_heritage_edges(&declarations, heritage, &mut edges);
 
-        let facts = GraphFacts {
-            kind: "graphFacts",
-            schema_version: super::GRAPH_FACTS_SCHEMA_VERSION,
-            source: "native-ast",
-            language: ext,
-            file: file_path.to_string(),
+        let mut facts = GraphFactsDocument {
             declarations,
             imports,
             exports,
@@ -467,6 +289,7 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
                 .into_iter()
                 .map(|diagnostic| diagnostic.message.to_string())
                 .collect(),
+            ..super::native_graph_facts(ext, file_path)
         };
         let semantic = SemanticBuilder::new()
             .with_build_nodes(true)
@@ -486,8 +309,6 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
             })
             .collect();
         let reference_counts = value_reference_counts(&semantic, &line_index, &targets);
-        let facts_json = serde_json::to_string(&facts).ok()?;
-        let mut facts = crate::graph::GraphFactsDocument::from_json(&facts_json).ok()?;
         record_import_uses(&semantic, &line_index, &mut facts);
         Some(super::GraphFactsExtraction {
             facts,
@@ -496,172 +317,51 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
     })
 }
 
-/// Declarations (with exports and containment) only, as graph-facts JSON:
-/// the calls, CommonJS loads, and value-reference counts a dependency graph
-/// needs are skipped. An outline of a large file otherwise pays for a full
-/// semantic pass and a multi-megabyte facts document it never reads.
-pub(crate) fn extract_declarations(content: &str, file_path: &str) -> Option<String> {
-    if content.len() > crate::signatures::MAX_PARSE_SIZE || !is_oxc_path(file_path) {
-        return None;
-    }
-    let content = content.to_owned();
-    let file_path = file_path.to_owned();
-    run_on_deep_stack_with_timeout(AST_EXECUTION_TIMEOUT, move || {
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            extract_declarations_inner(&content, &file_path)
-        }))
-        .unwrap_or(None)
-    })
+/// Declarations (with exports and containment) only: the calls, CommonJS
+/// loads, and value-reference counts a dependency graph needs are skipped. An
+/// outline of a large file otherwise pays for a full semantic pass and a
+/// multi-megabyte facts document it never reads.
+pub(crate) fn extract_declarations(content: &str, file_path: &str) -> Option<GraphFactsDocument> {
+    on_oxc_worker(content, file_path, extract_declarations_inner)
 }
 
-fn extract_declarations_inner(content: &str, file_path: &str) -> Option<String> {
-    let ext = crate::text::file_extension::get_extension_internal(file_path, true, "ts");
-    if !is_js_ts_extension(&ext) {
-        return None;
-    }
-    with_thread_allocator(|allocator| {
-        let parser_ret = Parser::new(
-            allocator,
-            content,
-            source_type_for(&ext, file_path, content),
-        )
-        .parse();
-        if job_cancelled()
-            || (parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty())
-        {
-            return None;
-        }
+fn extract_declarations_inner(content: &str, file_path: &str) -> Option<GraphFactsDocument> {
+    with_js_program::<false, _>(content, file_path, |ext, parser_ret| {
         let line_index = LineIndex::new(content);
         let mut symbols = Vec::new();
         collect_program(&parser_ret.program, &line_index, &mut symbols);
         collect_member_functions(&parser_ret.program.body, &line_index, &mut symbols);
         symbols.sort_by_key(|symbol| (symbol.range.start.line, symbol.range.start.character));
-        let mut local_exports = LocalExports::default();
-        let mut imports = Vec::new();
-        let mut exports = Vec::new();
-        collect_module_facts(
+        let (declarations, edges, imports, exports) = module_outline(
             &parser_ret.program,
             &line_index,
-            &mut imports,
-            &mut exports,
-            &mut local_exports,
-        );
-        let mut declarations = Vec::new();
-        let mut edges = Vec::new();
-        flatten_symbols(
             file_path,
+            content,
             &symbols,
-            None,
-            &local_exports,
-            &mut declarations,
-            &mut edges,
         );
-        attach_doc_lines(content, &mut declarations);
         if job_cancelled() {
             return None;
         }
-        serde_json::to_string(&GraphFacts {
-            kind: "graphFacts",
-            schema_version: super::GRAPH_FACTS_SCHEMA_VERSION,
-            source: "native-ast",
-            language: ext,
-            file: file_path.to_string(),
+        Some(GraphFactsDocument {
             declarations,
             imports,
             exports,
-            calls: Vec::new(),
-            common_js: Vec::new(),
             edges,
             diagnostics: parser_ret
                 .diagnostics
                 .into_iter()
                 .map(|diagnostic| diagnostic.message.to_string())
                 .collect(),
+            ..super::native_graph_facts(ext, file_path)
         })
-        .ok()
-    })
-}
-
-fn find_in_file_references_inner(
-    content: &str,
-    file_path: &str,
-    line: u32,
-    character: u32,
-) -> Option<String> {
-    let ext = crate::text::file_extension::get_extension_internal(file_path, true, "ts");
-    if !is_js_ts_extension(&ext) {
-        return None;
-    }
-
-    with_thread_allocator(|allocator| {
-        let parser_ret = Parser::new(
-            allocator,
-            content,
-            source_type_for(&ext, file_path, content),
-        )
-        .parse();
-        if job_cancelled()
-            || (parser_ret.program.body.is_empty() && !parser_ret.diagnostics.is_empty())
-        {
-            return None;
-        }
-
-        // `with_build_nodes` records the AST-node table so we can resolve a
-        // reference's span via `nodes.kind(node_id).span()`; it is off by default.
-        let semantic_ret = SemanticBuilder::new()
-            .with_build_nodes(true)
-            .build(&parser_ret.program);
-        if job_cancelled() {
-            return None;
-        }
-        let semantic = semantic_ret.semantic;
-        let scoping = semantic.scoping();
-        let nodes = semantic.nodes();
-        let line_index = LineIndex::new(content);
-        let offset = line_index.byte_offset(line, character);
-
-        // Resolve the symbol under the cursor: first try declarations, then any
-        // resolved reference (so the cursor can sit on a use site too).
-        let mut target = None;
-        for symbol_id in scoping.symbol_ids() {
-            if span_contains(scoping.symbol_span(symbol_id), offset) {
-                target = Some(symbol_id);
-                break;
-            }
-        }
-        if target.is_none() {
-            'outer: for symbol_id in scoping.symbol_ids() {
-                for reference in scoping.get_resolved_references(symbol_id) {
-                    if span_contains(nodes.kind(reference.node_id()).span(), offset) {
-                        target = Some(symbol_id);
-                        break 'outer;
-                    }
-                }
-            }
-        }
-        let target = target?;
-
-        // Declaration first, then every resolved in-file reference.
-        let mut spans: Vec<Span> = vec![scoping.symbol_span(target)];
-        for reference in scoping.get_resolved_references(target) {
-            spans.push(nodes.kind(reference.node_id()).span());
-        }
-        spans.sort_by_key(|span| (span.start, span.end));
-        spans.dedup_by_key(|span| (span.start, span.end));
-
-        let ranges: Vec<Range> = spans
-            .into_iter()
-            .map(|span| line_index.range(span))
-            .collect();
-        serde_json::to_string(&ranges).ok()
     })
 }
 
 fn collect_module_facts(
     program: &Program,
     li: &LineIndex,
-    imports: &mut Vec<GraphImport>,
-    exports: &mut Vec<GraphExport>,
+    imports: &mut Vec<GraphFactImport>,
+    exports: &mut Vec<GraphFactExport>,
     local_exports: &mut LocalExports,
 ) {
     for stmt in &program.body {
@@ -709,11 +409,11 @@ fn collect_module_facts(
                 if let Some(local) = &local_name {
                     local_exports.push(local.clone(), "default".to_string());
                 }
-                exports.push(GraphExport {
+                exports.push(GraphFactExport {
                     id: format!("export:default:{}", range.start.line + 1),
                     name: "default".to_string(),
                     line: range.start.line + 1,
-                    export_kind: "value",
+                    export_kind: "value".to_owned(),
                     local_name,
                     source: None,
                 });
@@ -732,11 +432,11 @@ fn collect_module_facts(
                 if matches!(&decl.expression, Expression::Identifier(_)) {
                     local_exports.push(name.clone(), name.clone());
                 }
-                exports.push(GraphExport {
+                exports.push(GraphFactExport {
                     id: format!("export:{}:{}", name, range.start.line + 1),
                     name,
                     line: range.start.line + 1,
-                    export_kind: "value",
+                    export_kind: "value".to_owned(),
                     local_name: None,
                     source: None,
                 });
@@ -755,15 +455,18 @@ fn collect_module_facts(
                     }
                     TSModuleReference::QualifiedName(_) => local_name.clone(),
                 };
-                imports.push(GraphImport {
+                imports.push(GraphFactImport {
                     id: format!("import:{}:{}", local_name, range.start.line + 1),
                     specifier,
                     line: range.start.line + 1,
-                    import_kind: import_export_kind(decl.import_kind),
+                    import_kind: import_export_kind(decl.import_kind).to_owned(),
                     local_name: Some(local_name),
                     imported_name: None,
                     imported_range: None,
                     local_range: Some(li.range(decl.id.span)),
+                    resolution_hint: None,
+                    module_scope: None,
+                    used_in: None,
                 });
             }
             _ => {}
@@ -774,7 +477,7 @@ fn collect_module_facts(
 fn collect_import_declaration(
     decl: &ImportDeclaration,
     li: &LineIndex,
-    out: &mut Vec<GraphImport>,
+    out: &mut Vec<GraphFactImport>,
 ) {
     let range = li.range(decl.span);
     let line = range.start.line + 1;
@@ -808,27 +511,33 @@ fn collect_import_declaration(
                     Some(li.range(spec.local.span)),
                 ),
             };
-            out.push(GraphImport {
+            out.push(GraphFactImport {
                 id: format!("import:{}:{}:{}", specifier, line, index),
                 specifier: specifier.clone(),
                 line,
-                import_kind,
+                import_kind: import_kind.to_owned(),
                 local_name,
                 imported_name,
                 imported_range,
                 local_range,
+                resolution_hint: None,
+                module_scope: None,
+                used_in: None,
             });
         }
     } else {
-        out.push(GraphImport {
+        out.push(GraphFactImport {
             id: format!("import:{}:{}", specifier, line),
             specifier,
             line,
-            import_kind: import_export_kind(decl.import_kind),
+            import_kind: import_export_kind(decl.import_kind).to_owned(),
             local_name: None,
             imported_name: None,
             imported_range: None,
             local_range: None,
+            resolution_hint: None,
+            module_scope: None,
+            used_in: None,
         });
     }
 }
@@ -836,7 +545,7 @@ fn collect_import_declaration(
 fn collect_export_declaration(
     decl: &ExportDeclaration,
     li: &LineIndex,
-    out: &mut Vec<GraphExport>,
+    out: &mut Vec<GraphFactExport>,
     local_exports: &mut LocalExports,
 ) {
     let export_kind = match &decl.declaration {
@@ -846,11 +555,11 @@ fn collect_export_declaration(
     for name in declaration_names(&decl.declaration) {
         let range = li.range(decl.span);
         local_exports.push(name.clone(), name.clone());
-        out.push(GraphExport {
+        out.push(GraphFactExport {
             id: format!("export:{}:{}", name, range.start.line + 1),
             name,
             line: range.start.line + 1,
-            export_kind,
+            export_kind: export_kind.to_owned(),
             local_name: None,
             source: None,
         });
@@ -862,7 +571,7 @@ fn collect_export_specifiers(
     export_kind: ImportOrExportKind,
     source: Option<&str>,
     li: &LineIndex,
-    out: &mut Vec<GraphExport>,
+    out: &mut Vec<GraphFactExport>,
     mut local_exports: Option<&mut LocalExports>,
 ) {
     for (index, specifier) in specifiers.iter().enumerate() {
@@ -878,14 +587,14 @@ fn collect_export_specifiers(
             exports.push(local, name.clone());
         }
         let range = li.range(specifier.span);
-        out.push(GraphExport {
+        out.push(GraphFactExport {
             id: format!("export:{}:{}:{}", name, range.start.line + 1, index),
             name,
             line: range.start.line + 1,
             export_kind: if export_kind == ImportOrExportKind::Type {
-                "type"
+                "type".to_owned()
             } else {
-                import_export_kind(specifier.export_kind)
+                import_export_kind(specifier.export_kind).to_owned()
             },
             local_name: module_export_name(&specifier.local),
             source: source.map(str::to_owned),
@@ -893,18 +602,18 @@ fn collect_export_specifiers(
     }
 }
 
-fn collect_export_all(decl: &ExportAllDeclaration, li: &LineIndex, out: &mut Vec<GraphExport>) {
+fn collect_export_all(decl: &ExportAllDeclaration, li: &LineIndex, out: &mut Vec<GraphFactExport>) {
     let range = li.range(decl.span);
     let name = decl
         .exported
         .as_ref()
         .and_then(module_export_name)
         .unwrap_or_else(|| "*".to_string());
-    out.push(GraphExport {
+    out.push(GraphFactExport {
         id: format!("export:{}:{}", name, range.start.line + 1),
         name,
         line: range.start.line + 1,
-        export_kind: import_export_kind(decl.export_kind),
+        export_kind: import_export_kind(decl.export_kind).to_owned(),
         local_name: None,
         source: Some(decl.source.value.as_str().to_string()),
     });
@@ -972,7 +681,45 @@ fn declaration_names(decl: &Declaration) -> Vec<String> {
     }
 }
 
-fn attach_doc_lines(content: &str, declarations: &mut [GraphDeclaration]) {
+/// Declarations (with export names, doc lines, and containment edges) plus
+/// the import and export facts of a parsed module, from its `symbols`.
+fn module_outline(
+    program: &Program,
+    line_index: &LineIndex,
+    file_path: &str,
+    content: &str,
+    symbols: &[DocumentSymbol],
+) -> (
+    Vec<GraphFactDeclaration>,
+    Vec<GraphFactEdge>,
+    Vec<GraphFactImport>,
+    Vec<GraphFactExport>,
+) {
+    let mut local_exports = LocalExports::default();
+    let mut imports = Vec::new();
+    let mut exports = Vec::new();
+    collect_module_facts(
+        program,
+        line_index,
+        &mut imports,
+        &mut exports,
+        &mut local_exports,
+    );
+    let mut declarations = Vec::new();
+    let mut edges = Vec::new();
+    flatten_symbols(
+        file_path,
+        symbols,
+        None,
+        &local_exports,
+        &mut declarations,
+        &mut edges,
+    );
+    attach_doc_lines(content, &mut declarations);
+    (declarations, edges, imports, exports)
+}
+
+fn attach_doc_lines(content: &str, declarations: &mut [GraphFactDeclaration]) {
     let lines = content.lines().collect::<Vec<_>>();
     for declaration in declarations {
         if job_cancelled() {
@@ -988,9 +735,9 @@ fn attach_doc_lines(content: &str, declarations: &mut [GraphDeclaration]) {
 /// resolved declaration. A clause whose declaring name has no outline
 /// declaration (a class nested in a function body) is dropped.
 fn push_heritage_edges(
-    declarations: &[GraphDeclaration],
+    declarations: &[GraphFactDeclaration],
     heritage: Vec<super::js_oxc_calls::GraphHeritage>,
-    edges: &mut Vec<GraphEdge>,
+    edges: &mut Vec<GraphFactEdge>,
 ) {
     if heritage.is_empty() {
         return;
@@ -1002,7 +749,7 @@ fn push_heritage_edges(
                 (
                     declaration.selection_range.start.line,
                     declaration.selection_range.start.character,
-                    declaration.kind,
+                    declaration.kind.as_str(),
                 ),
                 declaration.id.as_str(),
             )
@@ -1017,7 +764,7 @@ fn push_heritage_edges(
         let Some(from) = by_name_start.get(&key) else {
             continue;
         };
-        edges.push(GraphEdge {
+        edges.push(GraphFactEdge {
             id: format!(
                 "{from}->{}:{}:{}:{}",
                 item.to,
@@ -1027,10 +774,10 @@ fn push_heritage_edges(
             ),
             from: (*from).to_string(),
             to: item.to,
-            relation: item.relation,
-            source: "oxc",
+            relation: item.relation.to_owned(),
+            source: "oxc".to_owned(),
             line: item.line,
-            resolution: "syntax",
+            resolution: "syntax".to_owned(),
         });
     }
 }
@@ -1040,8 +787,8 @@ fn flatten_symbols(
     symbols: &[DocumentSymbol],
     parent: Option<&str>,
     local_exports: &LocalExports,
-    declarations: &mut Vec<GraphDeclaration>,
-    edges: &mut Vec<GraphEdge>,
+    declarations: &mut Vec<GraphFactDeclaration>,
+    edges: &mut Vec<GraphFactEdge>,
 ) {
     for symbol in symbols {
         if job_cancelled() {
@@ -1064,27 +811,27 @@ fn flatten_symbols(
             Some(names) if names.iter().any(|public| public != &symbol.name) => names.clone(),
             _ => Vec::new(),
         };
-        declarations.push(GraphDeclaration {
+        declarations.push(GraphFactDeclaration {
             id: id.clone(),
             name: symbol.name.clone(),
-            kind: symbol_kind_name(symbol.kind),
+            kind: symbol_kind_name(symbol.kind).to_owned(),
             line,
-            range: symbol_range(symbol),
-            selection_range: symbol_selection_range(symbol),
+            range: symbol.range.clone(),
+            selection_range: symbol.selection_range.clone(),
             exported: public_names.is_some(),
             exported_as,
             parent: parent.map(str::to_string),
             doc_line: None,
         });
         if let Some(parent_id) = parent {
-            edges.push(GraphEdge {
+            edges.push(GraphFactEdge {
                 id: format!("{}->{}:contains", parent_id, id),
                 from: parent_id.to_string(),
                 to: id.clone(),
-                relation: "contains",
-                source: "ast",
+                relation: "contains".to_owned(),
+                source: "ast".to_owned(),
                 line,
-                resolution: "syntactic",
+                resolution: "syntactic".to_owned(),
             });
         }
         flatten_symbols(
@@ -1106,8 +853,8 @@ mod graph_occurrence_tests {
             .map(|i| format!("export function fn{i}() {{ return {i}; }}\n"))
             .collect::<String>();
         source.push_str("export { fn42 as alias, fn42 as another };\n");
-        let raw = super::extract_declarations(&source, "many-exports.ts").unwrap();
-        let value: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        let facts = super::extract_declarations(&source, "many-exports.ts").unwrap();
+        let value = serde_json::to_value(facts).unwrap();
         let declarations = value["declarations"].as_array().unwrap();
         assert_eq!(declarations.len(), 20_000);
         assert!(declarations.iter().all(|row| row["exported"] == true));
@@ -1120,7 +867,7 @@ mod graph_occurrence_tests {
 
     #[test]
     fn import_ranges_do_not_invent_synthetic_name_tokens() {
-        let value: serde_json::Value = serde_json::from_str(&super::extract_graph_facts("import value from './a'; import * as namespace from './b'; import { plain } from './c'; import './side';", "imports.ts").unwrap()).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&super::tests::extract_graph_facts("import value from './a'; import * as namespace from './b'; import { plain } from './c'; import './side';", "imports.ts").unwrap()).unwrap();
         let imports = value["imports"].as_array().unwrap();
         for import in &imports[..2] {
             assert!(import.get("importedRange").is_none());
@@ -1133,7 +880,7 @@ mod graph_occurrence_tests {
 
     #[test]
     fn named_import_binding_ranges_are_exact_utf16() {
-        let value: serde_json::Value = serde_json::from_str(&super::extract_graph_facts("const marker = \"😀\"; import { target as first, target as second } from './origin';\nimport {\n target as third\n} from './origin';\n", "aliases.ts").unwrap()).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&super::tests::extract_graph_facts("const marker = \"😀\"; import { target as first, target as second } from './origin';\nimport {\n target as third\n} from './origin';\n", "aliases.ts").unwrap()).unwrap();
         let imports = value["imports"].as_array().unwrap();
         assert_eq!(imports.len(), 3);
         for (index, (line, imported, local, length)) in
@@ -1152,7 +899,7 @@ mod graph_occurrence_tests {
         }
     }
 
-    use super::extract_graph_facts;
+    use super::tests::extract_graph_facts;
 
     fn common_js(source: &str) -> serde_json::Value {
         let facts: serde_json::Value =
@@ -1367,32 +1114,6 @@ fn symbol_kind_name(kind: u8) -> &'static str {
         kind::CONSTANT => "constant",
         kind::ENUM_MEMBER => "enumMember",
         _ => "symbol",
-    }
-}
-
-fn symbol_range(symbol: &DocumentSymbol) -> Range {
-    Range {
-        start: Position {
-            line: symbol.range.start.line,
-            character: symbol.range.start.character,
-        },
-        end: Position {
-            line: symbol.range.end.line,
-            character: symbol.range.end.character,
-        },
-    }
-}
-
-fn symbol_selection_range(symbol: &DocumentSymbol) -> Range {
-    Range {
-        start: Position {
-            line: symbol.selection_range.start.line,
-            character: symbol.selection_range.start.character,
-        },
-        end: Position {
-            line: symbol.selection_range.end.line,
-            character: symbol.selection_range.end.character,
-        },
     }
 }
 
@@ -1686,14 +1407,15 @@ fn class_symbol(class: &Class, li: &LineIndex) -> Option<DocumentSymbol> {
                         .as_ref()
                         .and_then(|value| function_value_children(value, li))
                         .unwrap_or_default();
-                    children.push(container(
-                        &name,
-                        kind::PROPERTY,
-                        p.span,
-                        name_span,
-                        nested,
-                        li,
-                    ));
+                    // A field holding a function is a callable member.
+                    let member_kind = match p.value.as_ref().map(bound_value) {
+                        Some(
+                            Expression::ArrowFunctionExpression(_)
+                            | Expression::FunctionExpression(_),
+                        ) => kind::METHOD,
+                        _ => kind::PROPERTY,
+                    };
+                    children.push(container(&name, member_kind, p.span, name_span, nested, li));
                 }
             }
             ClassElement::AccessorProperty(a) => {
@@ -1861,6 +1583,18 @@ fn push_pattern_leaves(
     }
 }
 
+/// The value a binding holds, through parentheses and type-only wrappers
+/// (`as`, `satisfies`, `!`, `<T>x`), which change no runtime value.
+fn bound_value<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
+    match expression.without_parentheses() {
+        Expression::TSAsExpression(inner) => bound_value(&inner.expression),
+        Expression::TSSatisfiesExpression(inner) => bound_value(&inner.expression),
+        Expression::TSNonNullExpression(inner) => bound_value(&inner.expression),
+        Expression::TSTypeAssertion(inner) => bound_value(&inner.expression),
+        other => other,
+    }
+}
+
 fn collect_variable(decl: &VariableDeclaration, li: &LineIndex, out: &mut Vec<DocumentSymbol>) {
     let is_const = matches!(
         decl.kind,
@@ -1871,7 +1605,7 @@ fn collect_variable(decl: &VariableDeclaration, li: &LineIndex, out: &mut Vec<Do
     for declarator in &decl.declarations {
         match &declarator.id {
             BindingPattern::BindingIdentifier(id) => {
-                let symbol_kind = match &declarator.init {
+                let symbol_kind = match declarator.init.as_ref().map(bound_value) {
                     Some(Expression::ArrowFunctionExpression(_))
                     | Some(Expression::FunctionExpression(_)) => kind::FUNCTION,
                     Some(Expression::ClassExpression(_)) => kind::CLASS,
@@ -1937,4 +1671,4 @@ fn container(
 
 #[cfg(test)]
 #[path = "js_oxc_tests.rs"]
-mod tests;
+pub(super) mod tests;

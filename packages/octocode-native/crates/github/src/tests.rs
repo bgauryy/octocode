@@ -97,10 +97,103 @@ impl ConditionalCache for MemoryCache {
     }
 }
 
+/// A keyed in-memory cache that honors partitions, for transport-level reads.
+#[derive(Default)]
+struct PartitionedCache(Mutex<std::collections::HashMap<(String, String), CachedContent>>);
+impl ConditionalCache for PartitionedCache {
+    fn get<'a>(
+        &'a self,
+        partition: &'a CachePartition,
+        key: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<CachedContent>> + Send + 'a>>
+    {
+        Box::pin(async move {
+            let mut value = self
+                .0
+                .lock()
+                .expect("cache lock")
+                .get(&(partition.identity().to_owned(), key.to_owned()))
+                .cloned()?;
+            // Pinned commits are fresh; everything else revalidates.
+            if key.starts_with("github-commit:") {
+                value.etag = None;
+            }
+            Some(value)
+        })
+    }
+    fn put<'a>(
+        &'a self,
+        partition: &'a CachePartition,
+        key: String,
+        value: CachedContent,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            self.0
+                .lock()
+                .expect("cache lock")
+                .insert((partition.identity().to_owned(), key), value);
+        })
+    }
+}
+
+/// The GitHub endpoint `server` serves.
+fn mock_endpoint(server: &MockServer) -> GitHubEndpoint {
+    GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
+        .expect("endpoint")
+}
+
+/// An anonymous transport to `endpoint` with the default retry policy.
+fn anonymous_transport(endpoint: &GitHubEndpoint) -> GitHubTransport<StaticCredentialResolver> {
+    GitHubTransport::new(
+        endpoint.clone(),
+        Arc::new(StaticCredentialResolver::anonymous()),
+        RetryPolicy::default(),
+    )
+    .expect("transport")
+}
+
+/// A read of `path` in `a/b` at `main`.
+fn main_file(path: &str, force_refresh: bool) -> ContentRequest {
+    ContentRequest {
+        owner: "a".into(),
+        repo: "b".into(),
+        path: path.into(),
+        reference: Some("main".into()),
+        force_refresh,
+        session_id: None,
+    }
+}
+
+/// Answer `GET route` on `server` with `status` and a JSON `body`.
+async fn mount_json(
+    server: &MockServer,
+    route: impl Into<String>,
+    status: u16,
+    body: impl serde::Serialize,
+) {
+    Mock::given(method("GET"))
+        .and(path(route))
+        .respond_with(ResponseTemplate::new(status).set_body_json(body))
+        .mount(server)
+        .await;
+}
+
+/// `GET x` through `transport`, with a 2 s deadline and a `max_bytes` body cap.
+async fn get_x<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    endpoint: &GitHubEndpoint,
+    max_bytes: usize,
+) -> Result<ResponsePage, ProviderError> {
+    transport
+        .execute(
+            RequestSpec::get(endpoint.rest(&["x"]).expect("route")),
+            &RequestContext::with_timeout(Duration::from_secs(2), max_bytes),
+        )
+        .await
+}
+
 async fn provider(server: &MockServer) -> GitHubProvider<StaticCredentialResolver, MemoryCache> {
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
+    let endpoint = mock_endpoint(server);
     let transport = GitHubTransport::new(
         endpoint,
         Arc::new(StaticCredentialResolver::new(
@@ -124,11 +217,13 @@ async fn provider(server: &MockServer) -> GitHubProvider<StaticCredentialResolve
 async fn ghes_content_route_auth_and_decode() {
     let server = MockServer::start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/acme/repo/commits/main"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"sha":sha})))
-        .mount(&server)
-        .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/acme/repo/commits/main",
+        200,
+        serde_json::json!({"sha":sha}),
+    )
+    .await;
     Mock::given(method("GET")).and(path("/api/v3/repos/acme/repo/contents/src%2Flib.rs")).and(query_param("ref",sha)).and(header("authorization","Bearer secret"))
         .respond_with(ResponseTemplate::new(200).insert_header("etag","\"v1\"").set_body_json(serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("hello\n")}))).mount(&server).await;
     let result = provider(&server)
@@ -156,11 +251,13 @@ async fn conditional_304_reuses_cached_body() {
     let server = MockServer::start().await;
     let provider = provider(&server).await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/commits/main"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"sha":sha})))
-        .mount(&server)
-        .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/commits/main",
+        200,
+        serde_json::json!({"sha":sha}),
+    )
+    .await;
     *provider.cache.0.lock().expect("cache lock") = Some(CachedContent {
         etag: Some("\"v1\"".into()),
         bytes: b"cached".to_vec(),
@@ -173,14 +270,7 @@ async fn conditional_304_reuses_cached_body() {
         .await;
     let result = provider
         .get_file_content(
-            &ContentRequest {
-                owner: "a".into(),
-                repo: "b".into(),
-                path: "x".into(),
-                reference: Some("main".into()),
-                force_refresh: false,
-                session_id: None,
-            },
+            &main_file("x", false),
             &RequestContext::with_timeout(Duration::from_secs(2), 1024),
         )
         .await
@@ -203,20 +293,8 @@ async fn distinguishes_permission_from_rate_limit_and_bounds_body() {
         )
         .mount(&server)
         .await;
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
-    let transport = GitHubTransport::new(
-        endpoint.clone(),
-        Arc::new(StaticCredentialResolver::anonymous()),
-        RetryPolicy::default(),
-    )
-    .expect("transport");
-    let error = transport
-        .execute(
-            RequestSpec::get(endpoint.rest(&["x"]).expect("route")),
-            &RequestContext::with_timeout(Duration::from_secs(2), 1024),
-        )
+    let endpoint = mock_endpoint(&server);
+    let error = get_x(&anonymous_transport(&endpoint), &endpoint, 1024)
         .await
         .expect_err("permission");
     assert_eq!(error.kind, ProviderErrorKind::Permission);
@@ -227,20 +305,8 @@ async fn distinguishes_permission_from_rate_limit_and_bounds_body() {
         .respond_with(ResponseTemplate::new(200).set_body_bytes(vec![0; 17]))
         .mount(&server)
         .await;
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
-    let transport = GitHubTransport::new(
-        endpoint.clone(),
-        Arc::new(StaticCredentialResolver::anonymous()),
-        RetryPolicy::default(),
-    )
-    .expect("transport");
-    let error = transport
-        .execute(
-            RequestSpec::get(endpoint.rest(&["x"]).expect("route")),
-            &RequestContext::with_timeout(Duration::from_secs(2), 16),
-        )
+    let endpoint = mock_endpoint(&server);
+    let error = get_x(&anonymous_transport(&endpoint), &endpoint, 16)
         .await
         .expect_err("limit");
     assert_eq!(error.kind, ProviderErrorKind::ResponseTooLarge);
@@ -269,15 +335,8 @@ async fn pagination_respects_last_page_only_for_matching_numbered_links() {
             )
             .mount(&server)
             .await;
-        let endpoint =
-            GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-                .expect("endpoint");
-        let transport = GitHubTransport::new(
-            endpoint.clone(),
-            Arc::new(StaticCredentialResolver::anonymous()),
-            RetryPolicy::default(),
-        )
-        .expect("transport");
+        let endpoint = mock_endpoint(&server);
+        let transport = anonymous_transport(&endpoint);
         let response = transport
             .execute(
                 RequestSpec::get(endpoint.rest(&["items"]).expect("route")),
@@ -309,15 +368,8 @@ async fn returns_same_origin_next_page_and_rejects_redirects() {
         )
         .mount(&server)
         .await;
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
-    let transport = GitHubTransport::new(
-        endpoint.clone(),
-        Arc::new(StaticCredentialResolver::anonymous()),
-        RetryPolicy::default(),
-    )
-    .expect("transport");
+    let endpoint = mock_endpoint(&server);
+    let transport = anonymous_transport(&endpoint);
     let page = transport
         .execute(
             RequestSpec::get(endpoint.rest(&["items"]).expect("route")),
@@ -332,20 +384,8 @@ async fn returns_same_origin_next_page_and_rejects_redirects() {
         .respond_with(ResponseTemplate::new(302).insert_header("location", "https://example.com"))
         .mount(&server)
         .await;
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
-    let transport = GitHubTransport::new(
-        endpoint.clone(),
-        Arc::new(StaticCredentialResolver::anonymous()),
-        RetryPolicy::default(),
-    )
-    .expect("transport");
-    let error = transport
-        .execute(
-            RequestSpec::get(endpoint.rest(&["x"]).expect("route")),
-            &RequestContext::with_timeout(Duration::from_secs(2), 16),
-        )
+    let endpoint = mock_endpoint(&server);
+    let error = get_x(&anonymous_transport(&endpoint), &endpoint, 16)
         .await
         .expect_err("redirect");
     assert_eq!(error.kind, ProviderErrorKind::RedirectDenied);
@@ -360,9 +400,7 @@ async fn retries_secondary_rate_limit_without_remaining_zero() {
         .expect(2)
         .mount(&server)
         .await;
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
+    let endpoint = mock_endpoint(&server);
     let transport = GitHubTransport::with_budget(
         endpoint.clone(),
         Arc::new(StaticCredentialResolver::anonymous()),
@@ -399,15 +437,8 @@ async fn projects_rate_limit_metadata_without_retrying_long_delays() {
         .expect(1)
         .mount(&server)
         .await;
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
-    let transport = GitHubTransport::new(
-        endpoint.clone(),
-        Arc::new(StaticCredentialResolver::anonymous()),
-        RetryPolicy::default(),
-    )
-    .expect("transport");
+    let endpoint = mock_endpoint(&server);
+    let transport = anonymous_transport(&endpoint);
     let error = transport
         .execute(
             RequestSpec::get(endpoint.rest(&["rate"]).expect("route")),
@@ -434,15 +465,8 @@ async fn cancellation_interrupts_an_inflight_response() {
         .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_secs(2)))
         .mount(&server)
         .await;
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
-    let transport = GitHubTransport::new(
-        endpoint.clone(),
-        Arc::new(StaticCredentialResolver::anonymous()),
-        RetryPolicy::default(),
-    )
-    .expect("transport");
+    let endpoint = mock_endpoint(&server);
+    let transport = anonymous_transport(&endpoint);
     let context = RequestContext::with_timeout(Duration::from_secs(3), 16);
     let cancellation = context.cancellation.clone();
     tokio::spawn(async move {
@@ -470,15 +494,8 @@ async fn rejects_cross_origin_pagination() {
         )
         .mount(&server)
         .await;
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
-    let transport = GitHubTransport::new(
-        endpoint.clone(),
-        Arc::new(StaticCredentialResolver::anonymous()),
-        RetryPolicy::default(),
-    )
-    .expect("transport");
+    let endpoint = mock_endpoint(&server);
+    let transport = anonymous_transport(&endpoint);
     let error = transport
         .execute(
             RequestSpec::get(endpoint.rest(&["items"]).expect("route")),
@@ -500,15 +517,7 @@ async fn preserves_graphql_partial_data_and_errors() {
         })))
         .mount(&server)
         .await;
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
-    let transport = GitHubTransport::new(
-        endpoint,
-        Arc::new(StaticCredentialResolver::anonymous()),
-        RetryPolicy::default(),
-    )
-    .expect("transport");
+    let transport = anonymous_transport(&mock_endpoint(&server));
     let page = transport
         .execute_graphql(
             "query Q { repository { name } }",
@@ -525,9 +534,7 @@ async fn preserves_graphql_partial_data_and_errors() {
 #[tokio::test]
 async fn cache_partition_covers_endpoint_credential_and_session() {
     let server = MockServer::start().await;
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
+    let endpoint = mock_endpoint(&server);
     let transport = GitHubTransport::new(
         endpoint,
         Arc::new(StaticCredentialResolver::new(
@@ -564,9 +571,7 @@ async fn pins_one_credential_across_partition_and_request() {
         .respond_with(ResponseTemplate::new(200).set_body_bytes(b"ok"))
         .mount(&server)
         .await;
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
+    let endpoint = mock_endpoint(&server);
     let calls = Arc::new(AtomicUsize::new(0));
     let transport = GitHubTransport::new(
         endpoint.clone(),
@@ -602,18 +607,20 @@ async fn content_413_falls_back_to_parent_directory_and_blob() {
     let server = MockServer::start().await;
     let commit = "0123456789abcdef0123456789abcdef01234567";
     let blob = "89abcdef0123456789abcdef0123456789abcdef";
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/commits/main"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"sha":commit})))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/contents/dir%2Flarge.txt"))
-        .respond_with(
-            ResponseTemplate::new(413).set_body_json(serde_json::json!({"message":"too large"})),
-        )
-        .mount(&server)
-        .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/commits/main",
+        200,
+        serde_json::json!({"sha":commit}),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/contents/dir%2Flarge.txt",
+        413,
+        serde_json::json!({"message":"too large"}),
+    )
+    .await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/dir"))
         .and(query_param("ref", commit))
@@ -623,24 +630,17 @@ async fn content_413_falls_back_to_parent_directory_and_blob() {
         )
         .mount(&server)
         .await;
-    Mock::given(method("GET"))
-        .and(path(format!("/api/v3/repos/a/b/git/blobs/{blob}")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({"encoding":"base64","content":STANDARD.encode("large body")}),
-        ))
-        .mount(&server)
-        .await;
+    mount_json(
+        &server,
+        format!("/api/v3/repos/a/b/git/blobs/{blob}"),
+        200,
+        serde_json::json!({"encoding":"base64","content":STANDARD.encode("large body")}),
+    )
+    .await;
     let result = provider(&server)
         .await
         .get_file_content(
-            &ContentRequest {
-                owner: "a".into(),
-                repo: "b".into(),
-                path: "dir/large.txt".into(),
-                reference: Some("main".into()),
-                force_refresh: false,
-                session_id: None,
-            },
+            &main_file("dir/large.txt", false),
             &RequestContext::with_timeout(Duration::from_secs(2), 4096),
         )
         .await
@@ -656,36 +656,33 @@ async fn content_encoding_none_for_large_file_fetches_blob() {
     let server = MockServer::start().await;
     let commit = "0123456789abcdef0123456789abcdef01234567";
     let blob = "89abcdef0123456789abcdef0123456789abcdef";
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/commits/main"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"sha":commit})))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/contents/big.txt"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/commits/main",
+        200,
+        serde_json::json!({"sha":commit}),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/contents/big.txt",
+        200,
+        serde_json::json!({
             "type":"file","encoding":"none","content":"","size":2_000_000,"sha":blob
-        })))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path(format!("/api/v3/repos/a/b/git/blobs/{blob}")))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({"encoding":"base64","content":STANDARD.encode("large body")}),
-        ))
-        .mount(&server)
-        .await;
+        }),
+    )
+    .await;
+    mount_json(
+        &server,
+        format!("/api/v3/repos/a/b/git/blobs/{blob}"),
+        200,
+        serde_json::json!({"encoding":"base64","content":STANDARD.encode("large body")}),
+    )
+    .await;
     let result = provider(&server)
         .await
         .get_file_content(
-            &ContentRequest {
-                owner: "a".into(),
-                repo: "b".into(),
-                path: "big.txt".into(),
-                reference: Some("main".into()),
-                force_refresh: true,
-                session_id: None,
-            },
+            &main_file("big.txt", true),
             &RequestContext::with_timeout(Duration::from_secs(2), 4096),
         )
         .await
@@ -697,47 +694,43 @@ async fn content_encoding_none_for_large_file_fetches_blob() {
 async fn content_directory_symlink_and_submodule_get_clear_errors() {
     let server = MockServer::start().await;
     let commit = "0123456789abcdef0123456789abcdef01234567";
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/commits/main"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"sha":commit})))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/contents/src"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!([
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/commits/main",
+        200,
+        serde_json::json!({"sha":commit}),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/contents/src",
+        200,
+        serde_json::json!([
             {"name":"lib.rs","path":"src/lib.rs","type":"file"}
-        ])))
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/contents/link"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_json(serde_json::json!({"type":"symlink","target":"src/lib.rs"})),
-        )
-        .mount(&server)
-        .await;
-    Mock::given(method("GET"))
-        .and(path("/api/v3/repos/a/b/contents/vendor"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(
-            serde_json::json!({"type":"submodule","submodule_git_url":"https://x/y.git"}),
-        ))
-        .mount(&server)
-        .await;
+        ]),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/contents/link",
+        200,
+        serde_json::json!({"type":"symlink","target":"src/lib.rs"}),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/a/b/contents/vendor",
+        200,
+        serde_json::json!({"type":"submodule","submodule_git_url":"https://x/y.git"}),
+    )
+    .await;
     let provider = provider(&server).await;
     let read = |p: &'static str| {
         let provider = &provider;
         async move {
             provider
                 .get_file_content(
-                    &ContentRequest {
-                        owner: "a".into(),
-                        repo: "b".into(),
-                        path: p.into(),
-                        reference: Some("main".into()),
-                        force_refresh: true,
-                        session_id: None,
-                    },
+                    &main_file(p, true),
                     &RequestContext::with_timeout(Duration::from_secs(2), 4096),
                 )
                 .await
@@ -766,9 +759,7 @@ async fn retries_transient_server_failure_once() {
         .respond_with(FailOnce(attempts.clone()))
         .mount(&server)
         .await;
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
+    let endpoint = mock_endpoint(&server);
     let transport = GitHubTransport::new(
         endpoint.clone(),
         Arc::new(StaticCredentialResolver::anonymous()),
@@ -815,9 +806,7 @@ fn executor_transport(
     budget: Arc<GitHubBudget>,
     retry: RetryPolicy,
 ) -> (GitHubTransport<StaticCredentialResolver>, GitHubEndpoint) {
-    let endpoint =
-        GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
-            .expect("endpoint");
+    let endpoint = mock_endpoint(server);
     let resolver = match token {
         Some(token) => StaticCredentialResolver::new(token, CredentialSource::Environment),
         None => StaticCredentialResolver::anonymous(),
@@ -981,11 +970,7 @@ async fn do_not_retry_statuses_are_sent_once() {
             .await;
         let (transport, endpoint) =
             executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
-        let error = transport
-            .execute(
-                RequestSpec::get(endpoint.rest(&["x"]).expect("route")),
-                &RequestContext::with_timeout(Duration::from_secs(2), 1024),
-            )
+        let error = get_x(&transport, &endpoint, 1024)
             .await
             .expect_err("final status");
         assert_ne!(error.kind, ProviderErrorKind::RateLimited, "{status}");
@@ -1338,11 +1323,7 @@ async fn legal_block_and_unmapped_statuses_are_not_network_failures() {
             .await;
         let (transport, endpoint) =
             executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
-        let error = transport
-            .execute(
-                RequestSpec::get(endpoint.rest(&["x"]).expect("route")),
-                &RequestContext::with_timeout(Duration::from_secs(2), 1024),
-            )
+        let error = get_x(&transport, &endpoint, 1024)
             .await
             .expect_err("status error");
         assert_eq!(error.kind, kind, "{status}");
@@ -1362,11 +1343,7 @@ async fn oversized_error_body_keeps_status_and_says_the_body_was_not_read() {
         .await;
     let (transport, endpoint) =
         executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
-    let error = transport
-        .execute(
-            RequestSpec::get(endpoint.rest(&["x"]).expect("route")),
-            &RequestContext::with_timeout(Duration::from_secs(2), 64),
-        )
+    let error = get_x(&transport, &endpoint, 64)
         .await
         .expect_err("not found");
     assert_eq!(error.kind, ProviderErrorKind::NotFound);
@@ -1444,7 +1421,9 @@ async fn code_search_cache_is_scoped_to_the_request_credential() {
         .expect(3)
         .mount(&server)
         .await;
-    let (transport, _) = executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
+    let (mut transport, _) =
+        executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
+    transport.cache = Arc::new(PartitionedCache::default());
     let context = |token: Option<&str>| {
         RequestContext::with_resolved_credential(
             Duration::from_secs(5),
@@ -1471,8 +1450,9 @@ async fn incomplete_code_search_pages_are_not_cached() {
         .expect(2)
         .mount(&server)
         .await;
-    let (transport, _) =
+    let (mut transport, _) =
         executor_transport(&server, Some("t"), GitHubBudget::relaxed(), short_retry());
+    transport.cache = Arc::new(PartitionedCache::default());
     let context = || RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
     for _ in 0..2 {
         let page = transport
@@ -1514,4 +1494,55 @@ fn plain_http_api_base_is_limited_to_loopback() {
     }
     let error = parse("http://ghe.example.com/api/v3").expect_err("cleartext token");
     assert_eq!(error.kind, ProviderErrorKind::Configuration);
+}
+
+#[tokio::test]
+async fn history_reads_revalidate_and_pinned_commits_are_served_from_cache() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/pulls/1"))
+        .and(header("if-none-match", "\"v1\""))
+        .respond_with(ResponseTemplate::new(304))
+        .with_priority(1)
+        .expect(2)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/pulls/1"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("etag", "\"v1\"")
+                .set_body_json(serde_json::json!({"number": 1})),
+        )
+        .with_priority(2)
+        .expect(1)
+        .mount(&server)
+        .await;
+    let sha = "a".repeat(40);
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/o/r/commits/{sha}")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("etag", "\"c1\"")
+                .set_body_json(serde_json::json!({"sha": sha})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    let (mut transport, _) =
+        executor_transport(&server, Some("t"), GitHubBudget::relaxed(), short_retry());
+    transport.cache = Arc::new(PartitionedCache::default());
+    let context = || RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    for _ in 0..3 {
+        let item = transport
+            .history_item(&["repos", "o", "r", "pulls", "1"], &[], &context())
+            .await
+            .expect("pull request");
+        assert_eq!(item.value["number"], 1);
+        let commit = transport
+            .history_item(&["repos", "o", "r", "commits", &sha], &[], &context())
+            .await
+            .expect("commit");
+        assert_eq!(commit.value["sha"], sha.as_str());
+    }
 }

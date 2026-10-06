@@ -3,15 +3,15 @@
 pub mod generated;
 mod prepare;
 mod schema_facts;
+pub(crate) mod shared_fields;
 pub mod tool_types;
 mod validate;
 pub(crate) use validate::{levenshtein, qualifier_terms};
 
-use crate::tools::id::{ToolId, clasify_policy};
+use crate::tools::id::ToolId;
 pub use prepare::{ContractInputError, PrepareOptions, prepare};
-pub use schema_facts::{
-    query_schema_max, query_schema_number, query_schema_value, stamp_schema_defaults,
-};
+pub use schema_facts::{query_schema_max, query_schema_number, query_schema_value};
+pub(crate) use schema_facts::{resolve_ref, restorable_fields};
 pub use validate::{
     ContractValidationError, ValidationIssue, format_input_error, normalize_input, validate,
     validate_output, validate_query,
@@ -107,7 +107,7 @@ pub fn isolate_row_violations(
 
 /// Prepare and validate a single tool query. Returns the validated query
 /// `Value` with schema defaults applied. Callers that need response-paging
-/// options (`responseCharLength`, `renderText`, etc.) should parse them from
+/// options (`responseLength`, `renderText`, etc.) should parse them from
 /// the raw input *before* calling this function, since those envelope fields
 /// are not part of the per-query contract.
 pub fn prepare_and_validate(
@@ -118,28 +118,7 @@ pub fn prepare_and_validate(
     let prepared = prepare(tool_name, input, options).map_err(prepare_validation_error)?;
     // Delegate to validate_query which handles the wrap/unwrap internally
     // and strips the "queries.0." prefix from any validation error paths.
-    let query = validate_query(tool_name, serde_json::Value::Object(prepared.query))?;
-    if tool_name == ToolId::Clasify.as_str() {
-        validate_semantic_relations(&query, &nested_clasify(&query))?;
-    }
-    Ok(query)
-}
-
-/// Pre-validation normalization for hosts that validate the canonical bulk
-/// envelope themselves (MCP): a non-empty bare query object becomes
-/// `{"queries":[query]}` and a query array `{"queries":array}` (the meaning
-/// native gives both), then [`normalize_input`] repairs lossless shape slips.
-/// Nothing is validated or defaulted.
-#[must_use]
-pub fn normalize_envelope(tool_name: &str, input: serde_json::Value) -> serde_json::Value {
-    let input = match input {
-        serde_json::Value::Array(queries) => serde_json::json!({ "queries": queries }),
-        serde_json::Value::Object(query) if !query.is_empty() && !query.contains_key("queries") => {
-            serde_json::json!({ "queries": [query] })
-        }
-        other => other,
-    };
-    normalize_input(tool_name, input)
+    validate_query(tool_name, serde_json::Value::Object(prepared.query))
 }
 
 /// One row of a batch whose envelope failed validation as a whole.
@@ -158,11 +137,10 @@ pub fn prepare_rows(
     if tool_name == ToolId::Clasify.as_str() {
         return None;
     }
-    let (envelope, rows) = match input {
-        serde_json::Value::Array(rows) => (serde_json::Map::new(), rows),
-        serde_json::Value::Object(object) => (object.clone(), object.get("queries")?.as_array()?),
-        _ => return None,
+    let serde_json::Value::Object(object) = input else {
+        return None;
     };
+    let (envelope, rows) = (object.clone(), object.get("queries")?.as_array()?);
     if rows.len() < 2 {
         return None;
     }
@@ -207,28 +185,29 @@ pub fn prepare_rows(
     Some(results)
 }
 
-/// Prepare and validate every query in the canonical bulk envelope. A flat
-/// object and a single-element array remain accepted for direct CLI parity.
-/// Defaults are applied per query before validating the complete envelope, so
-/// cross-query limits and indexed diagnostics remain contract-owned.
+/// The rejection for any input that is not the `{"queries":[...]}` envelope.
+pub const ENVELOPE_REQUIRED: &str =
+    "Tool input must be {\"queries\":[...]}; put each query object in queries[].";
+
+/// Prepare and validate every query in the `{"queries":[...]}` envelope
+/// ([`normalize_input`] wraps a bare row into it first). Defaults are applied per query before
+/// validating the complete envelope, so cross-query limits and indexed
+/// diagnostics remain contract-owned. Clasify's batch relation rules run
+/// at engine admission (`tools::clasify::admission`).
 pub fn prepare_many_and_validate(
     tool_name: &str,
     input: serde_json::Value,
     options: PrepareOptions<'_>,
 ) -> Result<Vec<serde_json::Value>, ContractValidationError> {
-    let is_bulk = input.is_array()
-        || input
-            .as_object()
-            .is_some_and(|object| object.contains_key("queries"));
-    if !is_bulk {
-        return prepare_and_validate(tool_name, input, options).map(|query| vec![query]);
+    if !input
+        .as_object()
+        .is_some_and(|object| object.contains_key("queries"))
+    {
+        return Err(prepare_validation_error(ContractInputError::new(
+            ENVELOPE_REQUIRED,
+        )));
     }
-
-    let mut envelope = match input {
-        serde_json::Value::Array(queries) => serde_json::json!({"queries": queries}),
-        serde_json::Value::Object(object) => serde_json::Value::Object(object),
-        _ => unreachable!("bulk input is an array or object"),
-    };
+    let mut envelope = input;
     let queries = envelope
         .get_mut("queries")
         .and_then(serde_json::Value::as_array_mut)
@@ -240,228 +219,13 @@ pub fn prepare_many_and_validate(
             prepare(tool_name, query.take(), options.clone()).map_err(prepare_validation_error)?;
         *query = serde_json::Value::Object(prepared.query);
     }
-    let validated = validate(tool_name, envelope)?;
-    let queries = validated
-        .get("queries")
-        .and_then(serde_json::Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if tool_name == ToolId::Clasify.as_str() {
-        // Batch query ids must be unique so every result cell stays correlatable
-        // to its query. The core SemanticBatch schema refines this; mirror it in
-        // the native executor rather than returning two results under one id.
-        let mut seen = std::collections::HashSet::new();
-        for (index, query) in queries.iter().enumerate() {
-            if let Some(id) = query.get("id").and_then(serde_json::Value::as_str)
-                && !seen.insert(id.to_owned())
-            {
-                return Err(ContractValidationError {
-                    issues: vec![ValidationIssue {
-                        rule_id: "clasify.unique-query-ids".into(),
-                        path: vec!["queries".into(), index.to_string(), "id".into()],
-                        message: format!("Duplicate query id: {id}"),
-                        schema: None,
-                        received: None,
-                    }],
-                });
-            }
-        }
-        let mut total_cells = 0usize;
-        for (index, query) in queries.iter().enumerate() {
-            let nested = nested_clasify(query);
-            validate_semantic_relations(query, &nested).map_err(|mut error| {
-                for issue in &mut error.issues {
-                    issue
-                        .path
-                        .splice(0..0, ["queries".to_owned(), index.to_string()]);
-                }
-                error
-            })?;
-            total_cells = total_cells.saturating_add(semantic_cell_count(&nested));
-        }
-        if total_cells > clasify_policy::MAX_TOTAL_CELLS {
-            return Err(ContractValidationError {
-                issues: vec![ValidationIssue {
-                    rule_id: "clasify.total-cell-limit".into(),
-                    path: vec!["queries".into()],
-                    message: format!(
-                        "Expanded matrices produce {total_cells} cells in total; maximum is {} {}.",
-                        clasify_policy::MAX_TOTAL_CELLS,
-                        file_chunks_cells()
-                    ),
-                    schema: None,
-                    received: None,
-                }],
-            });
-        }
+    match validate(tool_name, envelope)? {
+        serde_json::Value::Object(mut validated) => match validated.remove("queries") {
+            Some(serde_json::Value::Array(queries)) => Ok(queries),
+            _ => Ok(Vec::new()),
+        },
+        _ => Ok(Vec::new()),
     }
-    Ok(queries)
-}
-
-/// A validated clasify matrix in its nested form (flat resources and
-/// `type`+`ask` questions mapped), as relation and cell checks read it. The
-/// validated query itself keeps the caller's form; execution maps it again.
-fn nested_clasify(query: &serde_json::Value) -> serde_json::Value {
-    let mut nested = query.clone();
-    crate::tools::clasify::aliases::canonicalize(&mut nested);
-    nested
-}
-
-/// Core `FILE_CHUNKS_CELLS`: why a fileChunks matrix hits the cell limit
-/// sooner. Cell-limit wording is core-authored; the parity fixtures pin it.
-fn file_chunks_cells() -> String {
-    format!(
-        "(a fileChunks resource counts as {} resources)",
-        clasify_policy::MAX_FILE_CANDIDATES
-    )
-}
-
-/// Core `expandedCells`: a `fileChunks` search resource expands to
-/// `maxFileCandidates` pages; every other resource is one page.
-fn semantic_cell_count(query: &serde_json::Value) -> usize {
-    use crate::tools::clasify::{CandidateEvidence, candidate_evidence};
-    let expanded_resources = query["resources"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|resource| {
-            if candidate_evidence(&resource["context"]) == Some(CandidateEvidence::FileChunks) {
-                clasify_policy::MAX_FILE_CANDIDATES
-            } else {
-                1
-            }
-        })
-        .sum::<usize>();
-    expanded_resources.saturating_mul(query["questions"].as_array().map_or(0, std::vec::Vec::len))
-}
-
-/// Relation checks over the nested form (`query`); issue paths follow the
-/// caller's form (`sent`), so a flat resource's field is
-/// `resources.N.candidateEvidence`, not its nested `context` path.
-fn validate_semantic_relations(
-    sent: &serde_json::Value,
-    query: &serde_json::Value,
-) -> Result<(), ContractValidationError> {
-    let resources = query["resources"].as_array().cloned().unwrap_or_default();
-    let questions = query["questions"].as_array().cloned().unwrap_or_default();
-    for (index, resource) in resources.iter().enumerate() {
-        let context = &resource["context"];
-        let at = |fields: &[&str]| {
-            let mut path = vec!["resources".to_owned(), index.to_string()];
-            if sent["resources"][index].get("context").is_some() {
-                path.push("context".into());
-            }
-            path.extend(fields.iter().map(|field| (*field).to_owned()));
-            path
-        };
-        if context.get("candidateEvidence").is_some() {
-            let supported = context["tool"]
-                .as_str()
-                .is_some_and(crate::tools::clasify::is_candidate_search_tool);
-            if !supported {
-                return Err(ContractValidationError {
-                    issues: vec![ValidationIssue {
-                        rule_id: "clasify.candidate-evidence".into(),
-                        path: at(&["candidateEvidence"]),
-                        message: format!(
-                            "candidateEvidence requires {}.",
-                            policy_names(clasify_policy::CANDIDATE_SEARCH_TOOLS)
-                        ),
-                        schema: None,
-                        received: context.get("candidateEvidence").cloned(),
-                    }],
-                });
-            }
-        }
-        let prefiltered = resource
-            .get("prefilter")
-            .and_then(serde_json::Value::as_array)
-            .is_some_and(|terms| !terms.is_empty());
-        let file_read = context["tool"]
-            .as_str()
-            .is_some_and(crate::tools::clasify::is_file_read_tool);
-        if prefiltered && !file_read {
-            return Err(ContractValidationError {
-                issues: vec![ValidationIssue {
-                    rule_id: "clasify.prefilter-tool".into(),
-                    path: vec!["resources".into(), index.to_string(), "prefilter".into()],
-                    message: format!(
-                        "prefilter applies only to {} file reads; remove it or narrow the search itself.",
-                        policy_names(clasify_policy::FILE_READ_TOOLS)
-                    ),
-                    schema: None,
-                    received: None,
-                }],
-            });
-        }
-        let nested = &context["query"];
-        let start = nested.get("startLine").and_then(serde_json::Value::as_u64);
-        let end = nested.get("endLine").and_then(serde_json::Value::as_u64);
-        if start.is_some() != end.is_some() {
-            let field = if start.is_none() {
-                "startLine"
-            } else {
-                "endLine"
-            };
-            return Err(ContractValidationError {
-                issues: vec![ValidationIssue {
-                    rule_id: "clasify.line-range".into(),
-                    path: at(&["query", field]),
-                    message: "Set startLine and endLine together.".into(),
-                    schema: None,
-                    received: None,
-                }],
-            });
-        }
-        if let (Some(start), Some(end)) = (start, end)
-            && end < start
-        {
-            return Err(ContractValidationError {
-                issues: vec![ValidationIssue {
-                    rule_id: "clasify.line-range".into(),
-                    path: at(&["query", "endLine"]),
-                    message: "endLine must not precede startLine.".into(),
-                    schema: None,
-                    received: nested.get("endLine").cloned(),
-                }],
-            });
-        }
-    }
-    for (field, rows) in [("resources", &resources), ("questions", &questions)] {
-        let mut seen = std::collections::HashSet::new();
-        for (index, row) in rows.iter().enumerate() {
-            if let Some(id) = row.get("id").and_then(serde_json::Value::as_str)
-                && !seen.insert(id)
-            {
-                return Err(ContractValidationError {
-                    issues: vec![ValidationIssue {
-                        rule_id: "clasify.unique-ids".into(),
-                        path: vec![field.into(), index.to_string(), "id".into()],
-                        message: format!("Duplicate {field} id: {id}"),
-                        schema: None,
-                        received: None,
-                    }],
-                });
-            }
-        }
-    }
-    let cells = semantic_cell_count(query);
-    if cells > clasify_policy::MAX_CELLS {
-        return Err(ContractValidationError {
-            issues: vec![ValidationIssue {
-                rule_id: "clasify.cell-limit".into(),
-                path: Vec::new(),
-                message: format!(
-                    "Expanded resources × questions produces {cells} cells; maximum is {} {}.",
-                    clasify_policy::MAX_CELLS,
-                    file_chunks_cells()
-                ),
-                schema: None,
-                received: None,
-            }],
-        });
-    }
-    Ok(())
 }
 
 /// Contract tool-set names joined the way core phrases them (`a or b`).
@@ -507,7 +271,7 @@ pub const fn contract_provenance_json() -> &'static str {
 mod contract_owner_tests {
     use super::{
         PrepareOptions, contract_json, contract_provenance_json, isolate_row_violations,
-        normalize_envelope, prepare_and_validate, prepare_many_and_validate, validate_output,
+        normalize_input, prepare_and_validate, prepare_many_and_validate, validate_output,
     };
     use serde_json::{Value, json};
 
@@ -520,35 +284,48 @@ mod contract_owner_tests {
     }
 
     #[test]
-    fn mcp_normalization_wraps_bare_queries_and_repairs_without_validating() {
-        let row = json!({"mainGoal":"g","reasoning":"r","path":"/tmp","searchText":"x","include":"[\"*.ts\"]"});
-        let expected = json!({"queries":[{"mainGoal":"g","reasoning":"r","path":"/tmp","searchText":"x","include":["*.ts"]}]});
-        assert_eq!(normalize_envelope("localSearch", row.clone()), expected);
-        assert_eq!(
-            normalize_envelope("localSearch", json!([row.clone()])),
-            expected
-        );
+    fn normalization_repairs_only_the_queries_envelope_without_validating() {
+        let row = json!({"mainGoal":"g","reasoning":"r","path":"/tmp","matchString":"x","include":"[\"*.ts\"]"});
+        let expected = json!({"queries":[{"mainGoal":"g","reasoning":"r","path":"/tmp","matchString":"x","include":["*.ts"]}]});
         let encoded = serde_json::to_string(&json!([row])).expect("encode");
-        let envelope = normalize_envelope(
+        let envelope = normalize_input(
             "localSearch",
-            json!({"queries": encoded, "responseCharLength": "100"}),
+            json!({"queries": encoded, "responseLength": "100"}),
         );
         assert_eq!(envelope["queries"], expected["queries"]);
-        assert_eq!(envelope["responseCharLength"], 100);
+        assert_eq!(envelope["responseLength"], 100);
+        // A bare row runs as a one-row `queries`, repaired like any row; the
+        // envelope fields it carries stay on the envelope.
+        let mut bare = row.clone();
+        bare["responseLength"] = json!("100");
+        let wrapped = normalize_input("localSearch", bare);
+        assert_eq!(wrapped["queries"], expected["queries"]);
+        assert_eq!(wrapped["responseLength"], 100);
+        let prepared = prepare_many_and_validate("localSearch", wrapped, PrepareOptions::default())
+            .expect("a bare row validates as one row");
+        assert_eq!(prepared.len(), 1);
+        assert_eq!(prepared[0]["include"], json!(["*.ts"]));
+        // An array, or an object with only envelope fields, is not a row.
+        assert_eq!(
+            normalize_input("localSearch", json!([row.clone()])),
+            json!([row])
+        );
+        let only_envelope = json!({"responseLength": 100});
+        assert_eq!(
+            normalize_input("localSearch", only_envelope.clone()),
+            only_envelope
+        );
+        let error =
+            prepare_many_and_validate("localSearch", json!([row]), PrepareOptions::default())
+                .expect_err("an array is not the envelope");
+        assert!(
+            error.issues[0].message.contains("{\"queries\":[...]}"),
+            "{error:?}"
+        );
         // Not validated or defaulted: invalid rows and empty input pass through.
         let invalid = json!({"queries":[{"bogus":1}]});
-        assert_eq!(normalize_envelope("localSearch", invalid.clone()), invalid);
-        assert_eq!(normalize_envelope("localSearch", json!({})), json!({}));
-        assert_eq!(
-            normalize_envelope("localSearch", json!({"queries":"{}"})),
-            json!({"queries":"{}"})
-        );
-        // clasify: the bare matrix is wrapped like every other bare query.
-        let matrix = json!({"mainGoal":"g","reasoning":"r","resources":[],"questions":[]});
-        assert_eq!(
-            normalize_envelope("clasify", matrix.clone()),
-            json!({"queries":[matrix]})
-        );
+        assert_eq!(normalize_input("localSearch", invalid.clone()), invalid);
+        assert_eq!(normalize_input("localSearch", json!({})), json!({}));
     }
 
     #[test]
@@ -589,14 +366,13 @@ mod contract_owner_tests {
         )
         .expect("a blank brief is dropped, not rejected");
         assert!(blank.get("mainGoal").is_none() && blank.get("reasoning").is_none());
-        let legacy = prepare_and_validate(
+        let error = prepare_and_validate(
             "localFetch",
             json!({"path":"/tmp/source.rs","goal":" Read the source. "}),
             PrepareOptions::default(),
         )
-        .expect("the legacy goal maps to mainGoal");
-        assert_eq!(legacy["mainGoal"], "Read the source.");
-        assert!(legacy.get("goal").is_none());
+        .expect_err("goal is an unknown field, not a second name for mainGoal");
+        assert_eq!(error.issues[0].rule_id, "schema.unknown-field");
         let ok = prepare_and_validate(
             "localFetch",
             json!({"path":"/tmp/source.rs","mainGoal":" Read the source. ","reasoning":" The next step needs these lines. "}),
@@ -639,21 +415,21 @@ mod contract_owner_tests {
 
     #[test]
     fn semantic_matrix_stays_one_query_for_resource_major_runtime_execution() {
-        let question = json!({"type":"noul","instructions":"Is it relevant?"});
+        let question = json!({"type":"yesno","ask":"Is it relevant?"});
         let queries = prepare_many_and_validate(
             "clasify",
-            json!({
+            json!({"queries":[{
                 "id":"matrix",
                 "reasoning":"  Classify every resource.  ","mainGoal":"Decide the next read.",
                 "resources":[
-                    {"id":"r1","context":{"value":{"text":"one"}}},
-                    {"id":"r2","context":{"value":{"text":"two"}}}
+                    {"id":"r1","value":{"text":"one"}},
+                    {"id":"r2","value":{"text":"two"}}
                 ],
                 "questions":[
                     with_id("q1", &question),
-                    {"id":"q2","type":"score","instructions":"Rate risk","criteria":["low","high"]}
+                    {"id":"q2","type":"score","ask":"Rate risk","labels":["low","high"]}
                 ]
-            }),
+            }]}),
             PrepareOptions::default(),
         )
         .expect("valid semantic matrix");
@@ -663,161 +439,6 @@ mod contract_owner_tests {
         assert_eq!(queries[0]["questions"][0]["id"], "q1");
         assert_eq!(queries[0]["questions"][1]["id"], "q2");
         assert_eq!(queries[0]["reasoning"], "Classify every resource.");
-    }
-
-    #[test]
-    fn semantic_matrix_rejects_duplicate_ids_and_more_than_twenty_five_cells() {
-        let question = json!({"type":"noul","instructions":"Is it relevant?"});
-        let duplicate = prepare_many_and_validate(
-            "clasify",
-            json!({
-                "id":"duplicates",
-                "reasoning":"Classify resources.","mainGoal":"Decide the next read.",
-                "resources":[
-                    {"id":"same","context":{"value":"one"}},
-                    {"id":"same","context":{"value":"two"}}
-                ],
-                "questions":[with_id("q1", &question)]
-            }),
-            PrepareOptions::default(),
-        )
-        .expect_err("duplicate IDs must fail");
-        assert_eq!(duplicate.issues[0].path, ["resources", "1", "id"]);
-
-        let resources: Vec<_> = (0..6)
-            .map(|index| json!({"id":format!("r{index}"),"context":{"value":{"index":index}}}))
-            .collect();
-        let questions: Vec<_> = (0..5)
-            .map(|index| with_id(format!("q{index}"), &question))
-            .collect();
-        let oversized = prepare_many_and_validate(
-            "clasify",
-            json!({
-                "id":"oversized",
-                "reasoning":"Classify resources.","mainGoal":"Decide the next read.",
-                "resources":resources,
-                "questions":questions
-            }),
-            PrepareOptions::default(),
-        )
-        .expect_err("matrix cell limit must fail");
-        assert_eq!(oversized.issues[0].rule_id, "clasify.cell-limit");
-        assert!(oversized.issues[0].message.contains("maximum is 25"));
-
-        let hydrated_resources = ["one", "two"].map(|id| {
-            json!({"id":id,"context":{
-                "tool":"localSearch",
-                "candidateEvidence":"fileChunks",
-                "query":{"mainGoal": "test", "reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
-            }})
-        });
-        let hydrated_questions = (0..3)
-            .map(|index| with_id(format!("q{index}"), &question))
-            .collect::<Vec<_>>();
-        let expanded = prepare_many_and_validate(
-            "clasify",
-            json!({
-                "id":"expanded",
-                "reasoning":"Classify bounded file candidates.","mainGoal":"Decide the next read.",
-                "resources":hydrated_resources,
-                "questions":hydrated_questions
-            }),
-            PrepareOptions::default(),
-        )
-        .expect_err("expanded file candidates must count toward the cell limit");
-        assert_eq!(expanded.issues[0].rule_id, "clasify.cell-limit");
-    }
-
-    #[test]
-    fn clasify_rejects_invalid_candidate_evidence_ranges_and_batch_cells() {
-        let question = json!({"type":"noul","instructions":"Is it relevant?"});
-        for (context, rule_id) in [
-            (
-                json!({
-                    "tool":"localFetch",
-                    "candidateEvidence":"fileChunks",
-                    "query":{"mainGoal": "test", "reasoning":"Invalid search mode.","path":"/tmp/a.rs"}
-                }),
-                "clasify.candidate-evidence",
-            ),
-            (
-                json!({
-                    "tool":"localFetch",
-                    "query":{"mainGoal": "test", "reasoning":"Incomplete range.","path":"/tmp/a.rs","startLine":1}
-                }),
-                "clasify.line-range",
-            ),
-        ] {
-            let error = prepare_many_and_validate(
-                "clasify",
-                json!({
-                    "id":"invalid-context",
-                    "reasoning":"Reject invalid delegated context before execution.","mainGoal":"Decide the next read.",
-                    "resources":[{"id":"r","context":context}],
-                    "questions":[with_id("q", &question)]
-                }),
-                PrepareOptions::default(),
-            )
-            .expect_err("invalid context relation must fail at admission");
-            assert_eq!(error.issues[0].rule_id, rule_id);
-            assert!(error.issues[0].path.contains(&"context".to_owned()));
-        }
-
-        // A flat resource's field is named where the caller wrote it; a row
-        // of a queries batch keeps its row prefix.
-        let flat = json!({"id":"r","tool":"localFetch","query":{"path":"/tmp/a.rs"},"candidateEvidence":"fileChunks"});
-        let error = prepare_many_and_validate(
-            "clasify",
-            json!({"queries":[{
-                "reasoning":"Reject a flat resource's search mode.","mainGoal":"Decide the next read.",
-                "resources":[flat],
-                "questions":[with_id("q", &question)]
-            }]}),
-            PrepareOptions::default(),
-        )
-        .expect_err("candidateEvidence on a file read must fail");
-        assert_eq!(
-            error.issues[0].path,
-            ["queries", "0", "resources", "0", "candidateEvidence"]
-        );
-
-        let matrix = |id: &str| {
-            json!({
-                "id":id,
-                "reasoning":"Exercise the total expanded-cell limit.","mainGoal":"Decide the next read.",
-                "resources":[{"id":"r","context":{
-                    "tool":"localSearch",
-                    "candidateEvidence":"fileChunks",
-                    "query":{"mainGoal": "test", "reasoning":"Find candidates.","path":"/tmp","searchText":"anchor"}
-                }}],
-                "questions":(0..5).map(|index| with_id(format!("q{index}"), &question)).collect::<Vec<_>>()
-            })
-        };
-        let error = prepare_many_and_validate(
-            "clasify",
-            json!({"queries":[matrix("a"),matrix("b"),matrix("c")]}),
-            PrepareOptions::default(),
-        )
-        .expect_err("batch-wide expanded cells must fail before execution");
-        assert_eq!(error.issues[0].rule_id, "clasify.total-cell-limit");
-    }
-
-    #[test]
-    fn clasify_rejects_duplicate_batch_query_ids() {
-        let query = json!({
-            "id":"qa",
-            "reasoning":"Classify resources.","mainGoal":"Decide the next read.",
-            "resources":[{"id":"r","context":{"value":"one"}}],
-            "questions":[{"id":"q1","type":"noul","instructions":"Relevant?"}]
-        });
-        let error = prepare_many_and_validate(
-            "clasify",
-            json!({"queries":[query.clone(), query]}),
-            PrepareOptions::default(),
-        )
-        .expect_err("duplicate batch query ids must fail before provider spend");
-        assert_eq!(error.issues[0].rule_id, "clasify.unique-query-ids");
-        assert_eq!(error.issues[0].path, ["queries", "1", "id"]);
     }
 
     #[test]
@@ -854,7 +475,7 @@ mod contract_owner_tests {
             prepare_and_validate(
                 "lspSearch",
                 json!({
-                    "uri":"/tmp/lib.rs",
+                    "path":"/tmp/lib.rs",
                     "symbolName":"is_available",
                     "line":257,
                     "operation":"definition"
@@ -942,14 +563,12 @@ mod contract_owner_tests {
         // both move with regeneration. It does not pin intended numeric bounds:
         // a core change that relaxes a public limit passes provenance checks.
         // This pins the two limits that also surface in the live MCP schema so any
-        // change is a visible, reviewed test diff. (Codifies the concern formerly
-        // tracked in the schema-authority drift RFC, on the surviving native
-        // authority — the TS granular server that motivated the RFC is gone.)
+        // change is a visible, reviewed test diff.
         fn collect(value: &serde_json::Value, response: &mut Vec<u64>, tree_depth: &mut Vec<u64>) {
             match value {
                 serde_json::Value::Object(map) => {
                     if let Some(max) = map
-                        .get("responseCharLength")
+                        .get("responseLength")
                         .and_then(|schema| schema.get("maximum"))
                         .and_then(serde_json::Value::as_u64)
                     {
@@ -983,20 +602,19 @@ mod contract_owner_tests {
 
         assert!(
             !response_maxima.is_empty(),
-            "expected at least one responseCharLength bound in the contract"
+            "expected at least one responseLength bound in the contract"
         );
         assert!(
             response_maxima.iter().all(|max| *max == 50_000),
-            "responseCharLength.maximum drifted from 50000: {response_maxima:?}"
+            "responseLength.maximum drifted from 50000: {response_maxima:?}"
         );
         assert!(
             !tree_depth_maxima.is_empty(),
             "expected the tree-recursion maxDepth bound in the contract"
         );
         assert!(
-            tree_depth_maxima.iter().all(|max| matches!(max, 20 | 100))
-                && tree_depth_maxima.contains(&100),
-            "public maxDepth bounds drifted from GitHub tree=20 / AST files=100: {tree_depth_maxima:?}"
+            tree_depth_maxima.iter().all(|max| *max == 20),
+            "public maxDepth bounds drifted from 20: {tree_depth_maxima:?}"
         );
     }
 
@@ -1032,58 +650,47 @@ mod contract_owner_tests {
 
     #[test]
     fn output_contract_validates_shared_evidence_without_mutating_compact_output() {
-        for (tool, data) in [
-            (
-                "ghGetFileContent",
-                json!({"files":[
-                    {"path":"alpha.rs","content":"fn placeholder(){}"},
-                    {"path":"beta.rs","content":"fn placeholder(){}"}
-                ]}),
-            ),
-            (
-                "ghSearchHistory",
-                json!({"type":"commits","commits":[
-                    {"sha":"abc123","message":"first"},
-                    {"sha":"abc123","message":"second"}
-                ]}),
-            ),
-        ] {
-            let output = crate::runtime::response::envelope(vec![json!({"index":0,"data":data})]);
-            assert!(
-                output["shared"].is_object(),
-                "test must exercise real compaction"
-            );
-            let original = output.clone();
-            validate_output(tool, &output).expect("shared evidence satisfies canonical schema");
-            assert_eq!(
-                output, original,
-                "validation must preserve compact wire output"
-            );
-        }
+        let (tool, data) = (
+            "ghSearchHistory",
+            json!({"commits":[
+                {"sha":"abc123","message":"first"},
+                {"sha":"abc123","message":"second"}
+            ]}),
+        );
+        let output = crate::response::rows::envelope(vec![json!({"index":0,"data":data})]);
+        assert!(
+            output["shared"].is_object(),
+            "test must exercise real compaction"
+        );
+        let original = output.clone();
+        validate_output(tool, &output).expect("shared evidence satisfies canonical schema");
+        assert_eq!(
+            output, original,
+            "validation must preserve compact wire output"
+        );
     }
 
     #[test]
     fn output_contract_rejects_missing_or_invalid_shared_file_evidence() {
-        let output = json!({"results":[{"index":0,"data":{"files":[{"path":"alpha.rs"}]}}]});
-        validate_output("ghGetFileContent", &output).expect_err("path alone is not file evidence");
+        let output = json!({"results":[{"index":0,"data":{"commits":[{"message":"first"}]}}]});
+        validate_output("ghSearchHistory", &output).expect_err("a commit row needs its sha");
         let mut invalid = output.clone();
-        invalid["shared"] = json!({"content":42});
-        validate_output("ghGetFileContent", &invalid).expect_err("shared content must be text");
-        invalid["shared"] = json!({"content":"valid shared text"});
-        invalid["results"][0]["data"]["files"][0]["content"] = json!(42);
-        validate_output("ghGetFileContent", &invalid)
+        invalid["shared"] = json!({"sha":42});
+        validate_output("ghSearchHistory", &invalid).expect_err("shared sha must be text");
+        invalid["shared"] = json!({"sha":"abc123"});
+        invalid["results"][0]["data"]["commits"][0]["sha"] = json!(42);
+        validate_output("ghSearchHistory", &invalid)
             .expect_err("shared defaults must not conceal malformed explicit evidence");
     }
 
     #[test]
     fn output_contract_isolates_invalid_rows_with_shared_evidence() {
-        let output = json!({"shared":{"content":"shared text"},"results":[
-            {"index":0,"data":{"files":[{"path":"alpha.rs"}]}},
-            {"index":1,"data":{"files":[{"path":"beta.rs","content":42}]}}
+        let output = json!({"shared":{"sha":"abc123"},"results":[
+            {"index":0,"data":{"commits":[{"message":"first"}]}},
+            {"index":1,"data":{"commits":[{"message":"second","sha":42}]}}
         ]});
-        let error =
-            validate_output("ghGetFileContent", &output).expect_err("second row is invalid");
-        let isolated = isolate_row_violations("ghGetFileContent", &output, &error)
+        let error = validate_output("ghSearchHistory", &output).expect_err("second row is invalid");
+        let isolated = isolate_row_violations("ghSearchHistory", &output, &error)
             .expect("valid compressed row survives isolation");
         assert_eq!(isolated["results"][0], output["results"][0]);
         assert_eq!(
@@ -1098,7 +705,6 @@ mod contract_owner_tests {
             "index":0,
             "status":"empty",
             "data":{
-                "type":"pullRequests",
                 "pullRequests":[{
                     "number":463,
                     "title":"Example",
@@ -1106,23 +712,21 @@ mod contract_owner_tests {
                     "author":"octocode",
                     "createdAt":"2026-08-07T20:37:26Z",
                     "hints":{
-                        "getBody":{
+                        "readBody":{
                             "tool":"ghGetHistoryItem",
                             "confidence":"exact",
-                            "query":{
+                            "query":{"queries":[{
                                 "operation":"pullRequest",
                                 "owner":"octocodeai",
                                 "repo":"octocode",
                                 "number":463,
-                                "content":{"body":true},
-                                "pageSize":30,
+                                "sections":["body"],
                                 "mainGoal": "test", "reasoning":"Read the optional body.",
                                 "debug":false
-                            }
+                            }]}
                         }
                     }
                 }],
-                "errorCode":"noSelectedFilesMatched",
                 "hints":{"text":["Choose a changed path first."]}
             }
         }]});
@@ -1139,14 +743,14 @@ mod contract_owner_tests {
             json!({"results":[{"index":0,"data":{
                 "type":"npm",
                 "artifacts":[],
-                "pagination":{"perPage":5,"returned":0,"hasMore":true,"totalFound":100},
-                "next":{"nextPage":{"tool":"artifactSearch","query":query,"confidence":"exact"}}
+                "pagination":{"pageSize":5,"hasMore":true,"totalItems":100},
+                "next":{"nextPage":{"tool":"artifactSearch","query":{"queries":[query]},"confidence":"exact"}}
             }}]})
         };
         let buggy = validate_output(
             "artifactSearch",
             &data(json!({"type":"npm","packageName":null,"registry":null,
-                "keywords":["x"],"pageSize":5,"cursor":"c"})),
+                "keywords":["x"],"pageSize":5,"page":2})),
         )
         .expect_err("null packageName/registry must be rejected");
         assert!(
@@ -1156,20 +760,11 @@ mod contract_owner_tests {
                 .any(|part| part == "packageName" || part == "registry")),
             "expected a packageName/registry issue, got {buggy:?}"
         );
-        // Fixed shape: no lookup-field issue may remain (other unrelated
-        // data-body issues, if any, are tolerated).
-        if let Err(fixed) = validate_output(
+        validate_output(
             "artifactSearch",
-            &data(json!({"type":"npm","keywords":["x"],"pageSize":5,"cursor":"c"})),
-        ) {
-            assert!(
-                !fixed.issues.iter().any(|issue| issue
-                    .path
-                    .iter()
-                    .any(|part| part == "packageName" || part == "registry")),
-                "keyword continuation must not trip lookup-field errors: {fixed:?}"
-            );
-        }
+            &data(json!({"type":"npm","keywords":["x"],"pageSize":5,"page":2})),
+        )
+        .expect("a keyword page continuation is valid");
     }
 
     #[test]
@@ -1187,7 +782,7 @@ mod contract_owner_tests {
                 .or_insert_with(|| json!("Verify the scoped repository exists."));
             json!({"results":[{"index":0,"data":{
                 "files":[],
-                "next":{"viewStructure":{"tool":"ghStructure","query":query,
+                "next":{"viewStructure":{"tool":"ghStructure","query":{"queries":[query]},
                     "confidence":"exact","why":"Verify structure."}}
             }}]})
         };
@@ -1209,7 +804,7 @@ mod contract_owner_tests {
 
     #[test]
     fn deadcode_verify_references_accepts_defaults_but_requires_anchor() {
-        // orderHint/page/debug are defaulted during validation. The URI
+        // orderHint/page/debug are defaulted during validation. The path
         // remains a real anchored-reference requirement.
         let data = |mut query: serde_json::Value| {
             let object = query.as_object_mut().unwrap();
@@ -1220,28 +815,28 @@ mod contract_owner_tests {
                 .entry("reasoning")
                 .or_insert_with(|| json!("Verify the candidate before deletion."));
             json!({"results":[{"index":0,"data":{
-                "analysis":"deadCode",
+                "operation":"deadCode",
                 "results":[{"file":"src/util.ts","name":"greet","kind":"function",
                     "line":1,"reason":"unreferenced-export","viaHeuristic":"reexport-chain"}],
                 "completeness":{"results":"complete","graph":"complete","diagnostics":"complete"},
-                "next":{"verifyReferences":{"tool":"lspSearch","query":query,
+                "next":{"verifyReferences":{"tool":"lspSearch","query":{"queries":[query]},
                     "confidence":"high","why":"Verify candidate before deletion."}}
             }}]})
         };
-        let minimal = json!({"operation":"references","uri":"/r/a.ts","symbolName":"greet",
+        let minimal = json!({"operation":"references","path":"/r/a.ts","symbolName":"greet",
             "lineHint":1,"includeDeclaration":false,"groupByFile":true});
         validate_output("astTopology", &data(minimal.clone()))
             .expect("defaulted lspSearch fields may be omitted");
         let mut missing_anchor = minimal;
-        missing_anchor.as_object_mut().unwrap().remove("uri");
+        missing_anchor.as_object_mut().unwrap().remove("path");
         let invalid = validate_output("astTopology", &data(missing_anchor))
-            .expect_err("missing anchored URI must be rejected");
+            .expect_err("missing anchored path must be rejected");
         assert!(
             invalid
                 .issues
                 .iter()
-                .any(|issue| issue.path.iter().any(|part| part == "uri")),
-            "expected a URI issue, got {invalid:?}"
+                .any(|issue| issue.path.iter().any(|part| part == "path")),
+            "expected a path issue, got {invalid:?}"
         );
     }
 
@@ -1259,7 +854,7 @@ mod contract_owner_tests {
                 .or_insert_with(|| json!("Continue the paged read."));
             json!({"results":[{"index":0,"data":{
                 "owner":"o","repo":"r","path":"missing.md","error":"not found",
-                "next":{"viewTree":{"tool":"ghStructure","query":query,
+                "next":{"viewTree":{"tool":"ghStructure","query":{"queries":[query]},
                     "confidence":"low"}}
             }}]})
         };
@@ -1293,7 +888,7 @@ mod contract_owner_tests {
                 .or_insert_with(|| json!("Read the next history page."));
             json!({"results":[{"index":0,"data":{
                 "type":"pullRequests","owner":"o","repo":"r","pullRequests":[],
-                "next":{"nextPage":{"tool":"ghSearchHistory","query":query,"confidence":"exact"}}
+                "next":{"nextPage":{"tool":"ghSearchHistory","query":{"queries":[query]},"confidence":"exact"}}
             }}]})
         };
         validate_output(
@@ -1323,7 +918,7 @@ mod contract_owner_tests {
         let data = |query: serde_json::Value| {
             json!({"results":[{"index":0,"data":{
                 "type":"compare","owner":"o","repo":"r","base":"a","head":"b",
-                "next":{"nextPage":{"tool":"ghGetHistoryItem","query":query,"confidence":"exact"}}
+                "next":{"nextPage":{"tool":"ghGetHistoryItem","query":{"queries":[query]},"confidence":"exact"}}
             }}]})
         };
         let buggy = validate_output(

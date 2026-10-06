@@ -15,13 +15,11 @@
 
 use super::blocking_cancellable;
 use super::failure::LspFailure;
-use super::inferred_project::{TS_LANGUAGE_IDS, word_pattern};
 use super::recovery::{get_locations, resolve_definition_chain, snippet_identity};
-use super::render::uri_to_path;
+use super::render::{TS_LANGUAGE_IDS, uri_to_path, word_pattern};
 use super::source::SourceCache;
 use crate::policy::path::PathPolicy;
 use crate::tools::cancel::CancellationCheck;
-use crate::tools::local_search::PolicyFilter;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
 use octocode_engine::portable::search_ripgrep_cancellable;
 use octocode_engine::types::RipgrepSearchOptions;
@@ -117,7 +115,7 @@ async fn candidate_files(
         include: Some(TS_JS_GLOBS.iter().map(|glob| (*glob).to_owned()).collect()),
         ..RipgrepSearchOptions::default()
     };
-    let filter = Arc::new(PolicyFilter(policy.clone()));
+    let filter = Arc::new(policy.clone());
     let root = workspace_root.to_owned();
     let Some(Ok(parsed)) = blocking_cancellable(cancel, move |stopped| {
         search_ripgrep_cancellable(options, filter, stopped)
@@ -313,6 +311,37 @@ pub(super) async fn verified_anchors(
             ..Importers::default()
         });
     };
+    let (opened, open_failed) = open_candidates(client, sources, cancel, &files, symbol).await?;
+    let (anchors, verify_failed) = verify_occurrences(
+        client,
+        sources,
+        snippet_policy,
+        cancel,
+        opened,
+        &declaration,
+    )
+    .await?;
+    let failed = open_failed || verify_failed;
+    Ok(Importers {
+        anchors,
+        capped,
+        failed,
+    })
+}
+
+/// A synchronized candidate and its `(line, character, is-call)` occurrences.
+type OpenedFile = (String, Vec<(u32, u32, bool)>);
+
+/// Open every candidate that mentions `symbol`; wait once, on the last, for
+/// the project load the opens trigger, so identity checks do not race it.
+/// Returns each opened file's occurrences and whether any candidate failed.
+async fn open_candidates(
+    client: &NativeLspClient,
+    sources: &mut SourceCache<'_>,
+    cancel: &dyn CancellationCheck,
+    files: &[String],
+    symbol: &str,
+) -> Result<(Vec<OpenedFile>, bool), LspFailure> {
     let mut opened = Vec::new();
     let mut failed = false;
     for (index, file) in files.iter().enumerate() {
@@ -325,8 +354,6 @@ pub(super) async fn verified_anchors(
         if spots.is_empty() {
             continue;
         }
-        // Open every candidate; wait once, on the last, for the project load
-        // the opens trigger, so identity checks do not race it.
         let synced = if index + 1 == files.len() {
             client
                 .open_document_and_wait(
@@ -348,6 +375,20 @@ pub(super) async fn verified_anchors(
             failed = true;
         }
     }
+    Ok((opened, failed))
+}
+
+/// Keep each occurrence whose definition chain reaches `declaration`.
+/// Returns the verified anchors and whether any identity check failed.
+async fn verify_occurrences(
+    client: &NativeLspClient,
+    sources: &mut SourceCache<'_>,
+    snippet_policy: &SnippetReadPolicy,
+    cancel: &dyn CancellationCheck,
+    opened: Vec<OpenedFile>,
+    declaration: &HashSet<String>,
+) -> Result<(Vec<Anchor>, bool), LspFailure> {
+    let mut failed = false;
     let mut anchors = Vec::new();
     for (file, spots) in opened {
         // One verified anchor answers for the whole file's program; keep
@@ -372,7 +413,7 @@ pub(super) async fn verified_anchors(
                 failed = true;
                 continue;
             };
-            if !resolved.is_disjoint(&declaration) {
+            if !resolved.is_disjoint(declaration) {
                 anchors.push(Anchor {
                     path: file.clone(),
                     line: spot_line,
@@ -386,11 +427,7 @@ pub(super) async fn verified_anchors(
             }
         }
     }
-    Ok(Importers {
-        anchors,
-        capped,
-        failed,
-    })
+    Ok((anchors, failed))
 }
 
 /// LSP `SymbolKind`s that own call sites: method, constructor, function.
@@ -403,18 +440,23 @@ const FILE_KIND: u64 = 1;
 /// binding (CommonJS `module.exports = { f }` + destructured `require`).
 /// A reference is a call when `(` follows it; its caller is the innermost
 /// function or method the server's `documentSymbol` places around it, or
-/// the file itself for a top-level call. The walk drops edges for files its
-/// own call hierarchy already answered.
+/// the file itself for a top-level call. Files the walk's own call
+/// hierarchy already answered (`answered`, canonical paths) are skipped
+/// before any request.
 pub(super) async fn callers_from_references(
     client: &NativeLspClient,
     sources: &mut SourceCache<'_>,
     snippet_policy: &SnippetReadPolicy,
     cancel: &dyn CancellationCheck,
     importers: &Importers,
+    answered: &HashSet<String>,
 ) -> Result<Vec<(Value, Vec<Value>)>, LspFailure> {
     let mut edges: Vec<(Value, Vec<Value>)> = Vec::new();
     for anchor in importers.per_file() {
         cancel.check().map_err(LspFailure::cancelled)?;
+        if answered.contains(&canonical(&anchor.path)) {
+            continue;
+        }
         let Ok(references) = get_locations(
             client,
             snippet_policy,
@@ -688,7 +730,6 @@ mod tests {
 
     #[test]
     fn importer_scan_widens_to_the_enclosing_js_workspace_root() {
-        use crate::policy::path::{PathPolicy, PathPolicyConfig};
         let root =
             std::env::temp_dir().join(format!("octocode-lsp-scan-root-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
@@ -697,13 +738,7 @@ mod tests {
         let root = root.canonicalize().expect("canonical");
         let package = root.join("packages/element");
         std::fs::write(package.join("package.json"), r#"{"name":"@x/element"}"#).expect("pkg");
-        let policy = |workspace: &Path| {
-            PathPolicy::new(PathPolicyConfig {
-                workspace_root: Some(workspace.to_path_buf()),
-                ..Default::default()
-            })
-            .expect("policy")
-        };
+        let policy = |workspace: &Path| crate::tools::test_support::workspace_policy(workspace);
         let package_str = package.to_string_lossy().into_owned();
         // No monorepo marker: the package root stays the scan root.
         assert_eq!(scan_root(&package_str, &policy(&root)), package_str);
@@ -758,6 +793,15 @@ mod tests {
     /// A worker that reports when it starts, then runs until its stop
     /// callback fires (or a safety bound passes), and reports whether it
     /// stopped because of the callback.
+    /// The worker finished and reported `true` within 5 s.
+    fn assert_worker_stopped(finished: &std::sync::mpsc::Receiver<bool>) {
+        assert!(
+            finished
+                .recv_timeout(std::time::Duration::from_secs(5))
+                .expect("worker terminated")
+        );
+    }
+
     fn observed_worker(
         started: std::sync::mpsc::Sender<()>,
         finished: std::sync::mpsc::Sender<bool>,
@@ -815,11 +859,7 @@ mod tests {
         started_rx.try_recv().expect("worker had started");
         assert_eq!(failure.code, "lsp.cancelled");
         assert_eq!(failure.message, "Timeout");
-        assert!(
-            finished_rx
-                .recv_timeout(std::time::Duration::from_secs(5))
-                .expect("worker terminated")
-        );
+        assert_worker_stopped(&finished_rx);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -835,11 +875,7 @@ mod tests {
         )
         .await;
         assert!(dropped.is_err(), "request future dropped by the timeout");
-        assert!(
-            finished_rx
-                .recv_timeout(std::time::Duration::from_secs(5))
-                .expect("worker terminated")
-        );
+        assert_worker_stopped(&finished_rx);
     }
 
     /// The real importer scan: cancellation observed after the request
@@ -865,13 +901,7 @@ mod tests {
             .expect("fixture file");
         }
         let root_str = root.path().to_string_lossy().into_owned();
-        let policy = |workspace: &Path| {
-            crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
-                workspace_root: Some(workspace.to_path_buf()),
-                ..Default::default()
-            })
-            .expect("policy")
-        };
+        let policy = |workspace: &Path| crate::tools::test_support::workspace_policy(workspace);
         let failure = candidate_files(
             &root_str,
             "target",

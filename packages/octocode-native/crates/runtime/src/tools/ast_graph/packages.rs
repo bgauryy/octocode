@@ -64,7 +64,7 @@ const MAX_GO_MODULE_ANCESTORS: usize = 16;
 /// The module path of `root` itself when it sits inside a module whose
 /// `go.mod` is in an ancestor directory: the module path joined with the
 /// root's path below the module directory.
-fn enclosing_go_module(root: &Path, readable: &dyn Fn(&Path) -> bool) -> Option<String> {
+fn enclosing_go_module(root: &Path, read: &dyn Fn(&Path) -> Option<String>) -> Option<String> {
     if root.join(".git").exists() {
         return None;
     }
@@ -75,10 +75,7 @@ fn enclosing_go_module(root: &Path, readable: &dyn Fn(&Path) -> bool) -> Option<
         dir = dir.parent()?;
         let manifest = dir.join("go.mod");
         if manifest.is_file() {
-            if !readable(&manifest) {
-                return None;
-            }
-            let module = go_module_path(&std::fs::read_to_string(manifest).ok()?)?;
+            let module = go_module_path(&read(&manifest)?)?;
             below.reverse();
             return Some(format!("{module}/{}", below.join("/")));
         }
@@ -100,12 +97,12 @@ fn closeness(a: &str, b: &str) -> usize {
 }
 
 impl PackageIndex {
-    /// `readable` gates files above the scan root (the enclosing `go.mod`)
-    /// through the caller's path policy.
+    /// `read` reads each `go.mod` (also the enclosing one above the scan
+    /// root) through the caller's path and content policy.
     pub(super) fn build(
         root: &Path,
         known: &BTreeSet<String>,
-        readable: &dyn Fn(&Path) -> bool,
+        read: &dyn Fn(&Path) -> Option<String>,
     ) -> Self {
         let mut index = Self::default();
         let mut go_dirs = BTreeSet::new();
@@ -149,11 +146,7 @@ impl PackageIndex {
             } else {
                 root.join(&dir).join("go.mod")
             };
-            if let Some(module) = std::fs::read_to_string(manifest)
-                .ok()
-                .as_deref()
-                .and_then(go_module_path)
-            {
+            if let Some(module) = read(&manifest).as_deref().and_then(go_module_path) {
                 index.go_modules.push((module, dir));
             }
         }
@@ -161,7 +154,7 @@ impl PackageIndex {
             // A scan rooted below its module (`go/tsdb` under `go/go.mod`)
             // imports its own packages by the enclosing module path; map
             // the scan root to `<module>/<root relative to the module>`.
-            if let Some(module) = enclosing_go_module(root, readable) {
+            if let Some(module) = enclosing_go_module(root, read) {
                 index.go_modules.push((module, ".".to_owned()));
             }
         }
@@ -275,7 +268,7 @@ mod tests {
 
     fn index(root: &Path, files: &[&str]) -> PackageIndex {
         let known = files.iter().map(|file| (*file).to_owned()).collect();
-        PackageIndex::build(root, &known, &|_| true)
+        PackageIndex::build(root, &known, &|path| std::fs::read_to_string(path).ok())
     }
 
     fn files(link: PackageLink) -> Vec<String> {

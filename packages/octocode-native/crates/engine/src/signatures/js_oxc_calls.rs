@@ -36,7 +36,8 @@
 
 use super::deep_stack::job_cancelled;
 use super::js_oxc_receiver::ReceiverScopes;
-use super::js_oxc_shared::{GraphCall, LineIndex, Position, property_key_name};
+use super::js_oxc_shared::{LineIndex, property_key_name};
+use crate::graph::{GraphFactCall, GraphPosition};
 use oxc_ast::ast::*;
 use oxc_ast_visit::{VisitJs, walk_js};
 use oxc_semantic::ScopeFlags;
@@ -45,7 +46,7 @@ use oxc_span::{GetSpan, Span};
 pub(super) fn collect_program_calls(
     program: &Program,
     li: &LineIndex,
-    calls: &mut Vec<GraphCall>,
+    calls: &mut Vec<GraphFactCall>,
     heritage: &mut Vec<GraphHeritage>,
 ) {
     let mut collector = CallCollector {
@@ -64,7 +65,7 @@ pub(super) fn collect_program_calls(
 pub(super) struct GraphHeritage {
     /// Start of the declaring class/interface name token: equal to the
     /// declaration's `selectionRange.start`.
-    pub(super) name_start: Position,
+    pub(super) name_start: GraphPosition,
     /// `"class"` or `"interface"`: the declaration kind it attaches to.
     pub(super) declaration_kind: &'static str,
     /// `"extends"` or `"implements"`.
@@ -83,7 +84,7 @@ struct CallCollector<'c, 'l> {
     /// namespace body, or directly under an `export` declaration.
     owner: Option<String>,
     li: &'c LineIndex<'l>,
-    calls: &'c mut Vec<GraphCall>,
+    calls: &'c mut Vec<GraphFactCall>,
     heritage: &'c mut Vec<GraphHeritage>,
     /// Lexical bindings and `this` fields for receiver types.
     receivers: ReceiverScopes,
@@ -501,7 +502,7 @@ fn push_call(
     li: &LineIndex,
     kind: &'static str,
     receiver_type: Option<String>,
-    calls: &mut Vec<GraphCall>,
+    calls: &mut Vec<GraphFactCall>,
 ) {
     let range = li.range(span);
     let line = range.start.line + 1;
@@ -510,14 +511,14 @@ fn push_call(
     } else {
         "call"
     };
-    calls.push(GraphCall {
+    calls.push(GraphFactCall {
         id: format!("{id_prefix}:{owner}:{callee}:{line}"),
         caller: owner.to_string(),
         caller_id: None,
         callee,
         line,
         range,
-        kind,
+        kind: kind.to_owned(),
         receiver_type,
     });
 }

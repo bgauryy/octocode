@@ -10,7 +10,10 @@
 
 use super::LspSearchQuery;
 use super::failure::{continuation, empty};
-use super::render::{as_array, flatten_document_symbol, paginate, symbol_kind_name, uri_to_path};
+use super::render::{
+    as_array, document_symbol_rows, flatten_document_symbol, paginate, symbol_kind_name,
+    uri_to_path,
+};
 use super::source::SourceCache;
 use crate::tools::id::ToolId;
 use serde_json::{Value, json};
@@ -53,8 +56,8 @@ pub(super) fn public_workspace_symbol(symbol: &Value) -> Value {
     {
         public.insert("containerName".into(), json!(container));
     }
-    if let Some(uri) = symbol.pointer("/location/uri") {
-        public.insert("uri".into(), uri.clone());
+    if let Some(uri) = symbol.pointer("/location/uri").and_then(Value::as_str) {
+        public.insert("path".into(), json!(uri_to_path(uri)));
     }
     if let Some(display) = symbol.pointer("/location/range").and_then(public_range) {
         public.insert("displayRange".into(), display);
@@ -96,7 +99,7 @@ pub(super) async fn locations(
     }
     let snapshot = semantic_snapshot(query, kind, &locations);
     if snapshot_mismatch(query, &snapshot) {
-        return snapshot_changed(query, snapshot);
+        return snapshot_changed(query);
     }
     // groupByFile summarizes per file INSTEAD of returning every location, so
     // the page unit becomes a file summary.
@@ -114,9 +117,9 @@ pub(super) async fn locations(
     pagination["snapshot"] = json!(snapshot);
     let mut declaration_reads: Vec<Value> = Vec::new();
     let mut payload = if grouped {
-        json!({ "kind": kind, "byFile": page })
+        json!({ "kind": kind, "files": page })
     } else if compact {
-        json!({ "kind": kind, "byFile": compact_rows_by_file(&page) })
+        json!({ "kind": kind, "files": compact_rows_by_file(&page) })
     } else {
         // Context lines are read for this page only, not the whole set.
         let mut page = page;
@@ -131,45 +134,26 @@ pub(super) async fn locations(
                 .collect();
         }
         let mut page = page.into_iter().map(public_location).collect::<Vec<_>>();
-        let shared_uri = shared_location_uri(&page);
-        if shared_uri.is_some() {
+        let shared_path = shared_location_path(&page);
+        if shared_path.is_some() {
             for location in &mut page {
                 if let Some(location) = location.as_object_mut() {
-                    location.shift_remove("uri");
+                    location.shift_remove("path");
                 }
             }
         }
         let mut payload = json!({ "kind": kind });
         // Every location on this page is in one file: state it once.
-        if let Some(uri) = shared_uri {
-            payload["uri"] = json!(uri);
+        if let Some(path) = shared_path {
+            payload["path"] = json!(path);
         }
-        payload["locations"] = json!(page);
+        payload["matches"] = json!(page);
         payload
     };
     if kind == "references" {
-        let total_references = locations.len();
-        let total_files = locations
-            .iter()
-            .filter_map(|location| location.get("uri").and_then(Value::as_str))
-            .collect::<std::collections::BTreeSet<_>>()
-            .len();
-        payload["totalReferences"] = json!(total_references);
-        let recovered = locations
-            .iter()
-            .filter(|location| {
-                location.get("source").and_then(Value::as_str) == Some(RECOVERED_ALIAS)
-            })
-            .count();
-        if recovered > 0 {
-            payload["recoveredAliasReferences"] = json!(recovered);
-        }
-        payload["totalFiles"] = json!(total_files);
-        payload["coverage"] = json!({ "scope": "languageServer", "exhaustive": false });
+        reference_totals(&mut payload, &locations);
     }
     let mut row = json!({
-        "type": query.operation(),
-        "uri": query.uri(),
         "lsp": { "serverAvailable": true, "provider": provider },
         "payload": payload,
         "pagination": pagination
@@ -183,6 +167,27 @@ pub(super) async fn locations(
         row["next"][key] = read;
     }
     row
+}
+
+/// A references payload states its totals: references, files, and the
+/// references recovered through aliases.
+fn reference_totals(payload: &mut Value, locations: &[Value]) {
+    let total_files = locations
+        .iter()
+        .filter_map(|location| location.get("uri").and_then(Value::as_str))
+        .collect::<std::collections::BTreeSet<_>>()
+        .len();
+    // The reference total, whatever the page unit (files when grouped).
+    payload["totalMatches"] = json!(locations.len());
+    let recovered = locations
+        .iter()
+        .filter(|location| location.get("source").and_then(Value::as_str) == Some(RECOVERED_ALIAS))
+        .count();
+    if recovered > 0 {
+        payload["recoveredAliasReferences"] = json!(recovered);
+    }
+    payload["totalFiles"] = json!(total_files);
+    payload["coverage"] = json!({ "scope": "languageServer", "exhaustive": false });
 }
 
 /// Widen a location's `content` to `context_lines` around its range, from
@@ -258,20 +263,23 @@ pub(super) fn cap_declaration_content(location: &mut Value) -> Option<Value> {
         )
     });
     let read = match (&path, rest) {
-        (Some(path), Some((from, to))) => Some(json!({
-            "tool": ToolId::LocalFetch.as_str(),
-            "why": "Read the declaration lines the location body omits.",
-            "query": {"path": path, "startLine": from, "endLine": to},
-            "confidence": "exact"
-        })),
+        (Some(path), Some((from, to))) => Some(
+            crate::tools::result::Continuation::new(
+                ToolId::LocalFetch,
+                json!({"path": path, "ranges": [format!("{from}-{to}")]}),
+            )
+            .why("Read the declaration lines the location body omits.")
+            .confidence("exact")
+            .build(),
+        ),
         _ => None,
     };
     let marker = match (rest, read.is_some()) {
         (Some((from, to)), true) => format!(
-            "… {omitted} more lines omitted (source lines {from}-{to}); hints.readDeclaration reads them."
+            "… {omitted} more lines omitted (source lines {from}-{to}); next.readDeclaration reads them."
         ),
         (Some((from, to)), false) => format!(
-            "… {omitted} more lines omitted (source lines {from}-{to}); read them with localFetch startLine/endLine."
+            "… {omitted} more lines omitted (source lines {from}-{to}); read them with localFetch ranges."
         ),
         (None, _) => format!("… {omitted} more lines omitted; read them with localFetch."),
     };
@@ -333,7 +341,7 @@ fn number_content(content: &str, start: u64) -> String {
     for record in content.split_inclusive('\n') {
         if !(record.starts_with("… ") && record.contains(" more lines omitted")) {
             out.push_str(&line.to_string());
-            out.push(crate::runtime::numbered::SEPARATOR);
+            out.push(crate::tools::numbered::SEPARATOR);
             line += 1;
         }
         out.push_str(record);
@@ -353,8 +361,12 @@ pub(super) fn public_location(internal: Value) -> Value {
     let range = internal.shift_remove("range");
     let window = internal.shift_remove("displayRange");
     let mut public = serde_json::Map::new();
-    if let Some(uri) = internal.shift_remove("uri") {
-        public.insert("uri".into(), uri);
+    if let Some(uri) = internal
+        .shift_remove("uri")
+        .as_ref()
+        .and_then(Value::as_str)
+    {
+        public.insert("path".into(), json!(uri_to_path(uri)));
     }
     let display = range
         .as_ref()
@@ -389,12 +401,14 @@ pub(super) fn public_location(internal: Value) -> Value {
     Value::Object(public)
 }
 
-pub(super) fn shared_location_uri(locations: &[Value]) -> Option<String> {
-    let first = locations.first()?.get("uri")?.as_str()?;
+/// The one file every public location on a page names, when there are
+/// several of them.
+pub(super) fn shared_location_path(locations: &[Value]) -> Option<String> {
+    let first = locations.first()?.get("path")?.as_str()?;
     (locations.len() > 1
         && locations
             .iter()
-            .all(|location| location.get("uri").and_then(Value::as_str) == Some(first)))
+            .all(|location| location.get("path").and_then(Value::as_str) == Some(first)))
     .then(|| first.to_owned())
 }
 
@@ -430,7 +444,7 @@ fn location_sort_key(location: &Value) -> (String, u64, u64, u64, u64) {
     )
 }
 
-/// One page of locations as `{path, refs: ["line:col text"]}` per file, in
+/// One page of locations as `{path, matches: ["line:col text"]}` per file, in
 /// page order. `line:col` is the one-based start (UTF-16 column, as in
 /// `displayRange`); a range spanning lines prints `start-end:col`. The text is
 /// the first trimmed line of the location's content. Rows recovered outside
@@ -470,13 +484,13 @@ pub(super) fn compact_rows_by_file(page: &[Value]) -> Vec<Value> {
             None => {
                 let mut entry = serde_json::Map::new();
                 entry.insert("path".into(), json!(path));
-                entry.insert("refs".into(), json!([]));
+                entry.insert("matches".into(), json!([]));
                 files.push((path, entry));
                 files.len() - 1
             }
         };
         let entry = &mut files[index].1;
-        if let Some(refs) = entry.get_mut("refs").and_then(Value::as_array_mut) {
+        if let Some(refs) = entry.get_mut("matches").and_then(Value::as_array_mut) {
             refs.push(json!(row));
         }
         if let Some(label) = location.get("source").and_then(Value::as_str)
@@ -506,10 +520,8 @@ pub(super) fn compact_rows_by_file(page: &[Value]) -> Vec<Value> {
         .collect()
 }
 
-/// Per-file summaries `{path, references, lines}` in path order, with `path`
-/// relative to the workspace root (absolute when outside it) and one-based
-/// start `lines`.
-/// Per-file reference summaries. Paths stay absolute, like every location,
+/// Per-file reference summaries `{path, matchCount, lines}` in path order,
+/// with one-based start `lines`. Paths stay absolute, like every location,
 /// so the response envelope relativizes them against the same `base`;
 /// pre-relativizing here (to the workspace root) made `base + path` point at
 /// files that do not exist whenever `base` was the anchor's directory.
@@ -532,16 +544,15 @@ pub(super) fn group_by_file(locations: &[Value]) -> Vec<Value> {
         .into_iter()
         .map(|(path, mut lines)| {
             lines.sort_unstable();
-            json!({ "path": path, "references": lines.len(), "lines": lines })
+            json!({ "path": path, "matchCount": lines.len(), "lines": lines })
         })
         .collect()
 }
 
 pub(super) fn semantic_snapshot(query: &LspSearchQuery, kind: &str, items: &[Value]) -> String {
-    use sha2::{Digest, Sha256};
     let mut scope = query.to_row();
     if let Some(object) = scope.as_object_mut() {
-        for field in crate::runtime::cursor::INTENT_FIELDS
+        for field in crate::tools::result::INTENT_FIELDS
             .iter()
             .chain(&["page", "snapshot"])
         {
@@ -550,36 +561,25 @@ pub(super) fn semantic_snapshot(query: &LspSearchQuery, kind: &str, items: &[Val
     }
     // Canonical form: a continuation lists the query's fields in a
     // different order than the caller did, and the digest must not care.
-    let bytes = serde_json::to_vec(&crate::canonical_json::canonicalize(json!({
+    let canonical = crate::canonical_json::canonicalize(json!({
         "query": scope,
         "kind": kind,
         "items": items,
-    })))
-    .unwrap_or_default();
-
-    format!("lsp-v1:{}", hex::encode(Sha256::digest(bytes)))
+    }));
+    format!("lsp-v1:{}", crate::digest::json_sha256(&canonical))
 }
 
 pub(super) fn snapshot_mismatch(query: &LspSearchQuery, actual: &str) -> bool {
     query.page().unwrap_or(1) > 1 && query.snapshot() != Some(actual)
 }
 
-pub(super) fn snapshot_changed(query: &LspSearchQuery, snapshot: String) -> Value {
+pub(super) fn snapshot_changed(query: &LspSearchQuery) -> Value {
     let mut restart = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
     if let Some(object) = restart.as_object_mut() {
         object.remove("snapshot");
         object.insert("page".into(), json!(1));
     }
-    json!({
-        "status": "error",
-        "errorCode": "lsp.snapshot.changed",
-        "error": "The LSP result or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.",
-        "type": query.operation(),
-        "uri": query.uri(),
-        "snapshot": snapshot,
-        "complete": false,
-        "next": { "restart": continuation(restart) }
-    })
+    crate::tools::result::stale_snapshot(continuation(restart))
 }
 
 pub(super) fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) -> Value {
@@ -605,27 +605,18 @@ pub(super) fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) ->
     }
     let snapshot = semantic_snapshot(query, kind, &raw_items);
     if snapshot_mismatch(query, &snapshot) {
-        return snapshot_changed(query, snapshot);
+        return snapshot_changed(query);
     }
     let (page, mut pagination) = paginate(&raw_items, query.page().unwrap_or(1), query.page_size());
     pagination["snapshot"] = json!(snapshot);
     json!({
-        "type": query.operation(),
-        "uri": query.uri(),
         "lsp": { "serverAvailable": true },
-        "payload": { "kind": kind, "items": page },
+        "payload": { "kind": kind, "matches": page },
         "pagination": pagination
     })
 }
 
 fn document_symbols_payload(query: &LspSearchQuery, raw_items: &[Value]) -> Value {
-    let top_level_symbols = raw_items
-        .iter()
-        .filter(|item| {
-            item.as_object()
-                .is_some_and(|object| object.contains_key("name"))
-        })
-        .count();
     let mut symbols = Vec::new();
     for item in raw_items {
         flatten_document_symbol(item, &mut symbols, None);
@@ -638,35 +629,102 @@ fn document_symbols_payload(query: &LspSearchQuery, raw_items: &[Value]) -> Valu
     });
     let snapshot = semantic_snapshot(query, "documentSymbols", &symbols);
     if snapshot_mismatch(query, &snapshot) {
-        return snapshot_changed(query, snapshot);
+        return snapshot_changed(query);
     }
     let (page, mut pagination) = paginate(&symbols, query.page().unwrap_or(1), query.page_size());
     pagination["snapshot"] = json!(snapshot);
-    let mut kinds = serde_json::Map::new();
-    for symbol in &symbols {
-        let key = symbol
-            .get("kind")
-            .and_then(Value::as_str)
-            .unwrap_or("unknown")
-            .to_owned();
-        let count = kinds.get(&key).and_then(Value::as_u64).unwrap_or(0) + 1;
-        kinds.insert(key, json!(count));
+    let mut payload = json!({
+        "kind": "documentSymbols",
+        "symbols": document_symbol_rows(&page, &symbols),
+    });
+    // Members of non-container symbols (a function's locals) are counted,
+    // not listed.
+    let unlisted = symbols
+        .iter()
+        .filter_map(|symbol| symbol.get("unlisted").and_then(Value::as_u64))
+        .sum::<u64>();
+    if unlisted > 0 {
+        payload["unlistedNested"] = json!(unlisted);
     }
     json!({
-        "type": "documentSymbols",
-        "uri": query.uri(),
         "lsp": {
             "serverAvailable": true,
             "provider": "documentSymbolProvider",
             "source": "lsp"
         },
-        "summary": {
-            "totalSymbols": symbols.len(),
-            "returnedSymbols": page.len(),
-            "topLevelSymbols": top_level_symbols,
-            "kinds": kinds
-        },
-        "payload": { "kind": "documentSymbols", "symbols": page },
+        "payload": payload,
         "pagination": pagination
     })
+}
+
+/// Files one read lead covers: the per-call row limit.
+const READ_LEAD_FILES: usize = 5;
+/// Lines of context on each side of a site in the read lead.
+const READ_LEAD_CONTEXT: u64 = 6;
+
+/// The one-based lines of a compact site row (`"<line>:<col>[,…] …"`).
+fn site_lines(text: &str) -> Vec<u64> {
+    text.split(' ')
+        .next()
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|site| site.split([':', '-']).next()?.parse().ok())
+        .collect()
+}
+
+/// On a page of sites (`references`, `callers`), `next.read`: one localFetch
+/// row per listed file, in listed order and at most [`READ_LEAD_FILES`],
+/// reading each file's sites with [`READ_LEAD_CONTEXT`] lines around them
+/// (overlapping windows merged).
+pub(super) fn attach_read_lead(row: &mut Value) {
+    if row.get("status").and_then(Value::as_str).is_some() {
+        return;
+    }
+    let Some(files) = row.pointer("/payload/files").and_then(Value::as_array) else {
+        return;
+    };
+    let max_ranges = crate::tools::local_fetch::MAX_READ_RANGES;
+    let reads = files
+        .iter()
+        .filter_map(|file| {
+            let path = file.get("path")?.as_str()?;
+            let mut lines = file
+                .get("matches")?
+                .as_array()?
+                .iter()
+                .filter_map(Value::as_str)
+                .flat_map(site_lines)
+                .collect::<Vec<_>>();
+            lines.sort_unstable();
+            let mut windows: Vec<(u64, u64)> = Vec::new();
+            for line in lines {
+                let (start, end) = (
+                    line.saturating_sub(READ_LEAD_CONTEXT).max(1),
+                    line + READ_LEAD_CONTEXT,
+                );
+                match windows.last_mut() {
+                    Some(last) if start <= last.1 + 1 => last.1 = last.1.max(end),
+                    _ => windows.push((start, end)),
+                }
+            }
+            (!windows.is_empty() && windows.len() <= max_ranges).then(|| {
+                json!({
+                    "path": path,
+                    "ranges": windows
+                        .iter()
+                        .map(|(start, end)| format!("{start}-{end}"))
+                        .collect::<Vec<_>>(),
+                })
+            })
+        })
+        .take(READ_LEAD_FILES)
+        .collect::<Vec<_>>();
+    if reads.is_empty() {
+        return;
+    }
+    row["next"]["read"] =
+        crate::tools::result::Continuation::input(ToolId::LocalFetch, json!({ "queries": reads }))
+            .why("Read the listed sites in context.")
+            .confidence("high")
+            .build();
 }

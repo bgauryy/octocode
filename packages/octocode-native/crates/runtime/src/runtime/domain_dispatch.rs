@@ -6,7 +6,7 @@ use crate::{
     providers::github::ProviderError,
     security::ContentSecurity,
     tools::{
-        id::ToolId,
+        id::{ToolFamily, ToolId},
         local_fetch::LocalFetchRegex,
         lsp_search::{LspExecutionConfig, prewarm},
     },
@@ -17,24 +17,27 @@ use std::{
     sync::{Arc, OnceLock},
 };
 
-pub(super) struct DomainDispatcher {
+pub(crate) struct DomainDispatcher {
     pub paths: Arc<PathPolicy>,
     pub security: Arc<ContentSecurity>,
     pub regex: LocalFetchRegex,
-    pub github_services: Arc<OnceLock<Result<github::GitHubServices, ProviderError>>>,
-    pub github_cache: GitHubContentCache,
+    pub(super) github_services: Arc<OnceLock<Result<github::GitHubServices, ProviderError>>>,
+    pub(super) github_cache: GitHubContentCache,
     pub config: Arc<ConfigOutput>,
     pub home: PathBuf,
     pub handle: tokio::runtime::Handle,
     pub lsp_pool: Arc<octocode_engine::lsp::pool::LspClientPool>,
     pub local_views: Arc<crate::security::scan::SanitizedViewMemo>,
-    pub lsp_execution_config: LspExecutionConfig,
-    pub available_tools: Vec<&'static str>,
+    pub lsp_execution_config: Arc<LspExecutionConfig>,
+    pub available_tools: Arc<[&'static str]>,
+    /// Registry answers for artifactSearch; `None` under memory storage.
+    pub artifact_cache: Option<Arc<crate::providers::artifact::ArtifactCache>>,
 }
 
 impl DomainDispatcher {
-    /// Every route matches the enum exhaustively, so a new tool fails to
-    /// compile until it is routed. The runtime resolves the wire name once.
+    /// Every route matches the contract family exhaustively; within a
+    /// family only the tools with their own runner are named. The runtime
+    /// resolves the wire name once.
     pub fn execute(
         &self,
         tool: ToolId,
@@ -43,24 +46,13 @@ impl DomainDispatcher {
     ) -> Result<dispatch::DomainResult, ExecutionError> {
         let _enter = self.handle.enter();
         context.check()?;
-        match tool {
-            ToolId::GhSearchRepo
-            | ToolId::GhSearchCode
-            | ToolId::GhStructure
-            | ToolId::GhGetFileContent
-            | ToolId::GhSearchHistory
-            | ToolId::GhGetHistoryItem
-            | ToolId::GhCloneRepo => self.execute_github(tool, query, context),
-            ToolId::ArtifactSearch => self.execute_artifact(query, context),
-            ToolId::LspSearch => self.execute_lsp(query, context),
-            ToolId::LocalSearch
-            | ToolId::LocalFetch
-            | ToolId::StructureSearch
-            | ToolId::AstSearch
-            | ToolId::AstTopology
-            | ToolId::AstRewrite => self.execute_local(tool, query, context),
-            // Clasify runs its own batch (`clasify_batch`), never a domain row.
-            ToolId::Clasify => Err(ExecutionError::WorkerFailed),
+        match tool.family() {
+            ToolFamily::GitHub => self.execute_github(tool, query, context),
+            ToolFamily::Local if tool == ToolId::LspSearch => self.execute_lsp(query, context),
+            ToolFamily::Local => self.execute_local(tool, query, context),
+            // Clasify runs its own batch, never a domain row.
+            ToolFamily::Remote if tool.is_clasify() => Err(ExecutionError::UnroutedTool),
+            ToolFamily::Remote => self.execute_artifact(query, context),
         }
     }
 
@@ -95,25 +87,48 @@ impl DomainDispatcher {
         query: &Value,
         context: &ExecutionContext,
     ) -> Result<dispatch::DomainResult, ExecutionError> {
+        let query = match dispatch::parse_query(query) {
+            Ok(query) => query,
+            Err(row) => return Ok(*row),
+        };
+        // Release tags are checked through the GitHub transport; without
+        // usable GitHub services a lookup reads no tags.
+        let services = self
+            .github_services
+            .get_or_init(|| {
+                github::GitHubServices::new(
+                    self.config.clone(),
+                    self.home.clone(),
+                    self.github_cache.clone(),
+                )
+            })
+            .as_ref()
+            .ok();
+        let tags = services.map(|services| services.release_tags(context));
+        let network = &self.config.resolved.network;
+        let env = self.config.credential_env();
+        let call = crate::tools::artifact_search::ArtifactCall {
+            deadline: context.deadline,
+            cancellation: context.cancellation.clone(),
+            allow_private_registry: network.allow_private_registry,
+            cache: self.artifact_cache.as_deref(),
+            timeout: std::time::Duration::from_secs_f64(network.timeout / 1000.0),
+            max_retries: network.max_retries as u8,
+            tags: tags
+                .as_ref()
+                .map(|tags| tags as &dyn crate::providers::artifact::ReleaseTags),
+            env: &env,
+        };
         self.handle.block_on(async {
             Ok(
-                match crate::tools::artifact_search::execute(
-                    query,
-                    context.deadline,
-                    context.cancellation.clone(),
-                    self.config.resolved.network.allow_private_registry,
-                    Some(&self.home),
-                    self.config.revision,
-                    self.config.resolved.storage.mode == "persistent",
-                )
-                .await
-                {
+                match crate::tools::artifact_search::execute(query, call).await {
                     Ok(data) => dispatch::value_result(data),
                     Err(error) => dispatch::provider_failure(
                         error.message,
                         error.code,
                         error.hints,
                         error.status,
+                        None,
                     ),
                 },
             )
@@ -125,9 +140,13 @@ impl DomainDispatcher {
         query: &Value,
         context: &ExecutionContext,
     ) -> Result<dispatch::DomainResult, ExecutionError> {
+        let query = match dispatch::parse_query(query) {
+            Ok(query) => query,
+            Err(row) => return Ok(*row),
+        };
         self.handle.block_on(async {
             match crate::tools::lsp_search::execute(
-                query.clone(),
+                query,
                 context,
                 &self.lsp_pool,
                 &self.paths,
@@ -140,14 +159,13 @@ impl DomainDispatcher {
                     // A cancelled/expired request is a runtime outcome,
                     // not a provider failure.
                     context.check()?;
-                    let mut result = dispatch::provider_failure(
+                    Ok(dispatch::provider_failure(
                         failure.message,
                         failure.code.into(),
                         vec![failure.hint.into()],
                         None,
-                    );
-                    result.data["retryable"] = serde_json::json!(failure.retryable);
-                    Ok(result)
+                        Some(failure.retryable),
+                    ))
                 }
             }
         })
@@ -166,7 +184,7 @@ impl DomainDispatcher {
         let views = self.local_views.clone();
         // Streamed listing pages are sized to fit one automatic response
         // window, which every call of a walk shares (an explicit
-        // `responseCharLength` is per call, so it never moves a page cut).
+        // `responseLength` is per call, so it never moves a page cut).
         let window = self.config.resolved.output.pagination.default_char_length as usize;
         let context = ExecutionContext {
             response_window: (window > 0).then_some(window),
@@ -175,23 +193,27 @@ impl DomainDispatcher {
         // OCTOCODE_BETA is the shared gate for beta local tools. For astRewrite,
         // enabling beta permits both preview and hash-guarded apply.
         let allow_apply = self.config.resolved.local.beta;
-        let prewarm_query = (matches!(
-            tool,
-            ToolId::LocalSearch | ToolId::LocalFetch | ToolId::StructureSearch
-        ) && prewarm::enabled(self.config.env_value("OCTOCODE_LSP_PREWARM")))
-        .then(|| query.clone());
+        let cargo = self.config.env_value("OCTOCODE_CARGO").map(str::to_owned);
+        let prewarm_query =
+            prewarm::enabled(self.config.env_value("OCTOCODE_LSP_PREWARM")).then(|| query.clone());
+        let lsp = self.lsp_execution_config.clone();
         let result = self.handle.block_on(async {
             tokio::task::spawn_blocking(move || {
-                dispatch::execute_local(
-                    tool,
-                    &query,
-                    &paths,
-                    &security,
-                    &context,
-                    &regex,
-                    &views,
-                    allow_apply,
-                )
+                // lspSearch leads offered by local tools probe the runtime's
+                // resolved server settings, not the bare process env.
+                crate::tools::lsp_search::with_lead_discovery(&lsp, &paths, || {
+                    dispatch::execute_local(
+                        tool,
+                        &query,
+                        &paths,
+                        &security,
+                        &context,
+                        &regex,
+                        &views,
+                        allow_apply,
+                        cargo.as_deref(),
+                    )
+                })
             })
             .await
             .map_err(|_| ExecutionError::WorkerFailed)?

@@ -21,11 +21,13 @@ test('repo verify executes an additional workspace gate and propagates its failu
   }
   const bin = path.join(root, 'bin'), trace = path.join(root, 'trace.jsonl');
   fs.mkdirSync(bin);
-  fs.writeFileSync(path.join(bin, 'yarn'), String.raw`#!/usr/bin/env node
-const fs=require('node:fs');const args=process.argv.slice(2);fs.appendFileSync(process.env.TEST_GATE_TRACE,JSON.stringify(args)+'\n');if(args[1]==='recovery'&&args[3]==='verify'&&process.env.TEST_GATE_FAIL==='1')process.exit(17);
+  fs.writeFileSync(path.join(bin, 'yarn'), `#!${process.execPath}\n` + String.raw`const fs=require('node:fs');const args=process.argv.slice(2);fs.appendFileSync(process.env.TEST_GATE_TRACE,JSON.stringify(args)+'\n');if(args[1]==='recovery'&&args[3]==='verify'&&process.env.TEST_GATE_FAIL==='1')process.exit(17);
 `, { mode: 0o755 });
+  const childEnv = { ...process.env };
+  // The subprocess starts its own test runner; inherited node:test state skips it.
+  delete childEnv.NODE_TEST_CONTEXT;
   const run = fail => spawnSync(process.execPath, [path.join(scripts, 'workspace-health.mjs'), 'verify'], {
-    cwd: root, encoding: 'utf8', env: { ...process.env, PATH: `${bin}${path.delimiter}${process.env.PATH}`, TEST_GATE_TRACE: trace, TEST_GATE_FAIL: fail ? '1' : '0' }, timeout: 30_000,
+    cwd: root, encoding: 'utf8', env: { ...childEnv, PATH: `${bin}${path.delimiter}${process.env.PATH}`, TEST_GATE_TRACE: trace, TEST_GATE_FAIL: fail ? '1' : '0' }, timeout: 30_000,
   });
   const passing = run(false);
   assert.equal(passing.status, 0, passing.stderr);

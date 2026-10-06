@@ -17,11 +17,8 @@ const VERIFY_ORDER = ['@octocodeai/octocode-native', 'octocode-mcp', 'octocode',
 // never run concurrently (or out of order).
 // - native's build.rs embeds octocode-config's config-contract.json and
 //   contract/, which config's build regenerates.
-// - octocode's build.mjs re-runs agents-communication's build-skill.mjs, which
-//   writes the same outputs as that skill's own build.
 const BUILD_INPUTS = {
   '@octocodeai/octocode-native': ['@octocodeai/config'],
-  octocode: ['@octocodeai/octocode-agents-communication'],
   '@octocodeai/codex-plugin': ['octocode'],
   '@octocodeai/claude-plugin': ['octocode'],
 };

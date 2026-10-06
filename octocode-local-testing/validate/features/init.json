@@ -947,7 +947,7 @@
                   }
                 },
                 "materialize": {
-                  "description": "Write this page's blobs under OCTOCODE_HOME/tmp/tree; returns location.localPath.",
+                  "description": "Write this page's blobs under OCTOCODE_HOME/tmp/materialize/v2; returns location.localPath.",
                   "type": "boolean"
                 },
                 "materializeOffset": {

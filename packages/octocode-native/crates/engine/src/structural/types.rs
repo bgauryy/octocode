@@ -1,12 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 
-#[cfg(feature = "napi-addon")]
-use napi_derive::napi;
-
 /// Precise position of one captured metavariable node. Line is 1-based (usable
 /// as an `lspSearch` `lineHint`); columns are 0-based UTF-16 code-unit
 /// offsets — the same convention as `StructuralMatch.start_col` and LSP.
-#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct MetavarRange {
     pub text: String,
     pub line: u32,
@@ -19,7 +15,6 @@ pub struct MetavarRange {
 /// directly as an `lspSearch` `lineHint`; columns are 0-based UTF-16
 /// code-unit offsets (converted from tree-sitter's native byte columns to match
 /// the resolver, signatures, and LSP layers).
-#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralMatch {
     pub start_line: u32,
     pub end_line: u32,
@@ -38,7 +33,6 @@ pub struct StructuralMatch {
     pub header: Option<String>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Clone)]
 pub struct StructuralDiagnostic {
     pub code: String,
@@ -49,7 +43,6 @@ pub struct StructuralDiagnostic {
     pub recovery: Option<String>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralQueryExplanation {
     pub kind: String,
     pub source: String,
@@ -61,7 +54,6 @@ pub struct StructuralQueryExplanation {
 
 /// A structural match with stable evidence metadata: [`StructuralMatch`] plus
 /// an ID, node kind, and confidence, for the detailed APIs.
-#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralDetailedMatch {
     pub id: String,
     pub start_line: u32,
@@ -76,7 +68,6 @@ pub struct StructuralDetailedMatch {
     pub confidence: String,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralSearchFilesOptions {
     pub path: String,
     pub pattern: Option<String>,
@@ -100,8 +91,6 @@ pub struct StructuralSearchFilesOptions {
 
 /// Options for in-process structural rewrite over a file tree. The rule config
 /// must be a complete ast-grep inline-rule JSON object (language, rule, fix, etc.).
-#[cfg(feature = "embedded-ast-grep-rewrite")]
-#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralRewriteFilesOptions {
     pub path: String,
     /// Full ast-grep inline-rule config as a JSON string.
@@ -116,36 +105,6 @@ pub struct StructuralRewriteFilesOptions {
     pub max_file_bytes: Option<u32>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
-pub struct StructuralSearchFileResult {
-    pub path: String,
-    pub matches: Vec<StructuralMatch>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-pub struct StructuralSearchFilesResult {
-    pub scan_truncated: bool,
-    pub status: String,
-    /// Query planning evidence computed before the scan. Keeping it on the
-    /// asynchronous result lets callers explain zero matches without repeating
-    /// the full directory walk on the JavaScript event loop.
-    pub query: Option<StructuralQueryExplanation>,
-    pub diagnostics: Vec<StructuralDiagnostic>,
-    pub files: Vec<StructuralSearchFileResult>,
-    pub total_matches: u32,
-    pub parsed_files: u32,
-    pub skipped_by_pre_filter: u32,
-    /// Candidate files whose extension has no grammar — not evaluated, hence
-    /// not proof of absence. Mirrors the detailed result's counter so the two
-    /// shapes agree and the warning text can't collapse unevaluated into
-    /// anchor-absent.
-    pub skipped_unsupported: u32,
-    pub skipped_unreadable: u32,
-    pub skipped_large: u32,
-    pub warnings: Vec<String>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralSearchDetailedResult {
     pub path: String,
     pub analyzer: String,
@@ -157,7 +116,6 @@ pub struct StructuralSearchDetailedResult {
     pub diagnostics: Vec<StructuralDiagnostic>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralSearchDetailedFileResult {
     pub path: String,
     pub status: String,
@@ -167,7 +125,6 @@ pub struct StructuralSearchDetailedFileResult {
     pub diagnostics: Vec<StructuralDiagnostic>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct StructuralSearchFilesDetailedResult {
     pub scan_truncated: bool,
     pub files: Vec<StructuralSearchDetailedFileResult>,
@@ -237,8 +194,7 @@ impl StructuralDetailedMatch {
             node_kind: Some(node_kind.into()),
             // The octo matcher is a precise AST matcher: every match is an exact
             // tree-sitter node match, so there is no partial/fallback tier to
-            // report. Keep this in sync with the narrowed `confidence` union in
-            // loader/index.d.ts.
+            // report.
             confidence: "exact-ast".to_owned(),
         }
     }

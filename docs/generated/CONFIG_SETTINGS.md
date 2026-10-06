@@ -27,9 +27,7 @@ This reference is generated from [`packages/octocode-config/config-contract.json
     "family": "all"
   },
   "mcp": {
-    "publishedView": "queries",
-    "deferred": null,
-    "instructions": "default"
+    "deferred": null
   },
   "network": {
     "timeout": 30000,
@@ -53,11 +51,6 @@ This reference is generated from [`packages/octocode-config/config-contract.json
     "ttl": 86400000,
     "maxSize": 2147483648,
     "maxClones": 50
-  },
-  "extension": {
-    "storage": {
-      "mode": "persistent"
-    }
   },
   "classification": {
     "type": "jev",
@@ -84,9 +77,7 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `tools.enabled` | `TOOLS_TO_RUN` | unset | string array | Strict tool allowlist replacing the default tool set. |
 | `tools.disabled` | `DISABLE_TOOLS` | unset | string array | Tools removed from the default tool set. |
 | `tools.family` | `OCTOCODE_TOOL_FAMILY` | `"all"` | `all` or `local` or `github` | Tool family preset (core tool policy families): local keeps the local and remote families, github keeps the GitHub and remote families. It only narrows tools.enabled/tools.disabled. |
-| `mcp.publishedView` | `OCTOCODE_PUBLISHED_VIEW` | `"queries"` | `queries` or `flat` | Input shape in tools/list: queries (a queries[] batch) or flat (one row per call). Validation accepts both. |
 | `mcp.deferred` | `OCTOCODE_DEFER_TOOLS` | unset | string array | Available tools left out of tools/list; one run({tool, query}) tool executes them and next/hints leads that name them. |
-| `mcp.instructions` | `OCTOCODE_INSTRUCTIONS` | `"default"` | `default` or `guide` | MCP server instructions: default, or guide (the longer workflow guide). |
 | `network.timeout` | `REQUEST_TIMEOUT` | `30000` | integer (5000–300000) | Request timeout in milliseconds. |
 | `network.maxRetries` | `MAX_RETRIES` | `3` | integer (0–10) | Maximum retries after a failed request. |
 | `network.allowPrivateRegistry` | `OCTOCODE_ALLOW_PRIVATE_REGISTRY` | `false` | boolean | Allow private, loopback, or link-local artifact registries. Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries. OCTOCODE_ALLOW_PRIVATE_REGISTRY: shell or trusted home .env |
@@ -98,7 +89,6 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `cloneCache.ttl` | `OCTOCODE_CACHE_TTL_MS` | `86400000` | integer (60000–2592000000) | Milliseconds a ghCloneRepo checkout stays fresh before it is re-fetched. |
 | `cloneCache.maxSize` | `OCTOCODE_MAX_CACHE_SIZE` | `2147483648` | integer (1048576–1099511627776) | Byte cap for the on-disk ghCloneRepo cache; least-recently-used checkouts are evicted above it. |
 | `cloneCache.maxClones` | `OCTOCODE_MAX_CLONES` | `50` | integer (1–1000) | Maximum repositories the ghCloneRepo cache keeps. |
-| `extension.storage.mode` | `OCTOCODE_EXTENSION_STORAGE_MODE` | inherits storage.mode | `persistent` or `memory` | Pi extension storage mode override. OCTOCODE_EXTENSION_STORAGE_MODE: shell or trusted home .env |
 | `classification.type` | `OCTOCODE_CLASSIFICATION_TYPE` | jev | `jev` | Classification vendor. Per-vendor defaults (host, model, endpoint) are built in. |
 | `classification.api` | `OCTOCODE_CLASSIFICATION_API`<br>`OCTOCODE_JEV_KEY` | unset | string | Classification provider API key (bearer credential). Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY is the vendor-native alias for the jev provider. Credential-only; excluded from ResolvedConfig. |
 | `classification.apiHost` | `OCTOCODE_CLASSIFICATION_API_HOST` | vendor default (jev: https://api.typesafe.ai) | url | Optional override of the selected vendor's default API root. Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback. OCTOCODE_CLASSIFICATION_API_HOST: shell or trusted home .env Credential-only; excluded from ResolvedConfig. |

@@ -3,10 +3,10 @@
 //! Replays localFetch rows agents sent verbatim that the schema once rejected
 //! (`fixtures/benchmark-localfetch-ranges.json`, each with the rejection it
 //! got). Every row must now run: host spellings of line ranges normalize
-//! losslessly before validation. The MCP host wraps a bare row in `queries`
-//! before it calls the runtime, so the replay does too.
+//! losslessly before validation. Each row is replayed bare, as the agents
+//! sent it: native runs a bare row as a one-row `queries`, on MCP and the CLI.
 
-mod support;
+use crate::support;
 
 use serde_json::{Value, json};
 use support::Workspace;
@@ -33,10 +33,23 @@ async fn rejected_benchmark_range_spellings_now_read() {
             .execute_mcp(
                 format!("replay-{index}"),
                 "localFetch".into(),
-                json!({ "queries": [input.clone()] }),
+                input.clone(),
             )
             .await
             .expect("executes");
+        let cli = runtime
+            .execute(
+                format!("replay-cli-{index}"),
+                "localFetch".into(),
+                input.clone(),
+            )
+            .await
+            .expect("a bare row runs on the CLI path");
+        assert_eq!(
+            cli.structured_content["results"][0]["data"]["content"],
+            output["structuredContent"]["results"][0]["data"]["content"],
+            "row {index}: CLI and MCP read the same lines"
+        );
         assert_eq!(
             output["isError"], false,
             "row {index} {input} (was: {}) -> {output}",

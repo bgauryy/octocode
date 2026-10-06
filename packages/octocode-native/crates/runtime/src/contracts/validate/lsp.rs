@@ -54,14 +54,14 @@ pub(super) fn validate_lsp_queries(input: &Value) -> Result<(), ContractValidati
                 ));
             }
             if !query
-                .get("uri")
+                .get("path")
                 .and_then(Value::as_str)
-                .is_some_and(|uri| uri.to_lowercase().ends_with(".rs"))
+                .is_some_and(|path| path.to_lowercase().ends_with(".rs"))
             {
                 return Err(issue(
-                    "lsp.rust-uri",
+                    "lsp.rust-path",
                     prefix("rustContext"),
-                    "rustContext requires a Rust .rs uri",
+                    "rustContext requires a Rust .rs path",
                 ));
             }
         }
@@ -85,20 +85,20 @@ pub(super) fn validate_lsp_queries(input: &Value) -> Result<(), ContractValidati
                     "Set symbolName for workspaceSymbol",
                 ));
             }
-            if query.get("uri").is_none() && query.get("workspaceRoot").is_none() {
+            if query.get("path").is_none() && query.get("workspaceRoot").is_none() {
                 return Err(issue(
                     "lsp.workspace-root",
                     prefix("workspaceRoot"),
-                    "Set uri or workspaceRoot for workspaceSymbol",
+                    "Set path or workspaceRoot for workspaceSymbol",
                 ));
             }
             continue;
         }
-        if query.get("uri").is_none() {
+        if query.get("path").is_none() {
             return Err(issue(
-                "lsp.uri",
-                prefix("uri"),
-                "Set uri for file-scoped operations",
+                "lsp.path",
+                prefix("path"),
+                "Set path for file-scoped operations",
             ));
         }
         if matches!(operation, "documentSymbols" | "diagnostic") {

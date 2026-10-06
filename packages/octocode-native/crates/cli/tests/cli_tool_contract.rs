@@ -4,7 +4,7 @@
 //! contract. Each slice must load: a slice that does not match the embedded
 //! text failed every call with a JSON parse error as the only detail.
 
-mod support;
+use crate::support;
 use octocode_native::tools::id::ToolId;
 use serde_json::json;
 use support::Workspace;
@@ -38,7 +38,7 @@ fn a_brief_free_local_search_row_runs() {
         .cli()
         .args([
             "localSearch",
-            &json!({"queries":[{"path":root,"searchText":"needle"}]}).to_string(),
+            &json!({"queries":[{"path":root,"matchString":"needle"}]}).to_string(),
         ])
         .output()
         .unwrap();

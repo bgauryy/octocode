@@ -1,6 +1,6 @@
 #![allow(clippy::expect_used)]
 
-mod support;
+use crate::support;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -15,10 +15,21 @@ fn lines(word: &str) -> String {
         .collect()
 }
 
+/// Unreadable but otherwise unchanged (same size and modification time):
+/// a re-execution could no longer read the file, a replay still serves it.
+#[cfg(unix)]
+fn unreadable(path: &std::path::Path, locked: bool) {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = if locked { 0o000 } else { 0o644 };
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).expect("chmod");
+}
+
+#[cfg(unix)]
 #[tokio::test]
 async fn a_matching_snapshot_pages_the_stored_envelope_without_re_executing() {
     let workspace = Workspace::new();
     let file = workspace.write("src/a.txt", lines("original"));
+    settle(&workspace.workspace);
     let root = file.parent().unwrap().to_string_lossy().into_owned();
     let runtime = workspace.runtime(&[]);
     let first = runtime
@@ -26,9 +37,9 @@ async fn a_matching_snapshot_pages_the_stored_envelope_without_re_executing() {
             "page-1".into(),
             "localSearch".into(),
             json!({
-                "queries":[{"path":root,"searchText":"needle","pageSize":50,
+                "queries":[{"path":root,"matchString":"needle","pageSize":50,
                     "mainGoal":"Find needles.","reasoning":"Exercise page replay."}],
-                "responseCharLength": 800
+                "responseLength": 800
             }),
         )
         .await
@@ -39,23 +50,19 @@ async fn a_matching_snapshot_pages_the_stored_envelope_without_re_executing() {
     let next = pagination["next"]["query"].clone();
     assert_eq!(next["responseSnapshot"], snapshot, "{pagination}");
 
-    // A re-execution would now see different rows, change the snapshot and
-    // demand a restart; the stored envelope keeps serving the same response.
-    workspace.write("src/a.txt", lines("rewritten"));
+    // A re-execution could no longer read the file and would demand a
+    // restart; the stored envelope keeps serving the same response.
+    unreadable(&file, true);
     let second = runtime
         .execute("page-2".into(), "localSearch".into(), next.clone())
         .await
         .expect("second page");
+    unreadable(&file, false);
     let page = &second.structured_content["responsePagination"];
     assert_eq!(page["snapshot"], snapshot, "{page}");
     assert_ne!(page["restart"], true, "{page}");
-    assert!(page["charOffset"].as_u64().unwrap_or(0) > 0, "{page}");
-    let text = second
-        .content
-        .iter()
-        .map(|content| content.text.as_str())
-        .collect::<String>();
-    assert!(!text.contains("rewritten"), "page 2 re-executed: {text}");
+    assert!(page["offset"].as_u64().unwrap_or(0) > 0, "{page}");
+    assert!(text(&second).contains("original"), "page 2 re-executed");
 
     let mut stale: Value = next;
     stale["responseSnapshot"] = json!(format!("{}0", snapshot.as_str().unwrap()));
@@ -65,18 +72,19 @@ async fn a_matching_snapshot_pages_the_stored_envelope_without_re_executing() {
         .expect("stale page");
     let page = &third.structured_content["responsePagination"];
     assert_eq!(page["restart"], true, "{page}");
-    assert_ne!(
+    assert_eq!(
         page["snapshot"], snapshot,
-        "a mismatched snapshot re-executes"
+        "re-executing the unchanged source reproduces the response"
     );
     runtime.close().await;
 }
 
-/// Dispatch counter: the content endpoint is hit once for the first page and
-/// once more only for the page whose snapshot does not match the stored one.
+const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
+/// Dispatch counter: the content endpoint is hit `content_hits` times.
 async fn github_file_server(content_hits: u64) -> MockServer {
     let server = MockServer::start().await;
-    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let sha = SHA;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/main"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
@@ -100,9 +108,20 @@ async fn github_file_server(content_hits: u64) -> MockServer {
     server
 }
 
+/// At a commit SHA the source cannot change: a matching snapshot replays
+/// (the content is fetched once for page 1, once more for the mismatched
+/// snapshot). A branch can move, so each of its pages re-dispatches, as a
+/// fresh runtime's would.
 #[tokio::test]
 async fn a_matching_snapshot_does_not_re_dispatch_and_a_mismatch_does() {
-    let server = github_file_server(2).await;
+    for (reference, content_hits) in [(SHA, 2), ("main", 4)] {
+        let server = github_file_server(content_hits).await;
+        pages_at(&server, reference).await;
+        drop(server);
+    }
+}
+
+async fn pages_at(server: &MockServer, reference: &str) {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let first = runtime
@@ -110,10 +129,10 @@ async fn a_matching_snapshot_does_not_re_dispatch_and_a_mismatch_does() {
             "gh-page-1".into(),
             "ghGetFileContent".into(),
             json!({
-                "queries":[{"owner":"a","repo":"b","path":"src/lib.rs","branch":"main",
+                "queries":[{"owner":"a","repo":"b","path":"src/lib.rs","ref":reference,
                     "forceRefresh":true,"fullContent":true,
                     "mainGoal":"Read the file.","reasoning":"Exercise page replay."}],
-                "responseCharLength": 800
+                "responseLength": 800
             }),
         )
         .await
@@ -140,22 +159,23 @@ async fn a_matching_snapshot_does_not_re_dispatch_and_a_mismatch_does() {
         .await
         .expect("a mismatched snapshot re-executes");
     runtime.close().await;
-    drop(server);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn rows_scope_pages_replay_the_stored_envelope() {
     let workspace = Workspace::new();
     let file = workspace.write("src/a.txt", lines("original"));
+    settle(&workspace.workspace);
     let root = file.parent().unwrap().to_string_lossy().into_owned();
     let runtime = workspace.runtime(&[]);
-    let row = |word: &str| json!({"path":root,"searchText":word,"mainGoal":"Find needles.","reasoning":"Exercise page replay."});
+    let row = |word: &str| json!({"path":root,"matchString":word,"mainGoal":"Find needles.","reasoning":"Exercise page replay."});
     let first = runtime
         .execute(
             "rows-1".into(),
             "localSearch".into(),
             json!({"queries":[row("needle"), row("original")],
-                "responseScope":"rows","responseCharLength": 1200}),
+                "responseScope":"rows","responseLength": 1200}),
         )
         .await
         .expect("first rows page");
@@ -166,17 +186,134 @@ async fn rows_scope_pages_replay_the_stored_envelope() {
     let next = pagination["next"]["query"].clone();
     assert_eq!(next["responseSnapshot"], snapshot.as_str(), "{pagination}");
 
-    workspace.write("src/a.txt", lines("rewritten"));
+    unreadable(&file, true);
     let second = runtime
         .execute("rows-2".into(), "localSearch".into(), next)
         .await
         .expect("second rows page");
+    unreadable(&file, false);
     let page = &second.structured_content["responsePagination"];
     assert_eq!(page["snapshot"], snapshot.as_str(), "{page}");
     assert_ne!(page["restart"], true, "{page}");
-    assert!(
-        !second.structured_content.to_string().contains("rewritten"),
-        "rows page 2 re-executed"
-    );
     runtime.close().await;
+}
+
+/// A continuation replays its origin even when the caller spelled a default
+/// field in a different key position than the validated continuation does.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_continuation_replays_regardless_of_the_callers_key_order() {
+    let workspace = Workspace::new();
+    let file = workspace.write("src/a.txt", lines("original"));
+    settle(&workspace.workspace);
+    let runtime = workspace.runtime(&[]);
+    let first = runtime
+        .execute(
+            "order-1".into(),
+            "localFetch".into(),
+            json!({
+                "queries":[{"reasoning":"Exercise page replay.","debug":false,
+                    "path":file.to_string_lossy(),"minify":"none"}],
+                "responseLength": 800
+            }),
+        )
+        .await
+        .expect("first page");
+    let pagination = first.structured_content["responsePagination"].clone();
+    assert_eq!(pagination["hasMore"], true, "{pagination}");
+    unreadable(&file, true);
+    let second = runtime
+        .execute(
+            "order-2".into(),
+            "localFetch".into(),
+            pagination["next"]["query"].clone(),
+        )
+        .await
+        .expect("second page");
+    unreadable(&file, false);
+    let page = &second.structured_content["responsePagination"];
+    assert_eq!(page["snapshot"], pagination["snapshot"], "{page}");
+    assert_ne!(page["restart"], true, "{page}");
+    runtime.close().await;
+}
+
+/// Every file and directory under `root`, ten seconds older: settled sources
+/// whose later edits a replay can tell apart.
+fn settle(root: &std::path::Path) {
+    let then = std::time::SystemTime::now() - std::time::Duration::from_secs(10);
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        if path.is_dir() {
+            stack.extend(
+                std::fs::read_dir(&path)
+                    .expect("dir")
+                    .map(|e| e.expect("entry").path()),
+            );
+        }
+        std::fs::File::open(&path)
+            .expect("open")
+            .set_modified(then)
+            .expect("backdate");
+    }
+}
+
+fn text(outcome: &octocode_native::runtime::ToolOutcome) -> String {
+    outcome
+        .content
+        .iter()
+        .map(|content| content.text.as_str())
+        .collect()
+}
+
+/// After the sources change, a persistent runtime answers a later page
+/// exactly as a fresh runtime does (restart on the current source), and
+/// never with evidence from before the edit.
+#[tokio::test]
+async fn an_edit_between_pages_answers_like_a_fresh_runtime() {
+    let workspace = Workspace::new();
+    let file = workspace.write("src/a.txt", lines("original"));
+    workspace.write("src/b.txt", lines("second"));
+    settle(&workspace.workspace);
+    let root = file.parent().unwrap().to_string_lossy().into_owned();
+    let persistent = workspace.runtime(&[]);
+    let first = persistent
+        .execute(
+            "fresh-1".into(),
+            "localSearch".into(),
+            json!({
+                "queries":[{"path":root,"matchString":"needle","pageSize":50,
+                    "mainGoal":"Find needles.","reasoning":"Exercise page replay."}],
+                "responseLength": 800
+            }),
+        )
+        .await
+        .expect("first page");
+    let pagination = first.structured_content["responsePagination"].clone();
+    assert_eq!(pagination["hasMore"], true, "{pagination}");
+    let next = pagination["next"]["query"].clone();
+
+    workspace.write("src/a.txt", lines("rewritten"));
+    workspace.write("src/b.txt", lines("changed"));
+    let replayed = persistent
+        .execute("fresh-2".into(), "localSearch".into(), next.clone())
+        .await
+        .expect("persistent page");
+    let fresh_runtime = workspace.runtime(&[]);
+    let fresh = fresh_runtime
+        .execute("fresh-2".into(), "localSearch".into(), next)
+        .await
+        .expect("fresh page");
+    let page = &replayed.structured_content["responsePagination"];
+    assert_eq!(page["restart"], true, "{page}");
+    assert_eq!(
+        replayed.structured_content, fresh.structured_content,
+        "persistent and fresh runtimes disagree"
+    );
+    assert_eq!(text(&replayed), text(&fresh));
+    assert!(
+        !text(&replayed).contains("original"),
+        "stale evidence served"
+    );
+    persistent.close().await;
+    fresh_runtime.close().await;
 }

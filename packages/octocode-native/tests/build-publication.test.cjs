@@ -72,25 +72,24 @@ test('version validation rejects mismatched platform pins before publication', t
 
 test('every native build script routes through build-native.cjs', () => {
   const scripts = json(join(__dirname, '..', 'package.json')).scripts;
-  const { PLATFORMS } = require('../scripts/build-native.cjs');
+  const { PLATFORMS } = require('../bin/platform.cjs');
   const driver = 'node scripts/build-native.cjs';
   assert.equal(scripts.build, `${driver} --release`);
   assert.equal(scripts['build:dev'], driver);
-  assert.equal(scripts['build:hosts:dev'], `${driver} --only hosts`);
-  assert.equal(scripts['build:engine:dev'], `${driver} --only engine`);
   assert.equal(scripts['build:all'], `yarn clean:binaries && ${driver} --release --all`);
   assert.equal(scripts['build:target'], `${driver} --release --target`);
   for (const platform of Object.keys(PLATFORMS)) assert.equal(scripts[`build:${platform}`], undefined, platform);
   for (const [name, command] of Object.entries(scripts)) {
-    if (name.startsWith('build')) assert.doesNotMatch(command, /cargo build|napi build/, name);
+    if (name.startsWith('build')) assert.doesNotMatch(command, /cargo build|napi build|--only/, name);
   }
 });
 
 test('host build selects both host crates in one locked cargo invocation', () => {
-  const { PLATFORMS, hostsCommand } = require('../scripts/build-native.cjs');
+  const { PLATFORMS } = require('../bin/platform.cjs');
+  const { hostsCommand } = require('../scripts/build-native.cjs');
   for (const platform of [null, ...Object.keys(PLATFORMS)]) {
     const args = hostsCommand(platform, true, '/tmp/hosts').join(' ');
-    assert.match(args, /-p octocode-cli -p octocode-runtime-napi --bins --lib --no-default-features/);
+    assert.match(args, /-p octocode-cli -p octocode-runtime-napi --bins --lib/);
     assert.match(args, /--locked/);
     assert.match(args, /--target-dir \/tmp\/hosts/);
     assert.doesNotMatch(args, /napi-test|--all-features/);
@@ -98,24 +97,11 @@ test('host build selects both host crates in one locked cargo invocation', () =>
   }
 });
 
-test('engine build keeps its feature set and writes generated loaders outside the package root', () => {
-  const { PLATFORMS, engineCommand } = require('../scripts/build-native.cjs');
-  for (const platform of [null, ...Object.keys(PLATFORMS)]) {
-    const args = engineCommand(platform, true, '/tmp/engine', '/tmp/engine/out').join(' ');
-    assert.match(args, /--features portable-default,napi-addon/);
-    assert.match(args, /--output-dir \/tmp\/engine\/out --target-dir \/tmp\/engine/);
-    assert.match(args, /-- --locked$/);
-  }
-});
-
-test('hosts and engine never share a target dir unless serial, and platforms never share one', () => {
-  const { PLATFORMS, targetDirs } = require('../scripts/build-native.cjs');
-  const host = targetDirs(null, false);
-  assert.notEqual(host.hosts, host.engine);
-  const serial = targetDirs(null, true);
-  assert.equal(serial.hosts, serial.engine);
-  const dirs = Object.keys(PLATFORMS).flatMap(platform => Object.values(targetDirs(platform, false)));
-  assert.equal(new Set([host.hosts, host.engine, ...dirs]).size, dirs.length + 2);
+test('host and platform builds never share a target dir', () => {
+  const { PLATFORMS } = require('../bin/platform.cjs');
+  const { targetDir } = require('../scripts/build-native.cjs');
+  const dirs = [targetDir(null), ...Object.keys(PLATFORMS).map(platform => targetDir(platform))];
+  assert.equal(new Set(dirs).size, dirs.length);
 });
 
 test('stageFile replaces the destination inode instead of overwriting it', t => {

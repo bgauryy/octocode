@@ -92,7 +92,8 @@ fn parse_hunk_header(line: &str) -> Option<(u32, u32)> {
 /// - `deletions`: keep only these original-file line numbers (all deletions kept if `None`)
 /// - `trim_context`: trim pure context lines to at most `context_lines` around changes
 /// - `context_lines`: window size for `trim_context`, default 2
-pub(crate) fn filter_patch_inner(patch: &str, options: Option<FilterPatchOptions>) -> String {
+#[must_use]
+pub fn filter_patch(patch: &str, options: Option<FilterPatchOptions>) -> String {
     if patch.is_empty() {
         return String::new();
     }
@@ -321,19 +322,19 @@ mod tests {
     #[test]
     fn filter_patch_no_options_returns_original() {
         let patch = sample_patch();
-        let result = filter_patch_inner(patch, None);
+        let result = filter_patch(patch, None);
         assert_eq!(result, patch);
     }
 
     #[test]
     fn filter_patch_empty_returns_empty() {
-        assert_eq!(filter_patch_inner("", None), "");
+        assert_eq!(filter_patch("", None), "");
     }
 
     #[test]
     fn filter_patch_filters_by_additions() {
         let patch = "@@ -1,3 +1,3 @@\n context\n+line2\n+line3";
-        let result = filter_patch_inner(
+        let result = filter_patch(
             patch,
             Some(FilterPatchOptions {
                 additions: Some(vec![2]),
@@ -349,7 +350,7 @@ mod tests {
     #[test]
     fn filter_patch_filters_by_deletions() {
         let patch = "@@ -1,3 +1,3 @@\n context\n-line2\n-line3";
-        let result = filter_patch_inner(
+        let result = filter_patch(
             patch,
             Some(FilterPatchOptions {
                 additions: None,
@@ -373,7 +374,7 @@ mod tests {
         lines.push("-deleted_line".to_owned());
         let patch = lines.join("\n");
 
-        let result = filter_patch_inner(
+        let result = filter_patch(
             &patch,
             Some(FilterPatchOptions {
                 additions: None,
@@ -399,7 +400,7 @@ mod tests {
         }
         let patch = lines.join("\n");
 
-        let result = filter_patch_inner(
+        let result = filter_patch(
             &patch,
             Some(FilterPatchOptions {
                 additions: None,
@@ -427,7 +428,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let result = filter_patch_inner(
+        let result = filter_patch(
             &patch,
             Some(FilterPatchOptions {
                 additions: None,
@@ -443,7 +444,7 @@ mod tests {
     #[test]
     fn trim_context_skipped_for_short_patches() {
         let patch = sample_patch();
-        let result = filter_patch_inner(
+        let result = filter_patch(
             patch,
             Some(FilterPatchOptions {
                 additions: None,

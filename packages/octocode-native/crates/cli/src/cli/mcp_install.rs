@@ -1,43 +1,11 @@
 //! MCP install for all supported clients: always `npx -y octocode-mcp@latest`,
 //! never `octo mcp`. JSON clients use their native server map; codex writes
 //! `[mcp_servers.octocode]` TOML; goose writes `extensions.octocode` YAML.
+use super::mcp_clients::{self, CLIENTS, ClientSpec, EntryShape};
+use super::mcp_manage;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-
-/// Every installable client, including the non-JSON ones.
-const ALL_IDES: [&str; 15] = [
-    "cursor",
-    "claude-desktop",
-    "claude-code",
-    "windsurf",
-    "trae",
-    "antigravity",
-    "vscode-cline",
-    "vscode-roo",
-    "vscode-continue",
-    "zed",
-    "opencode",
-    "gemini-cli",
-    "kiro",
-    "codex",
-    "goose",
-];
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum ConfigFormat {
-    Json,
-    Toml,
-    Yaml,
-}
-
-fn client_format(ide: &str) -> ConfigFormat {
-    match ide {
-        "codex" => ConfigFormat::Toml,
-        "goose" => ConfigFormat::Yaml,
-        _ => ConfigFormat::Json,
-    }
-}
 
 /// Format-independent description of the octocode MCP server entry.
 struct ServerSpec {
@@ -99,22 +67,20 @@ pub struct InstallArgs {
     pub pass_env: bool,
     /// Installation runner: "npx" (default), "bunx", or "pnpm".
     pub method: Option<String>,
-    /// Write a .bak backup before overwriting the config file.
-    pub backup: bool,
     /// Restore config from this .bak file path and exit.
     pub rollback: Option<String>,
 }
 
-fn canonical_ide(ide: &str) -> &str {
-    match ide {
-        "claude" => "claude-desktop",
-        "vscode" => "vscode-cline",
-        other => other,
-    }
-}
-
 pub fn run(args: InstallArgs) -> u8 {
-    // Rollback mode: restore a backup written by a previous --backup install
+    if args
+        .method
+        .as_deref()
+        .is_some_and(|method| !matches!(method, "npx" | "bunx" | "pnpm"))
+    {
+        eprintln!("Installation method must be npx, bunx, or pnpm.");
+        return 2;
+    }
+    // Rollback mode: restore the backup an earlier install left beside the config
     if let Some(ref bak_str) = args.rollback {
         let bak = PathBuf::from(bak_str);
         if !bak.exists() {
@@ -125,7 +91,7 @@ pub fn run(args: InstallArgs) -> u8 {
             eprintln!("rollback: expected a .bak backup file");
             return 2;
         }
-        let dest = bak.with_extension("");
+        let dest = rollback_destination(&bak);
         if args.dry_run {
             if args.json {
                 println!(
@@ -137,7 +103,17 @@ pub fn run(args: InstallArgs) -> u8 {
             }
             return 0;
         }
-        return match std::fs::copy(&bak, &dest) {
+        let restore = (|| {
+            use octocode_native::config::{
+                config_revision, read_private_config, replace_private_config,
+            };
+            let backup = read_private_config(&bak)?
+                .ok_or_else(|| std::io::Error::other("Backup is missing."))?;
+            let current = read_private_config(&dest)?;
+            replace_private_config(&dest, &config_revision(current.as_deref()), &backup, false)
+                .map(|(changed, _)| changed)
+        })();
+        return match restore {
             Ok(_) => {
                 if args.json {
                     println!(
@@ -156,11 +132,12 @@ pub fn run(args: InstallArgs) -> u8 {
         };
     }
     if args.list {
+        let ids: Vec<_> = CLIENTS.iter().map(|client| client.id).collect();
         if args.json {
-            println!("{}", json!({ "ides": ALL_IDES }));
+            println!("{}", json!({ "ides": ids }));
         } else {
-            for ide in ALL_IDES {
-                println!("{ide}");
+            for id in ids {
+                println!("{id}");
             }
         }
         return 0;
@@ -169,17 +146,19 @@ pub fn run(args: InstallArgs) -> u8 {
         eprintln!("Usage: octocode install --ide <id> [--force] [--dry-run] [--check] [--json]");
         return 2;
     };
-    let ide = canonical_ide(requested_ide);
-    let Some(config_path) = config_path(ide) else {
+    let client = mcp_clients::client(requested_ide);
+    if client.is_some_and(ClientSpec::config_dir_overridden) {
+        eprintln!(
+            "Claude custom config directory is set; user config path cannot be established safely."
+        );
+        return 1;
+    }
+    let Some((client, config_path)) = client.and_then(|client| Some((client, client.home_path()?)))
+    else {
         eprintln!("Unknown --ide {requested_ide}");
         return 2;
     };
-    let result = match client_format(ide) {
-        ConfigFormat::Json => install(ide, &config_path, &args),
-        ConfigFormat::Toml => install_toml(ide, &config_path, &args),
-        ConfigFormat::Yaml => install_yaml(ide, &config_path, &args),
-    };
-    match result {
+    match install(client, &config_path, &args) {
         Ok(code) => code,
         Err(message) => {
             eprintln!("{message}");
@@ -188,124 +167,135 @@ pub fn run(args: InstallArgs) -> u8 {
     }
 }
 
-fn install(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8, String> {
-    let mut root = read_json(config_path)?;
+fn rollback_destination(backup: &Path) -> PathBuf {
+    let name = backup
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    // Hidden backups are the rolling `.{name}.bak`, or older ones that add a
+    // 128-bit nonce: `.{name}-{hex}.bak`. Otherwise `{name}.bak`.
+    let Some(stem) = name
+        .strip_suffix(".bak")
+        .and_then(|name| name.strip_prefix('.'))
+        .filter(|stem| !stem.is_empty())
+    else {
+        return backup.with_extension("");
+    };
+    let original = match stem.rsplit_once('-') {
+        Some((original, nonce))
+            if nonce.len() == 32
+                && nonce.bytes().all(|byte| byte.is_ascii_hexdigit())
+                && !original.is_empty() =>
+        {
+            original
+        }
+        _ => stem,
+    };
+    backup.with_file_name(original)
+}
+
+fn install(client: &ClientSpec, config_path: &Path, args: &InstallArgs) -> Result<u8, String> {
+    use octocode_native::config::{config_revision, read_private_config, replace_private_config};
+    let original = read_private_config(config_path)
+        .map_err(|error| format!("Cannot safely read agent configuration: {error}"))?;
+    let root = mcp_manage::parse_document(client.format, original.as_deref().unwrap_or(""))?;
     if args.check {
-        return report_check(ide, config_path, &root, args);
+        return report_check(client, config_path, &root, args);
     }
-    let key = json_server_key(ide);
-    let servers = root
-        .as_object_mut()
-        .ok_or_else(|| "MCP config is not a JSON object".to_owned())?
-        .entry(key)
-        .or_insert_with(|| json!({}));
-    let servers = servers
-        .as_object_mut()
-        .ok_or_else(|| format!("{key} is not an object"))?;
-    let server = json_server(ide, args);
-    let existing = Existing::of(servers.get("octocode"), &server);
-    if existing != Existing::Absent && !args.force && !args.dry_run && !args.check {
+    let mut server = mcp_manage::default_entry(client, args.method.as_deref().unwrap_or("npx"));
+    let spec = server_spec(args);
+    if !spec.env.is_empty() {
+        server[client.shape.env_key()] = json!(spec.env);
+    }
+    let keys = client.server_keys();
+    let existing = Existing::of(mcp_manage::entry_at(client, &root, &keys), &server);
+    if existing != Existing::Absent && !args.force && !args.dry_run {
         return already_installed(config_path, args, existing);
     }
-    reject_octo_mcp(&octocode_server(args))?;
-    servers.insert("octocode".into(), server);
+    let rendered = mcp_manage::render_document(
+        client,
+        original.as_deref().unwrap_or(""),
+        &keys,
+        Some(&server),
+    )?;
     if args.dry_run {
+        let preview = json!({"success":true,"dryRun":true,"ide":client.id,"configPath":config_path,"entry":mcp_manage::projection(client,Some(&server))});
         if args.json {
-            println!(
-                "{}",
-                json!({
-                    "success": true,
-                    "dryRun": args.dry_run,
-                    "check": args.check,
-                    "ide": ide,
-                    "configPath": config_path,
-                    "config": root
-                })
-            );
+            println!("{preview}");
         } else {
-            println!("{}", config_path.display());
             println!(
-                "{}",
-                serde_json::to_string_pretty(&root).unwrap_or_else(|_| "{}".into())
+                "{}\n{}",
+                config_path.display(),
+                serde_json::to_string_pretty(&preview).map_err(|_| "Cannot encode preview.")?
             );
         }
         return Ok(0);
     }
-    // Rewriting reserializes the client's entire config file (for clients like
-    // claude-code that is ~/.claude.json, holding unrelated app state), so back
-    // up any existing target by default — not only when --backup is passed.
-    let backed_up = if config_path.exists() {
-        let bak = config_path.with_extension("json.bak");
-        std::fs::copy(config_path, &bak).ok().map(|_| bak)
-    } else {
-        None
-    };
-    write_json(config_path, &root)?;
+    // An existing agent file keeps its previous content in the rolling backup.
+    let (_, backed_up) = replace_private_config(
+        config_path,
+        &config_revision(original.as_deref()),
+        &rendered,
+        original.is_some(),
+    )
+    .map_err(|error| error.to_string())?;
     if args.json {
         println!(
             "{}",
-            json!({
-                "success": true,
-                "configPath": config_path,
-                "backupPath": backed_up
-            })
+            json!({"success":true,"configPath":config_path,"backupPath":backed_up})
         );
     } else {
-        if let Some(ref bak) = backed_up {
-            println!("Backup written to {}", bak.display());
-        }
         println!(
-            "Installed octocode MCP for {ide} at {}",
+            "Installed octocode MCP for {} at {}",
+            client.id,
             config_path.display()
         );
     }
     Ok(0)
 }
 
-fn json_server_key(ide: &str) -> &'static str {
-    match ide {
-        "zed" => "context_servers",
-        "opencode" => "mcp",
-        _ => "mcpServers",
+pub(super) fn json_server(shape: EntryShape, args: &InstallArgs) -> Value {
+    match shape {
+        EntryShape::Opencode => {
+            let spec = server_spec(args);
+            let mut command = vec![spec.command];
+            command.extend(spec.args);
+            let mut server = json!({"type": "local", "command": command});
+            if !spec.env.is_empty() {
+                server["environment"] = json!(spec.env);
+            }
+            server
+        }
+        EntryShape::Goose => {
+            let mut entry = octocode_server(args);
+            entry["cmd"] = entry["command"].take();
+            if let Some(map) = entry.as_object_mut() {
+                map.remove("command");
+            }
+            entry["name"] = json!("octocode");
+            entry["enabled"] = json!(true);
+            entry["envs"] = json!({});
+            entry
+        }
+        EntryShape::Untyped => {
+            let mut server = octocode_server(args);
+            if let Some(object) = server.as_object_mut() {
+                object.remove("type");
+            }
+            server
+        }
+        EntryShape::Stdio => octocode_server(args),
     }
 }
 
-fn json_server(ide: &str, args: &InstallArgs) -> Value {
-    if ide == "opencode" {
-        let spec = server_spec(args);
-        let mut command = vec![spec.command];
-        command.extend(spec.args);
-        let mut server = json!({"type": "local", "command": command});
-        if !spec.env.is_empty() {
-            server["environment"] = json!(spec.env);
-        }
-        server
-    } else {
-        let mut server = octocode_server(args);
-        if ide == "zed"
-            && let Some(object) = server.as_object_mut()
-        {
-            object.remove("type");
-        }
-        server
-    }
-}
-
-fn valid_server(ide: &str, root: &Value) -> bool {
-    let key = match ide {
-        "codex" => "mcp_servers",
-        "goose" => "extensions",
-        _ => json_server_key(ide),
-    };
-    let Some(server) = root.get(key).and_then(|servers| servers.get("octocode")) else {
+pub(super) fn valid_server(client: &ClientSpec, root: &Value) -> bool {
+    let Some(server) = mcp_manage::entry_at(client, root, &client.server_keys()) else {
         return false;
     };
-    if server.get("disabled").and_then(Value::as_bool) == Some(true)
-        || server.get("enabled").and_then(Value::as_bool) == Some(false)
-    {
+    if mcp_manage::entry_enabled(client, root, server) == Some(false) {
         return false;
     }
-    let (command, args) = if ide == "opencode" {
+    let (command, args) = if client.shape == EntryShape::Opencode {
         if server.get("type").and_then(Value::as_str) != Some("local") {
             return false;
         }
@@ -317,15 +307,18 @@ fn valid_server(ide: &str, root: &Value) -> bool {
         };
         (first.as_str(), rest)
     } else {
-        let command_key = if ide == "goose" { "cmd" } else { "command" };
-        if ide == "goose" && server.get("type").and_then(Value::as_str) != Some("stdio") {
+        if client.shape == EntryShape::Goose
+            && server.get("type").and_then(Value::as_str) != Some("stdio")
+        {
             return false;
         }
         let Some(args) = server.get("args").and_then(Value::as_array) else {
             return false;
         };
         (
-            server.get(command_key).and_then(Value::as_str),
+            server
+                .get(client.shape.command_key())
+                .and_then(Value::as_str),
             args.as_slice(),
         )
     };
@@ -348,8 +341,14 @@ fn valid_server(ide: &str, root: &Value) -> bool {
             || args.first().and_then(Value::as_str) == Some("dlx"))
 }
 
-fn report_check(ide: &str, path: &Path, root: &Value, args: &InstallArgs) -> Result<u8, String> {
-    let valid = valid_server(ide, root);
+fn report_check(
+    client: &ClientSpec,
+    path: &Path,
+    root: &Value,
+    args: &InstallArgs,
+) -> Result<u8, String> {
+    let ide = client.id;
+    let valid = valid_server(client, root);
     if args.json {
         println!(
             "{}",
@@ -447,206 +446,22 @@ fn already_installed(
     Ok(1)
 }
 
-/// Shared dry-run / backup / write / report path for rendered text configs.
-fn finalize_text(
-    ide: &str,
-    config_path: &Path,
-    rendered: &str,
-    args: &InstallArgs,
-) -> Result<u8, String> {
-    if args.dry_run {
-        if args.json {
-            println!(
-                "{}",
-                json!({
-                    "success": true,
-                    "dryRun": args.dry_run,
-                    "check": args.check,
-                    "ide": ide,
-                    "configPath": config_path,
-                    "config": rendered
-                })
-            );
-        } else {
-            println!("{}", config_path.display());
-            println!("{rendered}");
-        }
-        return Ok(0);
-    }
-    let backed_up = if args.backup && config_path.exists() {
-        let ext = config_path
-            .extension()
-            .and_then(|value| value.to_str())
-            .unwrap_or("bak");
-        let bak = config_path.with_extension(format!("{ext}.bak"));
-        std::fs::copy(config_path, &bak).ok().map(|_| bak)
-    } else {
-        None
-    };
-    write_text(config_path, rendered)?;
-    if args.json {
-        println!(
-            "{}",
-            json!({
-                "success": true,
-                "configPath": config_path,
-                "backupPath": backed_up
-            })
-        );
-    } else {
-        if let Some(ref bak) = backed_up {
-            println!("Backup written to {}", bak.display());
-        }
-        println!(
-            "Installed octocode MCP for {ide} at {}",
-            config_path.display()
-        );
-    }
-    Ok(0)
-}
-
-/// Render the octocode entry for codex `config.toml` (`[mcp_servers.octocode]`).
-fn render_codex_toml(
+#[cfg(test)]
+fn render_fixture(
+    client: &ClientSpec,
     existing: Option<&str>,
     args: &InstallArgs,
 ) -> Result<(String, Existing), String> {
-    let mut root: toml::Value = match existing {
-        Some(text) if !text.trim().is_empty() => toml::from_str(text)
-            .map_err(|error| format!("codex config.toml is not valid TOML: {error}"))?,
-        _ => toml::Value::Table(toml::Table::new()),
-    };
-    let table = root
-        .as_table_mut()
-        .ok_or_else(|| "codex config is not a TOML table".to_owned())?;
-    let servers = table
-        .entry("mcp_servers".to_owned())
-        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
-        .as_table_mut()
-        .ok_or_else(|| "mcp_servers is not a TOML table".to_owned())?;
-    let spec = server_spec(args);
-    let mut entry = toml::Table::new();
-    entry.insert("command".to_owned(), toml::Value::String(spec.command));
-    entry.insert(
-        "args".to_owned(),
-        toml::Value::Array(spec.args.into_iter().map(toml::Value::String).collect()),
-    );
-    if !spec.env.is_empty() {
-        let mut env_table = toml::Table::new();
-        for (key, value) in spec.env {
-            env_table.insert(key, toml::Value::String(value));
-        }
-        entry.insert("env".to_owned(), toml::Value::Table(env_table));
-    }
-    let entry = toml::Value::Table(entry);
-    let already = Existing::of(servers.get("octocode"), &entry);
-    servers.insert("octocode".to_owned(), entry);
-    let rendered = toml::to_string_pretty(&root).map_err(|error| error.to_string())?;
+    let text = existing.unwrap_or("");
+    let keys = client.server_keys();
+    let root = mcp_manage::parse_document(client.format, text)?;
+    let server = mcp_manage::default_entry(client, args.method.as_deref().unwrap_or("npx"));
+    let already = Existing::of(mcp_manage::entry_at(client, &root, &keys), &server);
+    let rendered = mcp_manage::render_document(client, text, &keys, Some(&server))?;
     Ok((rendered, already))
 }
 
-fn install_toml(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8, String> {
-    let existing = if config_path.exists() {
-        Some(std::fs::read_to_string(config_path).map_err(|error| error.to_string())?)
-    } else {
-        None
-    };
-    if args.check {
-        let root: toml::Value = toml::from_str(existing.as_deref().unwrap_or(""))
-            .map_err(|error| format!("codex config.toml is not valid TOML: {error}"))?;
-        let root = serde_json::to_value(root).map_err(|error| error.to_string())?;
-        return report_check(ide, config_path, &root, args);
-    }
-    let (rendered, already) = render_codex_toml(existing.as_deref(), args)?;
-    if already != Existing::Absent && !args.force && !args.dry_run && !args.check {
-        return already_installed(config_path, args, already);
-    }
-    finalize_text(ide, config_path, &rendered, args)
-}
-
-/// Render the octocode entry for goose `config.yaml` (`extensions.octocode`).
-fn render_goose_yaml(
-    existing: Option<&str>,
-    args: &InstallArgs,
-) -> Result<(String, Existing), String> {
-    use serde_yaml_ng::{Mapping, Value as Yaml};
-    let mut root: Yaml = match existing {
-        Some(text) if !text.trim().is_empty() => serde_yaml_ng::from_str(text)
-            .map_err(|error| format!("goose config.yaml is not valid YAML: {error}"))?,
-        _ => Yaml::Mapping(Mapping::new()),
-    };
-    let map = root
-        .as_mapping_mut()
-        .ok_or_else(|| "goose config is not a YAML mapping".to_owned())?;
-    let ext_key = Yaml::String("extensions".to_owned());
-    if !map.contains_key(&ext_key) {
-        map.insert(ext_key.clone(), Yaml::Mapping(Mapping::new()));
-    }
-    let extensions = map
-        .get_mut(&ext_key)
-        .and_then(Yaml::as_mapping_mut)
-        .ok_or_else(|| "extensions is not a YAML mapping".to_owned())?;
-    let octocode_key = Yaml::String("octocode".to_owned());
-    let spec = server_spec(args);
-    let mut entry = Mapping::new();
-    entry.insert(Yaml::String("name".into()), Yaml::String("octocode".into()));
-    entry.insert(Yaml::String("type".into()), Yaml::String("stdio".into()));
-    entry.insert(Yaml::String("cmd".into()), Yaml::String(spec.command));
-    entry.insert(
-        Yaml::String("args".into()),
-        Yaml::Sequence(spec.args.into_iter().map(Yaml::String).collect()),
-    );
-    entry.insert(Yaml::String("enabled".into()), Yaml::Bool(true));
-    let mut envs = Mapping::new();
-    for (key, value) in spec.env {
-        envs.insert(Yaml::String(key), Yaml::String(value));
-    }
-    entry.insert(Yaml::String("envs".into()), Yaml::Mapping(envs));
-    let entry = Yaml::Mapping(entry);
-    let already = Existing::of(extensions.get(&octocode_key), &entry);
-    extensions.insert(octocode_key, entry);
-    let rendered = serde_yaml_ng::to_string(&root).map_err(|error| error.to_string())?;
-    Ok((rendered, already))
-}
-
-fn install_yaml(ide: &str, config_path: &Path, args: &InstallArgs) -> Result<u8, String> {
-    let existing = if config_path.exists() {
-        Some(std::fs::read_to_string(config_path).map_err(|error| error.to_string())?)
-    } else {
-        None
-    };
-    if args.check {
-        let root: serde_yaml_ng::Value =
-            serde_yaml_ng::from_str(existing.as_deref().unwrap_or("{}"))
-                .map_err(|error| format!("goose config.yaml is not valid YAML: {error}"))?;
-        let root = serde_json::to_value(root).map_err(|error| error.to_string())?;
-        return report_check(ide, config_path, &root, args);
-    }
-    let (rendered, already) = render_goose_yaml(existing.as_deref(), args)?;
-    if already != Existing::Absent && !args.force && !args.dry_run && !args.check {
-        return already_installed(config_path, args, already);
-    }
-    finalize_text(ide, config_path, &rendered, args)
-}
-
-fn write_text(path: &Path, body: &str) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
-        }
-    }
-    let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, body).map_err(|error| error.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
-    }
-    std::fs::rename(&tmp, path).map_err(|error| error.to_string())
-}
-
+#[cfg(test)]
 fn reject_octo_mcp(server: &Value) -> Result<(), String> {
     let command = server.get("command").and_then(Value::as_str).unwrap_or("");
     let args = server
@@ -663,127 +478,14 @@ fn reject_octo_mcp(server: &Value) -> Result<(), String> {
     Ok(())
 }
 
-pub fn config_path(ide: &str) -> Option<PathBuf> {
-    let home = home_dir()?;
-    let app_support = app_support_dir(&home);
-    let config_dir = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home.join(".config"));
-    let vscode_storage = app_support.join("Code").join("User").join("globalStorage");
-    Some(match ide {
-        "cursor" => home.join(".cursor").join("mcp.json"),
-        "claude-desktop" => app_support
-            .join("Claude")
-            .join("claude_desktop_config.json"),
-        "claude-code" => home.join(".claude.json"),
-        "windsurf" => home
-            .join(".codeium")
-            .join("windsurf")
-            .join("mcp_config.json"),
-        "trae" => app_support.join("Trae").join("mcp.json"),
-        "antigravity" => home
-            .join(".gemini")
-            .join("antigravity")
-            .join("mcp_config.json"),
-        "vscode-cline" => vscode_storage
-            .join("saoudrizwan.claude-dev")
-            .join("settings")
-            .join("cline_mcp_settings.json"),
-        "vscode-roo" => vscode_storage
-            .join("rooveterinaryinc.roo-cline")
-            .join("settings")
-            .join("mcp_settings.json"),
-        "vscode-continue" => home
-            .join(".continue")
-            .join("mcpServers")
-            .join("octocode.json"),
-        "zed" => home.join(".config").join("zed").join("settings.json"),
-        "opencode" => config_dir.join("opencode").join("opencode.json"),
-        "gemini-cli" => home.join(".gemini").join("settings.json"),
-        "kiro" => home.join(".kiro").join("settings").join("mcp.json"),
-        "codex" => home.join(".codex").join("config.toml"),
-        "goose" if cfg!(windows) => app_support
-            .join("Block")
-            .join("goose")
-            .join("config")
-            .join("config.yaml"),
-        "goose" => config_dir.join("goose").join("config.yaml"),
-        _ => return None,
-    })
-}
-
-fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME")
-        .or_else(|| std::env::var_os("USERPROFILE"))
-        .map(PathBuf::from)
-}
-
-fn app_support_dir(home: &Path) -> PathBuf {
-    if cfg!(target_os = "macos") {
-        home.join("Library").join("Application Support")
-    } else if cfg!(windows) {
-        std::env::var_os("APPDATA")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join("AppData").join("Roaming"))
-    } else {
-        std::env::var_os("XDG_CONFIG_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| home.join(".config"))
-    }
-}
-
-fn read_json(path: &Path) -> Result<Value, String> {
-    if !path.exists() {
-        return Ok(json!({}));
-    }
-    let text = std::fs::read_to_string(path)
-        .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-    serde_json::from_str(&text).map_err(|error| {
-        format!(
-            "cannot parse {} as JSON ({error}). Files with comments (JSONC) are not rewritten so your comments are kept; add the octocode server entry to it manually, or use --dry-run to preview the entry.",
-            path.display()
-        )
-    })
-}
-
-fn write_json(path: &Path, value: &Value) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
-        }
-    }
-    let tmp = path.with_extension("json.tmp");
-    let body = serde_json::to_vec_pretty(value).map_err(|error| error.to_string())?;
-    std::fs::write(&tmp, body).map_err(|error| error.to_string())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600));
-    }
-    std::fs::rename(&tmp, path).map_err(|error| error.to_string())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{
-        Existing, canonical_ide, client_format, config_path, octocode_server, reject_octo_mcp,
-        render_codex_toml, render_goose_yaml,
-    };
+    use super::{Existing, octocode_server, reject_octo_mcp, render_fixture};
+    use crate::cli::mcp_clients::{self, ClientSpec, ConfigFormat};
     use serde_json::json;
 
-    #[test]
-    fn unparseable_client_config_error_names_the_file_and_keeps_it_untouched() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("settings.json");
-        let original = "{\n  // my theme\n  \"theme\": \"dark\"\n}\n";
-        std::fs::write(&path, original).expect("write");
-        let error = super::read_json(&path).expect_err("comments are not plain JSON");
-        assert!(error.contains(&path.display().to_string()), "{error}");
-        assert!(error.contains("--dry-run"), "{error}");
-        assert_eq!(std::fs::read_to_string(&path).expect("read"), original);
+    fn spec(id: &str) -> &'static ClientSpec {
+        mcp_clients::client(id).expect("supported client")
     }
 
     fn default_args() -> super::InstallArgs {
@@ -797,7 +499,6 @@ mod tests {
             enable_local: None,
             pass_env: false,
             method: None,
-            backup: false,
             rollback: None,
         }
     }
@@ -818,9 +519,9 @@ mod tests {
 
     #[test]
     fn ide_aliases_resolve_to_supported_json_clients() {
-        assert_eq!(canonical_ide("claude"), "claude-desktop");
-        assert_eq!(canonical_ide("vscode"), "vscode-cline");
-        assert_eq!(canonical_ide("cursor"), "cursor");
+        assert_eq!(spec("claude").id, "claude-desktop");
+        assert_eq!(spec("vscode").id, "vscode-cline");
+        assert_eq!(spec("cursor").id, "cursor");
     }
 
     #[test]
@@ -829,7 +530,7 @@ mod tests {
         assert_eq!(server["command"], "npx");
         assert_eq!(server["args"], json!(["-y", "octocode-mcp@latest"]));
         reject_octo_mcp(&server).expect("allowed");
-        assert_ne!(client_format("codex"), super::ConfigFormat::Json);
+        assert_ne!(spec("codex").format, ConfigFormat::Json);
     }
 
     #[test]
@@ -850,20 +551,22 @@ mod tests {
 
     #[test]
     fn client_formats_route_by_extension() {
-        assert_eq!(client_format("cursor"), super::ConfigFormat::Json);
-        assert_eq!(client_format("codex"), super::ConfigFormat::Toml);
-        assert_eq!(client_format("goose"), super::ConfigFormat::Yaml);
+        assert_eq!(spec("cursor").format, ConfigFormat::Json);
+        assert_eq!(spec("codex").format, ConfigFormat::Toml);
+        assert_eq!(spec("goose").format, ConfigFormat::Yaml);
     }
 
     #[test]
     fn codex_and_goose_have_config_paths() {
         assert!(
-            config_path("codex")
+            spec("codex")
+                .home_path()
                 .expect("codex config path")
                 .ends_with(".codex/config.toml")
         );
         assert!(
-            config_path("goose")
+            spec("goose")
+                .home_path()
                 .expect("goose config path")
                 .ends_with(if cfg!(windows) {
                     "Block/goose/config/config.yaml"
@@ -875,7 +578,8 @@ mod tests {
 
     #[test]
     fn codex_toml_renders_mcp_servers_table_and_merges() {
-        let (rendered, already) = render_codex_toml(None, &default_args()).expect("render");
+        let (rendered, already) =
+            render_fixture(spec("codex"), None, &default_args()).expect("render");
         assert_eq!(already, Existing::Absent);
         // Valid TOML with the codex-native table shape.
         let parsed: toml::Value = toml::from_str(&rendered).expect("valid toml");
@@ -890,7 +594,7 @@ mod tests {
         // Merges into an existing config, preserving other servers and detecting reinstall.
         let existing = "[mcp_servers.other]\ncommand = \"foo\"\nargs = []\n";
         let (merged, already_present) =
-            render_codex_toml(Some(existing), &default_args()).expect("merge");
+            render_fixture(spec("codex"), Some(existing), &default_args()).expect("merge");
         let parsed: toml::Value = toml::from_str(&merged).expect("valid toml");
         assert!(
             parsed["mcp_servers"].get("other").is_some(),
@@ -898,20 +602,23 @@ mod tests {
         );
         assert!(parsed["mcp_servers"].get("octocode").is_some());
         assert_eq!(already_present, Existing::Absent);
-        let (_again, now_present) = render_codex_toml(Some(&merged), &default_args()).expect("re");
+        let (_again, now_present) =
+            render_fixture(spec("codex"), Some(&merged), &default_args()).expect("re");
         assert_eq!(
             now_present,
             Existing::Same,
             "detects identical octocode entry"
         );
         let edited = merged.replace("npx", "node");
-        let (_, differs) = render_codex_toml(Some(&edited), &default_args()).expect("diff");
+        let (_, differs) =
+            render_fixture(spec("codex"), Some(&edited), &default_args()).expect("diff");
         assert_eq!(differs, Existing::Different, "detects a user-edited entry");
     }
 
     #[test]
     fn goose_yaml_renders_extensions_and_merges() {
-        let (rendered, already) = render_goose_yaml(None, &default_args()).expect("render");
+        let (rendered, already) =
+            render_fixture(spec("goose"), None, &default_args()).expect("render");
         assert_eq!(already, Existing::Absent);
         let parsed: serde_yaml_ng::Value = serde_yaml_ng::from_str(&rendered).expect("valid yaml");
         let entry = &parsed["extensions"]["octocode"];
@@ -920,13 +627,15 @@ mod tests {
         assert_eq!(entry["enabled"].as_bool(), Some(true));
 
         let existing = "extensions:\n  other:\n    type: stdio\n    cmd: foo\n";
-        let (merged, _) = render_goose_yaml(Some(existing), &default_args()).expect("merge");
+        let (merged, _) =
+            render_fixture(spec("goose"), Some(existing), &default_args()).expect("merge");
         let parsed: serde_yaml_ng::Value = serde_yaml_ng::from_str(&merged).expect("valid yaml");
         assert!(
             parsed["extensions"].get("other").is_some(),
             "preserves other"
         );
-        let (_again, now_present) = render_goose_yaml(Some(&merged), &default_args()).expect("re");
+        let (_again, now_present) =
+            render_fixture(spec("goose"), Some(&merged), &default_args()).expect("re");
         assert_eq!(
             now_present,
             Existing::Same,
@@ -937,14 +646,18 @@ mod tests {
     #[test]
     fn reinstall_is_a_noop_when_identical_and_needs_force_when_edited() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("mcp.json");
+        let path = dir
+            .path()
+            .canonicalize()
+            .expect("canonical tempdir")
+            .join("mcp.json");
         assert_eq!(
-            super::install("cursor", &path, &default_args()).expect("first"),
+            super::install(spec("cursor"), &path, &default_args()).expect("first"),
             0
         );
         let written = std::fs::read_to_string(&path).expect("read");
         assert_eq!(
-            super::install("cursor", &path, &default_args()).expect("again"),
+            super::install(spec("cursor"), &path, &default_args()).expect("again"),
             0
         );
         assert_eq!(
@@ -954,7 +667,7 @@ mod tests {
         );
         std::fs::write(&path, written.replace("npx", "node")).expect("edit");
         assert_eq!(
-            super::install("cursor", &path, &default_args()).expect("edited"),
+            super::install(spec("cursor"), &path, &default_args()).expect("edited"),
             1
         );
     }
@@ -966,11 +679,15 @@ mod tests {
             ("opencode", "mcp"),
         ] {
             let dir = tempfile::tempdir().expect("tempdir");
-            let path = dir.path().join("config.json");
+            let path = dir
+                .path()
+                .canonicalize()
+                .expect("canonical tempdir")
+                .join("config.json");
             std::fs::write(&path, r#"{"theme":"dark","unrelated":{"keep":true}}"#)
                 .expect("fixture");
             assert_eq!(
-                super::install(ide, &path, &default_args()).expect("install"),
+                super::install(spec(ide), &path, &default_args()).expect("install"),
                 0
             );
             let root: serde_json::Value =
@@ -978,7 +695,7 @@ mod tests {
             assert_eq!(root["theme"], "dark");
             assert_eq!(root["unrelated"]["keep"], true);
             assert!(root[key].get("octocode").is_some());
-            assert!(super::valid_server(ide, &root));
+            assert!(super::valid_server(spec(ide), &root));
             if ide == "opencode" {
                 assert_eq!(
                     root[key]["octocode"]["command"],
@@ -987,7 +704,7 @@ mod tests {
             }
             let written = std::fs::read_to_string(&path).expect("read");
             assert_eq!(
-                super::install(ide, &path, &default_args()).expect("existing"),
+                super::install(spec(ide), &path, &default_args()).expect("existing"),
                 0,
                 "identical reinstall is a no-op"
             );
@@ -1010,12 +727,12 @@ mod tests {
             ("codex", "c.toml"),
             ("goose", "g.yaml"),
         ] {
-            let path = dir.path().join(file);
-            let inspect = |args: &super::InstallArgs| match ide {
-                "codex" => super::install_toml(ide, &path, args),
-                "goose" => super::install_yaml(ide, &path, args),
-                _ => super::install(ide, &path, args),
-            };
+            let path = dir
+                .path()
+                .canonicalize()
+                .expect("canonical tempdir")
+                .join(file);
+            let inspect = |args: &super::InstallArgs| super::install(spec(ide), &path, args);
             assert_eq!(inspect(&check).expect("missing"), 1, "{ide}");
             assert!(!path.exists());
             assert_eq!(inspect(&default_args()).expect("install"), 0);
@@ -1024,11 +741,11 @@ mod tests {
             assert_eq!(std::fs::read(&path).expect("after"), before);
         }
         assert!(!super::valid_server(
-            "cursor",
+            spec("cursor"),
             &json!({"mcpServers":{"octocode":{"command":"npx","args":["other-package"]}}})
         ));
         assert!(!super::valid_server(
-            "cursor",
+            spec("vscode-cline"),
             &json!({"mcpServers":{"octocode":{"command":"npx","args":["octocode-mcp@latest"],"disabled":true}}})
         ));
     }
@@ -1036,8 +753,16 @@ mod tests {
     #[test]
     fn rollback_dry_run_preserves_destination_and_real_rollback_restores() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let path = dir.path().join("config.json");
-        let backup = dir.path().join("config.json.bak");
+        let path = dir
+            .path()
+            .canonicalize()
+            .expect("canonical tempdir")
+            .join("config.json");
+        let backup = dir
+            .path()
+            .canonicalize()
+            .expect("canonical tempdir")
+            .join("config.json.bak");
         std::fs::write(&path, "current").expect("current");
         std::fs::write(&backup, "previous").expect("backup");
         let mut args = super::InstallArgs {
@@ -1063,7 +788,39 @@ mod tests {
             ("vscode-continue", ".continue/mcpServers/octocode.json"),
             ("opencode", "opencode/opencode.json"),
         ] {
-            assert!(config_path(ide).expect("path").ends_with(suffix), "{ide}");
+            let path = spec(ide).home_path().expect("path");
+            assert!(
+                path.ends_with(suffix)
+                    || ide == "opencode" && path.ends_with("opencode/opencode.jsonc"),
+                "{ide}"
+            );
+        }
+    }
+    #[test]
+    fn randomized_private_backup_restores_the_original_filename() {
+        let path = std::path::Path::new("/safe/.config.json-0123456789abcdef0123456789abcdef.bak");
+        assert_eq!(
+            super::rollback_destination(path),
+            std::path::Path::new("/safe/config.json")
+        );
+        let path = std::path::Path::new("/safe/..claude.json-0123456789abcdef0123456789abcdef.bak");
+        assert_eq!(
+            super::rollback_destination(path),
+            std::path::Path::new("/safe/.claude.json")
+        );
+        for (rolling, original) in [
+            ("/safe/.mcp.json.bak", "/safe/mcp.json"),
+            ("/safe/..claude.json.bak", "/safe/.claude.json"),
+        ] {
+            let rolling = std::path::Path::new(rolling);
+            assert_eq!(
+                super::rollback_destination(rolling),
+                std::path::Path::new(original)
+            );
+            assert_eq!(
+                octocode_native::config::backup_path(&super::rollback_destination(rolling)),
+                rolling
+            );
         }
     }
 }

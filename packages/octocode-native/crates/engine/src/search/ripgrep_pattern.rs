@@ -1,16 +1,13 @@
-#[cfg(feature = "pcre2")]
 use grep_pcre2::RegexMatcherBuilder as Pcre2MatcherBuilder;
 use grep_regex::RegexMatcherBuilder;
-#[cfg(feature = "napi-addon")]
-use napi_derive::napi;
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 pub struct RipgrepPatternValidationResult {
     pub valid: bool,
     pub error: Option<String>,
 }
 
-pub fn validate(
+#[must_use]
+pub fn validate_ripgrep_pattern(
     pattern: &str,
     fixed_string: bool,
     perl_regex: bool,
@@ -29,7 +26,6 @@ pub fn validate(
         };
     }
 
-    #[cfg(feature = "pcre2")]
     if perl_regex {
         let mut builder = Pcre2MatcherBuilder::new();
         builder
@@ -51,18 +47,6 @@ pub fn validate(
         };
     }
 
-    #[cfg(not(feature = "pcre2"))]
-    if perl_regex {
-        return RipgrepPatternValidationResult {
-            valid: false,
-            error: Some(
-                "PCRE2 regex engine is not available in this build; \
-                 use the default `rust` engine instead."
-                    .to_owned(),
-            ),
-        };
-    }
-
     match RegexMatcherBuilder::new().build(pattern) {
         Ok(_) => RipgrepPatternValidationResult {
             valid: true,
@@ -81,28 +65,26 @@ mod tests {
 
     #[test]
     fn validate_rejects_invalid_default_ripgrep_regex() {
-        let result = validate("(", false, false);
+        let result = validate_ripgrep_pattern("(", false, false);
         assert!(!result.valid);
         assert!(result.error.is_some());
     }
 
     #[test]
     fn validate_accepts_fixed_string_without_regex_parsing() {
-        let result = validate("(", true, false);
+        let result = validate_ripgrep_pattern("(", true, false);
         assert!(result.valid);
     }
 
-    #[cfg(feature = "pcre2")]
     #[test]
     fn validate_compiles_valid_perl_regex() {
-        let result = validate("(?<=foo)bar", false, true);
+        let result = validate_ripgrep_pattern("(?<=foo)bar", false, true);
         assert!(result.valid);
     }
 
-    #[cfg(feature = "pcre2")]
     #[test]
     fn validate_rejects_invalid_perl_regex() {
-        let result = validate("(?<=", false, true);
+        let result = validate_ripgrep_pattern("(?<=", false, true);
         assert!(!result.valid);
         assert!(result.error.is_some());
     }

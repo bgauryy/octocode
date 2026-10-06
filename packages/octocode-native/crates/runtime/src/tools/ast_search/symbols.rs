@@ -1,24 +1,22 @@
+use crate::cache::{CacheClass, CacheConfig, CacheKey, CachePartition, Store};
 pub use crate::contracts::tool_types::AstSearchQuerySymbols;
 use crate::policy::prune::DefaultsFlag;
-use crate::runtime::symbol_outline::outline_rows;
 use crate::tools::id::ToolId;
+use crate::tools::num::u32_of;
+use crate::tools::symbol_outline::outline_rows;
 use crate::{
     policy::{path::PathPolicy, prune::PruneMode},
     security::ContentSecurity,
     tools::cancel::CancellationCheck,
 };
-use octocode_engine::types::{GraphFactsScanOptions, GraphLanguageGlob};
+use octocode_engine::types::GraphFactsScanOptions;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-fn u32_of(value: std::num::NonZeroU64) -> u32 {
-    u32::try_from(value.get()).unwrap_or(u32::MAX)
-}
-
 /// Engine-unit views over the generated `symbols` query.
 impl AstSearchQuerySymbols {
-    pub fn lang_type(&self) -> Option<String> {
-        self.lang_type.as_ref().map(ToString::to_string)
+    pub fn language(&self) -> Option<String> {
+        self.language.as_ref().map(ToString::to_string)
     }
     pub fn language_globs(&self) -> Option<&BTreeMap<String, Vec<String>>> {
         (!self.language_globs.is_empty()).then_some(&self.language_globs)
@@ -26,8 +24,8 @@ impl AstSearchQuerySymbols {
     pub fn kinds(&self) -> Option<&Vec<String>> {
         (!self.kinds.is_empty()).then_some(&self.kinds)
     }
-    pub fn exclude_dir(&self) -> Option<Vec<String>> {
-        (!self.exclude_dir.is_empty()).then(|| self.exclude_dir.clone())
+    pub fn exclude(&self) -> Option<Vec<String>> {
+        (!self.exclude.is_empty()).then(|| self.exclude.clone())
     }
     pub fn max_files(&self) -> u32 {
         u32_of(self.max_files)
@@ -41,16 +39,85 @@ impl AstSearchQuerySymbols {
     pub fn snapshot(&self) -> Option<&str> {
         self.snapshot.as_deref().map(String::as_str)
     }
-    /// `name` is one substring or a list; a declaration matches any of them.
-    pub fn name_matches(&self, declaration: &str) -> bool {
-        use crate::contracts::tool_types::AstSearchQuerySymbolsName;
-        match &self.name {
-            None => true,
-            Some(AstSearchQuerySymbolsName::String(name)) => declaration.contains(name.as_str()),
-            Some(AstSearchQuerySymbolsName::Array(names)) => {
-                names.iter().any(|name| declaration.contains(name.as_str()))
+    /// The `name` filter: a string is a one-entry list. Each entry that
+    /// equals some declaration name matches only equal names; otherwise it
+    /// matches as a substring. All-lowercase text ignores case.
+    fn name_filter(&self) -> Option<NameFilter> {
+        use crate::contracts::tool_types::AstSearchQuerySymbolsSymbolName;
+        let entries = match self.symbol_name.as_ref()? {
+            AstSearchQuerySymbolsSymbolName::String(name) => vec![name.to_string()],
+            AstSearchQuerySymbolsSymbolName::Array(names) => {
+                names.iter().map(ToString::to_string).collect()
             }
+        };
+        Some(NameFilter {
+            entries: entries.into_iter().map(NameEntry::new).collect(),
+        })
+    }
+}
+
+/// One `name` value; all-lowercase text compares without case.
+struct NameEntry {
+    text: String,
+    fold: bool,
+    /// The entry equals some declaration, so it matches only equal names.
+    exact: bool,
+}
+
+impl NameEntry {
+    fn new(text: String) -> Self {
+        let fold = !text.chars().any(char::is_uppercase);
+        Self {
+            text,
+            fold,
+            exact: false,
         }
+    }
+    fn equals(&self, name: &str) -> bool {
+        if self.fold {
+            name.to_lowercase() == self.text
+        } else {
+            name == self.text
+        }
+    }
+    fn matches(&self, name: &str) -> bool {
+        if self.exact {
+            self.equals(name)
+        } else if self.fold {
+            name.to_lowercase().contains(&self.text)
+        } else {
+            name.contains(&self.text)
+        }
+    }
+}
+
+struct NameFilter {
+    entries: Vec<NameEntry>,
+}
+
+impl NameFilter {
+    /// An entry that equals a declaration name keeps only equal names.
+    fn settle<'a>(&mut self, names: impl Iterator<Item = &'a str> + Clone) {
+        for entry in &mut self.entries {
+            entry.exact = names.clone().any(|name| entry.equals(name));
+        }
+    }
+    fn matches(&self, name: &str) -> bool {
+        self.entries.iter().any(|entry| entry.matches(name))
+    }
+    /// Whether `source` spells some entry's text: a declaration whose name
+    /// matches an entry spells it in the source.
+    fn spelled_in(&self, source: &str) -> bool {
+        let mut folded = None;
+        self.entries.iter().any(|entry| {
+            if entry.fold {
+                folded
+                    .get_or_insert_with(|| source.to_lowercase())
+                    .contains(&entry.text)
+            } else {
+                source.contains(&entry.text)
+            }
+        })
     }
 }
 
@@ -101,159 +168,414 @@ pub fn execute_symbols(
     let p = paths
         .validate(q.path.as_str())
         .map_err(super::AstError::from)?;
-    let meta = std::fs::metadata(&p.canonical).map_err(super::io_error)?;
-    if meta.is_file() && q.language_globs().is_some() {
+    let meta =
+        std::fs::metadata(&p.canonical).map_err(|error| super::io_error(q.path.as_str(), error))?;
+    check_language_scope(q, &p.canonical, meta.is_file())?;
+    if meta.is_file() {
+        let outline = match outline_file(q, &p.canonical, security)? {
+            Ok(outline) => outline,
+            Err(terminal) => return Ok(terminal),
+        };
+        let set = select(q, &p.canonical, outline, security, cancel)?;
+        return Ok(render_page(q, &set));
+    }
+    // Later pages of a directory outline reuse page 1's selection while no
+    // scanned file changed (same paths, sizes and modification times).
+    let memo_key = directory_memo_key(q, &p.canonical, paths, cancel)?;
+    if q.page() > 1
+        && let Some(hit) = SYMBOL_PAGES.get(&memo_key)
+    {
+        return Ok(render_page(q, &hit.value));
+    }
+    let outline = outline_directory(q, &p.canonical, paths, cancel)?;
+    let set = select(q, &p.canonical, outline, security, cancel)?;
+    let page = render_page(q, &set);
+    let bytes = serde_json::to_vec(&set).map_or(usize::MAX, |encoded| encoded.len());
+    SYMBOL_PAGES.put(memo_key, set, bytes, CacheClass::Volatile);
+    Ok(page)
+}
+
+/// `language` names one file's grammar; `languageGlobs` maps a directory's.
+fn check_language_scope(
+    q: &AstSearchQuerySymbols,
+    canonical: &std::path::Path,
+    is_file: bool,
+) -> Result<(), super::AstError> {
+    if is_file && q.language_globs().is_some() {
         return Err(super::AstError::new(
             "ast.language.directoryRequired",
-            "languageGlobs is for directory symbols. Use langType for a single file.",
+            "languageGlobs is for directory symbols. Use language for a single file.",
         ));
     }
-    if meta.is_file() {
-        super::validate_file_language(&p.canonical, q.lang_type().as_deref())?;
-    } else if q.lang_type.is_some() {
-        let mut error = super::AstError::new(
-            "ast.language.fileRequired",
-            "langType on symbols requires a single source file.",
-        );
-        // Directory symbols pick each file's grammar from its extension, so
-        // the same query without langType is the exact repair.
-        if let Ok(mut repaired) = serde_json::to_value(q) {
-            if let Some(object) = repaired.as_object_mut() {
-                object.remove("langType");
-            }
-            error.next = Some(Box::new(json!({
-                "repair": {"tool": ToolId::AstSearch.as_str(), "confidence": "exact", "query": repaired}
-            })));
-        }
-        return Err(error);
+    if is_file {
+        return super::validate_file_language(canonical, q.language().as_deref());
     }
-    let (mut entries, truncated, mut skipped, mut diagnostics) = if meta.is_file() {
-        let b = std::fs::read(&p.canonical).map_err(super::io_error)?;
-        if b.len() > super::MAX_PARSE_SOURCE_BYTES {
-            return Ok(limit(
-                &p.canonical
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy(),
-            ));
+    if q.language.is_none() {
+        return Ok(());
+    }
+    let mut error = super::AstError::new(
+        "ast.language.fileRequired",
+        "language on symbols requires a single source file.",
+    );
+    // Directory symbols pick each file's grammar from its extension, so
+    // the same query without language is the exact repair.
+    if let Ok(mut repaired) = serde_json::to_value(q) {
+        if let Some(object) = repaired.as_object_mut() {
+            object.remove("language");
         }
-        // Parse the file as the directory scan does: raw. Output strings
-        // are redacted by the response stage.
-        let source = security
-            .decode_source_bytes(&b, super::MAX_PARSE_SOURCE_BYTES)
-            .map_err(super::AstError::from)?;
-        let source_path = p.canonical.to_string_lossy();
-        let cpp_header = super::cpp_header_override(&p.canonical, q.lang_type().as_deref());
-        let raw = super::declarations_cache::extract(&source, &source_path, cpp_header, || {
-            if cpp_header {
-                octocode_engine::portable::extract_graph_facts_with_extension(
-                    &source,
-                    &source_path,
-                    "cpp",
-                )
-            } else {
-                octocode_engine::portable::extract_declarations(&source, &source_path)
-            }
-        });
-        match raw {
-            Some(raw) => (
-                vec![(super::display_name(&p.canonical), raw)],
-                false,
-                0,
-                vec![],
-            ),
-            None => {
-                return Ok(
-                    json!({"status":"error","errorCode":"ast.symbols.unsupported","path":super::display_name(&p.canonical),"error":"No native declaration extractor supports this source. Inspect its syntax tree or exact content."}),
-                );
-            }
-        }
-    } else {
-        let r = octocode_engine::portable::scan_graph_facts_filtered(
-            GraphFactsScanOptions {
-                path: p.canonical.to_string_lossy().into_owned(),
-                exclude_dir: Some(
-                    PruneMode::SyntaxVisible
-                        .directories(&q.exclude_dir, q.default_excludes.defaults()),
-                ),
-                max_files: Some(q.max_files()),
-                max_file_bytes: u32::try_from(super::MAX_PARSE_SOURCE_BYTES).ok(),
-                language_globs: q.language_globs().map(|map| {
-                    map.iter()
-                        .flat_map(|(language, globs)| {
-                            globs.iter().map(|glob| GraphLanguageGlob {
-                                language: language.clone(),
-                                glob: glob.clone(),
-                            })
-                        })
-                        .collect()
-                }),
-            },
-            &|path| super::allow_discovery(path, paths, cancel),
-        )
-        .map_err(super::native_error)?;
-        let rooted =
-            |relative: &str| super::rooted_display(&p.canonical, std::path::Path::new(relative));
-        let ds=r.skipped.iter().map(|d|json!({"path":rooted(&d.relative_path),"message":format!("{}: {}",d.code,d.message)})).collect();
-        (
-            r.entries
-                .into_iter()
-                .map(|e| (rooted(&e.relative_path), std::sync::Arc::new(e.facts_json)))
-                .collect(),
-            r.truncated,
-            r.files_skipped,
-            ds,
-        )
+        error.next = Some(Box::new(json!({
+            "repair": crate::tools::result::Continuation::new(ToolId::AstSearch, repaired).confidence("exact").build()
+        })));
+    }
+    Err(error)
+}
+
+/// Declaration facts per file, before the kind and name filters.
+struct Outline {
+    /// `(row path, declarations, engine diagnostics)` per parsed file.
+    files: Vec<(String, Vec<Value>, Vec<String>)>,
+    /// Files the scan considered, including those the name prefilter skipped.
+    scanned: usize,
+    truncated: bool,
+    skipped: u32,
+    diagnostics: Vec<Value>,
+}
+
+/// One file's declarations; `Err` is a terminal row (size limit, no
+/// extractor) rather than a tool error.
+fn outline_file(
+    q: &AstSearchQuerySymbols,
+    canonical: &std::path::Path,
+    security: &ContentSecurity,
+) -> Result<Result<Outline, Value>, super::AstError> {
+    let Some(b) = super::read_parse_source(canonical)? else {
+        return Ok(Err(super::source_limit(&super::display_name(canonical))));
     };
-    cancel.check().map_err(super::cancelled)?;
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-    // A single-file query hoists `path` to the top level instead of repeating it.
-    let per_row_path = !meta.is_file();
-    let mut declarations = vec![];
-    let mut recovered = false;
-    for (path, raw) in &entries {
-        let Ok(v) = serde_json::from_str::<Value>(raw) else {
-            skipped += 1;
-            diagnostics.push(json!({"path":path,"message":"graph facts decode failed"}));
-            continue;
-        };
-        if let Some(ds) = v["diagnostics"].as_array() {
-            for m in ds.iter().filter_map(Value::as_str) {
-                // The syntax-only caveat is static and already in the tool
-                // description; repeating it costs every call.
-                if is_linking_only(m) || m == SYNTAX_ONLY_NOTE {
-                    continue;
-                } else {
-                    recovered |= m.starts_with(RECOVERED_PARSE_NOTE_PREFIX);
-                    if per_row_path {
-                        diagnostics.push(json!({"path":path,"message":m}));
-                    } else {
-                        diagnostics.push(json!({"message":m}));
-                    }
-                }
-            }
+    // Parse the file as the directory scan does: raw. Output strings are
+    // redacted by the response stage.
+    let source = security
+        .decode_source_bytes(&b, super::MAX_PARSE_SOURCE_BYTES)
+        .map_err(super::AstError::from)?;
+    let source_path = canonical.to_string_lossy();
+    let cpp_header = super::cpp_header_override(canonical, q.language().as_deref());
+    let raw = super::declarations_cache::extract(&source, &source_path, cpp_header, || {
+        if cpp_header {
+            octocode_engine::portable::extract_graph_facts_with_extension(
+                &source,
+                &source_path,
+                "cpp",
+            )
+        } else {
+            octocode_engine::portable::extract_declarations(&source, &source_path)
         }
-        let Some(ds) = v["declarations"].as_array() else {
-            continue;
-        };
-        for (d, mut row) in ds.iter().zip(compact_declarations(ds)) {
-            let name = d["name"].as_str().unwrap_or("");
+    });
+    let path = super::display_name(canonical);
+    let Some(raw) = raw else {
+        return Ok(Err(
+            json!({"status":"error","errorCode":"ast.symbols.unsupported","path":path,"error":"No native declaration extractor supports this source. Inspect its syntax tree or exact content."}),
+        ));
+    };
+    let (mut skipped, mut diagnostics, mut files) = (0, vec![], vec![]);
+    match serde_json::from_str::<Value>(&raw) {
+        Ok(mut facts) => {
+            let declarations = match facts["declarations"].take() {
+                Value::Array(rows) => rows,
+                _ => vec![],
+            };
+            let notes = facts["diagnostics"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect();
+            files.push((path, declarations, notes));
+        }
+        Err(_) => {
+            skipped = 1;
+            diagnostics.push(json!({"path":path,"message":"graph facts decode failed"}));
+        }
+    }
+    Ok(Ok(Outline {
+        files,
+        scanned: 1,
+        truncated: false,
+        skipped,
+        diagnostics,
+    }))
+}
+
+/// The engine walk options a directory outline scans with.
+fn directory_scan_options(
+    q: &AstSearchQuerySymbols,
+    canonical: &std::path::Path,
+) -> GraphFactsScanOptions {
+    GraphFactsScanOptions {
+        path: canonical.to_string_lossy().into_owned(),
+        exclude_dir: Some(PruneMode::SyntaxVisible.directories(q.default_excludes.defaults())),
+        exclude: q.exclude(),
+        max_files: Some(q.max_files()),
+        max_file_bytes: u32::try_from(super::MAX_PARSE_SOURCE_BYTES).ok(),
+        language_globs: q
+            .language_globs()
+            .map(crate::tools::ast_rule::language_globs),
+    }
+}
+
+/// Every file's declarations under a directory. A name filter is a byte
+/// prefilter first: a file that never spells any filter text cannot declare a
+/// matching name, so it is read but not parsed.
+fn outline_directory(
+    q: &AstSearchQuerySymbols,
+    canonical: &std::path::Path,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Result<Outline, super::AstError> {
+    let filter = q.name_filter();
+    let passed_over = std::sync::atomic::AtomicUsize::new(0);
+    let keep = |source: &str| {
+        let spelled = filter
+            .as_ref()
+            .is_none_or(|filter| filter.spelled_in(source));
+        if !spelled {
+            passed_over.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        spelled
+    };
+    let scan = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        octocode_engine::graph::scan_graph_facts_typed_selected(
+            directory_scan_options(q, canonical),
+            &|path| super::allow_discovery(path, paths, cancel),
+            &keep,
+        )
+    }))
+    .unwrap_or_else(|_| Err("graph-facts scan failed on pathological input".to_owned()))
+    .map_err(super::native_error)?;
+    let rooted = |relative: &str| super::rooted_display(canonical, std::path::Path::new(relative));
+    let diagnostics = scan
+        .skipped
+        .iter()
+        .map(|d| json!({"path":rooted(&d.relative_path),"message":format!("{}: {}",d.code,d.message)}))
+        .collect();
+    let files = scan
+        .entries
+        .into_iter()
+        .map(|entry| {
+            let declarations = match serde_json::to_value(&entry.facts.declarations) {
+                Ok(Value::Array(rows)) => rows,
+                _ => vec![],
+            };
+            (
+                rooted(&entry.relative_path),
+                declarations,
+                entry.facts.diagnostics,
+            )
+        })
+        .collect::<Vec<_>>();
+    Ok(Outline {
+        scanned: files.len() + passed_over.into_inner(),
+        files,
+        truncated: scan.truncated,
+        skipped: scan.files_skipped,
+        diagnostics,
+    })
+}
+
+/// Page memo for directory outlines: one query shape over unchanged files.
+static SYMBOL_PAGES: std::sync::LazyLock<Store<SymbolSet>> = std::sync::LazyLock::new(|| {
+    Store::new(
+        CacheConfig {
+            max_entries: 8,
+            max_bytes: 64 * 1024 * 1024,
+            ttl: std::time::Duration::from_secs(600),
+            ..CacheConfig::default()
+        },
+        None,
+    )
+});
+
+/// The memo key: every query field except the page cursor, plus the
+/// fingerprint of the files the outline scans.
+fn directory_memo_key(
+    q: &AstSearchQuerySymbols,
+    canonical: &std::path::Path,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Result<CacheKey, super::AstError> {
+    let shape = json!([
+        canonical.to_string_lossy(),
+        q.language_globs(),
+        q.symbol_name,
+        q.kinds(),
+        q.exclude(),
+        q.default_excludes.defaults(),
+        q.max_files()
+    ]);
+    Ok(CacheKey {
+        namespace: "ast-symbol-pages".into(),
+        resource: crate::digest::json_sha256(&shape),
+        partition: CachePartition {
+            endpoint: directory_fingerprint(q, canonical, paths, cancel)?,
+            credential_fingerprint: String::new(),
+        },
+    })
+}
+
+/// Digest of the files a directory outline would scan: path, size and
+/// modification time, walked under the caller's path policy.
+fn directory_fingerprint(
+    q: &AstSearchQuerySymbols,
+    canonical: &std::path::Path,
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Result<String, super::AstError> {
+    let options = directory_scan_options(q, canonical);
+    let walk = octocode_engine::portable::query_file_system_filtered(
+        octocode_engine::types::FileSystemQueryOptions {
+            path: options.path,
+            recursive: Some(true),
+            show_hidden: Some(false),
+            entry_type: Some("f".to_owned()),
+            extensions: Some(octocode_engine::signatures::graph_facts::graph_fact_extensions()),
+            exclude_dir: options.exclude_dir,
+            exclude: options.exclude,
+            stop_at_limit: Some(true),
+            limit: options.max_files,
+            ..Default::default()
+        },
+        &|path| super::allow_discovery(path, paths, cancel),
+    )
+    .map_err(super::native_error)?;
+    let mut stats = walk
+        .entries
+        .iter()
+        .map(|entry| {
+            (
+                &entry.relative_path,
+                entry.size,
+                entry.modified_ms.map(f64::to_bits),
+            )
+        })
+        .collect::<Vec<_>>();
+    stats.sort_unstable();
+    Ok(crate::digest::json_sha256(&json!(stats)))
+}
+
+/// Applies the kind and name filters to an outline and pins the result.
+fn select(
+    q: &AstSearchQuerySymbols,
+    canonical: &std::path::Path,
+    outline: Outline,
+    security: &ContentSecurity,
+    cancel: &dyn CancellationCheck,
+) -> Result<SymbolSet, super::AstError> {
+    cancel.check().map_err(super::cancelled)?;
+    let Outline {
+        mut files,
+        scanned,
+        truncated,
+        skipped,
+        mut diagnostics,
+    } = outline;
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    // A directory query writes each row's file; a single file hoists `path`.
+    let per_row_path = !canonical.is_file();
+    let mut candidates = vec![];
+    let mut recovered = false;
+    // Per file: (path, its notes, index of its first candidate row).
+    let mut file_notes: Vec<(&String, Vec<&String>, usize)> = Vec::new();
+    for (path, declarations, notes) in &files {
+        // The syntax-only caveat is static and already in the tool
+        // description; repeating it costs every call.
+        let kept: Vec<&String> = notes
+            .iter()
+            .filter(|m| !is_linking_only(m) && *m != SYNTAX_ONLY_NOTE)
+            .collect();
+        recovered |= kept
+            .iter()
+            .any(|m| m.starts_with(RECOVERED_PARSE_NOTE_PREFIX));
+        file_notes.push((path, kept, candidates.len()));
+        for (d, mut row) in declarations.iter().zip(compact_declarations(declarations)) {
             let kind = d["kind"].as_str().unwrap_or("");
-            if q.name_matches(name) && q.kinds().is_none_or(|ks| ks.iter().any(|k| k == kind)) {
-                if per_row_path {
-                    row["path"] = json!(path);
-                }
-                declarations.push(row)
+            if q.kinds().is_none_or(|ks| ks.iter().any(|k| k == kind)) {
+                row["path"] = json!(path);
+                candidates.push(row)
             }
         }
     }
-    let snapshot = super::syntax::digest(&json!([
-        p.canonical.to_string_lossy(),
-        q.lang_type,
+    let name_of = |row: &Value| row["name"].as_str().unwrap_or("").to_owned();
+    let mut filter = q.name_filter();
+    if let Some(filter) = filter.as_mut() {
+        let names = candidates.iter().map(name_of).collect::<Vec<_>>();
+        filter.settle(names.iter().map(String::as_str));
+    }
+    let kept_rows: Vec<bool> = candidates
+        .iter()
+        .map(|row| {
+            filter
+                .as_ref()
+                .is_none_or(|filter| filter.matches(&name_of(row)))
+        })
+        .collect();
+    // A note on a file that lists declarations stays on that file; notes on
+    // files without a listed declaration are one entry per message with
+    // every path (the repeated message is the only thing removed).
+    let mut quiet: Vec<(&String, Vec<&String>)> = Vec::new();
+    for (index, (path, notes, first)) in file_notes.iter().enumerate() {
+        let end = file_notes
+            .get(index + 1)
+            .map_or(candidates.len(), |next| next.2);
+        let listed = kept_rows[*first..end].iter().any(|kept| *kept);
+        for m in notes {
+            if !per_row_path {
+                diagnostics.push(json!({"message":m}));
+            } else if listed {
+                diagnostics.push(json!({"path":path,"message":m}));
+            } else if let Some((_, paths)) = quiet.iter_mut().find(|(message, _)| message == m) {
+                paths.push(path);
+            } else {
+                quiet.push((m, vec![path]));
+            }
+        }
+    }
+    for (message, paths) in quiet {
+        // `files[].path`, like every row path, is shaped by the response stage.
+        let files: Vec<Value> = paths.iter().map(|path| json!({"path": path})).collect();
+        diagnostics.push(json!({
+            "message": format!("{message} (files without a listed declaration)"),
+            "files": files,
+        }));
+    }
+    let mut declarations = candidates
+        .into_iter()
+        .zip(kept_rows)
+        .filter_map(|(mut row, kept)| {
+            if !per_row_path && let Some(fields) = row.as_object_mut() {
+                fields.remove("path");
+            }
+            kept.then_some(row)
+        })
+        .collect::<Vec<_>>();
+    let references = match (&filter, declarations.as_slice()) {
+        (Some(_), [row]) => references_lead(canonical, row),
+        _ => None,
+    };
+    // A file outline's natural next step reads its top declaration; a
+    // directory outline (or a references lead) names its own route.
+    let read = (!per_row_path && references.is_none())
+        .then(|| {
+            declarations
+                .first()
+                .and_then(|row| read_lead(canonical, row))
+        })
+        .flatten();
+    let snapshot = crate::digest::json_sha256(&json!([
+        canonical.to_string_lossy(),
+        q.language,
         q.language_globs(),
-        q.name,
+        q.symbol_name,
         q.kinds(),
-        q.exclude_dir(),
+        q.exclude(),
         q.max_files(),
         &declarations,
         &diagnostics,
@@ -264,22 +586,111 @@ pub fn execute_symbols(
         if let Some(path) = row["path"].as_str() {
             row["path"] = json!(security.sanitize_text(path, None).content);
         }
+        if let Some(files) = row.get_mut("files").and_then(Value::as_array_mut) {
+            for file in files {
+                if let Some(path) = file["path"].as_str() {
+                    file["path"] = json!(security.sanitize_text(path, None).content);
+                }
+            }
+        }
     }
-    let set = SymbolSet {
-        path: super::display_name(&p.canonical),
+    // A name search that may be missing declarations (a recovered parse,
+    // skipped files) completes with a text search for the same name.
+    let text_search = (recovered || skipped > 0 || truncated)
+        .then(|| text_search_lead(q, canonical))
+        .flatten();
+    Ok(SymbolSet {
+        references,
+        read,
+        text_search,
+        path: super::display_name(canonical),
         snapshot,
         declarations,
         diagnostics,
-        files_scanned: entries.len(),
+        files_scanned: scanned,
         skipped,
         truncated,
         recovered,
-    };
-    Ok(render_page(q, &set))
+    })
+}
+
+/// One declaration a name filter singles out: its callers (a callable) or
+/// references are the usual next question, and only a language server
+/// answers it; none is offered when no server runs for the file.
+fn references_lead(canonical: &std::path::Path, row: &Value) -> Option<Value> {
+    let file = row["path"].as_str().map_or_else(
+        || canonical.to_path_buf(),
+        |shown| canonical.parent().unwrap_or(canonical).join(shown),
+    );
+    let query = crate::tools::lsp_search::verify_query(
+        &file.to_string_lossy(),
+        row["name"].as_str()?,
+        row["line"].as_u64()?,
+        crate::tools::lsp_search::Verify::for_kind(row["kind"].as_str().unwrap_or_default()),
+    )?;
+    Some(
+        crate::tools::result::Continuation::new(ToolId::LspSearch, query)
+            .why("Who uses this declaration.")
+            .confidence("high")
+            .build(),
+    )
+}
+
+/// A text search for the `symbolName` values under the outlined path: the
+/// completion when a recovered parse or a skipped file may hide one.
+fn text_search_lead(q: &AstSearchQuerySymbols, canonical: &std::path::Path) -> Option<Value> {
+    let filter = q.name_filter()?;
+    let names: Vec<&str> = filter
+        .entries
+        .iter()
+        .map(|entry| entry.text.as_str())
+        .collect();
+    let mut query = json!({"path": canonical.to_string_lossy()});
+    if let [name] = names.as_slice() {
+        query["matchString"] = json!(name);
+        query["regex"] = json!("literal");
+    } else {
+        let alternation: Vec<String> = names.iter().map(|name| regex::escape(name)).collect();
+        query["matchString"] = json!(alternation.join("|"));
+        query["regex"] = json!("rust");
+    }
+    if filter.entries.iter().all(|entry| entry.fold) {
+        query["caseMode"] = json!("insensitive");
+    }
+    Some(
+        crate::tools::result::Continuation::new(ToolId::LocalSearch, query)
+            .why("A recovered parse or skipped file may hide a declaration; search its text.")
+            .confidence("medium")
+            .build(),
+    )
+}
+
+/// The read of one declaration's lines.
+fn read_lead(canonical: &std::path::Path, row: &Value) -> Option<Value> {
+    let start = row["line"].as_u64()?;
+    let end = row["endLine"].as_u64().unwrap_or(start);
+    Some(
+        crate::tools::result::Continuation::new(
+            ToolId::LocalFetch,
+            json!({"path": canonical.to_string_lossy(), "ranges": [format!("{start}-{end}")]}),
+        )
+        .why("Read the top declaration.")
+        .confidence("high")
+        .build(),
+    )
 }
 
 /// Every declaration of one symbols query, before paging.
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
 struct SymbolSet {
+    /// `next.verifyReferences` for a single named declaration.
+    references: Option<Value>,
+    /// `next.read` of a file outline's top declaration.
+    #[serde(default)]
+    read: Option<Value>,
+    /// `next.textSearch` for the name when the outline may be incomplete.
+    #[serde(default)]
+    text_search: Option<Value>,
     path: String,
     snapshot: String,
     declarations: Vec<Value>,
@@ -294,6 +705,9 @@ struct SymbolSet {
 
 fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
     let SymbolSet {
+        references,
+        read,
+        text_search,
         path,
         snapshot,
         declarations,
@@ -310,7 +724,11 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
             query.retain(|key, value| key != "snapshot" && !value.is_null());
         }
         restart["page"] = json!(1);
-        return json!({"status":"error","errorCode":"ast.snapshot.changed","error":"The source or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.","snapshot":snapshot,"complete":false,"next":{"restart":{"tool":ToolId::AstSearch.as_str(),"query":restart,"confidence":"exact"}}});
+        return crate::tools::result::stale_snapshot(
+            crate::tools::result::Continuation::new(ToolId::AstSearch, restart)
+                .confidence("exact")
+                .build(),
+        );
     }
     let size = q.page_size().clamp(1, 1000) as usize;
     let page = q.page().max(1) as usize;
@@ -322,13 +740,11 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
         .unwrap_or(&[]);
     // A `maxFiles` cut below the schema maximum is raisable: expandScan
     // re-runs the outline with a doubled bound, so only the maximum is terminal.
-    let max_files = crate::contracts::query_schema_number(
+    let max_files = u32::try_from(crate::contracts::query_schema_max(
         ToolId::AstSearch,
         Some("symbols"),
         "maxFiles",
-        "maximum",
-    )
-    .and_then(|value| u32::try_from(value).ok())
+    ))
     .unwrap_or(u32::MAX);
     let expand_scan = (truncated && q.max_files() < max_files)
         .then(|| q.max_files().saturating_mul(2).min(max_files));
@@ -340,23 +756,30 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
             "message":format!("Candidate scan hit the maxFiles limit ({limit}); files beyond it were not outlined."),
         }));
     }
-    let mut out = json!({"operation":"symbols","path":path,"totalDeclarations":declarations.len(),"filesScanned":files_scanned,"filesSkipped":skipped,"diagnostics":diagnostics,"isPartial":more||incomplete||*recovered});
+    let mut out = json!({"operation":"symbols","path":path,"filesScanned":files_scanned,"filesSkipped":skipped,"diagnostics":diagnostics,"isPartial":more||incomplete||*recovered,"pagination":{"totalItems":declarations.len()}});
     // A directory outline groups rows under their file, like `match` results,
     // so each path is written once instead of on every declaration. Rows are
-    // compact outline strings (see `runtime::symbol_outline`).
+    // compact outline strings (see `tools::symbol_outline`).
     if rows.iter().any(|row| row.get("path").is_some()) {
         out["files"] = Value::Array(group_by_file(rows));
     } else {
-        out["declarations"] = Value::Array(outline_rows(rows));
+        out["symbols"] = Value::Array(outline_rows(rows));
     }
     // The snapshot only pins later pages to the same source; a single page
     // has nothing to pin.
     if more || page > 1 {
         out["snapshot"] = json!(snapshot);
-        out["pagination"] = json!({"currentPage":page,"totalPages":declarations.len().div_ceil(size).max(1),"hasMore":more});
+        out["pagination"] = json!({"currentPage":page,"totalPages":declarations.len().div_ceil(size).max(1),"totalItems":declarations.len(),"hasMore":more});
     }
     if skipped > 0 || (truncated && expand_scan.is_none()) {
-        out["terminalLimit"] = json!(true)
+        out["terminalLimit"] = json!(true);
+        if skipped > 0 {
+            diagnostics.push(json!({
+                "code":"symbols.filesSkipped",
+                "message":format!("terminalLimit: {skipped} files were not outlined (parse byte limit, encoding or read failure); no page reaches their declarations. next.textSearch searches their text."),
+            }));
+            out["diagnostics"] = json!(diagnostics);
+        }
     }
     if more {
         let mut nq = serde_json::to_value(q).unwrap_or_default();
@@ -366,8 +789,7 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
         nq["maxFiles"] = json!(q.max_files());
         nq["snapshot"] = json!(snapshot);
         nq["page"] = json!(page + 1);
-        out["next"] =
-            json!({"nextPage":{"tool":ToolId::AstSearch.as_str(),"query":nq,"confidence":"exact"}})
+        out["next"] = json!({"nextPage":crate::tools::result::Continuation::new(ToolId::AstSearch, nq).confidence("exact").build()})
     }
     if let Some(bound) = expand_scan {
         let mut nq = serde_json::to_value(q).unwrap_or_default();
@@ -376,8 +798,18 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
         }
         nq["maxFiles"] = json!(bound);
         nq["page"] = json!(1);
-        out["next"]["expandScan"] =
-            json!({"tool":ToolId::AstSearch.as_str(),"query":nq,"confidence":"exact"});
+        out["next"]["expandScan"] = crate::tools::result::Continuation::new(ToolId::AstSearch, nq)
+            .confidence("exact")
+            .build();
+    }
+    if let Some(lead) = references {
+        out["next"]["verifyReferences"] = lead.clone();
+    }
+    if let Some(lead) = text_search.as_ref().filter(|_| page == 1) {
+        out["next"]["textSearch"] = lead.clone();
+    }
+    if let Some(lead) = read.as_ref().filter(|_| page == 1) {
+        out["next"]["read"] = lead.clone();
     }
     if declarations.is_empty() && !incomplete {
         out["status"] = json!("empty")
@@ -401,13 +833,10 @@ fn group_by_file(rows: &[Value]) -> Vec<Value> {
     }
     files
         .into_iter()
-        .map(|(path, rows)| json!({"path":path,"declarations":outline_rows(&rows)}))
+        .map(|(path, rows)| json!({"path":path,"symbols":outline_rows(&rows)}))
         .collect()
 }
 
-fn limit(path: &str) -> Value {
-    json!({"status":"error","path":path,"errorCode":"ast.source.limit","error":"Source exceeds the native parser byte limit.","complete":false,"terminalLimit":true})
-}
 /// Import/module-linking caveats from graph facts. Declaration listing never
 /// links imports or modules, so these only add noise to symbols output.
 fn is_linking_only(message: &str) -> bool {

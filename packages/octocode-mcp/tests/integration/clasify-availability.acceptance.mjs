@@ -11,10 +11,14 @@ const base = path.join(root, '.octocode/octocode-dev/clasify-availability');
 await fs.mkdir(base, { recursive: true });
 const fixture = await fs.mkdtemp(path.join(base, 'fixture-'));
 const request = {
-  goal: 'Confirm the clasify credential gate.',
-  reasoning: 'Check disabled capability without provider access.',
-  resources: [{ context: { value: 'fixture' } }],
-  questions: [{ type: 'noul', instructions: 'Is this a fixture?' }],
+  queries: [
+    {
+      mainGoal: 'Confirm the clasify credential gate.',
+      reasoning: 'Check disabled capability without provider access.',
+      resources: [{ value: 'fixture' }],
+      questions: [{ type: 'yesno', ask: 'Is this a fixture?' }],
+    },
+  ],
 };
 const cases = [
   {

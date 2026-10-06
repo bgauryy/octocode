@@ -156,7 +156,7 @@ function nameUntaggableVariants(schema: JsonObject, owner: string): JsonObject {
     return schema;
   }
   const [discriminator] = discriminators;
-  if (!discriminator) return schema;
+  if (!discriminator) return nameByOwnField(objects, owner, required, schema);
   const values = valuesOf(discriminator);
   const titled = objects.map((branch, index) => {
     const value = values[index] as string;
@@ -166,6 +166,27 @@ function nameUntaggableVariants(schema: JsonObject, owner: string): JsonObject {
     return { ...branch, title: `${owner}${typeName(value)}${suffix}` };
   });
   return { ...schema, oneOf: titled };
+}
+
+/**
+ * Branches told apart only by their fields (astRewrite: pattern+rewrite or
+ * rule+fix) are named by the first required field only that branch has:
+ * `<Owner><Field>` (`AstRewriteQueryPattern` / `…Rule`).
+ */
+function nameByOwnField(
+  objects: JsonObject[],
+  owner: string,
+  required: (branch: JsonObject) => string[],
+  schema: JsonObject
+): JsonObject {
+  const names = objects.map((branch, index) => {
+    const peers = objects.filter((_, other) => other !== index);
+    const own = required(branch).find((key) => peers.every((peer) => !required(peer).includes(key)));
+    return own === undefined ? undefined : `${owner}${typeName(own)}`;
+  });
+  const titles = names.filter((name): name is string => name !== undefined);
+  if (titles.length !== objects.length || new Set(titles).size !== titles.length) return schema;
+  return { ...schema, oneOf: objects.map((branch, index) => ({ ...branch, title: titles[index] as string })) };
 }
 
 export function buildToolTypesBundle(ir: EnforcementContractIr = buildEnforcementContractIr()): {

@@ -5,7 +5,7 @@
 //! core policy family, and the `mcp.*` presentation switches reach hosts
 //! through the runtime catalog. Defaults keep the full catalog.
 
-mod support;
+use crate::support;
 
 use serde_json::{Value, json};
 use support::Workspace;
@@ -27,10 +27,7 @@ async fn default_family_keeps_every_family() {
         assert!(runtime.is_available(name), "{name}");
     }
     let catalog = runtime.catalog().expect("catalog");
-    assert_eq!(
-        catalog["presentation"],
-        json!({"publishedView":"queries","instructions":"default","deferred":[]})
-    );
+    assert_eq!(catalog["presentation"], json!({"deferred":[]}));
     runtime.close().await;
 }
 
@@ -89,8 +86,6 @@ async fn family_intersects_the_tool_lists_and_never_widens_them() {
 async fn presentation_switches_reach_the_catalog() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
-        ("OCTOCODE_PUBLISHED_VIEW", "flat".into()),
-        ("OCTOCODE_INSTRUCTIONS", "guide".into()),
         // Unknown names and unavailable tools (localSearch is disabled) are
         // never deferred: the dispatcher serves only tools the runtime runs.
         (
@@ -102,7 +97,7 @@ async fn presentation_switches_reach_the_catalog() {
     let catalog = runtime.catalog().expect("catalog");
     assert_eq!(
         catalog["presentation"],
-        json!({"publishedView":"flat","instructions":"guide","deferred":["ghSearchRepo","ghStructure"]})
+        json!({"deferred":["ghSearchRepo","ghStructure"]})
     );
     assert!(
         runtime.is_available("ghSearchRepo"),

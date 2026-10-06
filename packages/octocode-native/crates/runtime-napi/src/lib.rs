@@ -7,12 +7,28 @@ use octocode_native::providers::github::login::{
     client_id_for_host, get_token_with_refresh_in_store, refresh_auth_token_result_in_store,
 };
 use octocode_native::providers::github::{CredentialStore, StoredCredentials};
-use octocode_native::runtime::{HostOptions, RuntimeError, ToolRuntime};
+use octocode_native::runtime::{HostOptions, RequestAdmission, RuntimeError, ToolRuntime};
+use octocode_native::security::{scrub_error_payload, scrub_error_text};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
 fn credential_error(error: octocode_native::providers::github::ProviderError) -> napi::Error {
     napi::Error::new(napi::Status::GenericFailure, error.message.to_string())
+}
+
+/// Admit `request_id`, then run `call` on the runtime as a JS promise.
+fn spawn_admitted<'env, Fut>(
+    runtime: &Arc<ToolRuntime>,
+    env: &'env Env,
+    request_id: String,
+    call: impl FnOnce(Arc<ToolRuntime>, RequestAdmission) -> Fut,
+) -> napi::Result<PromiseRaw<'env, Value>>
+where
+    Fut: std::future::Future<Output = Result<Value, RuntimeError>> + Send + 'static,
+{
+    let admission = runtime.admit(request_id).map_err(boundary_error)?;
+    let future = call(Arc::clone(runtime), admission);
+    env.spawn_future(async move { future.await.map_err(boundary_error) })
 }
 
 fn default_hostname(hostname: Option<String>) -> String {
@@ -26,28 +42,10 @@ pub struct NativeRuntime {
     runtime: Arc<ToolRuntime>,
 }
 
-/// Run the secret sanitizer over an error string. Error envelopes cross the
-/// N-API boundary raw, so a secret echoed by a remote server (or embedded in a
-/// provider payload) would otherwise leak. Sanitizing is a no-op unless a real
-/// secret matches; a sanitizer panic fails closed to a redaction placeholder.
-fn scrub_error_text(text: &str) -> String {
-    octocode_engine::portable::sanitize_content(text, None)
-        .map(|result| result.content)
-        .unwrap_or_else(|_| "[CONTENT-REDACTED-SANITIZER-FAILURE]".to_owned())
-}
-
-/// Sanitize every string leaf of an error payload in place.
-fn scrub_error_payload(payload: &mut Value) {
-    let _ = octocode_native::security::sanitize_json(payload, &mut |text: &str| {
-        Ok::<_, std::convert::Infallible>(scrub_error_text(text))
-    });
-}
-
 /// Contain a panic in a synchronous boundary method. napi (v3) does not wrap
 /// synchronous `#[napi]` calls in `catch_unwind`, so an unguarded panic here
 /// (deep in a dependency, or on pathological input) would unwind across the FFI
-/// boundary and abort the entire host process. Converting it to a catchable
-/// error mirrors `octocode_engine::portable::guard_panic`.
+/// boundary and abort the entire host process; it becomes a catchable error.
 fn boundary_guard<T>(what: &str, call: impl FnOnce() -> napi::Result<T>) -> napi::Result<T> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(call)).unwrap_or_else(|_| {
         Err(napi::Error::new(
@@ -108,16 +106,6 @@ impl NativeRuntime {
     pub fn closed(&self) -> bool {
         self.runtime.requests.is_closed()
     }
-    /// The native pre-validation normalization for an MCP host that validates
-    /// the canonical envelope itself: bare-query wrapping, a JSON-encoded
-    /// `queries` array, JSON-encoded or bare-scalar list values, and lossless
-    /// integer/boolean strings. Nothing is validated or defaulted.
-    #[napi]
-    pub fn normalize_input(&self, tool: String, input: Value) -> napi::Result<Value> {
-        boundary_guard("normalize_input", || {
-            Ok(octocode_native::contracts::normalize_envelope(&tool, input))
-        })
-    }
     #[napi]
     pub fn catalog(&self) -> napi::Result<Value> {
         boundary_guard("catalog", || self.runtime.catalog().map_err(boundary_error))
@@ -130,15 +118,17 @@ impl NativeRuntime {
         tool: String,
         input: Value,
     ) -> napi::Result<PromiseRaw<'env, Value>> {
-        let admission = self.runtime.admit(request_id).map_err(boundary_error)?;
-        let runtime = self.runtime.clone();
-        env.spawn_future(async move {
-            runtime
-                .execute_admitted(admission, tool, input)
-                .await
-                .map(|outcome| outcome.structured_content)
-                .map_err(boundary_error)
-        })
+        spawn_admitted(
+            &self.runtime,
+            env,
+            request_id,
+            |runtime, admission| async move {
+                runtime
+                    .execute_admitted(admission, tool, input)
+                    .await
+                    .map(|outcome| outcome.structured_content)
+            },
+        )
     }
     #[napi]
     pub fn cancel(&self, request_id: String) -> bool {
@@ -152,14 +142,26 @@ impl NativeRuntime {
         tool: String,
         input: Value,
     ) -> napi::Result<PromiseRaw<'env, Value>> {
-        let admission = self.runtime.admit(request_id).map_err(boundary_error)?;
-        let runtime = self.runtime.clone();
-        env.spawn_future(async move {
-            runtime
-                .execute_mcp_admitted(admission, tool, input)
-                .await
-                .map_err(boundary_error)
-        })
+        spawn_admitted(
+            &self.runtime,
+            env,
+            request_id,
+            |runtime, admission| async move {
+                runtime.execute_mcp_admitted(admission, tool, input).await
+            },
+        )
+    }
+    /// Startup clasify check; a failed probe makes clasify unavailable in
+    /// this runtime's catalog. Hosts call it before `catalog()`.
+    #[napi]
+    pub async fn probe_classification(&self) -> Value {
+        let mut probe = self.runtime.probe_classification().await;
+        if let Some(message) = probe.get_mut("message")
+            && let Some(text) = message.as_str()
+        {
+            *message = Value::String(scrub_error_text(text));
+        }
+        probe
     }
     #[napi]
     pub async fn close(&self) {
@@ -249,25 +251,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn error_message_secrets_are_redacted() {
+    fn boundary_errors_redact_secrets_in_message_and_payload() {
         let token = format!("ghp_{}", "a".repeat(37));
-        let scrubbed = scrub_error_text(&format!("upstream rejected token {token}"));
-        assert!(
-            !scrubbed.contains("ghp_"),
-            "token leaked in error message: {scrubbed}"
-        );
-        assert!(scrubbed.contains("[REDACTED-"));
-    }
-
-    #[test]
-    fn error_payload_secrets_are_redacted() {
-        let token = format!("ghp_{}", "a".repeat(37));
-        let mut payload = json!({"detail": format!("token={token}"), "nested": [{"note": token}]});
-        scrub_error_payload(&mut payload);
-        let serialized = serde_json::to_string(&payload).expect("serialize payload");
-        assert!(
-            !serialized.contains("ghp_"),
-            "token leaked in error payload: {serialized}"
-        );
+        let error = boundary_error(RuntimeError {
+            code: "providerError".into(),
+            message: format!("upstream rejected token {token}"),
+            payload: Some(Box::new(
+                json!({"detail": format!("token={token}"), "nested": [{"note": token}]}),
+            )),
+            validation_issues: None,
+        });
+        assert!(!error.reason.contains("ghp_"), "{}", error.reason);
+        assert!(error.reason.contains("[REDACTED-"), "{}", error.reason);
     }
 }

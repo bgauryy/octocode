@@ -6,11 +6,10 @@
 use super::*;
 use std::fs;
 use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-const HOME: &str = "/synthetic/home";
+const HOME: &str = "/synthetic/.octocode";
 const WORKSPACE_RC: &str = "/synthetic/cwd/.octocode/.octocoderc";
-const GLOBAL_RC: &str = "/synthetic/home/.octocoderc";
+const GLOBAL_RC: &str = "/synthetic/.octocode/.octocoderc";
 
 fn file(path: &str, text: Option<&str>) -> FileInput {
     match text {
@@ -48,12 +47,11 @@ fn input(layers: Layers<'_>) -> ConfigInput {
         cwd: "/synthetic/cwd".into(),
         os_home: "/synthetic".into(),
         trusted_project: false,
-        global_env: file("/synthetic/home/.env", layers.global_env),
+        global_env: file("/synthetic/.octocode/.env", layers.global_env),
         project_env: file("/synthetic/cwd/.octocode/.env", layers.project_env),
         config_file: file(GLOBAL_RC, layers.global_rc),
         project_config_file: file(WORKSPACE_RC, layers.project_rc),
         runtime_surface: RuntimeSurface::Cli,
-        revision: 1,
     }
 }
 
@@ -164,17 +162,6 @@ fn workspace_array_replaces_instead_of_concatenating() {
     );
 }
 
-#[test]
-fn workspace_storage_mode_flows_into_inherited_extension_mode() {
-    let out = resolve(Layers {
-        global_rc: Some(r#"{"storage":{"mode":"persistent"}}"#),
-        project_rc: Some(r#"{"storage":{"mode":"memory"}}"#),
-        ..NONE
-    });
-    assert!(!is_persistent_storage_enabled(&out.resolved));
-    assert!(!is_persistent_storage_enabled_for_extension(&out.resolved));
-}
-
 fn protected_storage_diagnostics(out: &ConfigOutput, path: &str) -> usize {
     out.diagnostics
         .iter()
@@ -185,55 +172,31 @@ fn protected_storage_diagnostics(out: &ConfigOutput, path: &str) -> usize {
 #[test]
 fn workspace_cannot_widen_storage_persistence_through_rc_or_env() {
     let out = resolve(Layers {
-        global_rc: Some(
-            r#"{"storage":{"mode":"memory"},"extension":{"storage":{"mode":"memory"}}}"#,
-        ),
-        project_rc: Some(
-            r#"{"storage":{"mode":"persistent"},"extension":{"storage":{"mode":"persistent"}}}"#,
-        ),
-        project_env: Some(
-            "OCTOCODE_STORAGE_MODE=persistent\nOCTOCODE_EXTENSION_STORAGE_MODE=persistent",
-        ),
+        global_rc: Some(r#"{"storage":{"mode":"memory"}}"#),
+        project_rc: Some(r#"{"storage":{"mode":"persistent"}}"#),
+        project_env: Some("OCTOCODE_STORAGE_MODE=persistent"),
         ..NONE
     });
     assert!(!is_persistent_storage_enabled(&out.resolved));
-    assert!(!is_persistent_storage_enabled_for_extension(&out.resolved));
     assert_eq!(protected_storage_diagnostics(&out, "storage.mode"), 1);
-    assert_eq!(
-        protected_storage_diagnostics(&out, "extension.storage.mode"),
-        1
+    assert!(
+        out.dotenv
+            .skipped_protected
+            .iter()
+            .any(|k| k == "OCTOCODE_STORAGE_MODE")
     );
-    for key in ["OCTOCODE_STORAGE_MODE", "OCTOCODE_EXTENSION_STORAGE_MODE"] {
-        assert!(
-            out.dotenv.skipped_protected.iter().any(|k| k == key),
-            "{key}"
-        );
-        assert_eq!(
-            out.env_value(key),
-            None,
-            "{key} leaked into the effective env"
-        );
-    }
+    assert_eq!(out.env_value("OCTOCODE_STORAGE_MODE"), None);
 }
 
 #[test]
 fn workspace_may_still_opt_out_of_storage_persistence() {
     let rc = resolve(Layers {
-        global_rc: Some(
-            r#"{"storage":{"mode":"persistent"},"extension":{"storage":{"mode":"persistent"}}}"#,
-        ),
-        project_rc: Some(
-            r#"{"storage":{"mode":"memory"},"extension":{"storage":{"mode":"memory"}}}"#,
-        ),
+        global_rc: Some(r#"{"storage":{"mode":"persistent"}}"#),
+        project_rc: Some(r#"{"storage":{"mode":"memory"}}"#),
         ..NONE
     });
     assert!(!is_persistent_storage_enabled(&rc.resolved));
-    assert!(!is_persistent_storage_enabled_for_extension(&rc.resolved));
     assert_eq!(protected_storage_diagnostics(&rc, "storage.mode"), 0);
-    assert_eq!(
-        protected_storage_diagnostics(&rc, "extension.storage.mode"),
-        0
-    );
 
     let env = resolve(Layers {
         global_env: Some("OCTOCODE_STORAGE_MODE=persistent"),
@@ -248,11 +211,10 @@ fn workspace_may_still_opt_out_of_storage_persistence() {
 fn global_layers_still_set_storage_persistence() {
     let out = resolve(Layers {
         global_env: Some("OCTOCODE_STORAGE_MODE=memory"),
-        global_rc: Some(r#"{"extension":{"storage":{"mode":"persistent"}}}"#),
+        global_rc: Some(r#"{"storage":{"mode":"persistent"}}"#),
         ..NONE
     });
     assert!(!is_persistent_storage_enabled(&out.resolved));
-    assert!(is_persistent_storage_enabled_for_extension(&out.resolved));
     assert!(out.dotenv.skipped_protected.is_empty());
     assert_eq!(protected_storage_diagnostics(&out, "storage.mode"), 0);
 }
@@ -373,7 +335,7 @@ fn invalid_environment_values_warn_with_their_source_and_never_the_value() {
     );
     assert_eq!(
         by_field("output.format").source_path,
-        Some("/synthetic/home/.env".into())
+        Some("/synthetic/.octocode/.env".into())
     );
     for d in &out.diagnostics {
         assert_eq!(d.severity, Severity::Warning);
@@ -741,27 +703,6 @@ fn remove_path_strips_nested_and_top_level_fields_only_when_present() {
 
 // ─── acquisition (real filesystem) ───────────────────────────────────────────
 
-struct TempDir(PathBuf);
-impl TempDir {
-    fn new() -> Self {
-        let p = std::env::temp_dir().join(format!(
-            "octocode-native-layering-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("clock after epoch")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&p).expect("create temp dir");
-        Self(p)
-    }
-}
-impl Drop for TempDir {
-    fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.0);
-    }
-}
-
 fn acquire(env: &[(&str, String)], cwd: PathBuf, os_home: PathBuf) -> ConfigInput {
     acquire_config_input(
         env.iter()
@@ -771,14 +712,13 @@ fn acquire(env: &[(&str, String)], cwd: PathBuf, os_home: PathBuf) -> ConfigInpu
         os_home,
         false,
         RuntimeSurface::Cli,
-        1,
     )
 }
 
 #[test]
 fn acquisition_reads_workspace_file_from_cwd_dot_octocode() {
-    let root = TempDir::new();
-    let (os_home, cwd) = (root.0.join("user"), root.0.join("repo"));
+    let root = tempfile::tempdir().expect("create temp dir");
+    let (os_home, cwd) = (root.path().join("user"), root.path().join("repo"));
     fs::create_dir_all(os_home.join(".octocode")).expect("home");
     fs::create_dir_all(cwd.join(".octocode")).expect("workspace");
     fs::write(
@@ -803,8 +743,8 @@ fn acquisition_reads_workspace_file_from_cwd_dot_octocode() {
 
 #[test]
 fn acquisition_never_reads_the_global_file_twice_when_cwd_is_home() {
-    let root = TempDir::new();
-    let os_home = root.0.join("user");
+    let root = tempfile::tempdir().expect("create temp dir");
+    let os_home = root.path().join("user");
     fs::create_dir_all(os_home.join(".octocode")).expect("home");
     fs::write(os_home.join(".octocode/.octocoderc"), "{broken").expect("rc");
     // Default home: cwd = OS home makes <cwd>/.octocode the Octocode home.
@@ -821,7 +761,7 @@ fn acquisition_never_reads_the_global_file_twice_when_cwd_is_home() {
         out.diagnostics
     );
     // OCTOCODE_HOME spelled differently but pointing at the same directory.
-    let repo = root.0.join("repo");
+    let repo = root.path().join("repo");
     fs::create_dir_all(repo.join(".octocode")).expect("workspace");
     let i = acquire(
         &[(

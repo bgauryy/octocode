@@ -32,10 +32,11 @@ impl fmt::Debug for GitRunRequest<'_> {
     }
 }
 
-impl<'a> GitRunRequest<'a> {
+#[cfg(test)]
+impl GitRunRequest<'_> {
     /// Preserve private auth transport while allowing an injected runner to
     /// rewrite only argv for a hermetic fixture.
-    pub fn with_args(&self, args: Vec<OsString>) -> Self {
+    pub(crate) fn with_args(&self, args: Vec<OsString>) -> Self {
         Self {
             args,
             timeout: self.timeout,
@@ -77,16 +78,9 @@ pub trait GitRunner: Send + Sync {
             control,
         ) {
             Ok(_) => Ok(()),
-            Err(error)
-                if matches!(
-                    error.code.as_str(),
-                    "clone.execution.cancelled" | "clone.execution.timeout"
-                ) =>
-            {
-                Err(error)
-            }
+            Err(error) if matches!(error.code.as_str(), "cancelled" | "timeout") => Err(error),
             Err(_) => Err(CloneError::new(
-                "clone.git.unavailable",
+                "gitUnavailable",
                 "git is not installed or not on PATH. The ghCloneRepo tool requires git to be available.",
             )),
         }
@@ -114,35 +108,16 @@ impl SystemGit {
     }
 }
 
-impl GitRunner for SystemGit {
-    fn run(
-        &self,
-        request: &GitRunRequest<'_>,
-        control: &GitRunControl<'_>,
-    ) -> Result<GitOutput, CloneError> {
-        control
-            .cancellation
-            .check()
-            .map_err(|message| CloneError::new("clone.execution.cancelled", message))?;
-        if Instant::now() >= control.deadline {
-            return Err(CloneError::new(
-                "clone.execution.timeout",
-                "Clone request deadline elapsed before Git execution.",
-            ));
-        }
-        let git_home = control.cache_home.join("tmp").join("git-home");
-        std::fs::create_dir_all(&git_home).map_err(|error| {
-            CloneError::new(
-                "clone.git.environment",
-                format!("Failed to create isolated Git home: {error}"),
-            )
-        })?;
+impl SystemGit {
+    /// An isolated git invocation: no user or system config, no prompts or
+    /// hooks, and the credential (when any) as an HTTP header for one URL.
+    fn command(&self, request: &GitRunRequest<'_>, git_home: &Path) -> Command {
         let mut command = Command::new(&self.executable);
         configure_process_group(&mut command);
         command
             .env_clear()
-            .env("HOME", &git_home)
-            .env("XDG_CONFIG_HOME", &git_home)
+            .env("HOME", git_home)
+            .env("XDG_CONFIG_HOME", git_home)
             .env("GIT_CONFIG_GLOBAL", null_device())
             .env("GIT_CONFIG_SYSTEM", null_device())
             .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -178,19 +153,49 @@ impl GitRunner for SystemGit {
                     format!("Authorization: Basic {basic}"),
                 );
         }
+        command
+    }
+}
+
+impl GitRunner for SystemGit {
+    fn run(
+        &self,
+        request: &GitRunRequest<'_>,
+        control: &GitRunControl<'_>,
+    ) -> Result<GitOutput, CloneError> {
+        control
+            .cancellation
+            .check()
+            .map_err(|message| CloneError::new("cancelled", message))?;
+        if Instant::now() >= control.deadline {
+            return Err(CloneError::new(
+                "timeout",
+                "Clone request deadline elapsed before Git execution.",
+            ));
+        }
+        let git_home = control.cache_home.join("tmp").join("git-home");
+        std::fs::create_dir_all(&git_home).map_err(|error| {
+            CloneError::new(
+                "gitFailed",
+                format!("Failed to create isolated Git home: {error}"),
+            )
+        })?;
+        let mut command = self.command(request, &git_home);
         let mut child = command.spawn().map_err(|error| {
             CloneError::new(
-                "clone.git.spawnFailed",
+                "gitFailed",
                 format!("git {} failed to start: {error}", request.label),
             )
         })?;
         let mut process_tree = ProcessTreeGuard::attach(&child)?;
-        let stdout = child.stdout.take().ok_or_else(|| {
-            CloneError::new("clone.git.spawnFailed", "Git stdout pipe was unavailable")
-        })?;
-        let stderr = child.stderr.take().ok_or_else(|| {
-            CloneError::new("clone.git.spawnFailed", "Git stderr pipe was unavailable")
-        })?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| CloneError::new("gitFailed", "Git stdout pipe was unavailable"))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| CloneError::new("gitFailed", "Git stderr pipe was unavailable"))?;
         let stdout_reader = thread::spawn(move || read_bounded(stdout));
         let stderr_reader = thread::spawn(move || read_bounded(stderr));
         let started = Instant::now();
@@ -202,14 +207,14 @@ impl GitRunner for SystemGit {
                 terminate_and_reap(&mut child, &mut process_tree);
                 join_reader(stdout_reader)?;
                 join_reader(stderr_reader)?;
-                return Err(CloneError::new("clone.execution.cancelled", message));
+                return Err(CloneError::new("cancelled", message));
             }
             if started.elapsed() >= timeout || Instant::now() >= control.deadline {
                 terminate_and_reap(&mut child, &mut process_tree);
                 join_reader(stdout_reader)?;
                 join_reader(stderr_reader)?;
                 return Err(CloneError::new(
-                    "clone.execution.timeout",
+                    "timeout",
                     format!("git {} exceeded its execution deadline", request.label),
                 ));
             }
@@ -221,7 +226,7 @@ impl GitRunner for SystemGit {
                     join_reader(stdout_reader)?;
                     join_reader(stderr_reader)?;
                     return Err(CloneError::new(
-                        "clone.git.waitFailed",
+                        "gitFailed",
                         format!("git {} could not be reaped: {error}", request.label),
                     ));
                 }
@@ -231,12 +236,16 @@ impl GitRunner for SystemGit {
         let (stderr, stderr_truncated) = join_reader(stderr_reader)?;
         if stdout_truncated || stderr_truncated {
             return Err(CloneError::new(
-                "clone.git.outputLimit",
+                "gitFailed",
                 format!("git {} exceeded the 5MB output limit", request.label),
             ));
         }
         let stdout = String::from_utf8_lossy(&stdout).into_owned();
-        let stderr = scrub(&String::from_utf8_lossy(&stderr), request.authorization);
+        let stderr = scrub(
+            &String::from_utf8_lossy(&stderr),
+            request.authorization,
+            control.cache_home,
+        );
         if !status.success() {
             let suffix = if stderr.trim().is_empty() {
                 String::new()
@@ -244,7 +253,7 @@ impl GitRunner for SystemGit {
                 format!(": {}", stderr.trim())
             };
             return Err(CloneError::new(
-                "clone.git.failed",
+                "gitFailed",
                 format!("git {} failed{suffix}", request.label),
             ));
         }
@@ -273,19 +282,29 @@ fn join_reader(
 ) -> Result<(Vec<u8>, bool), CloneError> {
     reader
         .join()
-        .map_err(|_| CloneError::new("clone.git.outputFailed", "Git output reader failed"))?
+        .map_err(|_| CloneError::new("gitFailed", "Git output reader failed"))?
         .map_err(|error| {
             CloneError::new(
-                "clone.git.outputFailed",
+                "gitFailed",
                 format!("Git output could not be read: {error}"),
             )
         })
 }
 
-fn scrub(text: &str, token: Option<&str>) -> String {
+fn scrub(text: &str, token: Option<&str>, home: &Path) -> String {
     let mut result = text.to_owned();
     if let Some(token) = token {
         result = result.replace(token, "[REDACTED]");
+    }
+    // A checkout stage is an internal path under the Octocode home; the
+    // error names what failed, not where it was staged.
+    let stages = [Some(home.to_path_buf()), home.canonicalize().ok()];
+    for home in stages.into_iter().flatten() {
+        let stage = home.join("tmp").join("clone-tmp");
+        let pattern = format!(r"{}[^\s'\x22]*", regex::escape(&stage.to_string_lossy()));
+        if let Ok(stage) = regex::Regex::new(&pattern) {
+            result = stage.replace_all(&result, "<checkout>").into_owned();
+        }
     }
     // Redact the injected credential regardless of scheme. The clone token is
     // sent as `Authorization: Basic <base64(x-access-token:…)>`; the base64 form
@@ -358,7 +377,7 @@ impl ProcessTreeGuard {
         let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if job.is_null() {
             return Err(CloneError::new(
-                "clone.git.spawnFailed",
+                "gitFailed",
                 format!(
                     "failed to create Windows job object: {}",
                     io::Error::last_os_error()
@@ -384,7 +403,7 @@ impl ProcessTreeGuard {
             // SAFETY: job is owned by this function.
             unsafe { windows_sys::Win32::Foundation::CloseHandle(job) };
             return Err(CloneError::new(
-                "clone.git.spawnFailed",
+                "gitFailed",
                 format!(
                     "failed to contain Git in a Windows job object: {}",
                     io::Error::last_os_error()

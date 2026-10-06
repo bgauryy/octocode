@@ -1,7 +1,7 @@
 // Integration test crate — assertions use unwrap/expect/panic freely.
 #![allow(clippy::expect_used)]
 
-mod support;
+use crate::support;
 
 use std::process::Output;
 use support::Workspace;
@@ -18,10 +18,41 @@ fn exit_code(output: &Output) -> Option<i32> {
     output.status.code()
 }
 
+/// Opens every availability gate so root help lists every contract tool.
+fn all_tools_enabled(command: &mut std::process::Command) -> &mut std::process::Command {
+    command
+        .env("OCTOCODE_CLASSIFICATION_API", "fixture-key")
+        .env("OCTOCODE_BETA", "true")
+}
+
+#[test]
+fn root_help_lists_only_available_tools() {
+    let workspace = Workspace::new();
+    let output = workspace.cli().arg("--help").output().expect("help");
+    assert!(output.status.success());
+    let text = stdout(&output);
+    for gated in ["clasify", "astRewrite", "astTopology"] {
+        assert!(
+            !text.contains(gated),
+            "{gated} offered while disabled: {text}"
+        );
+    }
+    assert!(text.contains("\n  localSearch"), "{text}");
+    // A hidden tool stays callable by name and keeps its own help.
+    let own = workspace
+        .cli()
+        .args(["clasify", "--help"])
+        .output()
+        .expect("tool help");
+    assert!(own.status.success(), "{}", stderr(&own));
+}
+
 #[test]
 fn help_lists_only_the_minimal_command_surface() {
     let workspace = Workspace::new();
-    let output = workspace.cli().arg("--help").output().expect("help");
+    let output = all_tools_enabled(workspace.cli().arg("--help"))
+        .output()
+        .expect("help");
     assert!(output.status.success());
     let text = stdout(&output);
     assert!(text.contains("Usage: octocode"), "{text}");
@@ -84,12 +115,12 @@ fn help_lists_only_the_minimal_command_surface() {
 #[test]
 fn clasify_missing_key_is_actionable() {
     let workspace = Workspace::new();
-    let query = serde_json::json!({
+    let query = serde_json::json!({"queries":[{
         "id":"decision",
         "mainGoal": "test", "reasoning":"Choose the next inspection.",
-        "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
-        "questions":[{"id":"relevant","type":"noul","instructions":"Is it relevant?"}]
-    });
+        "resources":[{"id":"observed","value":{"fact":"present"}}],
+        "questions":[{"id":"relevant","type":"yesno","ask":"Is it relevant?"}]
+    }]});
     let output = workspace
         .cli()
         .args(["clasify", &query.to_string()])
@@ -109,11 +140,11 @@ fn clasify_missing_key_is_actionable() {
 fn clasify_with_every_resource_failed_exits_by_failure_class() {
     let workspace = Workspace::new();
     let run = |question: serde_json::Value| {
-        let query = serde_json::json!({
+        let query = serde_json::json!({"queries":[{
             "mainGoal": "test", "reasoning":"Exercise failure exit codes.",
-            "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
+            "resources":[{"id":"observed","value":{"fact":"present"}}],
             "questions":[question]
-        });
+        }]});
         workspace
             .cli()
             .env("OCTOCODE_CLASSIFICATION_API", "dummy")
@@ -123,10 +154,10 @@ fn clasify_with_every_resource_failed_exits_by_failure_class() {
             .expect("clasify execution")
     };
     // A provider that cannot be reached is an execution failure, not bad input.
-    let unreachable = run(serde_json::json!({"type":"noul","instructions":"Is it relevant?"}));
+    let unreachable = run(serde_json::json!({"type":"yesno","ask":"Is it relevant?"}));
     assert_eq!(exit_code(&unreachable), Some(5), "{}", stdout(&unreachable));
     // locate over supplied state rejects the caller's request.
-    let unsupported = run(serde_json::json!({"questionType":"locate","target":"fact"}));
+    let unsupported = run(serde_json::json!({"type":"locate","ask":"fact"}));
     assert_eq!(exit_code(&unsupported), Some(2), "{}", stdout(&unsupported));
     assert!(
         stdout(&unsupported).contains("classificationLocateUnsupported"),
@@ -138,12 +169,12 @@ fn clasify_with_every_resource_failed_exits_by_failure_class() {
 #[test]
 fn tool_output_is_compact_by_default_and_pretty_on_request() {
     let workspace = Workspace::new();
-    let query = serde_json::json!({
+    let query = serde_json::json!({"queries":[{
         "id":"decision",
         "mainGoal": "test", "reasoning":"Exercise output formatting.",
-        "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
-        "questions":[{"id":"relevant","type":"noul","instructions":"Is it relevant?"}]
-    })
+        "resources":[{"id":"observed","value":{"fact":"present"}}],
+        "questions":[{"id":"relevant","type":"yesno","ask":"Is it relevant?"}]
+    }]})
     .to_string();
     let compact = workspace.cli().args(["clasify", &query]).output().unwrap();
     assert_eq!(
@@ -178,12 +209,12 @@ fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
         "OCTOCODE_CLASSIFICATION_API=from-home-env\n",
     )
     .unwrap();
-    let query = serde_json::json!({
+    let query = serde_json::json!({"queries":[{
         "id":"decision",
         "mainGoal": "test", "reasoning":"Exercise the opt-out.",
-        "resources":[{"id":"observed","context":{"value":{"fact":"present"}}}],
-        "questions":[{"id":"relevant","type":"noul","instructions":"Is it relevant?"}]
-    })
+        "resources":[{"id":"observed","value":{"fact":"present"}}],
+        "questions":[{"id":"relevant","type":"yesno","ask":"Is it relevant?"}]
+    }]})
     .to_string();
     let output = workspace
         .cli()
@@ -204,7 +235,9 @@ fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
 fn tool_help_uses_canonical_core_short_descriptions() {
     let workspace = Workspace::new();
     let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
-    let root = workspace.cli().arg("--help").output().expect("root help");
+    let root = all_tools_enabled(workspace.cli().arg("--help"))
+        .output()
+        .expect("root help");
     assert!(root.status.success());
     // The tool commands are exactly the contract tools: a tool dropped from
     // the contract must not linger as a command, and none may be missing.
@@ -468,12 +501,11 @@ fn install_writes_npx_latest_and_never_octo_mcp() {
         .expect("dry-run");
     assert!(dry.status.success(), "{}", stderr(&dry));
     let preview: serde_json::Value = serde_json::from_str(stdout(&dry)).expect("dry-run json");
-    let server = &preview["config"]["mcpServers"]["octocode"];
-    assert_eq!(server["command"], "npx", "{preview}");
-    assert_eq!(
-        server["args"],
-        serde_json::json!(["-y", "octocode-mcp@latest"]),
-        "{preview}"
+    assert_eq!(preview["entry"]["method"], "npx", "{preview}");
+    assert_eq!(preview["entry"]["customCommand"], false, "{preview}");
+    assert!(
+        preview.get("config").is_none(),
+        "dry-run must not expose saved configuration: {preview}"
     );
     let config = workspace.home.join(".cursor").join("mcp.json");
     assert!(!config.exists(), "dry-run must not write");
@@ -508,7 +540,10 @@ fn tool_rejects_non_canonical_fields() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
-        .args(["astSearch", r#"{"operation":"syntax","path":"."}"#])
+        .args([
+            "astSearch",
+            r#"{"queries":[{"operation":"syntax","path":"."}]}"#,
+        ])
         .output()
         .expect("astSearch");
     assert_eq!(output.status.code(), Some(2));
@@ -531,12 +566,12 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
     let numbered: String = (1..24)
         .map(|n| format!("{n}\tline {n}: research\n"))
         .collect();
-    let query = serde_json::json!({
+    let query = serde_json::json!({"queries":[{
         "path": path,
-        "chunkType": "lines",
-        "chunkSize": 3,
+        "unit": "lines",
+        "length": 3,
         "mainGoal": "test", "reasoning": "Verify paginated native reads."
-    })
+    }]})
     .to_string();
     let first = workspace
         .cli()
@@ -554,7 +589,8 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
     // continuation query as a directly re-runnable call.
     let call = &value["results"][0]["data"]["next"]["continue"];
     assert_eq!(call["tool"], "localFetch", "{value}");
-    let continuation = serde_json::to_string(&call["query"]).expect("continuation query");
+    let continuation = serde_json::to_string(&serde_json::json!({"queries":[call["query"]]}))
+        .expect("continuation query");
     let second = workspace
         .cli()
         .args(["localFetch", &continuation])
@@ -602,10 +638,10 @@ fn tool_with_bad_json_exits_two() {
 fn tool_reads_query_from_input_file() {
     let workspace = Workspace::new();
     let source = workspace.write("input-source.rs", "fn from_file() {}\n");
-    let query = serde_json::json!({
+    let query = serde_json::json!({"queries":[{
         "path": source,
         "mainGoal": "test", "reasoning": "Verify --input file queries."
-    })
+    }]})
     .to_string();
     let query_file = workspace.write("query.json", &query);
     let output = workspace
@@ -686,7 +722,7 @@ fn scheme_lists_the_compact_discovery_catalog() {
     assert!(fields_of("ghStructure").contains("owner*"));
     assert!(fields_of("ghSearchCode").contains("owner*"));
     assert!(fields_of("astSearch").contains("operation=match(rule)"));
-    assert!(fields_of("astTopology").starts_with("analysis=deadCode["));
+    assert!(fields_of("astTopology").starts_with("operation=deadCode["));
     assert!(first["availability"]["enabled"].is_boolean());
     let clone_tool = value["tools"]
         .as_array()
@@ -789,20 +825,18 @@ fn tool_accepts_bulk_queries() {
     let workspace = Workspace::new();
     let first = workspace.write("query-one.rs", "fn query_one() {}\n");
     let second = workspace.write("query-two.rs", "fn query_two() {}\n");
-    let query = serde_json::json!([
+    let query = serde_json::json!({"queries":[
         {
             "path": first,
-            "startLine": 1,
-            "endLine": 1,
+            "ranges": ["1-1"],
             "mainGoal": "test", "reasoning": "Verify the first native bulk query."
         },
         {
             "path": second,
-            "startLine": 1,
-            "endLine": 1,
+            "ranges": ["1-1"],
             "mainGoal": "test", "reasoning": "Verify the second native bulk query."
         }
-    ])
+    ]})
     .to_string();
     let output = workspace
         .cli()
@@ -839,10 +873,10 @@ fn localfetch_accepts_host_line_range_spellings() {
         serde_json::json!(["2", "4"]),
         serde_json::json!([2, 4]),
     ] {
-        let query = serde_json::json!({
+        let query = serde_json::json!({"queries":[{
             "path": path, "ranges": ranges,
             "mainGoal": "test", "reasoning": "Verify tolerant line ranges."
-        })
+        }]})
         .to_string();
         let output = workspace
             .cli()
@@ -865,12 +899,12 @@ fn localfetch_accepts_host_line_range_spellings() {
 fn localsearch_emits_structured_results() {
     let workspace = Workspace::new();
     let path = workspace.write("search.rs", "fn needle() {}\n");
-    let query = serde_json::json!({
-        "searchText": "needle",
+    let query = serde_json::json!({"queries":[{
+        "matchString": "needle",
         "path": path,
         "resultView": "matchOnly",
         "mainGoal": "test", "reasoning": "Verify structured lexical output."
-    })
+    }]})
     .to_string();
     let output = workspace
         .cli()
@@ -890,14 +924,13 @@ fn localsearch_emits_structured_results() {
 fn astrewrite_previews_then_applies_with_hash_guards() {
     let workspace = Workspace::new();
     let path = workspace.write("rewrite.rs", "pub const VALUE: u32 = 2;\n");
-    let query = serde_json::json!({
+    let query = serde_json::json!({"queries":[{
         "path": path,
-        "langType": "rust",
-        "ruleKind": "pattern",
+        "language": "rust",
         "pattern": "pub const $NAME: u32 = $VALUE;",
         "rewrite": "pub const $NAME: u64 = $VALUE;",
         "mainGoal": "test", "reasoning": "Verify guarded native rewrite application."
-    });
+    }]});
     let preview = workspace
         .cli()
         .env("OCTOCODE_BETA", "true")
@@ -915,11 +948,11 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
     assert_eq!(data["mode"], "preview", "{data}");
     // Apply replays the preview's hints.apply verbatim: it binds the snapshot
     // and the expected before-hashes.
-    let apply = data["hints"]["apply"]["query"].clone();
+    let query = data["hints"]["apply"]["query"].clone();
+    let apply = &query["queries"][0];
     assert_eq!(apply["apply"], true, "{data}");
     assert!(apply["snapshot"].is_string(), "{data}");
     assert!(apply["expectedHashes"].is_object(), "{data}");
-    let query = apply;
     let output = workspace
         .cli()
         .env("OCTOCODE_BETA", "true")
@@ -942,10 +975,10 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
 fn json_errors_do_not_leak_duplicate_stderr() {
     let workspace = Workspace::new();
     let missing = workspace.workspace.join("missing.rs");
-    let query = serde_json::json!({
+    let query = serde_json::json!({"queries":[{
         "path": missing,
         "mainGoal": "test", "reasoning": "Verify native read errors."
-    })
+    }]})
     .to_string();
     let output = workspace
         .cli()
@@ -954,7 +987,7 @@ fn json_errors_do_not_leak_duplicate_stderr() {
         .expect("missing read");
     assert_eq!(exit_code(&output), Some(3));
     let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("JSON error");
-    assert_eq!(value["results"][0]["data"]["errorCode"], "fileAccessFailed");
+    assert_eq!(value["results"][0]["data"]["errorCode"], "pathNotFound");
     assert!(
         stderr(&output).is_empty(),
         "duplicate stderr: {}",
@@ -1036,7 +1069,7 @@ async fn github_authentication_failure_uses_exit_four_and_actionable_hint() {
         .env("OCTOCODE_TOKEN", "invalid-fixture-token")
         .args([
             "ghGetFileContent",
-            r#"{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true,"mainGoal":"Read the fixture README.","reasoning":"Exercise the authentication failure path."}"#,
+            r#"{"queries":[{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true,"mainGoal":"Read the fixture README.","reasoning":"Exercise the authentication failure path."}]}"#,
         ]);
     let output = tokio::task::spawn_blocking(move || command.output().expect("tool output"))
         .await

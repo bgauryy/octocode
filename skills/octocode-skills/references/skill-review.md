@@ -33,7 +33,10 @@ node scripts/skill-review.mjs --self-test                                # regre
 |---|---|
 | `description-trigger` | lead with `Use when <trigger>` |
 | `name-reserved` / `frontmatter-xml` | drop `anthropic` or `claude` from `name` and XML tags from `name` or `description`; Anthropic uploads reject them |
-| `lobby-long` | over 220 lines: move detail, not core logic, into references |
+| `lobby-long` | over 150 lines: move detail, not core logic, into references |
+| `lobby-map-large` | over 12 flow nodes (page leaves excluded): merge phases or move a loop into its page |
+| `description-shape` | one `Use when …` sentence plus an optional `Not for …` boundary; no trigger list, no instructions |
+| `description-voice` | no "I"/"you" and no mandate words (MUST, ALWAYS, NEVER, IMPORTANT, CRITICAL) |
 | `readme-missing` | add `README.md`: overview, capabilities, how it works, install |
 | `reference-h1` | one short H1 per reference |
 | `reference-long` | over 100 lines: cut duplication; split only a page with two decisions |
@@ -44,7 +47,7 @@ node scripts/skill-review.mjs --self-test                                # regre
 | `lobby-map-missing` / `lobby-map-incomplete` | draw the skill map; it covers every page in the references, docs, and scripts/docs folders |
 | `script-unreferenced` | import it, name it, or drop it |
 | `route-condition` | state when or why on the same line as the route |
-| `reference-entry-cue` | add the entry cue |
+| `reference-entry-cue` / `reference-why-cue` | open with `Load when … Why: …` |
 | `reference-dead-end` | add the next hop, or say the step ends here |
 | `flow-phase-unrouted` | name each flow phase in a route or gate, or drop it |
 

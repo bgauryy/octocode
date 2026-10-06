@@ -21,6 +21,7 @@ use crate::text::utf8_offsets::LineIndex;
 
 use super::kinds::named_kind_id;
 use super::language::{AgLanguage, primary_expando_for_ext};
+use super::macro_bodies::{MAX_MACRO_DEPTH, MacroBodies, is_body_candidate, parse_body};
 use super::octo::parse_tree_with_deadline;
 
 pub const MAX_REWRITE_CONTENT_BYTES: usize = crate::signatures::MAX_PARSE_SIZE;
@@ -200,9 +201,11 @@ pub fn rewrite(content: &str, rule_config: Value) -> Result<Vec<StructuralRewrit
 pub struct CompiledRewrite {
     config: RuleConfig<RewriteLanguage>,
     fixer: Fixer,
+    macros: Option<MacroBodies>,
 }
 
 pub fn compile_rewrite(rule_config: Value) -> Result<CompiledRewrite, String> {
+    let anchors = pattern_anchors(&rule_config);
     let serialized: SerializableRuleConfig<RewriteLanguage> =
         serde_json::from_value(rule_config)
             .map_err(|error| format!("[structural.rewrite.invalid] {error}"))?;
@@ -221,7 +224,30 @@ pub fn compile_rewrite(rule_config: Value) -> Result<CompiledRewrite, String> {
     let fixer = fixers
         .pop()
         .ok_or_else(|| "[structural.rewrite.invalid] a fixer is required".to_owned())?;
-    Ok(CompiledRewrite { config, fixer })
+    let macros = MacroBodies::for_language(&config.language.entry.language, anchors);
+    Ok(CompiledRewrite {
+        config,
+        fixer,
+        macros,
+    })
+}
+
+/// Literal anchors of a plain `{rule: {pattern}}` rewrite, so only macro
+/// bodies that can contain a match are re-parsed; `None` re-parses them all.
+fn pattern_anchors(rule_config: &Value) -> Option<Vec<String>> {
+    let rule = rule_config.get("rule")?.as_object()?;
+    if rule.len() != 1 {
+        return None;
+    }
+    let pattern = rule.get("pattern")?.as_str()?;
+    match super::query::StructuralQuery::new(Some(pattern), None)
+        .ok()?
+        .prefilter()
+    {
+        super::query::Prefilter::Single(anchor) => Some(vec![anchor]),
+        super::query::Prefilter::Union(anchors) => Some(anchors),
+        super::query::Prefilter::None => None,
+    }
 }
 
 /// A rule-compile error with its cause. ast-grep wraps every rule-core error
@@ -311,19 +337,81 @@ impl CompiledRewrite {
             ));
         }
         let config = &self.config;
-        let fixer = &self.fixer;
         let tree = parse_tree_with_deadline(&config.language.entry.language, content, deadline)
             .map_err(|error| format!("[{}] {}", error.code, error.message))?;
         // `Tree::clone` is a reference-counted copy, not a re-parse.
         let error_tree = tree.clone();
+        let line_index = LineIndex::new(content);
+        let mut output = Vec::new();
+        let mut bodies = self
+            .macros
+            .as_ref()
+            .map(|macros| macros.token_trees(tree.root_node(), content))
+            .unwrap_or_default();
+        self.collect_matches(content, tree, None, deadline, &line_index, &mut output)?;
+        // Rust macro arguments re-parsed as code (see `macro_bodies`); each
+        // body's own invocations are queued in turn, up to the nesting bound.
+        let mut depth_of = vec![1; bodies.len()];
+        while let Some(range) = bodies.pop() {
+            let depth = depth_of.pop().unwrap_or(MAX_MACRO_DEPTH);
+            let language = &config.language.entry.language;
+            let Some(body) = parse_body(content, language, range, deadline)
+                .map_err(|error| format!("[{}] {}", error.code, error.message))?
+            else {
+                continue;
+            };
+            if depth < MAX_MACRO_DEPTH
+                && let Some(macros) = &self.macros
+            {
+                let nested = macros.token_trees(body.root_node(), content);
+                depth_of.extend(std::iter::repeat_n(depth + 1, nested.len()));
+                bodies.extend(nested);
+            }
+            self.collect_matches(
+                content,
+                body,
+                Some(&range),
+                deadline,
+                &line_index,
+                &mut output,
+            )?;
+        }
+        output.sort_by_key(|matched| (matched.byte_start, std::cmp::Reverse(matched.byte_end)));
+        let syntax_errors = if count == CountErrors::Always || !output.is_empty() {
+            count_tree_errors(&error_tree)
+        } else {
+            0
+        };
+        Ok(RewriteScan {
+            matches: output,
+            syntax_errors,
+        })
+    }
+
+    /// Rewrite matches of one parse tree of `content` (the file, or one
+    /// re-parsed macro body whose wrapper node is excluded) into `output`.
+    fn collect_matches(
+        &self,
+        content: &str,
+        tree: tree_sitter::Tree,
+        body: Option<&tree_sitter::Range>,
+        deadline: Instant,
+        line_index: &LineIndex<'_>,
+        output: &mut Vec<StructuralRewriteMatch>,
+    ) -> Result<(), String> {
+        let config = &self.config;
+        let fixer = &self.fixer;
         let grep = AstGrep::doc(StrDoc {
             src: content.to_owned(),
             lang: config.language.clone(),
             tree,
         });
-        let line_index = LineIndex::new(content);
-        let mut output = Vec::new();
         for matched in grep.root().find_all(&config.matcher) {
+            if let Some(body) = body
+                && !is_body_candidate(matched.get_inner_node(), body)
+            {
+                continue;
+            }
             if Instant::now() >= deadline {
                 return Err(
                     "[structural.rewrite.interrupted] structural rewrite exceeded its execution deadline"
@@ -419,15 +507,7 @@ impl CompiledRewrite {
                 captures,
             });
         }
-        let syntax_errors = if count == CountErrors::Always || !output.is_empty() {
-            count_tree_errors(&error_tree)
-        } else {
-            0
-        };
-        Ok(RewriteScan {
-            matches: output,
-            syntax_errors,
-        })
+        Ok(())
     }
 }
 
@@ -497,6 +577,29 @@ mod tests {
         assert_eq!(found[0].replacement, "newCall(foo)");
         assert_eq!(found[0].byte_start, 14);
         assert_eq!(found[0].captures["A"].texts, ["foo"]);
+    }
+
+    #[test]
+    fn rust_rewrites_reach_macro_bodies_in_file_order() {
+        let source = "fn t() {\n    assert!(a.unwrap());\n    outer!(inner!(b.unwrap()), 1);\n    c.unwrap();\n}\n";
+        let found = rewrite(
+            source,
+            json!({
+                "id":"octocode-inline-rewrite",
+                "language":"rust",
+                "rule":{"pattern":"$X.unwrap()"},
+                "fix":"$X.expect(\"ok\")"
+            }),
+        )
+        .expect("rewrite");
+        let texts: Vec<_> = found.iter().map(|m| m.text.as_str()).collect();
+        assert_eq!(texts, ["a.unwrap()", "b.unwrap()", "c.unwrap()"]);
+        assert_eq!(found[0].replacement, "a.expect(\"ok\")");
+        assert_eq!(
+            &source[found[1].byte_start as usize..found[1].byte_end as usize],
+            "b.unwrap()"
+        );
+        assert_eq!(found[1].range.start.line, 2, "0-based line");
     }
 
     /// Columns are UTF-16 code units (astSearch/LSP), not Unicode scalars:

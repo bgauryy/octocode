@@ -66,27 +66,14 @@ pub fn recent_evictions(home: &Path, limit: usize) -> (Vec<String>, u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-
-    fn temp_home(tag: &str) -> PathBuf {
-        let path = std::env::temp_dir().join(format!(
-            "octocode-evictions-{tag}-{}-{}",
-            std::process::id(),
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .expect("test fixture operation should succeed")
-                .as_nanos()
-        ));
-        fs::create_dir_all(&path).expect("test fixture operation should succeed");
-        path
-    }
 
     #[test]
     fn appends_shaped_lines_and_tails_in_order() {
-        let home = temp_home("shape");
-        log_eviction(&home, "ttl", Path::new("/cache/a"), 10);
-        log_eviction(&home, "size-limit", Path::new("/cache/b"), 20);
-        let (lines, size) = recent_evictions(&home, 5);
+        let root = tempfile::tempdir().expect("test fixture operation should succeed");
+        let home = root.path();
+        log_eviction(home, "ttl", Path::new("/cache/a"), 10);
+        log_eviction(home, "size-limit", Path::new("/cache/b"), 20);
+        let (lines, size) = recent_evictions(home, 5);
         assert_eq!(lines.len(), 2);
         assert!(size > 0);
         let first: serde_json::Value =
@@ -96,36 +83,35 @@ mod tests {
         assert_eq!(first["bytes"], 10);
         assert_eq!(first["pid"], std::process::id());
         assert!(first["at"].as_u64().is_some());
-        let (tail_one, _) = recent_evictions(&home, 1);
+        let (tail_one, _) = recent_evictions(home, 1);
         assert!(tail_one[0].contains("size-limit"));
-        let _ = fs::remove_dir_all(&home);
     }
 
     #[test]
     fn rotates_at_size_cap_and_missing_log_reads_empty() {
-        let home = temp_home("rotate");
-        let (lines, size) = recent_evictions(&home, 5);
+        let root = tempfile::tempdir().expect("test fixture operation should succeed");
+        let home = root.path();
+        let (lines, size) = recent_evictions(home, 5);
         assert!(lines.is_empty());
         assert_eq!(size, 0);
         let dir = home.join(LOG_DIR);
         fs::create_dir_all(&dir).expect("test fixture operation should succeed");
         fs::write(dir.join(LOG_FILE), vec![b'x'; ROTATE_BYTES as usize])
             .expect("test fixture operation should succeed");
-        log_eviction(&home, "ttl", Path::new("/cache/rotated"), 1);
+        log_eviction(home, "ttl", Path::new("/cache/rotated"), 1);
         assert!(dir.join(format!("{LOG_FILE}.1")).is_file());
-        let (lines, size) = recent_evictions(&home, 5);
+        let (lines, size) = recent_evictions(home, 5);
         assert_eq!(lines.len(), 1, "live log restarts after rotation");
         assert!(size < ROTATE_BYTES);
-        let _ = fs::remove_dir_all(&home);
     }
 
     #[test]
     fn unwritable_log_never_blocks() {
         // A file where the logs directory should be makes create_dir_all fail.
-        let home = temp_home("blocked");
+        let root = tempfile::tempdir().expect("test fixture operation should succeed");
+        let home = root.path();
         fs::write(home.join(LOG_DIR), b"not a directory")
             .expect("test fixture operation should succeed");
-        log_eviction(&home, "ttl", Path::new("/cache/x"), 0);
-        let _ = fs::remove_dir_all(&home);
+        log_eviction(home, "ttl", Path::new("/cache/x"), 0);
     }
 }

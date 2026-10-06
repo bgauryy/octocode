@@ -1,6 +1,6 @@
 ---
 name: rust-best-practices
-description: "Use when writing, structuring, reviewing, or hardening Rust and a choice is open: which crate, idiomatic errors/ownership, modeling structs/enums/traits, design patterns (good vs bad), splitting a workspace into npm-style crates, Cargo profiles and compile time, dev tools and testing, performance, memory and allocation (malloc/calloc equivalents), unsafe and supply-chain security, CLI or ratatui TUI apps, napi-rs Node addons with TypeScript types and per-platform npm packages, subprocesses, or parsing/codegen. Also for borrow-checker fights, clone spam, and async pitfalls. Not for non-Rust code or a settled mechanical edit."
+description: "Use when writing, structuring, reviewing, or hardening Rust and a choice is open: which crate, idiomatic errors/ownership, modeling structs/enums/traits, design patterns (good vs bad), splitting a workspace into npm-style crates, Cargo profiles, compile time, target/ size and build/test rebuild churn, dev tools and testing, performance, memory and allocation (malloc/calloc equivalents), unsafe and supply-chain security, CLI or ratatui TUI apps, napi-rs Node addons with TypeScript types and per-platform npm packages, subprocesses, or parsing/codegen. Not for non-Rust code or a settled mechanical edit."
 ---
 
 # Rust Best Practices
@@ -17,7 +17,7 @@ flowchart TD
     L -. "for struct vs enum, generics vs dyn, smart pointers, OO port, named pattern" .-> R3["references/types-and-patterns.md"]
     L -. "for modules, layers, what goes in which crate" .-> R4["references/crate-structure.md"]
     L -. "when adding a workspace crate; root Cargo.toml, MSRV, lockfile, features" .-> R5["references/workspace.md"]
-    L -. "for [profile.*], compile time" .-> R6["references/build-profiles.md"]
+    L -. "for [profile.*], compile time, target/ size, build/test rebuilds, cleanup" .-> R6["references/build-profiles.md"]
     L -. "for tests, dev loop, CI and merge gate, which tool" .-> R7["references/testing-and-tooling.md"]
     L -. "for slow hot path, RSS, type size, malloc/calloc" .-> R8["references/performance-and-memory.md"]
     L -. "for unsafe, untrusted input, supply chain, cdylib, napi threads/panics" .-> R9["references/safety-and-ffi.md"]

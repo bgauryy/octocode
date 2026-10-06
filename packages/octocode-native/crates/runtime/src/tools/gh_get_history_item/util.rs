@@ -25,8 +25,46 @@ pub(super) fn nonzero(value: Option<&Value>) -> Option<u64> {
 pub(super) fn map_comments(values: Vec<Value>, kind: &str, include_bots: bool) -> Vec<Value> {
     values.into_iter().filter(|v|include_bots||!is_bot(str_at(v,"/user/login").unwrap_or(""))).map(|v|{
     let mut out=json!({"id":v["id"].to_string().trim_matches('"'),"author":str_at(&v,"/user/login").unwrap_or("unknown"),"body":string(v.get("body")),"createdAt":string(v.get("created_at")),"updatedAt":string(v.get("updated_at")),"commentType":kind,
-        "path":v.get("path"),"line":v.get("line").or_else(||v.get("original_line")),"inReplyToId":v.get("in_reply_to_id")});remove_nulls(&mut out);out
+        "path":v.get("path"),"inReplyToId":v.get("in_reply_to_id").filter(|id|!id.is_null()).map(|id|id.to_string().trim_matches('"').to_owned())});
+    review_anchor(&v,&mut out);remove_nulls(&mut out);out
 }).collect()
+}
+
+/// The code a review comment points at, readable with ghGetFileContent at
+/// `commitSha`: the live `line`/`start_line`/`commit_id`, else (an outdated
+/// comment, `line: null`) the `original_*` triple flagged `outdated`. A
+/// file-level comment has no line.
+fn review_anchor(raw: &Value, out: &mut Value) {
+    let present = |key: &str| raw.get(key).filter(|value| !value.is_null()).cloned();
+    let (line, start, commit, outdated) = match (present("line"), present("original_line")) {
+        (Some(line), _) => (
+            Some(line),
+            present("start_line"),
+            present("commit_id"),
+            false,
+        ),
+        (None, Some(line)) => (
+            Some(line),
+            present("original_start_line"),
+            present("original_commit_id"),
+            true,
+        ),
+        (None, None) => (None, None, present("commit_id"), false),
+    };
+    out["line"] = line.clone().unwrap_or(Value::Null);
+    out["startLine"] = start
+        .filter(|start| Some(start) != line.as_ref())
+        .unwrap_or(Value::Null);
+    out["commitSha"] = commit.unwrap_or(Value::Null);
+    if outdated {
+        out["outdated"] = Value::Bool(true);
+    }
+    if raw.get("line").is_some() || raw.get("original_line").is_some() {
+        out["side"] = present("side").unwrap_or(Value::Null);
+    }
+    if str_at(raw, "/subject_type") == Some("file") {
+        out["subjectType"] = json!("file");
+    }
 }
 pub(super) fn compare_identity(
     raw: &Value,
@@ -122,13 +160,13 @@ pub(super) fn paginate_text(
     let start = offset.unwrap_or(0).min(total);
     let len = length.unwrap_or(super::DEFAULT_TEXT_WINDOW).clamp(
         1,
-        crate::contracts::query_schema_max(ToolId::GhGetHistoryItem, None, "charLength"),
+        crate::contracts::query_schema_max(ToolId::GhGetHistoryItem, None, "length"),
     );
     let end = (start + len).min(total);
     let text = value.chars().skip(start).take(end - start).collect();
     (
         text,
-        json!({"charOffset":start,"charLength":end-start,"totalChars":total,"hasMore":end<total,"nextCharOffset":(end<total).then_some(end)}),
+        json!({"offset":start,"length":end-start,"totalChars":total,"hasMore":end<total,"nextOffset":(end<total).then_some(end)}),
     )
 }
 
@@ -150,9 +188,17 @@ pub(super) fn minified_view(query: &HistoryItemRequest) -> bool {
         && query.match_string().is_none()
 }
 
+/// The text view of a PR/issue body, comment or review. A minified view
+/// that only reflows whitespace keeps the source text, so offsets stay
+/// GitHub's own; a view that drops text is marked (`bodyView`) and has a raw
+/// re-read.
 pub(super) fn history_body_view(value: &str, query: &HistoryItemRequest) -> String {
-    if minified_view(query) {
-        octocode_engine::portable::apply_content_view_minification(value, "history.md")
+    if !minified_view(query) {
+        return value.to_owned();
+    }
+    let view = octocode_engine::portable::apply_content_view_minification(value, "history.md");
+    if view_dropped_text(value, &view) {
+        view
     } else {
         value.to_owned()
     }
@@ -188,6 +234,13 @@ pub(super) fn window_body(
     (text, page)
 }
 
+/// A commit date in UTC (`…Z`), as every history date is; text that is not
+/// a full timestamp passes through.
+pub(super) fn utc_date(value: Option<&str>) -> String {
+    let value = value.unwrap_or("");
+    crate::providers::github::utc_timestamp(value).unwrap_or_else(|| value.to_owned())
+}
+
 /// Shallow object merge: `right`'s keys overwrite `left`'s.
 pub(super) fn merge(mut left: Value, right: Value) -> Value {
     if let (Some(l), Some(r)) = (left.as_object_mut(), right.as_object()) {
@@ -203,18 +256,18 @@ mod tests {
     fn text_windows_are_unicode_safe() {
         let (value, page) = paginate_text("a🦀b", Some(1), Some(1));
         assert_eq!(value, "🦀");
-        assert_eq!(page["nextCharOffset"], 2);
+        assert_eq!(page["nextOffset"], 2);
     }
 
     #[test]
     fn text_window_honours_the_contract_char_length_maximum() {
-        // Contract charLength maximum is 100000; a valid request up to it is
+        // Contract length maximum is 100000; a valid request up to it is
         // served whole rather than silently cut to a smaller native cap.
         let body = "x".repeat(120_000);
         let (value, page) = paginate_text(&body, None, Some(100_000));
         assert_eq!(value.chars().count(), 100_000);
-        assert_eq!(page["charLength"], 100_000);
-        assert_eq!(page["nextCharOffset"], 100_000);
+        assert_eq!(page["length"], 100_000);
+        assert_eq!(page["nextOffset"], 100_000);
         let (clamped, _) = paginate_text(&body, None, Some(110_000));
         assert_eq!(clamped.chars().count(), 100_000);
     }
@@ -244,6 +297,37 @@ mod tests {
         let (text, _) = window_body(raw, None, &raw_pr, &mut first_more, &mut dropped);
         assert!(!dropped);
         assert_eq!(text, raw);
+    }
+
+    /// A view that only reflows whitespace keeps the body verbatim, so body
+    /// offsets are GitHub's own character offsets.
+    #[test]
+    fn whitespace_only_views_keep_the_source_text() {
+        let pr = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","number":1
+        }))
+        .expect("pr query");
+        let raw = "Intro  \r\n\n\n\nDetails\n\n\n- item\n";
+        assert_eq!(history_body_view(raw, &pr), raw);
+        let mut first_more = None;
+        let mut dropped = false;
+        let (text, page) = window_body(raw, None, &pr, &mut first_more, &mut dropped);
+        assert_eq!(text, raw);
+        assert_eq!(page["totalChars"], raw.chars().count());
+        assert!(!dropped);
+    }
+
+    #[test]
+    fn commit_dates_are_utc() {
+        assert_eq!(
+            utc_date(Some("2024-01-01T02:30:00+02:00")),
+            "2024-01-01T00:30:00Z"
+        );
+        assert_eq!(
+            utc_date(Some("2024-01-01T00:00:00Z")),
+            "2024-01-01T00:00:00Z"
+        );
+        assert_eq!(utc_date(None), "");
     }
 
     #[test]

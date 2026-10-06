@@ -5,7 +5,7 @@
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 #![cfg(unix)]
 
-mod support;
+use crate::support;
 
 use std::path::{Path, PathBuf};
 use std::process::Output;

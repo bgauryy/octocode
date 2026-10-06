@@ -1,20 +1,23 @@
-//! LSP language-server provisioning for the native CLI: manifest data, managed
-//! cache resolution, and the download/verify/extract/install path.
+//! LSP language-server provisioning for the native CLI: the download, verify,
+//! extract, and install path into the managed cache that discovery reads.
 //!
-//! Rust-owned provisioning requires pinned SHA-256 assets and allowed HTTPS
-//! hosts on every hop. It writes and marks completed executables atomically
-//! under per-target locks. Archive support is limited to `none`, `gz`, and
-//! `zip`; `tar.gz` and `tar.xz` return an explicit manual-install error.
-use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+//! Provisioning requires pinned SHA-256 assets and allowed HTTPS hosts on
+//! every hop. It writes and marks completed executables atomically under
+//! per-target locks. Archive support is limited to `gz` and `zip`.
+use octocode_engine::lsp::config::{
+    LspDiscoveryOptions, default_server_for_file, detect_language_id, is_command_available,
+};
+use octocode_engine::lsp::managed::{
+    ArchiveKind, ManifestAsset, cached_server_bin_path, manifest, manifest_server, marker_path,
+    platform_id, resolve_cached_server, sha256_hex,
+};
+use octocode_native::runtime::ToolRuntime;
+use std::future::Future;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-mod manifest;
-use manifest::{ArchiveKind, ManifestAsset, manifest, manifest_server};
-
-/// Auto-install policy, mirroring `OCTOCODE_LSP_AUTO_INSTALL`.
+/// Auto-install policy, from `OCTOCODE_LSP_AUTO_INSTALL`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProvisionMode {
     Off,
@@ -25,48 +28,14 @@ pub enum ProvisionMode {
 const MAX_REDIRECTS: usize = 5;
 const LOCK_STALE: Duration = Duration::from_secs(10 * 60);
 
-/// GitHub / HashiCorp release hosts permitted for downloads (and every redirect
-/// hop). Mirrors the TS `ALLOWED_HOSTS` set.
+/// GitHub / HashiCorp release hosts permitted for downloads and every
+/// redirect hop.
 const ALLOWED_HOSTS: [&str; 4] = [
     "github.com",
     "objects.githubusercontent.com",
     "release-assets.githubusercontent.com",
     "releases.hashicorp.com",
 ];
-
-/// Detect the canonical `{os}-{arch}[-musl]` platform id the manifest is keyed on.
-pub fn platform_id() -> String {
-    let arch = if std::env::consts::ARCH == "x86_64" {
-        "x64"
-    } else {
-        "arm64"
-    };
-    match std::env::consts::OS {
-        "macos" => format!("darwin-{arch}"),
-        "windows" => format!("win32-{arch}"),
-        _ => {
-            let suffix = if is_musl_linux() { "-musl" } else { "" };
-            format!("linux-{arch}{suffix}")
-        }
-    }
-}
-
-/// True when the current Linux runtime links musl libc (Alpine etc.).
-fn is_musl_linux() -> bool {
-    if std::env::consts::OS != "linux" {
-        return false;
-    }
-    std::fs::read_dir("/lib")
-        .map(|entries| {
-            entries.flatten().any(|e| {
-                e.file_name()
-                    .to_str()
-                    .map(|n| n.starts_with("ld-musl-"))
-                    .unwrap_or(false)
-            })
-        })
-        .unwrap_or(false)
-}
 
 /// The configured auto-install policy. Defaults to `Prompt` when unset.
 pub fn provision_mode(raw: Option<&str>) -> ProvisionMode {
@@ -77,84 +46,14 @@ pub fn provision_mode(raw: Option<&str>) -> ProvisionMode {
     }
 }
 
-/// Lowercase hex SHA-256 of `bytes`.
-pub fn sha256_hex(bytes: &[u8]) -> String {
-    hex::encode(Sha256::digest(bytes))
-}
-
 /// True when `url` is https and its host is on the release allowlist.
 pub fn host_allowed(url: &str) -> bool {
-    match url::Url::parse(url) {
-        Ok(parsed) => {
-            parsed.scheme() == "https"
-                && parsed
-                    .host_str()
-                    .map(|h| ALLOWED_HOSTS.contains(&h))
-                    .unwrap_or(false)
-        }
-        Err(_) => false,
-    }
-}
-
-/// Where a provisioned binary lives once installed:
-/// `<root>/<server>/<releaseTag>/<binName>`.
-pub fn cached_server_bin_path(root: &Path, name: &str, platform: &str) -> Option<PathBuf> {
-    let server = manifest_server(name)?;
-    let asset = server.platforms.get(platform)?;
-    let base = Path::new(name)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or(name);
-    Some(
-        root.join(base)
-            .join(server.release_tag)
-            .join(asset.bin_name),
-    )
-}
-
-/// A `.ok` completion marker: the binary's own hash + size.
-struct CacheMarker {
-    binary_sha256: String,
-    size: u64,
-}
-
-fn read_cache_marker(marker_path: &Path) -> Option<CacheMarker> {
-    let text = std::fs::read_to_string(marker_path).ok()?;
-    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let binary_sha256 = value.get("binarySha256")?.as_str()?.to_string();
-    if binary_sha256.len() != 64 || !binary_sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
-    let size = value.get("size")?.as_u64()?;
-    Some(CacheMarker {
-        binary_sha256,
-        size,
+    url::Url::parse(url).is_ok_and(|parsed| {
+        parsed.scheme() == "https"
+            && parsed
+                .host_str()
+                .is_some_and(|host| ALLOWED_HOSTS.contains(&host))
     })
-}
-
-/// Return an absolute path only when a managed binary is present AND its `.ok`
-/// marker matches the binary's current hash and size (read-only, always safe).
-pub fn resolve_cached_server(root: &Path, name: &str, platform: &str) -> Option<PathBuf> {
-    let bin_path = cached_server_bin_path(root, name, platform)?;
-    if !bin_path.exists() {
-        return None;
-    }
-    let marker = read_cache_marker(&marker_path(&bin_path))?;
-    let bytes = std::fs::read(&bin_path).ok()?;
-    if bytes.len() as u64 != marker.size {
-        return None;
-    }
-    if sha256_hex(&bytes) == marker.binary_sha256 {
-        Some(bin_path)
-    } else {
-        None
-    }
-}
-
-fn marker_path(bin_path: &Path) -> PathBuf {
-    let mut s = bin_path.as_os_str().to_os_string();
-    s.push(".ok");
-    PathBuf::from(s)
 }
 
 /// Decode the downloaded asset into the final executable bytes.
@@ -182,7 +81,7 @@ fn extract_binary(asset: &ManifestAsset, raw: &[u8]) -> Result<Vec<u8>, String> 
     }
 }
 
-/// Strip a single leading `./` or `/` (mirrors the TS `/^\.?\//` normalization).
+/// Strip a single leading `./` or `/`.
 fn strip_lead(s: &str) -> &str {
     if let Some(rest) = s.strip_prefix("./") {
         rest
@@ -267,36 +166,43 @@ pub fn uninstall_server(root: &Path, name: &str, platform: &str) -> bool {
     std::fs::remove_dir_all(&server_dir).is_ok()
 }
 
-/// Try to acquire a `.lock` file; reclaim a stale lock from a crashed installer.
-fn acquire_lock(lock_path: &Path) -> bool {
-    use std::fs::OpenOptions;
-    match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(lock_path)
-    {
-        Ok(_) => true,
-        Err(_) => {
-            let stale = std::fs::metadata(lock_path)
-                .and_then(|m| m.modified())
-                .map(|mtime| {
-                    SystemTime::now()
-                        .duration_since(mtime)
-                        .map(|age| age > LOCK_STALE)
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
-            if stale {
-                let _ = std::fs::remove_file(lock_path);
-                OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(lock_path)
-                    .is_ok()
-            } else {
-                false
+/// An exclusive per-target `.lock` file, removed when dropped, so an error
+/// or a panic during the install never leaves it behind.
+struct InstallLock(PathBuf);
+
+impl InstallLock {
+    /// Acquire `path`, reclaiming a stale lock left by a crashed installer.
+    fn acquire(path: PathBuf) -> Option<Self> {
+        let create = || {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&path)
+                .is_ok()
+        };
+        if create() {
+            return Some(Self(path));
+        }
+        let stale = std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .is_ok_and(|mtime| {
+                SystemTime::now()
+                    .duration_since(mtime)
+                    .is_ok_and(|age| age > LOCK_STALE)
+            });
+        if stale {
+            let _ = std::fs::remove_file(&path);
+            if create() {
+                return Some(Self(path));
             }
         }
+        None
+    }
+}
+
+impl Drop for InstallLock {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
     }
 }
 
@@ -329,9 +235,9 @@ impl ProvisionOutcome {
 }
 
 /// Provision `name` into the managed cache under `root`. Idempotent. `fetch`
-/// supplies the raw asset bytes for a URL (injected so the full verify/extract/
-/// install path is testable without network).
-pub fn provision_server<F>(
+/// supplies the raw asset bytes for a URL (injected so the full verify/
+/// extract/install path is testable without network).
+pub async fn provision_server<F, Fut>(
     root: &Path,
     name: &str,
     platform: &str,
@@ -339,13 +245,14 @@ pub fn provision_server<F>(
     fetch: F,
 ) -> ProvisionOutcome
 where
-    F: FnOnce(&str) -> Result<Vec<u8>, String>,
+    F: FnOnce(&'static str) -> Fut,
+    Fut: Future<Output = Result<Vec<u8>, String>>,
 {
     let Some(server) = manifest_server(name) else {
         return ProvisionOutcome::fail(format!("{name} is not an auto-downloadable server."));
     };
     if let Some(reason) = server.unsupported_platforms.get(platform) {
-        return ProvisionOutcome::fail(reason.to_string());
+        return ProvisionOutcome::fail(*reason);
     }
     let Some(asset) = server.platforms.get(platform) else {
         return ProvisionOutcome::fail(format!("No {name} asset for platform {platform}."));
@@ -372,72 +279,45 @@ where
         return ProvisionOutcome::fail(format!("Cannot compute cache path for {name}."));
     };
     let Some(dir) = bin_path.parent() else {
-        return ProvisionOutcome::fail("bin path has no parent".to_string());
+        return ProvisionOutcome::fail("bin path has no parent");
     };
     if let Err(e) = std::fs::create_dir_all(dir) {
         return ProvisionOutcome::fail(format!("creating {dir:?}: {e}"));
     }
     let lock_path = dir.join(".lock");
-    if !acquire_lock(&lock_path) {
+    let Some(_lock) = InstallLock::acquire(lock_path.clone()) else {
         return ProvisionOutcome::fail(format!(
             "Another install of {name} is in progress ({lock_path:?})."
         ));
+    };
+
+    // Another process may have finished while this one waited for the lock.
+    if let Some(winner) = resolve_cached_server(root, name, platform) {
+        return ProvisionOutcome::present(winner, "already-present");
     }
-
-    let result = (|| {
-        // Re-check after lock (another process may have finished).
-        if let Some(winner) = resolve_cached_server(root, name, platform) {
-            return ProvisionOutcome::present(winner, "already-present");
-        }
-        let downloaded = match fetch(asset.url) {
-            Ok(bytes) => bytes,
-            Err(e) => return ProvisionOutcome::fail(e),
-        };
-        let actual = sha256_hex(&downloaded);
-        if actual != expected_sha {
-            return ProvisionOutcome::fail(format!(
-                "Checksum mismatch for {name}: expected {expected_sha}, got {actual}."
-            ));
-        }
-        let extracted = match extract_binary(asset, &downloaded) {
-            Ok(bytes) => bytes,
-            Err(e) => return ProvisionOutcome::fail(e),
-        };
-        if let Err(e) = atomic_install(&bin_path, &extracted, expected_sha) {
-            return ProvisionOutcome::fail(e);
-        }
-        ProvisionOutcome::present(bin_path.clone(), "downloaded")
-    })();
-
-    let _ = std::fs::remove_file(&lock_path);
-    result
-}
-
-/// The OS home directory (`HOME`/`USERPROFILE`), falling back to `.`.
-fn os_home() -> PathBuf {
-    std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("."))
-}
-
-/// Root of the managed server cache: `OCTOCODE_LSP_CACHE_DIR` override else
-/// `<octocode-home>/lsp`.
-pub fn managed_cache_root() -> PathBuf {
-    if let Ok(override_dir) = std::env::var("OCTOCODE_LSP_CACHE_DIR") {
-        let trimmed = override_dir.trim();
-        if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
-        }
+    let downloaded = match fetch(asset.url).await {
+        Ok(bytes) => bytes,
+        Err(e) => return ProvisionOutcome::fail(e),
+    };
+    let actual = sha256_hex(&downloaded);
+    if actual != expected_sha {
+        return ProvisionOutcome::fail(format!(
+            "Checksum mismatch for {name}: expected {expected_sha}, got {actual}."
+        ));
     }
-    let env: BTreeMap<String, String> = std::env::vars().collect();
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    octocode_native::config::octocode_home(&env, &cwd, &os_home()).join("lsp")
+    let extracted = match extract_binary(asset, &downloaded) {
+        Ok(bytes) => bytes,
+        Err(e) => return ProvisionOutcome::fail(e),
+    };
+    if let Err(e) = atomic_install(&bin_path, &extracted, expected_sha) {
+        return ProvisionOutcome::fail(e);
+    }
+    ProvisionOutcome::present(bin_path, "downloaded")
 }
 
 /// Fetch `url` following redirects manually, re-checking the host allowlist on
 /// every hop. Signed release-asset query tokens are never echoed into errors.
-async fn fetch_allowlisted(url: &str) -> Result<Vec<u8>, String> {
+async fn fetch_allowlisted(url: &'static str) -> Result<Vec<u8>, String> {
     let client = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .build()
@@ -500,45 +380,69 @@ async fn fetch_allowlisted(url: &str) -> Result<Vec<u8>, String> {
     Err("Too many redirects".to_string())
 }
 
-/// Resolve status for a single file: detect its language and whether a
-/// language server is available. Port of `getLspStatus` in manager.ts.
-fn run_status(file_path: Option<&str>, json: bool) -> u8 {
-    use octocode_engine::lsp::config::{
-        default_server_for_file, detect_language_id, is_command_available,
-    };
+/// The runtime's resolved language-server discovery settings, so status and
+/// installs see what `lspSearch` sees.
+fn discovery(runtime: &ToolRuntime) -> LspDiscoveryOptions {
+    let execution = runtime.lsp_execution_config();
+    execution.discovery(execution.config_path.as_deref().map(PathBuf::from))
+}
 
+/// Resolve how `file_path`'s language server would launch, through the same
+/// discovery `lspSearch` uses. Without a file, list the managed installs.
+fn run_status(
+    discovery: &LspDiscoveryOptions,
+    root: &Path,
+    platform: &str,
+    file_path: Option<&str>,
+    json: bool,
+) -> u8 {
     let Some(path) = file_path else {
-        // No file path: report pool status. In a standalone CLI process there is
-        // no running LSP pool, so the count is always 0 (same result as the TS
-        // `nativeBinding.pooledLspClientCount()` when called outside an MCP server).
+        let installed: Vec<serde_json::Value> = manifest()
+            .keys()
+            .filter_map(|name| {
+                resolve_cached_server(root, name, platform)
+                    .map(|bin| serde_json::json!({ "name": name, "path": bin }))
+            })
+            .collect();
         if json {
             return super::write_json(
-                &serde_json::json!({ "pooledClientCount": 0, "pooledClients": [] }),
+                &serde_json::json!({ "managedRoot": root, "installed": installed }),
                 true,
             );
         }
         println!("LSP status");
-        println!("  pooled clients: 0");
+        println!("  managed installs: {}", root.display());
+        for row in &installed {
+            println!(
+                "    {}  {}",
+                row["name"].as_str().unwrap_or_default(),
+                row["path"].as_str().unwrap_or_default()
+            );
+        }
         println!("  Pass a file path to see how its language server resolves.");
         return 0;
     };
 
-    let cwd = std::env::current_dir()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| ".".to_owned());
-
-    let language_id = detect_language_id(path.to_owned());
-    let config = default_server_for_file(path.to_owned(), cwd);
-
-    let server_available = config
-        .as_ref()
-        .is_some_and(|c| is_command_available(c.command.clone()).unwrap_or(false));
+    let workspace =
+        octocode_engine::lsp::workspace::resolve_workspace_root_for_file(path.to_owned())
+            .unwrap_or_else(|_| {
+                std::env::current_dir()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| ".".to_owned())
+            });
+    let language_id = detect_language_id(path);
+    let config = default_server_for_file(path, &workspace, discovery);
+    let (server_available, probe_error) =
+        match config.as_ref().map(|c| is_command_available(&c.command)) {
+            Some(Ok(available)) => (available, None),
+            Some(Err(error)) => (false, Some(error)),
+            None => (false, None),
+        };
     let server_command: Option<String> = config.map(|c| c.command);
     let lang = language_id.as_deref().unwrap_or("unknown");
 
-    // Mirror the TS hint: if `path` looks like a server name rather than a file
-    // path, warn the user. A path has a separator or an extension that contains
-    // no separator.
+    // A path has a separator or an extension that contains no separator;
+    // anything else is probably a server name passed by mistake.
     let looks_like_path = path.contains('/') || path.contains('\\') || {
         path.rfind('.')
             .is_some_and(|i| i + 1 < path.len() && !path[i + 1..].contains('/'))
@@ -555,6 +459,7 @@ fn run_status(file_path: Option<&str>, json: bool) -> u8 {
                 "languageId": lang,
                 "serverAvailable": server_available,
                 "serverCommand": server_command,
+                "probeError": probe_error,
             }),
             true,
         );
@@ -573,9 +478,11 @@ fn run_status(file_path: Option<&str>, json: bool) -> u8 {
     if server_available {
         let cmd = server_command.as_deref().unwrap_or("unknown");
         println!("  resolved:  {cmd}");
-        println!("  Language server resolved for this file (source: available).");
     } else {
         println!("  resolved:  unavailable");
+        if let Some(error) = &probe_error {
+            println!("  Could not check the server command: {error}");
+        }
         if let Some(lang_id) = &language_id {
             println!(
                 "  No language server is available for this file (language: {lang_id}). \
@@ -590,6 +497,7 @@ fn run_status(file_path: Option<&str>, json: bool) -> u8 {
 
 /// Dispatch the `lsp-server` subcommand.
 pub async fn run(
+    runtime: &ToolRuntime,
     action: &str,
     names: Vec<String>,
     all: bool,
@@ -597,15 +505,37 @@ pub async fn run(
     force: bool,
     json: bool,
 ) -> u8 {
-    let root = managed_cache_root();
+    let discovery = discovery(runtime);
+    let Some(root) = discovery.managed_root() else {
+        eprintln!("The Octocode home is unavailable; cannot locate managed language servers.");
+        return 5;
+    };
     let platform = platform_id();
     // `names` carries the optional file-path argument for status/which.
     match action {
         "list" => run_list(&root, &platform, json),
-        "install" => run_install(&root, &platform, names, all, yes, force, json).await,
+        "install" => {
+            let targets: Vec<String> = if all {
+                manifest().keys().map(|k| (*k).to_owned()).collect()
+            } else {
+                names
+            };
+            let mode = if yes || force {
+                ProvisionMode::Auto
+            } else {
+                provision_mode(runtime.config().env_value("OCTOCODE_LSP_AUTO_INSTALL"))
+            };
+            run_install(&root, &platform, targets, mode, json, fetch_allowlisted).await
+        }
         "uninstall" | "remove" => run_uninstall(&root, &platform, names, json),
         "clean" => run_clean(&root, yes, json),
-        "status" | "which" => run_status(names.first().map(String::as_str), json),
+        "status" | "which" => run_status(
+            &discovery,
+            &root,
+            &platform,
+            names.first().map(String::as_str),
+            json,
+        ),
         other => {
             eprintln!("Unknown lsp-server subcommand: {other}");
             2
@@ -632,7 +562,7 @@ fn run_list(root: &Path, platform: &str, json: bool) -> u8 {
         return super::write_json(&serde_json::json!({ "servers": rows }), true);
     }
     println!("Auto-downloadable language servers");
-    for (name, server) in &servers {
+    for (name, server) in servers {
         let installed = resolve_cached_server(root, name, platform).is_some();
         let status = if installed {
             "installed (managed cache)"
@@ -644,40 +574,26 @@ fn run_list(root: &Path, platform: &str, json: bool) -> u8 {
     0
 }
 
-async fn run_install(
+async fn run_install<F, Fut>(
     root: &Path,
     platform: &str,
-    names: Vec<String>,
-    all: bool,
-    yes: bool,
-    force: bool,
+    targets: Vec<String>,
+    mode: ProvisionMode,
     json: bool,
-) -> u8 {
-    let targets: Vec<String> = if all {
-        manifest().keys().map(|k| k.to_string()).collect()
-    } else {
-        names
-    };
+    fetch: F,
+) -> u8
+where
+    F: Fn(&'static str) -> Fut,
+    Fut: Future<Output = Result<Vec<u8>, String>>,
+{
     if targets.is_empty() {
         eprintln!("Specify a server to install, or use --all.");
         return 2;
     }
-    let mode = if yes || force {
-        ProvisionMode::Auto
-    } else {
-        provision_mode(std::env::var("OCTOCODE_LSP_AUTO_INSTALL").ok().as_deref())
-    };
     let mut results = Vec::new();
     let mut worst: u8 = 0;
     for name in targets {
-        // Pre-fetch outside the sync provisioner via a blocking bridge so the
-        // resolve/lock/verify/install steps stay synchronous and testable.
-        let outcome = provision_server(root, &name, platform, mode, |url| {
-            let url = url.to_string();
-            tokio::task::block_in_place(|| {
-                tokio::runtime::Handle::current().block_on(fetch_allowlisted(&url))
-            })
-        });
+        let outcome = provision_server(root, &name, platform, mode, &fetch).await;
         if outcome.ok {
             if !json {
                 println!(
@@ -820,30 +736,6 @@ mod tests {
     }
 
     #[test]
-    fn manifest_has_clangd_and_rust_analyzer() {
-        let m = manifest();
-        assert!(m.contains_key("clangd"));
-        assert!(m.contains_key("rust-analyzer"));
-        let ra = &m["rust-analyzer"];
-        assert_eq!(ra.language_id, "rust");
-        assert_eq!(ra.release_tag, "2026-06-22");
-        assert_eq!(ra.platforms["linux-x64"].archive, ArchiveKind::Gz);
-        assert_eq!(
-            m["clangd"].platforms["darwin-arm64"].archive,
-            ArchiveKind::Zip
-        );
-    }
-
-    #[test]
-    fn sha256_matches_known_vector() {
-        // echo -n "abc" | sha256sum
-        assert_eq!(
-            sha256_hex(b"abc"),
-            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
-        );
-    }
-
-    #[test]
     fn host_allowlist_enforces_https_and_hosts() {
         assert!(host_allowed(
             "https://github.com/clangd/clangd/releases/download/x.zip"
@@ -911,8 +803,8 @@ mod tests {
         assert!(extract_binary(&asset, &zip_with(&[("x", b"y")])).is_err());
     }
 
-    #[test]
-    fn atomic_install_then_resolve_roundtrip() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn atomic_install_then_resolve_roundtrip() {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         let platform = "linux-x64";
@@ -935,28 +827,22 @@ mod tests {
             Some(bin.clone())
         );
         // provision_server short-circuits to already-present (fetch must not run).
-        let again = provision_server(
-            root,
-            "rust-analyzer",
-            platform,
-            ProvisionMode::Auto,
-            |_url| panic!("must not fetch when already present"),
-        );
+        let again =
+            provision_server(root, "rust-analyzer", platform, ProvisionMode::Auto, never).await;
         assert_eq!(again.source, Some("already-present"));
     }
 
-    #[test]
-    fn provision_refuses_on_checksum_mismatch() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn provision_refuses_on_checksum_mismatch() {
         let dir = tempfile::tempdir().expect("tempdir");
         let outcome = provision_server(
             dir.path(),
             "rust-analyzer",
             "linux-x64",
             ProvisionMode::Auto,
-            |_url| {
-                Ok(gz(b"tampered")) // hash will not match the pinned manifest sha
-            },
-        );
+            tampered,
+        )
+        .await;
         assert!(!outcome.ok);
         assert!(
             outcome
@@ -966,16 +852,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn provision_off_mode_refuses() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn provision_off_mode_refuses() {
         let dir = tempfile::tempdir().expect("tempdir");
-        let outcome = provision_server(
-            dir.path(),
-            "clangd",
-            "linux-x64",
-            ProvisionMode::Off,
-            |_url| panic!("must not fetch in off mode"),
-        );
+        let outcome =
+            provision_server(dir.path(), "clangd", "linux-x64", ProvisionMode::Off, never).await;
         assert!(!outcome.ok);
         assert!(
             outcome
@@ -985,16 +866,17 @@ mod tests {
         );
     }
 
-    #[test]
-    fn provision_unsupported_platform_refuses() {
+    #[tokio::test(flavor = "current_thread")]
+    async fn provision_unsupported_platform_refuses() {
         let dir = tempfile::tempdir().expect("tempdir");
         let outcome = provision_server(
             dir.path(),
             "clangd",
             "linux-arm64",
             ProvisionMode::Auto,
-            |_url| panic!("must not fetch for unsupported platform"),
-        );
+            never,
+        )
+        .await;
         assert!(!outcome.ok);
         assert!(
             outcome
@@ -1017,46 +899,83 @@ mod tests {
         assert!(!uninstall_server(root, "rust-analyzer", "linux-x64"));
     }
 
-    // --- run_status tests ---
-
-    #[test]
-    fn status_no_file_text_returns_zero() {
-        assert_eq!(super::run_status(None, false), 0);
+    fn status(file: Option<&str>, json: bool) -> u8 {
+        let dir = tempfile::tempdir().expect("tempdir");
+        run_status(
+            &LspDiscoveryOptions::default(),
+            dir.path(),
+            "linux-x64",
+            file,
+            json,
+        )
     }
 
     #[test]
-    fn status_no_file_json_emits_pool_envelope() {
-        // Capture is indirect — we just assert the exit code is 0 and the
-        // function is callable. Output assertions live in integration tests.
-        assert_eq!(super::run_status(None, true), 0);
+    fn status_without_a_file_lists_managed_installs() {
+        assert_eq!(status(None, false), 0);
+        assert_eq!(status(None, true), 0);
     }
 
     #[test]
-    fn status_known_extension_returns_zero() {
-        // A .rs file is always a Rust file regardless of server availability.
-        assert_eq!(super::run_status(Some("src/main.rs"), false), 0);
+    fn status_resolves_known_and_unknown_extensions() {
+        assert_eq!(status(Some("src/main.rs"), false), 0);
+        assert_eq!(status(Some("main.rs"), true), 0);
+        assert_eq!(status(Some("file.unknownxyz"), false), 0);
     }
 
-    #[test]
-    fn status_json_known_extension_detects_language() {
-        // run_status in JSON mode for a .rs file must exit 0.
-        // We capture side effects via exit code only; output is checked by the
-        // parity harness (Phase 2).
-        assert_eq!(super::run_status(Some("main.rs"), true), 0);
+    fn never(_url: &'static str) -> std::future::Ready<Result<Vec<u8>, String>> {
+        panic!("must not fetch")
     }
 
-    #[test]
-    fn status_unknown_extension_returns_zero() {
-        assert_eq!(super::run_status(Some("file.unknownxyz"), false), 0);
+    fn tampered(_url: &'static str) -> std::future::Ready<Result<Vec<u8>, String>> {
+        std::future::ready(Ok(gz(b"tampered")))
     }
 
-    #[test]
-    fn status_which_alias_same_as_status() {
-        // Both status and which parse to the same code path; verify they
-        // both return 0 for identical input.
-        let r_status = super::run_status(Some("a.ts"), false);
-        let r_which = super::run_status(Some("a.ts"), false);
-        assert_eq!(r_status, r_which);
+    /// The CLI drives a current-thread runtime; installing must not need a
+    /// multi-thread one, and the per-target lock is gone afterwards.
+    #[tokio::test(flavor = "current_thread")]
+    async fn install_runs_on_the_current_thread_runtime() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let code = run_install(
+            dir.path(),
+            "linux-x64",
+            vec!["rust-analyzer".to_owned()],
+            ProvisionMode::Auto,
+            true,
+            tampered,
+        )
+        .await;
+        assert_eq!(code, 3);
+        let lock = dir.path().join("rust-analyzer/2026-06-22/.lock");
+        assert!(!lock.exists());
+    }
+
+    /// A panic mid-install still releases the lock, so the next install is
+    /// not refused as "in progress" for the stale-lock window.
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_panicking_install_releases_its_lock() {
+        use futures_util::FutureExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let panicked = std::panic::AssertUnwindSafe(provision_server(
+            dir.path(),
+            "rust-analyzer",
+            "linux-x64",
+            ProvisionMode::Auto,
+            never,
+        ))
+        .catch_unwind()
+        .await;
+        assert!(panicked.is_err());
+        assert!(!dir.path().join("rust-analyzer/2026-06-22/.lock").exists());
+        let retry = provision_server(
+            dir.path(),
+            "rust-analyzer",
+            "linux-x64",
+            ProvisionMode::Auto,
+            tampered,
+        )
+        .await;
+        assert!(retry.error.expect("error").contains("Checksum mismatch"));
     }
 
     #[test]

@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Octocode configuration</title><link rel="stylesheet" href="/style.css"><script type="module" src="/app.js"></script></head>
+<body><main>
+<header><div><span class="brand">OCTOCODE</span><h1>Configuration</h1><p>Settings, keys, and your agents in one place.</p></div><button id="close" class="quiet">End session</button></header>
+<div id="message" role="status" aria-live="polite"></div>
+<nav aria-label="Configuration views"><button data-tab="settings" aria-pressed="true">Settings</button><button data-tab="keys" aria-pressed="false">Keys</button><button data-tab="agents" aria-pressed="false">Agents</button></nav>
+<section id="controls"><label>Save to <select id="scope"><option value="home">Home</option><option value="workspace">Workspace</option></select></label><label class="search">Search <input id="search" type="search" placeholder="Find a setting, key, or agent"></label><button id="refresh" class="quiet">Refresh</button></section>
+<section id="warnings" aria-label="Configuration warnings"></section>
+<section id="content" aria-label="Configuration"><p>Opening your configuration…</p></section>
+<footer id="storage">Changes are saved on this computer. Agent changes may require restarting the agent.</footer>
+</main></body></html>

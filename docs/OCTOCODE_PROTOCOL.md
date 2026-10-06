@@ -28,7 +28,7 @@ A coding agent's scarcest resource is context. Dumping files, whole diffs or raw
 | **Files** (layout) | Which files and directories exist, how big are they, and where should I look? | `structureSearch`, `ghStructure`, `ghSearchRepo` |
 | **Syntax** (AST) | Which declarations or code shapes exist, ignoring comments and strings? | `astSearch` (match, symbols, syntax tree), `astRewrite` (beta, CLI) |
 | **Semantics** (LSP) | Is this the same symbol? Where is it defined, who references or calls it? | `lspSearch` |
-| **Connections** (graph) | Who imports this file? What does it depend on? Is it reachable? | `astTopology` (beta), LSP call hierarchy |
+| **Connections** (graph) | Who imports this file? What does it depend on? Is it reachable? | `astTopology` (beta, CLI only), LSP call hierarchy |
 | **History** | Which change introduced this, what did the PR do, what differs between two refs? | `ghSearchHistory`, `ghGetHistoryItem` |
 | **Packages** | Which repository and directory hold this package's source? | `artifactSearch` |
 | **Judgment** (optional) | Which of these candidates matters, where in the file is the answer, and is this snippet enough? | `clasify` |
@@ -49,8 +49,8 @@ flowchart LR
 ```
 
 - **Zoom out** before searching blind. `structureSearch` tree/files, `astSearch` symbols (an outline without bodies), `localFetch minify:"symbols"`, `ghStructure`, and a PR summary with counts all show the shape at low cost.
-- **Search** with the narrowest filter that settles the question: `langType`, `path`, `include`/`exclude`, `wholeWord`, `regex:"literal"`, AST patterns, PR `fileFilter`/`matchString`.
-- **Zoom in** on exact regions. Use `matchString` + `contextLines`, `startLine`/`endLine`, PR `matchContext`, or byte windows for minified files. Whole files are read only when completeness matters and the file is small.
+- **Search** with the narrowest filter that settles the question: `language`, `path`, `include`/`exclude`, `wholeWord`, `regex:"literal"`, AST patterns, PR `include`/`matchString`.
+- **Zoom in** on exact regions. Use `matchString` + `contextLines`, `ranges`, PR `contextLines`, or byte windows for minified files. Whole files are read only when completeness matters and the file is small.
 - **Prove** identity semantically with `lspSearch` definition, references and calls. Text hits show occurrence; LSP shows identity.
 - **Stop** as soon as the evidence answers the question. One decisive region settles one fact.
 
@@ -79,7 +79,7 @@ flowchart LR
 ### 3.2 Optional brief for multi-call research
 - `mainGoal` (the research question) and `reasoning` (why this call advances it) are **optional on every tool**.
 - Set them only in multi-call research on an unknown. Omit them on simple lookups, reads, listings, and pages.
-- The legacy name `goal` is still accepted for one release and maps to `mainGoal`. A blank brief is dropped, not rejected.
+- A blank brief is dropped, not rejected.
 - `next.*` pages and `hints.*` leads carry `mainGoal`/`reasoning` only when the query that produced them sent them, so agents replay them unchanged and never retype a brief.
 - Why:
   - **Lean lookups.** A simple call spends no input on a brief and cannot fail for a missing one.
@@ -90,9 +90,9 @@ flowchart LR
 ### 3.3 Context engineering: instructions, descriptions, schemas
 Each layer is budgeted, and tests enforce the budgets:
 - **Server instructions (MCP):**
-  - One route line per family: local, GitHub (with "skip `ghSearchCode` at a pinned ref"), and packages ("never from memory").
+  - One route line per family: local, GitHub (with "tag/SHA/PR head: read those paths with `ref:<ref>`"), and packages ("never from memory").
   - The page rule: follow `next.*` before claiming completeness, or name what stays unread.
-  - The PR rule: ask the PR directly with `matchString`/`matchContext`/`fileFilter`, and use the inventory only when there's no literal or path.
+  - The PR rule: ask the PR directly with `matchString`/`contextLines`/`include`, and use the inventory only when there's no literal or path.
   - The clasify use/skip rule.
   - The evidence, brief, batch, and stop rules.
   - The whole set is capped at **2,000 characters**, because hosts truncate longer instructions. They are scoped to the tools actually available: without a clasify key, clasify is never mentioned.
@@ -123,7 +123,7 @@ Each layer is budgeted, and tests enforce the budgets:
 Every list and every large body can be paged, and every page is honest about what remains:
 - **Item pages:** files, matches, symbols, PR files, commits, comments.
 - **Content windows:** character or line windows inside a large file or patch. A huge file costs one bounded first page (e.g. 18k chars for a 3.2 MB file) instead of the whole file.
-- **Whole-response paging:** `responseCharOffset`/`responseCharLength`, used when rendered output itself is large.
+- **Whole-response paging:** `responseOffset`/`responseLength`, used when rendered output itself is large.
 - **Snapshots and cursors:**
   - Pages are bound to a snapshot, so page 2 matches page 1's view. When the source changes, a `restart` is offered.
   - Cursors are HMAC-keyed, so they can't be forged.
@@ -145,7 +145,7 @@ Every list and every large body can be paged, and every page is honest about wha
   - 5 execution, configuration or availability error;
   - 6 partial, meaning there is more to read;
   - 7 rate limited.
-- A renamed repository is detected: the `hints.retryRenamed` lead reruns the query against the new owner.
+- A renamed repository is followed: GitHub tools search or read the canonical name and add a warning naming it.
 
 ### 3.9 Precision layers: AST and LSP
 - **AST (tree-sitter), 12 grammars / 28 extensions:**
@@ -179,7 +179,7 @@ Every list and every large body can be paged, and every page is honest about wha
   - literal targets (22×);
   - screening search snippets, where scores stay flat (0.16–0.38).
 
-  Semantic search pages with at least eight files still carry a `hints.clasify` handoff when the query set `mainGoal`. Prefer a literal search, or classify the files themselves. **Skip it** for identifiers, literals and PR filters, where exact search already settles the question.
+  Semantic search pages with at least eight files still carry a `hints.clasify` handoff when the query is a multi-word phrase. Prefer a literal search, or classify the files themselves. **Skip it** for identifiers, literals and PR filters, where exact search already settles the question.
 - **Without a key** it disappears entirely: from the tool list, the instructions, and every `hints.*`.
 - See [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md).
 
@@ -255,10 +255,10 @@ The only agent-vs-agent run so far is `full-1` (2026-09-30), which ran on a buil
 | CLI dispatch and exit codes | `packages/octocode-native/crates/cli/src/cli/mod.rs` |
 | Validation and row isolation | `crates/runtime/src/contracts/` (`validate.rs`, `mod.rs`) |
 | Gate, dispatch, row shaping | `crates/runtime/src/runtime/engine.rs`, `domain_dispatch.rs` |
-| Minimal output, next-step filtering | `crates/runtime/src/runtime/response.rs` |
-| Continuation compaction and brief inheritance | `crates/runtime/src/runtime/continuations.rs` |
-| Page vs lead split (`next` vs `hints`) | `crates/runtime/src/runtime/channels.rs` |
-| Rendering and response paging | `crates/runtime/src/runtime/render.rs`, `response_stage.rs`, `crates/runtime/src/response/mod.rs` |
+| Minimal output, next-step filtering | `crates/runtime/src/response/rows.rs` |
+| Continuation compaction and brief inheritance | `crates/runtime/src/response/continuations.rs` |
+| Page vs lead split (`next` vs `hints`) | `crates/runtime/src/response/channels.rs` |
+| Rendering and response paging | `crates/runtime/src/response/render.rs`, `stage.rs`, `pager.rs` |
 | Cursors | `crates/runtime/src/runtime/cursor.rs` |
 | Path sandbox and directory pruning | `crates/runtime/src/policy/path.rs`, `policy/prune.rs` |
 | Secret scanning and redaction | `crates/engine/src/security/`, `crates/runtime/src/security/content.rs` |
@@ -268,7 +268,7 @@ The only agent-vs-agent run so far is `full-1` (2026-09-30), which ran on a buil
 | LSP | `crates/engine/src/lsp/`, `crates/runtime/src/tools/lsp_search/` |
 | Dependency graph | `crates/engine/src/graph/`, `crates/runtime/src/tools/ast_graph/` |
 | GitHub client, rate-limit budget, cache | `crates/github/src/` (`budget.rs`: rate-limit breaker), `crates/runtime/src/runtime/github.rs`, `github_cache.rs` |
-| clasify | `crates/runtime/src/runtime/clasify_*.rs`, `crates/runtime/src/tools/clasify/` (including `cache.rs`) |
+| clasify | `crates/runtime/src/tools/clasify/` (including `run/` and `cache.rs`) |
 | Benchmark and harness | `octocode-local-testing/bench/`, `octocode-local-testing/harness/` |
 
 **Owner docs:**

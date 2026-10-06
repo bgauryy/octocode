@@ -131,15 +131,12 @@ const NODE_BUILTINS: &[&str] = &[
 const RUST_BUILTINS: &[&str] = &["std", "core", "alloc", "proc_macro", "test"];
 const JS_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 
-fn read_json(path: &Path) -> Option<Value> {
-    serde_json::from_slice(&std::fs::read(path).ok()?).ok()
+fn read_json(read: &dyn Fn(&Path) -> Option<String>, path: &Path) -> Option<Value> {
+    serde_json::from_str(&read(path)?).ok()
 }
 
-fn read_toml(path: &Path) -> Option<toml::Table> {
-    std::fs::read_to_string(path)
-        .ok()?
-        .parse::<toml::Table>()
-        .ok()
+fn read_toml(read: &dyn Fn(&Path) -> Option<String>, path: &Path) -> Option<toml::Table> {
+    read(path)?.parse::<toml::Table>().ok()
 }
 
 fn join(dir: &str, file: &str) -> String {
@@ -270,7 +267,11 @@ fn cargo_component(dir: &str, manifest: &toml::Table) -> Component {
     component
 }
 
-fn python_component(dir: &str, root: &Path) -> Option<Component> {
+fn python_component(
+    dir: &str,
+    root: &Path,
+    read: &dyn Fn(&Path) -> Option<String>,
+) -> Option<Component> {
     let base = root.join(dir);
     let mut component = Component {
         dir: dir.to_owned(),
@@ -279,7 +280,7 @@ fn python_component(dir: &str, root: &Path) -> Option<Component> {
         ..Default::default()
     };
     let mut found = false;
-    if let Some(pyproject) = read_toml(&base.join("pyproject.toml")) {
+    if let Some(pyproject) = read_toml(read, &base.join("pyproject.toml")) {
         found = true;
         let project = pyproject.get("project");
         if let Some(name) = project.and_then(|p| p.get("name")).and_then(|n| n.as_str()) {
@@ -320,7 +321,7 @@ fn python_component(dir: &str, root: &Path) -> Option<Component> {
         "requirements-dev.txt",
         "dev-requirements.txt",
     ] {
-        if let Ok(text) = std::fs::read_to_string(base.join(requirements)) {
+        if let Some(text) = read(&base.join(requirements)) {
             found = true;
             let dev = requirements.contains("dev");
             for line in text
@@ -350,7 +351,7 @@ fn python_component(dir: &str, root: &Path) -> Option<Component> {
     ]
     .iter()
     .any(|marker| base.join(marker).is_file())
-        || read_toml(&base.join("pyproject.toml")).is_some_and(|p| {
+        || read_toml(read, &base.join("pyproject.toml")).is_some_and(|p| {
             p.get("project").and_then(|x| x.get("scripts")).is_some()
                 || p.get("tool")
                     .and_then(|t| t.get("poetry"))
@@ -364,8 +365,12 @@ fn python_component(dir: &str, root: &Path) -> Option<Component> {
     found.then_some(component)
 }
 
-fn go_component(dir: &str, root: &Path) -> Option<Component> {
-    let text = std::fs::read_to_string(root.join(dir).join("go.mod")).ok()?;
+fn go_component(
+    dir: &str,
+    root: &Path,
+    read: &dyn Fn(&Path) -> Option<String>,
+) -> Option<Component> {
+    let text = read(&root.join(dir).join("go.mod"))?;
     let mut component = Component {
         dir: dir.to_owned(),
         ecosystem: "go",
@@ -393,8 +398,14 @@ impl Workspace {
     /// Discovers manifests on the ancestors of `files` (root-relative) and
     /// infers entrypoints.
     /// `mains` are files that declare a `main`/`Main` function or method
-    /// (from parsed facts, so JVM/.NET entries need no file reads).
-    pub(crate) fn discover(root: &Path, files: &[&str], mains: &BTreeSet<&str>) -> Self {
+    /// (from parsed facts, so JVM/.NET entries need no file reads). `read`
+    /// reads a manifest through the caller's path and content policy.
+    pub(crate) fn discover(
+        root: &Path,
+        files: &[&str],
+        mains: &BTreeSet<&str>,
+        read: &dyn Fn(&Path) -> Option<String>,
+    ) -> Self {
         let mut workspace = Self::default();
         let mut dirs = BTreeSet::new();
         for file in files {
@@ -412,16 +423,16 @@ impl Workspace {
         for dir in &dirs {
             let base = root.join(dir);
             let mut found = Vec::new();
-            if let Some(manifest) = read_json(&base.join("package.json")) {
+            if let Some(manifest) = read_json(read, &base.join("package.json")) {
                 workspace.npm_entries(root, dir, &manifest, files);
                 found.push(npm_component(dir, &manifest));
             }
-            if let Some(manifest) = read_toml(&base.join("Cargo.toml")) {
+            if let Some(manifest) = read_toml(read, &base.join("Cargo.toml")) {
                 workspace.cargo_entries(dir, &manifest, files);
                 found.push(cargo_component(dir, &manifest));
             }
-            found.extend(go_component(dir, root));
-            found.extend(python_component(dir, root));
+            found.extend(go_component(dir, root, read));
+            found.extend(python_component(dir, root, read));
             if !found.is_empty() {
                 workspace.components.insert(dir.clone(), found);
             }
@@ -686,149 +697,124 @@ impl Workspace {
 
     /// Framework routing conventions and language-level `main`s.
     fn convention_entries(&mut self, root: &Path, files: &[&str], mains: &BTreeSet<&str>) {
-        const ROUTE_FILES: &[&str] = &[
-            "page",
-            "layout",
-            "route",
-            "loading",
-            "error",
-            "not-found",
-            "template",
-            "default",
-            "global-error",
-            "head",
-            "opengraph-image",
-            "sitemap",
-            "robots",
-        ];
         for file in files {
-            let segments = file.split('/').collect::<Vec<_>>();
-            let name = segments.last().copied().unwrap_or_default();
-            let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
-            let js = JS_EXTENSIONS.contains(&ext);
-            let under = |dir: &str| segments.iter().rev().skip(1).any(|s| *s == dir);
-            let rule = if js && under("pages") {
-                Some("framework route (pages/)")
-            } else if js && under("app") && ROUTE_FILES.contains(&stem) {
-                Some("framework route (app/)")
-            } else if js
-                && (under("routes")
-                    || stem == "+page"
-                    || stem == "+server"
-                    || stem.starts_with("+layout"))
-            {
-                Some("framework route (routes/)")
-            } else if js
-                && matches!(
-                    stem,
-                    "middleware"
-                        | "instrumentation"
-                        | "entry.client"
-                        | "entry.server"
-                        | "root"
-                        | "_app"
-                        | "_document"
-                )
-            {
-                Some("framework convention")
-            } else if js && (under("api") && under("server")) {
-                Some("framework route (server/api)")
-            } else {
-                None
-            };
-            if let Some(rule) = rule {
-                self.entries.entry((*file).to_owned()).or_insert(rule);
-                continue;
-            }
-            // Executables run as processes (`node x.mjs`, `./tool.py`), not
-            // imported: a shebang or a bin/scripts directory makes a root.
-            let in_script_dir = segments
-                .iter()
-                .rev()
-                .skip(1)
-                .any(|s| matches!(*s, "bin" | "scripts" | "script"));
-            if in_script_dir
-                && matches!(
-                    ext,
-                    "js" | "mjs" | "cjs" | "ts" | "mts" | "py" | "rb" | "sh"
-                )
-            {
-                self.entries
-                    .entry((*file).to_owned())
-                    .or_insert("script directory");
-                continue;
-            }
-            if matches!(ext, "js" | "mjs" | "cjs" | "ts" | "mts" | "py")
-                && let Ok(mut handle) = std::fs::File::open(root.join(file))
-            {
-                let mut head = [0u8; 2];
-                if std::io::Read::read_exact(&mut handle, &mut head).is_ok() && &head == b"#!" {
-                    self.entries
-                        .entry((*file).to_owned())
-                        .or_insert("executable script");
-                    continue;
-                }
-            }
-            // C-family and assembly sources are linker inputs, never
-            // `#include`d: each translation unit is a root, so only headers
-            // can be unreachable.
-            if matches!(
-                ext,
-                "c" | "cc" | "cpp" | "cxx" | "cu" | "m" | "mm" | "s" | "asm" | "S"
-            ) {
-                self.entries
-                    .entry((*file).to_owned())
-                    .or_insert("compilation unit");
-                continue;
-            }
-            let needle: Option<(&str, &'static str)> = match ext {
-                "go" => Some(("package main", "go package main")),
-                "py" => {
-                    if matches!(name, "__main__.py" | "manage.py" | "wsgi.py" | "asgi.py") {
-                        self.entries
-                            .entry((*file).to_owned())
-                            .or_insert("python entry name");
-                        continue;
-                    }
-                    Some(("__name__ == \"__main__\"", "python __main__ guard"))
-                }
-                "java" | "kt" | "scala" | "cs" => {
-                    if mains.contains(file) {
-                        let rule = if ext == "cs" {
-                            "dotnet Main"
-                        } else {
-                            "jvm main"
-                        };
-                        self.entries.entry((*file).to_owned()).or_insert(rule);
-                    }
-                    continue;
-                }
-                _ => None,
-            };
-            let Some((needle, rule)) = needle else {
-                continue;
-            };
-            // `package main` is the first clause of a Go file; Python's
-            // `__main__` guard sits anywhere, usually at the end.
-            let limit = if ext == "go" { 4096 } else { 1 << 20 };
-            let Ok(handle) = std::fs::File::open(root.join(file)) else {
-                continue;
-            };
-            let mut bytes = Vec::new();
-            if std::io::Read::read_to_end(&mut std::io::Read::take(handle, limit), &mut bytes)
-                .is_err()
-            {
-                continue;
-            }
-            let text = String::from_utf8_lossy(&bytes);
-            let hit = match ext {
-                "py" => text.contains(needle) || text.contains("__name__ == '__main__'"),
-                _ => text.contains(needle),
-            };
-            if hit {
+            if let Some(rule) = convention_rule(root, file, mains) {
                 self.entries.entry((*file).to_owned()).or_insert(rule);
             }
         }
+    }
+}
+
+/// The convention that makes `file` an entry point, if any.
+fn convention_rule(root: &Path, file: &str, mains: &BTreeSet<&str>) -> Option<&'static str> {
+    let segments = file.split('/').collect::<Vec<_>>();
+    let name = segments.last().copied().unwrap_or_default();
+    let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
+    if JS_EXTENSIONS.contains(&ext)
+        && let Some(rule) = framework_rule(&segments, stem)
+    {
+        return Some(rule);
+    }
+    // Executables run as processes (`node x.mjs`, `./tool.py`), not
+    // imported: a shebang or a bin/scripts directory makes a root.
+    let in_script_dir = segments
+        .iter()
+        .rev()
+        .skip(1)
+        .any(|s| matches!(*s, "bin" | "scripts" | "script"));
+    if in_script_dir
+        && matches!(
+            ext,
+            "js" | "mjs" | "cjs" | "ts" | "mts" | "py" | "rb" | "sh"
+        )
+    {
+        return Some("script directory");
+    }
+    if matches!(ext, "js" | "mjs" | "cjs" | "ts" | "mts" | "py")
+        && let Ok(mut handle) = std::fs::File::open(root.join(file))
+    {
+        let mut head = [0u8; 2];
+        if std::io::Read::read_exact(&mut handle, &mut head).is_ok() && &head == b"#!" {
+            return Some("executable script");
+        }
+    }
+    // C-family and assembly sources are linker inputs, never `#include`d:
+    // each translation unit is a root, so only headers can be unreachable.
+    if matches!(
+        ext,
+        "c" | "cc" | "cpp" | "cxx" | "cu" | "m" | "mm" | "s" | "asm" | "S"
+    ) {
+        return Some("compilation unit");
+    }
+    let (needle, rule) = match ext {
+        "go" => ("package main", "go package main"),
+        "py" if matches!(name, "__main__.py" | "manage.py" | "wsgi.py" | "asgi.py") => {
+            return Some("python entry name");
+        }
+        "py" => ("__name__ == \"__main__\"", "python __main__ guard"),
+        "java" | "kt" | "scala" | "cs" => {
+            return mains.contains(file).then_some(if ext == "cs" {
+                "dotnet Main"
+            } else {
+                "jvm main"
+            });
+        }
+        _ => return None,
+    };
+    // `package main` is the first clause of a Go file; Python's `__main__`
+    // guard sits anywhere, usually at the end.
+    let limit = if ext == "go" { 4096 } else { 1 << 20 };
+    let handle = std::fs::File::open(root.join(file)).ok()?;
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::Read::take(handle, limit), &mut bytes).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
+    let hit = match ext {
+        "py" => text.contains(needle) || text.contains("__name__ == '__main__'"),
+        _ => text.contains(needle),
+    };
+    hit.then_some(rule)
+}
+
+/// Framework route and convention files (Next, Remix, SvelteKit, Nuxt).
+fn framework_rule(segments: &[&str], stem: &str) -> Option<&'static str> {
+    const ROUTE_FILES: &[&str] = &[
+        "page",
+        "layout",
+        "route",
+        "loading",
+        "error",
+        "not-found",
+        "template",
+        "default",
+        "global-error",
+        "head",
+        "opengraph-image",
+        "sitemap",
+        "robots",
+    ];
+    let under = |dir: &str| segments.iter().rev().skip(1).any(|s| *s == dir);
+    if under("pages") {
+        Some("framework route (pages/)")
+    } else if under("app") && ROUTE_FILES.contains(&stem) {
+        Some("framework route (app/)")
+    } else if under("routes") || stem == "+page" || stem == "+server" || stem.starts_with("+layout")
+    {
+        Some("framework route (routes/)")
+    } else if matches!(
+        stem,
+        "middleware"
+            | "instrumentation"
+            | "entry.client"
+            | "entry.server"
+            | "root"
+            | "_app"
+            | "_document"
+    ) {
+        Some("framework convention")
+    } else if under("api") && under("server") {
+        Some("framework route (server/api)")
+    } else {
+        None
     }
 }
 
@@ -860,7 +846,9 @@ mod tests {
             "crates/core/src/bin/tool.rs",
             "crates/core/src/x.rs",
         ];
-        let ws = Workspace::discover(root, &files, &BTreeSet::new());
+        let ws = Workspace::discover(root, &files, &BTreeSet::new(), &|path| {
+            std::fs::read_to_string(path).ok()
+        });
         assert_eq!(
             ws.entries.get("packages/app/src/index.ts"),
             Some(&"package.json")

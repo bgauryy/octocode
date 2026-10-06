@@ -2,12 +2,10 @@
 //! decoding happen in the caller on every request; the key uses the decoded
 //! content, canonical path and parser override, rather than mutable timestamps.
 
-use crate::cache::{BoundedCache, CacheConfig, CacheKey, CacheLookup, CachePartition};
-use sha2::{Digest, Sha256};
-use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use crate::cache::{CacheClass, CacheConfig, CacheKey, CachePartition, Store};
+use std::sync::{Arc, OnceLock};
 
-static CACHE: OnceLock<Mutex<BoundedCache<String>>> = OnceLock::new();
+static CACHE: OnceLock<Store<String>> = OnceLock::new();
 
 pub(crate) fn extract(
     source: &str,
@@ -17,35 +15,36 @@ pub(crate) fn extract(
 ) -> Option<Arc<String>> {
     let key = CacheKey {
         namespace: "ast-declarations".into(),
-        resource: hex::encode(Sha256::digest(source.as_bytes())),
+        resource: crate::digest::sha256(source.as_bytes()),
         partition: CachePartition {
             endpoint: canonical_path.into(),
             credential_fingerprint: if cpp_header { "cpp" } else { "auto" }.into(),
         },
     };
     let cache = CACHE.get_or_init(|| {
-        Mutex::new(BoundedCache::new(CacheConfig {
-            max_entries: 128,
-            max_bytes: 32 * 1024 * 1024,
-            ttl: Duration::from_secs(120),
-        }))
+        Store::new(
+            CacheConfig {
+                max_entries: 128,
+                max_bytes: 32 * 1024 * 1024,
+                ..CacheConfig::default()
+            },
+            None,
+        )
     });
-    if let Ok(mut cache) = cache.lock()
-        && let CacheLookup::Hit { value, .. } = cache.get(&key, 0, None, Instant::now())
-    {
-        return Some(value);
+    if let Some(hit) = cache.get(&key) {
+        return Some(hit.value);
     }
-    // Extraction can block or time out. Never hold the global cache mutex while
+    // Extraction can block or time out. Never hold the cache lock while
     // parsing, and never retain failed extraction as a successful empty outline.
     let raw = extraction()?;
     let bytes = raw.len() + canonical_path.len() + key.resource.len();
-    if let Ok(mut cache) = cache.lock() {
-        cache.insert(key.clone(), raw.clone(), bytes, 0, Instant::now());
-        if let CacheLookup::Hit { value, .. } = cache.get(&key, 0, None, Instant::now()) {
-            return Some(value);
-        }
-    }
-    Some(Arc::new(raw))
+    // Keyed by the source digest, so an entry never goes stale.
+    cache.put(key.clone(), raw.clone(), bytes, CacheClass::Immutable);
+    Some(
+        cache
+            .get(&key)
+            .map_or_else(|| Arc::new(raw), |hit| hit.value),
+    )
 }
 
 #[cfg(test)]

@@ -17,8 +17,8 @@ Load to clean code an agent wrote or edited, or to order an agent-residue audit.
 | Signal | Query | Evidence bar |
 |---|---|---|
 | Self-contained algorithm (distance, parser, retry, deep-clone, date math) with no imports | `astSearch` on the body | A `package.json` dependency or internal module already provides it |
-| Two modules export the same names to disjoint consumers | `astTopology` dependents on both (beta; else `lspSearch` references) | `lspSearch` references prove which is live |
-| New file with zero dependents and few outgoing calls | `astTopology` dependents + deadCode (beta; else `lspSearch` references + `localSearch`) | Reachability shows it is unreferenced, not only new |
+| Two modules export the same names to disjoint consumers | `astTopology` dependents on both (CLI beta; else `lspSearch` references) | `lspSearch` references prove which is live |
+| New file with zero dependents and few outgoing calls | `astTopology` dependents + deadCode (CLI beta; else `lspSearch` references + `localSearch`) | Reachability shows it is unreferenced, not only new |
 | Third variant of one rule (validation, formatting, auth check) | `localSearch` on the rule's literals | All variants listed; canonical chosen before any delete |
 
 A wrong availability check often caused the copy: verify it before you delete either copy, or the agent rebuilds it.

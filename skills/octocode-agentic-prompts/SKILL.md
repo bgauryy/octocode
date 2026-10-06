@@ -1,6 +1,6 @@
 ---
 name: octocode-agentic-prompts
-description: "Use when a prompt, agent contract, multi-step agent flow, MCP instruction, tool/schema description, policy, or handoff must change behavior: resolve context flow, make boundaries decidable, align runtimes, design delegation and handoffs, remove no-op text, place rules correctly, audit drift, and budget context. For SKILL.md structure or trigger review, use octocode-skills."
+description: "Use when a prompt, agent contract, multi-step agent flow, MCP instruction, tool/schema description, policy, or handoff must change how an agent behaves: context flow, decidable boundaries, runtime alignment, delegation and handoffs, rule placement, drift, and context budget. Not for SKILL.md structure or triggers → octocode-skills; deleting stale instruction cruft without changing behavior → octocode-clean-agentic-code."
 ---
 
 # Octocode agentic prompts and flows

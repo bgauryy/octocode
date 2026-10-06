@@ -18,9 +18,10 @@
 //! columns (see [`locations`]); only the `position` input is zero-based.
 use crate::policy::path::PathPolicy;
 use crate::tools::cancel::CancellationCheck;
+use crate::tools::num::{u32_of, u32_of_signed};
 use octocode_engine::lsp::config::{
-    LspDiscoveryOptions, default_server_for_file_with_options,
-    default_server_for_workspace_root_with_options, workspace_root_representative_source,
+    LspDiscoveryOptions, default_server_for_file, default_server_for_workspace_root,
+    workspace_root_representative_source,
 };
 use octocode_engine::lsp::pool::LspClientPool;
 use octocode_engine::lsp::uri::path_to_uri as engine_path_to_uri;
@@ -34,17 +35,22 @@ mod anchor;
 mod failure;
 mod importers;
 mod inferred_project;
+mod lead;
 mod locations;
 mod ops;
+mod output;
 pub mod prewarm;
 mod receipt;
 mod recovery;
 mod render;
+mod server_coverage;
 mod source;
 mod walk;
 
 pub use failure::LspFailure;
 use failure::{failure, mark_partial, with_next};
+pub use lead::{Verify, verify_query, with_lead_discovery};
+pub(crate) use output::Output;
 use render::decode_uri_path;
 use source::{SourceCache, SourceReadError, read_bounded_source_async, snippet_policy};
 
@@ -67,18 +73,10 @@ macro_rules! each_shape {
             LspSearchQuery::Anchored(wire::Anchored { $field, .. }) => $value,
             LspSearchQuery::Position(wire::Position { $field, .. }) => $value,
             LspSearchQuery::Document(wire::Document { $field, .. }) => $value,
-            LspSearchQuery::WorkspaceUri(wire::WorkspaceUri { $field, .. }) => $value,
+            LspSearchQuery::WorkspacePath(wire::WorkspacePath { $field, .. }) => $value,
             LspSearchQuery::WorkspaceRoot(wire::WorkspaceRoot { $field, .. }) => $value,
         }
     };
-}
-
-fn u32_of(value: u64) -> u32 {
-    u32::try_from(value).unwrap_or(u32::MAX)
-}
-
-fn u32_of_signed(value: i64) -> u32 {
-    u32::try_from(value.max(0)).unwrap_or(u32::MAX)
 }
 
 /// Shape-independent views over the generated wire query, in LSP `u32`
@@ -87,13 +85,14 @@ impl LspSearchQuery {
     pub fn operation(&self) -> String {
         each_shape!(self, operation => operation.to_string())
     }
-    pub fn uri(&self) -> Option<&str> {
+    /// The file the query names (a path or `file://` URI).
+    pub fn path(&self) -> Option<&str> {
         match self {
-            Self::Anchored(query) => Some(query.uri.as_str()),
-            Self::Position(query) => Some(query.uri.as_str()),
-            Self::Document(query) => Some(query.uri.as_str()),
-            Self::WorkspaceUri(query) => Some(query.uri.as_str()),
-            Self::WorkspaceRoot(query) => query.uri.as_deref(),
+            Self::Anchored(query) => Some(query.path.as_str()),
+            Self::Position(query) => Some(query.path.as_str()),
+            Self::Document(query) => Some(query.path.as_str()),
+            Self::WorkspacePath(query) => Some(query.path.as_str()),
+            Self::WorkspaceRoot(query) => query.path.as_deref(),
         }
     }
     pub fn workspace_root(&self) -> Option<&str> {
@@ -102,13 +101,13 @@ impl LspSearchQuery {
             Self::Anchored(query) => query.workspace_root.as_deref(),
             Self::Position(query) => query.workspace_root.as_deref(),
             Self::Document(query) => query.workspace_root.as_deref(),
-            Self::WorkspaceUri(query) => query.workspace_root.as_deref(),
+            Self::WorkspacePath(query) => query.workspace_root.as_deref(),
         }
     }
     pub fn symbol_name(&self) -> Option<&str> {
         match self {
             Self::Anchored(query) => Some(query.symbol_name.as_str()),
-            Self::WorkspaceUri(query) => Some(query.symbol_name.as_str()),
+            Self::WorkspacePath(query) => Some(query.symbol_name.as_str()),
             Self::WorkspaceRoot(query) => Some(query.symbol_name.as_str()),
             Self::Position(_) | Self::Document(_) => None,
         }
@@ -191,6 +190,23 @@ impl LspSearchQuery {
 pub struct LspExecutionConfig {
     pub config_path: Option<String>,
     pub trust_project_config: bool,
+    /// Resolved `OCTOCODE_*` settings (process env and trusted `.env` layers).
+    pub env: std::collections::BTreeMap<String, String>,
+    pub octocode_home: Option<std::path::PathBuf>,
+}
+
+impl LspExecutionConfig {
+    /// Engine discovery options for these settings; `config_path` is the
+    /// caller-authorized form of [`Self::config_path`].
+    #[must_use]
+    pub fn discovery(&self, config_path: Option<std::path::PathBuf>) -> LspDiscoveryOptions {
+        LspDiscoveryOptions {
+            config_path,
+            trust_project_config: self.trust_project_config,
+            env: self.env.clone(),
+            octocode_home: self.octocode_home.clone(),
+        }
+    }
 }
 
 /// Await `future`, re-checking `cancel` every [`CANCEL_POLL_MS`]; a
@@ -236,25 +252,101 @@ pub(super) async fn blocking_cancellable<T: Send + 'static>(
     Ok(cancellable(cancel, worker).await?.ok())
 }
 
-/// Name the anchor file and workspace root by their canonical paths, so a
-/// continuation that spells them relative to the workspace (or absolute)
-/// replays the same snapshot. Invalid paths stay for the checks below.
-fn canonicalize_query_paths(query: &mut Value, paths: &PathPolicy) {
-    if let Some(uri) = query.get("uri").and_then(Value::as_str)
-        && let Ok(decoded) = decode_uri_path(uri)
-        && let Ok(valid) = paths.validate_read(&decoded)
-    {
-        query["uri"] = Value::String(valid.canonical.to_string_lossy().into_owned());
+/// Why a page stopped before its operation ran: a typed failure, or an
+/// error row (`status: "error"`) the caller returns as the answer.
+enum Exit {
+    Failed(LspFailure),
+    Row(Value),
+}
+
+impl From<LspFailure> for Exit {
+    fn from(failure: LspFailure) -> Self {
+        Self::Failed(failure)
     }
-    if let Some(root) = query.get("workspaceRoot").and_then(Value::as_str)
-        && let Ok(valid) = paths.validate(root)
-    {
-        query["workspaceRoot"] = Value::String(valid.canonical.to_string_lossy().into_owned());
+}
+
+impl LspSearchQuery {
+    fn debug(&self) -> bool {
+        each_shape!(self, debug => *debug)
+    }
+
+    fn set_path(&mut self, path: String) {
+        match self {
+            Self::Anchored(query) => {
+                if let Ok(path) = path.try_into() {
+                    query.path = path;
+                }
+            }
+            Self::Position(query) => {
+                if let Ok(path) = path.try_into() {
+                    query.path = path;
+                }
+            }
+            Self::Document(query) => {
+                if let Ok(path) = path.try_into() {
+                    query.path = path;
+                }
+            }
+            Self::WorkspacePath(query) => {
+                if let Ok(path) = path.try_into() {
+                    query.path = path;
+                }
+            }
+            Self::WorkspaceRoot(query) => query.path = Some(path),
+        }
+    }
+
+    fn set_workspace_root(&mut self, root: String) {
+        match self {
+            Self::WorkspaceRoot(query) => {
+                if let Ok(root) = root.try_into() {
+                    query.workspace_root = root;
+                }
+            }
+            Self::Anchored(query) => query.workspace_root = Some(root),
+            Self::Position(query) => query.workspace_root = Some(root),
+            Self::Document(query) => query.workspace_root = Some(root),
+            Self::WorkspacePath(query) => query.workspace_root = Some(root),
+        }
+    }
+
+    /// Validate the anchor file (or, with no file, the workspace root) once
+    /// and name it and the workspace root by their canonical paths, so a
+    /// continuation that spells them relative to the workspace (or absolute)
+    /// replays the same snapshot. Returns the canonical request path.
+    fn resolve_paths(&mut self, paths: &PathPolicy) -> Result<String, LspFailure> {
+        if let Some(root) = self.workspace_root()
+            && let Ok(valid) = paths.validate(root)
+        {
+            self.set_workspace_root(valid.canonical.to_string_lossy().into_owned());
+        }
+        let path = match self.path() {
+            Some(uri) => {
+                let decoded = decode_uri_path(uri).map_err(LspFailure::invalid_query)?;
+                let path = paths
+                    .validate_read(&decoded)
+                    .map_err(LspFailure::path_denied)?
+                    .canonical
+                    .to_string_lossy()
+                    .into_owned();
+                self.set_path(path.clone());
+                path
+            }
+            None => paths
+                .validate(self.workspace_root().ok_or_else(|| {
+                    LspFailure::invalid_query("lspSearch requires path or workspaceRoot")
+                })?)
+                .map_err(LspFailure::path_denied)?
+                .canonical
+                .to_string_lossy()
+                .into_owned(),
+        };
+        Ok(path)
     }
 }
 
 pub async fn execute(
-    query: Value,
+    query: LspSearchQuery,
     cancel: &dyn CancellationCheck,
     pool: &LspClientPool,
     paths: &PathPolicy,
@@ -263,11 +355,7 @@ pub async fn execute(
     // A continuation page (page > 1 with its walk's snapshot) may reuse the
     // server responses computed for page 1; the snapshot check still proves
     // the page belongs to the same result set. First pages always re-query.
-    let reuse = query
-        .get("page")
-        .and_then(Value::as_u64)
-        .is_some_and(|page| page > 1)
-        && query.get("snapshot").is_some_and(Value::is_string);
+    let reuse = query.page().is_some_and(|page| page > 1) && query.snapshot().is_some();
     let scope = octocode_engine::lsp::client::ResponseScope {
         reuse,
         generation: String::new(),
@@ -280,50 +368,106 @@ pub async fn execute(
         .await
 }
 
+/// The request as the server sees it: the canonical file (or root), its
+/// URI, and the discovered server configuration.
+struct Target {
+    path: String,
+    uri: String,
+    root_only: bool,
+    config: octocode_engine::lsp::types::JsLanguageServerConfig,
+}
+
+impl Target {
+    fn fail(&self, query: &LspSearchQuery, code: &str, message: &str, available: bool) -> Exit {
+        Exit::Row(failure(query, &self.uri, code, message, available))
+    }
+}
+
 async fn execute_page(
-    query: Value,
+    mut query: LspSearchQuery,
     cancel: &dyn CancellationCheck,
     pool: &LspClientPool,
     paths: &PathPolicy,
     execution_config: &LspExecutionConfig,
 ) -> Result<Value, LspFailure> {
     cancel.check().map_err(LspFailure::cancelled)?;
-    // `debug` asks for the provider receipt (server identity, fingerprints,
-    // capabilities); ordinary rows carry only the answer.
-    let debug = query.get("debug").and_then(Value::as_bool) == Some(true);
-    let mut query = query;
-    canonicalize_query_paths(&mut query, paths);
-    let query: LspSearchQuery = serde_json::from_value(query)
-        .map_err(|error| LspFailure::invalid_query(error.to_string()))?;
-    let path = if let Some(uri) = query.uri() {
-        let decoded = decode_uri_path(uri).map_err(LspFailure::invalid_query)?;
-        paths
-            .validate_read(&decoded)
-            .map_err(LspFailure::path_denied)?
-            .canonical
-            .to_string_lossy()
-            .into_owned()
-    } else {
-        paths
-            .validate(query.workspace_root().ok_or_else(|| {
-                LspFailure::invalid_query("lspSearch requires uri or workspaceRoot")
-            })?)
-            .map_err(LspFailure::path_denied)?
-            .canonical
-            .to_string_lossy()
-            .into_owned()
-    };
-    let canonical_uri =
+    let path = query.resolve_paths(paths)?;
+    match run_page(&query, path, cancel, pool, paths, execution_config).await {
+        Ok(row) | Err(Exit::Row(row)) => Ok(row),
+        Err(Exit::Failed(failure)) => Err(failure),
+    }
+}
+
+async fn run_page(
+    query: &LspSearchQuery,
+    path: String,
+    cancel: &dyn CancellationCheck,
+    pool: &LspClientPool,
+    paths: &PathPolicy,
+    execution_config: &LspExecutionConfig,
+) -> Result<Value, Exit> {
+    let target = discover_server(query, path, paths, execution_config)?;
+    // Read the anchor document once (bounded, regular files only). The same
+    // text is sent in didOpen, resolves the anchor, and serves same-file
+    // context windows; a bad document or anchor costs no server start.
+    let mut sources = SourceCache::new(paths);
+    let document = read_anchor_document(query, &target, &mut sources).await?;
+    let text = document.as_deref().map(|source| source.content.as_str());
+    let anchor =
+        anchor::resolve_anchor(query, &target.path, &target.uri, text).map_err(|error| {
+            let mut row = failure(query, &target.uri, "anchorUnresolved", &error, true);
+            failure::anchor_recovery(&mut row, query, text);
+            Exit::Row(row)
+        })?;
+    let session = open_session(
+        query,
+        &target,
+        document.as_deref(),
+        &mut sources,
+        cancel,
+        pool,
+    )
+    .await?;
+    let snippet_policy = snippet_policy(paths);
+    let mut result = ops::Operation {
+        client: &session.client,
+        query,
+        sources: &mut sources,
+        snippet_policy: &snippet_policy,
+        cancel,
+        path: &target.path,
+        workspace_root: target.config.workspace_root.as_str(),
+        root_only: target.root_only,
+        line: anchor.line,
+        character: anchor.character,
+        language_id: target.config.language_id.as_deref(),
+    }
+    .run()
+    .await?;
+    annotate(
+        &mut result,
+        query,
+        &target,
+        &session,
+        anchor.resolved_symbol,
+    );
+    if matches!(query.operation().as_str(), "references" | "callers") {
+        locations::attach_read_lead(&mut result);
+    }
+    Ok(with_next(query, result))
+}
+
+/// Resolve the workspace, then discover the language server for the file
+/// (or, for a `workspaceRoot`-only query, from the root's project markers).
+fn discover_server(
+    query: &LspSearchQuery,
+    path: String,
+    paths: &PathPolicy,
+    execution_config: &LspExecutionConfig,
+) -> Result<Target, Exit> {
+    let uri =
         engine_path_to_uri(&path).map_err(|error| LspFailure::invalid_query(error.to_string()))?;
-    let fail = |code: &str, message: &str, server_available: bool| {
-        Ok(failure(
-            &query,
-            &canonical_uri,
-            code,
-            message,
-            server_available,
-        ))
-    };
+    let fail = |code: &str, message: &str| Exit::Row(failure(query, &uri, code, message, false));
     let workspace_candidate = query
         .workspace_root()
         .map(str::to_owned)
@@ -339,11 +483,10 @@ async fn execute_page(
             validated.canonical.to_string_lossy().into_owned()
         }
         _ => {
-            return fail(
+            return Err(fail(
                 "lsp.workspaceRootInvalid",
                 "workspaceRoot is not an authorized directory.",
-                false,
-            );
+            ));
         }
     };
     let config_path = execution_config
@@ -356,133 +499,149 @@ async fn execute_page(
         })
         .transpose()
         .map_err(LspFailure::path_denied)?;
-    let discovery = LspDiscoveryOptions {
-        config_path,
-        trust_project_config: execution_config.trust_project_config,
-    };
-    // A `workspaceRoot`-only query has a directory, not a file: infer the
-    // server from project markers instead of the (absent) file extension.
+    let discovery = execution_config.discovery(config_path);
     let root_only = Path::new(&path).is_dir();
     let discovered = if root_only {
-        default_server_for_workspace_root_with_options(workspace, &discovery)
+        default_server_for_workspace_root(&workspace, &discovery)
     } else {
-        default_server_for_file_with_options(path.clone(), workspace, &discovery)
+        default_server_for_file(&path, &workspace, &discovery)
     };
     let Some(mut config) = discovered else {
-        return fail(
+        return Err(fail(
             "lsp.serverUnavailable",
             if root_only {
                 "No language server could be inferred for this workspace root (no tsconfig.json, Cargo.toml, go.mod, pyproject.toml, setup.py, jsconfig.json, or package.json)."
             } else {
                 "No language server is configured for this file."
             },
+        ));
+    };
+    receipt::apply_rust_context(&mut config, query).map_err(LspFailure::invalid_query)?;
+    Ok(Target {
+        path,
+        uri,
+        root_only,
+        config,
+    })
+}
+
+/// Read the anchor file once; responses are cached per anchor content, so
+/// an edited anchor never reuses an earlier page's server answers.
+async fn read_anchor_document(
+    query: &LspSearchQuery,
+    target: &Target,
+    sources: &mut SourceCache<'_>,
+) -> Result<Option<std::sync::Arc<source::Source>>, Exit> {
+    if target.root_only {
+        return Ok(None);
+    }
+    match read_bounded_source_async(std::path::PathBuf::from(&target.path)).await {
+        Ok(content) => {
+            let generation = crate::digest::sha256(content.as_bytes());
+            let _ = octocode_engine::lsp::client::RESPONSE_SCOPE
+                .try_with(|scope| scope.borrow_mut().generation = generation);
+            Ok(Some(sources.insert(&target.path, content)))
+        }
+        Err(SourceReadError::TooLarge(len)) => Err(target.fail(
+            query,
+            "lsp.documentTooLarge",
+            &format!(
+                "The source document is too large to synchronize with the language server ({len} bytes > {} bytes).",
+                source::MAX_LSP_DIDOPEN_BYTES
+            ),
+            true,
+        )),
+        Err(SourceReadError::Unreadable(error)) => Err(target.fail(
+            query,
+            "lsp.documentReadFailed",
+            &format!("The source document could not be read: {error}"),
             false,
-        );
-    };
-    receipt::apply_rust_context(&mut config, &query).map_err(LspFailure::invalid_query)?;
+        )),
+    }
+}
 
-    // Read the anchor document once (bounded, regular files only). The same
-    // text is sent in didOpen, resolves the anchor, and serves same-file
-    // context windows; a bad document or anchor costs no server start.
-    let mut sources = SourceCache::new(paths);
-    let document = if root_only {
-        None
-    } else {
-        match read_bounded_source_async(std::path::PathBuf::from(&path)).await {
-            Ok(content) => {
-                // Responses are cached per anchor content: an edited anchor
-                // never reuses an earlier page's server answers.
-                let generation = {
-                    use sha2::{Digest, Sha256};
-                    hex::encode(Sha256::digest(content.as_bytes()))
-                };
-                let _ = octocode_engine::lsp::client::RESPONSE_SCOPE
-                    .try_with(|scope| scope.borrow_mut().generation = generation);
-                Some(sources.insert(&path, content))
-            }
-            Err(SourceReadError::TooLarge(len)) => {
-                return fail(
-                    "lsp.documentTooLarge",
-                    &format!(
-                        "The source document is too large to synchronize with the language server ({len} bytes > {} bytes).",
-                        source::MAX_LSP_DIDOPEN_BYTES
-                    ),
-                    true,
-                );
-            }
-            Err(SourceReadError::Unreadable(error)) => {
-                return fail(
-                    "lsp.documentReadFailed",
-                    &format!("The source document could not be read: {error}"),
+/// A leased, ready client with the anchor document synchronized.
+struct Session {
+    client: octocode_engine::lsp::client::NativeLspClient,
+    _lease: octocode_engine::lsp::client::LspLease,
+    /// The post-didOpen readiness (`"timeout"` when the project load was
+    /// still running).
+    open_readiness: Option<String>,
+}
+
+/// Lease a pooled client for the whole operation and synchronize the anchor
+/// document. The lease is taken by the pool under its lock at acquire:
+/// syncs, readiness waits, and the gaps between this request's many LSP
+/// calls all count as busy, so idle eviction never stops the server
+/// mid-operation (nor between acquire and the first request).
+async fn open_session(
+    query: &LspSearchQuery,
+    target: &Target,
+    document: Option<&source::Source>,
+    sources: &mut SourceCache<'_>,
+    cancel: &dyn CancellationCheck,
+    pool: &LspClientPool,
+) -> Result<Session, Exit> {
+    let (client, lease) =
+        match cancellable(cancel, pool.acquire_leased(target.config.clone())).await? {
+            Ok(Some(leased)) => leased,
+            Ok(None) => {
+                return Err(target.fail(
+                    query,
+                    "lsp.serverUnavailable",
+                    "Language server failed to start.",
                     false,
-                );
+                ));
             }
-        }
-    };
-    let anchor = match anchor::resolve_anchor(
-        &query,
-        &path,
-        &canonical_uri,
-        document.as_deref().map(|source| source.content.as_str()),
-    ) {
-        Ok(anchor) => anchor,
-        Err(error) => {
-            let mut row = failure(&query, &canonical_uri, "lsp.anchorUnresolved", &error, true);
-            failure::anchor_recovery(
-                &mut row,
-                &query,
-                document.as_deref().map(|source| source.content.as_str()),
-            );
-            return Ok(row);
-        }
-    };
-
-    let receipt_config = config.clone();
-    // One lease for the whole operation, taken by the pool under its lock at
-    // acquire: syncs, readiness waits, and the gaps between this request's
-    // many LSP calls all count as busy, so idle eviction never stops the
-    // server mid-operation (nor between acquire and the first request).
-    let (client, _lease) = match cancellable(cancel, pool.acquire_leased(config)).await? {
-        Ok(Some(leased)) => leased,
-        Ok(None) => {
-            return fail(
-                "lsp.serverUnavailable",
-                "Language server failed to start.",
-                false,
-            );
-        }
-        Err(error) => {
-            let code = match LspFailure::from_engine(&error).code {
-                "lsp.timeout" => "lsp.timeout",
-                _ => "lsp.serverUnavailable",
-            };
-            return fail(code, &error.to_string(), false);
-        }
-    };
+            Err(error) => {
+                let code = match LspFailure::from_engine(&error).code {
+                    "lsp.timeout" => "lsp.timeout",
+                    _ => "lsp.serverUnavailable",
+                };
+                return Err(target.fail(query, code, &error.to_string(), false));
+            }
+        };
     if client.readiness().as_deref() == Some("timeout") {
-        return fail(
+        return Err(target.fail(
+            query,
             "lsp.timeout",
             "Timed out waiting for the language server to become ready.",
             false,
-        );
+        ));
     }
     if let Some(capability) = receipt::required_capability(&query.operation())
         && !client.has_capability(capability.to_owned())
     {
-        return fail(
+        return Err(target.fail(
+            query,
             "lsp.capabilityUnavailable",
             &format!("The language server does not advertise {capability}."),
             true,
-        );
+        ));
     }
-    // The first didOpen of a document can trigger a project load (tsserver
-    // starts one only then); wait for it so queries do not race it.
-    let mut open_readiness = None;
-    if let Some(document) = &document {
-        match cancellable(
+    let open_readiness = sync_document(query, target, document, sources, &client, cancel).await?;
+    Ok(Session {
+        client,
+        _lease: lease,
+        open_readiness,
+    })
+}
+
+/// The first didOpen of a document can trigger a project load (tsserver
+/// starts one only then); wait for it so queries do not race it.
+async fn sync_document(
+    query: &LspSearchQuery,
+    target: &Target,
+    document: Option<&source::Source>,
+    sources: &mut SourceCache<'_>,
+    client: &octocode_engine::lsp::client::NativeLspClient,
+    cancel: &dyn CancellationCheck,
+) -> Result<Option<String>, Exit> {
+    if let Some(document) = document {
+        return match cancellable(
             cancel,
             client.open_document_and_wait(
-                path.clone(),
+                target.path.clone(),
                 document.content.clone(),
                 Some(DIDOPEN_SETTLE_MS),
                 Some(DIDOPEN_READY_TIMEOUT_MS),
@@ -490,23 +649,22 @@ async fn execute_page(
         )
         .await?
         {
-            Ok(readiness) => open_readiness = readiness,
-            Err(error) => {
-                return fail(
-                    "lsp.documentSyncFailed",
-                    &format!("The source document could not be synchronized: {error}"),
-                    true,
-                );
-            }
-        }
-    } else if root_only
-        && let Some(representative) = workspace_root_representative_source(&path)
+            Ok(readiness) => Ok(readiness),
+            Err(error) => Err(target.fail(
+                query,
+                "lsp.documentSyncFailed",
+                &format!("The source document could not be synchronized: {error}"),
+                true,
+            )),
+        };
+    }
+    // Some servers (tsserver: "No Project") cannot answer workspace-wide
+    // queries until a document of the project is open. Best-effort: a failed
+    // sync just leaves the server to answer (or error) as before.
+    if target.root_only
+        && let Some(representative) = workspace_root_representative_source(&target.path)
         && let Some(source) = sources.get(&representative).await
-    {
-        // Some servers (tsserver: "No Project") cannot answer workspace-wide
-        // queries until a document of the project is open. Best-effort: a
-        // failed sync just leaves the server to answer (or error) as before.
-        if let Ok(readiness) = cancellable(
+        && let Ok(readiness) = cancellable(
             cancel,
             client.open_document_and_wait(
                 representative,
@@ -516,61 +674,53 @@ async fn execute_page(
             ),
         )
         .await?
-        {
-            open_readiness = readiness;
-        }
+    {
+        return Ok(readiness);
     }
-    let snippet_policy = snippet_policy(paths);
-    let mut result = ops::Operation {
-        client: &client,
-        query: &query,
-        sources: &mut sources,
-        snippet_policy: &snippet_policy,
-        cancel,
-        path: &path,
-        workspace_root: receipt_config.workspace_root.as_str(),
-        root_only,
-        line: anchor.line,
-        character: anchor.character,
-        language_id: receipt_config.language_id.as_deref(),
-    }
-    .run()
-    .await?;
-    if open_readiness.as_deref() == Some("timeout") && result.get("status") != Some(&"error".into())
+    Ok(None)
+}
+
+/// Disclose an unfinished project load, the inferred-project and compile
+/// database context, and the provider receipt.
+fn annotate(
+    result: &mut Value,
+    query: &LspSearchQuery,
+    target: &Target,
+    session: &Session,
+    resolved_symbol: Option<Value>,
+) {
+    if session.open_readiness.as_deref() == Some("timeout")
+        && result.get("status") != Some(&"error".into())
     {
         mark_partial(
-            &mut result,
-            &query,
+            result,
+            query,
             "languageServerIndexing",
             &[format!(
                 "The language server was still loading the project after {DIDOPEN_READY_TIMEOUT_MS} ms; results may be incomplete."
             )],
         );
     }
-    inferred_project::annotate(
-        &mut result,
-        &query,
-        receipt_config.language_id.as_deref(),
-        &path,
-        &receipt_config.workspace_root,
-    );
+    let language_id = target.config.language_id.as_deref();
+    let workspace_root = &target.config.workspace_root;
+    inferred_project::annotate(result, query, language_id, &target.path, workspace_root);
     inferred_project::annotate_compile_database(
-        &mut result,
-        &query,
-        receipt_config.language_id.as_deref(),
-        &path,
-        &receipt_config.workspace_root,
+        result,
+        query,
+        language_id,
+        &target.path,
+        workspace_root,
     );
+    server_coverage::annotate(result, query, language_id, workspace_root);
     receipt::attach_provider_context(
-        &mut result,
-        &query,
-        &canonical_uri,
-        anchor.resolved_symbol,
-        &receipt_config,
-        &client,
-        debug,
+        result,
+        query,
+        &target.uri,
+        resolved_symbol,
+        &target.config,
+        &session.client,
+        query.debug(),
     );
-    Ok(with_next(&query, result))
 }
 
 #[cfg(all(test, unix))]

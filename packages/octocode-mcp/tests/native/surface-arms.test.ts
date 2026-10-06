@@ -1,6 +1,6 @@
-// Catalog-shape switches (S13 arms) the native catalog reports under
-// `presentation`: the flat published view and deferred tools behind the
-// `run` dispatcher. Defaults keep the current catalog.
+// Catalog-shape switches the native catalog reports under `presentation`:
+// deferred tools behind the `run` dispatcher. Defaults keep the current
+// catalog.
 import { afterEach, describe, expect, it } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
@@ -15,7 +15,6 @@ import {
   type NativeCatalog,
   type NativeRuntime,
 } from '../../src/native/index.js';
-import { wrapBareQuery } from './wrapBareQuery.js';
 
 const executions: { tool: string; input: unknown }[] = [];
 
@@ -23,11 +22,11 @@ function bindingFor(catalog: NativeCatalog) {
   return {
     NativeRuntime: class implements NativeRuntime {
       readonly abiVersion = NATIVE_ABI_VERSION;
+      async probeClassification() {
+        return { probed: true, available: true };
+      }
       catalog(): NativeCatalog {
         return catalog;
-      }
-      normalizeInput(_tool: string, input: unknown): unknown {
-        return wrapBareQuery(input);
       }
       cancel(): boolean {
         return true;
@@ -54,7 +53,7 @@ const TOOLS = [
 ];
 
 async function connect(presentation?: NativeCatalog['presentation']) {
-  const instance = createNativeMcp({
+  const instance = await createNativeMcp({
     env: {},
     binding: bindingFor({
       fingerprint: getNativeContractFingerprint(),
@@ -83,42 +82,6 @@ async function connect(presentation?: NativeCatalog['presentation']) {
 
 afterEach(() => {
   executions.length = 0;
-});
-
-describe('flat published view', () => {
-  it('lists one row per tool, never the queries wrapper', async () => {
-    const control = await connect();
-    const flat = await connect({ publishedView: 'flat' });
-    expect(flat.listed.map(t => t.name)).toEqual(
-      control.listed.map(t => t.name)
-    );
-    expect(JSON.stringify(flat.listed)).not.toMatch(/queries/);
-    expect(flat.instructions).not.toMatch(/queries/);
-    expect(JSON.stringify(flat.listed).length).toBeLessThan(
-      JSON.stringify(control.listed).length
-    );
-    // A flat row is the advertised call; both shapes still execute.
-    const row = { path: 'src', searchText: 'x' };
-    expect(
-      (await flat.client.callTool({ name: 'localSearch', arguments: row }))
-        .isError
-    ).toBe(false);
-    expect(
-      (
-        await flat.client.callTool({
-          name: 'localSearch',
-          arguments: { queries: [row] },
-        })
-      ).isError
-    ).toBe(false);
-    // Validation applies schema defaults; the row reaches native wrapped.
-    expect(executions.map(e => e.input)).toMatchObject([
-      { queries: [row] },
-      { queries: [row] },
-    ]);
-    await control.close();
-    await flat.close();
-  });
 });
 
 describe('deferred tools', () => {
@@ -160,28 +123,32 @@ describe('deferred tools', () => {
     expect(executions).toMatchObject([
       {
         tool: 'ghSearchRepo',
-        input: { queries: [{ keywords: ['octocode'] }] },
+        input: { keywords: ['octocode'] },
       },
     ]);
     expect(executions).toHaveLength(1);
     await deferred.close();
   });
 
-  it('validates the query against the target schema with actionable errors', async () => {
+  it('hands the query to native, the only validator, and rejects an unknown tool', async () => {
     const deferred = await connect(presentation);
-    const response = await deferred.client.callTool({
+    await deferred.client.callTool({
       name: DEFERRED_TOOL_DISPATCHER,
       arguments: { tool: 'ghSearchRepo', query: { keywords: 'x', bogus: 1 } },
     });
-    expect(response.isError).toBe(true);
-    expect(JSON.stringify(response.content)).toMatch(
-      /Input validation error: Invalid arguments for tool ghSearchRepo/
-    );
+    expect(executions.at(-1)).toEqual({
+      tool: 'ghSearchRepo',
+      input: { keywords: 'x', bogus: 1 },
+    });
+    executions.length = 0;
     const unknown = await deferred.client.callTool({
       name: DEFERRED_TOOL_DISPATCHER,
       arguments: { tool: 'astRewrite', query: {} },
     });
     expect(unknown.isError).toBe(true);
+    expect(JSON.stringify(unknown.content)).toMatch(
+      /astRewrite is not available/
+    );
     expect(executions).toEqual([]);
     await deferred.close();
   });

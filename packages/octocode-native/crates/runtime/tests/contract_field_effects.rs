@@ -7,15 +7,7 @@ use octocode_native::contracts::contract_json;
 use serde_json::Value;
 
 const COVERAGE_JSON: &str = include_str!("../src/contracts/field-effect-coverage.json");
-const DISCRIMINATOR_FIELDS: &[&str] = &[
-    "operation",
-    "analysis",
-    "candidateEvidence",
-    "questionType",
-    "ruleKind",
-    "regex",
-    "type",
-];
+const DISCRIMINATOR_FIELDS: &[&str] = &["operation", "candidateEvidence", "regex", "type"];
 
 fn collect_fields(schema: &Value, prefix: &str, fields: &mut BTreeSet<String>) {
     if let Some(properties) = schema.get("properties").and_then(Value::as_object) {

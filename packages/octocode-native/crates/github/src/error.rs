@@ -6,6 +6,9 @@ pub enum ProviderErrorKind {
     Authentication,
     Permission,
     NotFound,
+    /// The request was rejected as malformed (`invalidInput`, the code every
+    /// tool uses for rejected input).
+    #[serde(rename = "invalidInput")]
     Validation,
     RateLimited,
     Transport,

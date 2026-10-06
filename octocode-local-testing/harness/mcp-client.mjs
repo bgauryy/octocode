@@ -1,6 +1,6 @@
 // Shared MCP stdio client for the local-tool test suites.
 // Spawns the repo's built octocode-mcp server and records every call.
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -68,25 +68,35 @@ export async function startServer({ env = {}, cwd = ROOT, timeoutMs = Number(pro
     return raw(tool, { queries: Array.isArray(queries) ? queries : [queries], ...extra }, label);
   }
 
-  /** Call with arguments exactly as given (e.g. a pasted next.* or hints.* query). */
-  async function raw(tool, args, label = '') {
+  /**
+   * Call with arguments exactly as given (e.g. a pasted next.* or hints.* query).
+   * `bytes(structuredContent, text)` overrides the UTF-8 text measure; `keepRaw`
+   * adds the unexpanded `raw` structuredContent and the `transport` error.
+   */
+  async function raw(tool, args, label = '', { bytes, keepRaw = false } = {}) {
     const started = Date.now();
     let response;
     try { response = await rpc('tools/call', { name: tool, arguments: args }); } catch (error) { response = { error: { message: error.message } }; }
     const text = response.result?.content?.filter(c => c.type === 'text').map(c => c.text).join('') ?? JSON.stringify(response.error ?? '');
-    const sc = expandShared(response.result?.structuredContent);
-    const rows = sc?.results ?? [];
+    const rawSc = response.result?.structuredContent;
+    const sc = expandShared(rawSc);
     const entry = {
-      label, tool, args, ms: Date.now() - started, bytes: Buffer.byteLength(text, 'utf8'), text, sc,
+      label, tool, args, ms: Date.now() - started, bytes: bytes ? bytes(rawSc, text) : Buffer.byteLength(text, 'utf8'), text, sc,
       isError: !!(response.error || response.result?.isError),
       rowErrors: collect(sc, r => r.status === 'error').length,
+      ...(keepRaw && { raw: rawSc, transport: response.error?.message }),
     };
     log.push(entry);
     return entry;
   }
 
+  /** Run a `next.*`/`hints.*` call verbatim: its query is the complete input. */
+  async function follow(hint, label = '') {
+    return raw(hint.tool, hint.query, label);
+  }
+
   return {
-    server, init: init.result, tools, log, call, raw, rpc,
+    server, init: init.result, tools, log, call, raw, follow, rpc,
     stderr: () => stderr,
     close: () => { closed = true; clearTimeout(deadline); fail(new Error('MCP client closed')); terminate(); const timer = setTimeout(() => { try { process.kill(-server.pid, 'SIGKILL'); } catch {} }, 3000); timer.unref(); },
   };
@@ -114,13 +124,17 @@ export function expandShared(sc) {
   return copy;
 }
 
-/** Every executable continuation (`next.*` pages and `hints.*` leads, with its path) plus the bare clasify self-continuation. */
+/**
+ * Every executable continuation (`next.*` pages and `hints.*` leads, with its
+ * path) plus clasify's `next.clasify` self-continuation, whose query is a
+ * whole `{queries:[...]}` input.
+ */
 export function nextHints(value, pathLabel = '') {
   const hints = [];
   const walk = (node, at) => {
     if (!node || typeof node !== 'object') return;
     if (typeof node.tool === 'string' && node.query && typeof node.query === 'object') hints.push({ ...node, path: at });
-    else if (/\.(?:hints|next)\.clasify$/.test(at) && Array.isArray(node.resources) && Array.isArray(node.questions)) hints.push({ tool: 'clasify', query: node, path: at });
+    else if (/\.(?:hints|next)\.clasify$/.test(at) && Array.isArray(node.queries)) hints.push({ tool: 'clasify', query: node, path: at });
     for (const [key, child] of Object.entries(node)) walk(child, `${at}.${key}`);
   };
   walk(value, pathLabel);
@@ -181,48 +195,56 @@ export function inventoryRows(items = []) {
 }
 
 /**
- * structureSearch `files` rows in one object shape. Directory groups
- * {dir, files: ["<name>[/][ (<fields>)]"]} (fields: size in bytes, "symlink",
- * "lineCount=N", "modifiedMs=N"; "/" marks a directory, "." names `dir`
- * itself) expand in order to {path: dir + "/" + name, size?, type?,
- * lineCount?, modifiedMs?}; `path` resolves against the response `base` like
- * any row path. Object rows (the earlier shape) pass through.
+ * structureSearch `files` rows in one object shape. Bare entries are the row
+ * `path`'s own; directory groups {dir, files: [...]} name `dir` relative to
+ * that `path`. Entries ("<name>[/][ (<fields>)]"; fields: size in bytes,
+ * "symlink", "lineCount=N", "modifiedMs=N"; "/" marks a directory, "." names
+ * the directory itself) expand in order to {path: root/dir/name, size?, type?,
+ * lineCount?, modifiedMs?}; pass the row `path` as `root` so `path` resolves
+ * against the response `root`. Object rows pass through.
  */
-export function structureFiles(items = []) {
+export function structureFiles(items = [], root = '') {
+  const join = (...parts) => parts.filter(part => part !== '' && part !== undefined).join('/');
+  const expand = (dir, text) => {
+    const m = /^(.*) \(([^()]*)\)$/.exec(text);
+    let name = m ? m[1] : text;
+    const row = {};
+    if (name.endsWith('/')) { name = name.slice(0, -1); row.type = 'directory'; }
+    row.path = name === '.' ? join(root, dir) || '.' : join(root, dir, name);
+    for (const field of m ? m[2].split(', ') : []) {
+      if (field === 'symlink') row.type = 'symlink';
+      else if (field.startsWith('lineCount=')) row.lineCount = Number(field.slice(10));
+      else if (field.startsWith('modifiedMs=')) row.modifiedMs = Number(field.slice(11));
+      else row.size = Number(field);
+    }
+    return row;
+  };
   return (items ?? []).flatMap(item => {
+    if (typeof item === 'string') return [expand('', item)];
     if (!item || typeof item !== 'object' || typeof item.dir !== 'string' || !Array.isArray(item.files)) return [item];
-    return item.files.map(text => {
-      const m = /^(.*) \(([^()]*)\)$/.exec(text);
-      let name = m ? m[1] : text;
-      const row = {};
-      if (name.endsWith('/')) { name = name.slice(0, -1); row.type = 'directory'; }
-      row.path = name === '.' ? item.dir : item.dir === '' ? name : `${item.dir}/${name}`;
-      for (const field of m ? m[2].split(', ') : []) {
-        if (field === 'symlink') row.type = 'symlink';
-        else if (field.startsWith('lineCount=')) row.lineCount = Number(field.slice(10));
-        else if (field.startsWith('modifiedMs=')) row.modifiedMs = Number(field.slice(11));
-        else row.size = Number(field);
-      }
-      return row;
-    });
+    return item.files.map(text => expand(item.dir, text));
   });
 }
 
+/** A response path resolved against that response's `root`. */
+export const rootPath = (entry, p) => path.resolve(entry.sc?.root ?? '/', p);
+
 export function sourcePath(entry, location, fallback) {
-  const value = location?.uri ?? location?.path ?? rowData(entry)?.uri ?? rowData(entry)?.path ?? fallback;
-  if (typeof value !== 'string') throw new Error('response location has no source URI/path');
-  return value.startsWith('file:') ? fileURLToPath(value) : path.resolve(entry.sc?.base ?? ROOT, value);
+  const value = location?.path ?? rowData(entry)?.path ?? fallback;
+  if (typeof value !== 'string') throw new Error('response location has no source path');
+  return value.startsWith('file:') ? fileURLToPath(value) : path.resolve(entry.sc?.root ?? ROOT, value);
 }
 
 /**
- * lspSearch location rows in one shape: `payload.locations`, or the compact
- * per-file `payload.byFile[].refs` rows ("line:col text", "start-end:col text")
- * long reference lists default to, expanded to {path, displayRange, content}.
+ * lspSearch location rows in one shape: flat `payload.matches` location
+ * objects, or the compact per-file `payload.files[].matches` rows
+ * ("line:col text", "start-end:col text") long reference lists default to,
+ * expanded to {path, displayRange, content}.
  */
 export function lspLocations(entry, index = 0) {
   const payload = rowData(entry, index)?.payload;
-  if (Array.isArray(payload?.locations)) return payload.locations;
-  return (payload?.byFile ?? []).flatMap(file => (file.refs ?? []).map(ref => {
+  if (Array.isArray(payload?.matches)) return payload.matches;
+  return (payload?.files ?? []).flatMap(file => (file.matches ?? []).filter(ref => typeof ref === 'string').map(ref => {
     const [, start, end, column, text] = /^(\d+)(?:-(\d+))?:(\d+)(?: (.*))?$/.exec(ref) ?? [];
     return { path: file.path, displayRange: { startLine: Number(start), startCharacter: Number(column), endLine: Number(end ?? start) }, content: text ?? '' };
   }));
@@ -299,7 +321,7 @@ export function outlineRows(rows = [], extra = {}) {
 export function declarations(entry, index = 0) {
   const data = rowData(entry, index);
   if (!data) return [];
-  return [...outlineRows(data.declarations), ...(data.files ?? []).flatMap(file => outlineRows(file.declarations, { path: file.path }))];
+  return [...outlineRows(data.symbols), ...(data.files ?? []).flatMap(file => outlineRows(file.symbols, { path: file.path }))];
 }
 
 /**
@@ -322,24 +344,27 @@ export function astMatchRows(entry, index = 0) {
 }
 
 /**
- * lspSearch callers as {name, kind, detail?, path, lines, declLine?}:
- * `payload.items` call-hierarchy edges, or the compact per-file rows
- * `payload.byFile[].calls` ("<line>:<col>[,…] in <kind> <name>[ (<detail>)] <start>-<end>")
- * direct callers default to.
+ * lspSearch callers as {name, kind, detail?, path, lines, declLine?, via?}:
+ * flat `payload.matches` call-hierarchy edges, or the compact per-file rows
+ * `payload.files[].matches`
+ * ("<line>:<col>[,…] in|to <kind> <name>[ (<detail>)] <start>-<end>[ via <name>@[<path>:]<line>]");
+ * `in` rows are callers, `to` rows callees (skipped here).
  */
-const CALL_ROW = /^(\d+(?::\d+)?(?:,\d+(?::\d+)?)*) in (\S+) (\S+)(?: \((.*)\))?(?: (\d+)(?:-(\d+))?)?$/;
+const CALL_ROW = /^(\d+(?::\d+)?(?:,\d+(?::\d+)?)*) (in|to) (\S+) (\S+)(?: \((.*?)\))?(?: (\d+)(?:-(\d+))?)?(?: via (\S+)@(?:(.+):)?(\d+))?$/;
 export function lspCallers(entry, index = 0) {
   const payload = rowData(entry, index)?.payload;
-  if (Array.isArray(payload?.items)) {
-    return payload.items.filter(item => item.from).map(item => ({
-      name: item.from.name, kind: item.from.kind, detail: item.from.detail, path: item.from.path ?? item.from.uri,
+  if (Array.isArray(payload?.matches)) {
+    return payload.matches.filter(item => item.from).map(item => ({
+      name: item.from.name, kind: item.from.kind, detail: item.from.detail, path: item.from.path,
       lines: (item.fromRanges ?? []).map(range => range.startLine), declLine: item.from.displayRange?.startLine,
     }));
   }
-  return (payload?.byFile ?? []).flatMap(file => (file.calls ?? []).map(row => {
+  return (payload?.files ?? []).flatMap(file => (file.matches ?? []).flatMap(row => {
     const m = CALL_ROW.exec(row);
-    if (!m) return { path: file.path, raw: row, lines: [] };
-    return { name: m[3], kind: m[2], detail: m[4], path: file.path, lines: m[1].split(',').map(site => +site.split(':')[0]), declLine: m[5] ? +m[5] : undefined };
+    if (!m) return [{ path: file.path, raw: row, lines: [] }];
+    if (m[2] !== 'in') return [];
+    const via = m[8] ? { name: m[8], line: +m[10], ...(m[9] ? { path: m[9] } : {}) } : undefined;
+    return [{ name: m[4], kind: m[3], detail: m[5], path: file.path, lines: m[1].split(',').map(site => +site.split(':')[0]), declLine: m[6] ? +m[6] : undefined, via }];
   }));
 }
 
@@ -397,3 +422,60 @@ export function writeResults(name, payload) {
   fs.writeFileSync(file, JSON.stringify(payload, null, 2));
   return file;
 }
+
+/** The first `next.*`/`hints.*` continuation whose path ends with `.<key>` (e.g. `continue`, `hints.readTopMatch`). */
+export function findHint(sc, key) {
+  return nextHints(sc).find(h => h.path.endsWith(`.${key}`));
+}
+
+/**
+ * Follow `next.<key>` from `first` with `client.follow` until it disappears or
+ * `max` pages are collected; returns the page entries. A page with a call error
+ * (or a row error, unless `rowErrors: false`) ends the walk; `keepError` keeps
+ * that page as the last entry. `label` names each followed page "<label> page N".
+ */
+export async function walk(client, first, key, max, { keepError = false, rowErrors = true, label } = {}) {
+  const pages = [first];
+  let current = first;
+  while (pages.length < max) {
+    const h = findHint(current.sc, key);
+    if (!h) break;
+    current = await client.follow(h, ...(label === undefined ? [] : [`${label} page ${pages.length + 1}`]));
+    if (current.isError || (rowErrors && current.rowErrors)) { if (keepError) pages.push(current); break; }
+    pages.push(current);
+  }
+  return pages;
+}
+
+/**
+ * Run the built CLI (`packages/octocode/out/octocode.js <tool> <json>`) as a
+ * shell would: `env` is merged over process.env; returns the spawnSync result
+ * fields plus `ms`. Each suite keeps its own byte measure.
+ */
+export function cli(tool, input, { cwd = ROOT, env = {}, timeout, maxBuffer = 64 << 20 } = {}) {
+  const started = performance.now();
+  const run = spawnSync(process.execPath, [path.join(ROOT, 'packages/octocode/out/octocode.js'), tool, JSON.stringify(input)], {
+    cwd, encoding: 'utf8', maxBuffer, env: { ...process.env, ...env }, ...(timeout === undefined ? {} : { timeout }),
+  });
+  return { status: run.status, stdout: run.stdout ?? '', stderr: run.stderr ?? '', error: run.error, ms: performance.now() - started };
+}
+
+/**
+ * A CLI-only tool (contract `cliOnly`, e.g. astTopology) called through the
+ * built CLI, returned in the `call`/`follow` entry shape. `args` is the
+ * complete input, so a `next.*` query runs verbatim. Exit 6 is a partial row.
+ */
+export function cliEntry(tool, args, { env = {}, label = '', ...options } = {}) {
+  const run = cli(tool, args, { env: { OCTOCODE_BETA: 'true', ...env }, ...options });
+  let parsed;
+  try { parsed = JSON.parse(run.stdout); } catch {}
+  const sc = expandShared(parsed);
+  return {
+    label, tool, args, ms: Math.round(run.ms), bytes: Buffer.byteLength(run.stdout, 'utf8'), text: run.stdout + run.stderr, sc,
+    isError: !!run.error || !parsed || (run.status !== 0 && run.status !== 6),
+    rowErrors: collect(sc, r => r.status === 'error').length,
+  };
+}
+
+/** `walk`/`follow` over the CLI, for continuations of a CLI-only tool. */
+export const cliClient = { follow: async (hint, label = '') => cliEntry(hint.tool, hint.query, { label }) };

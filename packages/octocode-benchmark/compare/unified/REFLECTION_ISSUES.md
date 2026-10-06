@@ -218,7 +218,7 @@ Some questions lose again and again: **G10** (6–7.5 vs 9–10, a 37-file PR wh
 - **defer** added nothing (`run` was never called). **flat** was neutral (+3%).
 - **Fix:**
   - Promote per-question tool families to the default, and confirm with a judged run.
-  - Drop the guide instructions.
+  - Drop the guide instructions. Done: the variant, its `OCTOCODE_INSTRUCTIONS` switch and the `octocode-guide` arm are removed.
   - Investigate the 36k context of octocode-npm.
 
 ### P2-13 Harness issues (not tool issues)

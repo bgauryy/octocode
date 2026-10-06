@@ -7,6 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 autobins = false
+autotests = false
 description = "Command-line hosts for the Octocode runtime"
 
 [[bin]]
@@ -17,22 +18,26 @@ path = "src/main.rs"
 name = "octocode-regex-worker"
 path = "src/bin/regex_worker.rs"
 
+[[test]]
+name = "integration"
+path = "tests/main.rs"
+
 [dependencies]
 octocode-native = { path = "../runtime" }
-octocode-engine = { path = "../engine", default-features = false, features = ["portable-default", "embedded-ast-grep-rewrite"] }
+octocode-engine = { path = "../engine" }
 clap = { version = "4", features = ["derive"] }
 serde_json = { workspace = true }
-toml = { version = "0.9", features = ["preserve_order"] }
+toml = { workspace = true }
 serde_yaml_ng = { workspace = true }
-futures-util = "0.3"
-tokio-util = { version = "0.7", default-features = false }
+futures-util = { workspace = true }
+tokio-util = { workspace = true }
 url = { workspace = true }
-regress = "0.12"
+regress = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
-flate2 = "1"
+flate2 = { workspace = true }
 zip = { version = "2", default-features = false, features = ["deflate"] }
-reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "query", "system-proxy"] }
+reqwest = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
 
 [target.'cfg(unix)'.dependencies]
@@ -42,8 +47,8 @@ libc = { workspace = true }
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Security"] }
 
 [dev-dependencies]
-tempfile = "3"
-wiremock = "0.6"
+tempfile = { workspace = true }
+wiremock = { workspace = true }
 
 [lints]
 workspace = true

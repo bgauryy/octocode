@@ -7,7 +7,7 @@
 //! failed, never resumed. Encoding produces one contiguous header+body buffer,
 //! serialized once, so a single writer can put a whole frame on the wire.
 
-use crate::error::{Error, Result, Status};
+use crate::error::{Error, Result};
 use serde_json::Value;
 use std::fmt::{self, Display, Formatter};
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, BufReader};
@@ -132,12 +132,8 @@ where
 /// Serializes `message` once into a complete frame (header and body in one
 /// buffer), ready for a single `write_all`.
 pub(super) fn encode_frame(message: &Value) -> Result<Vec<u8>> {
-    let body = serde_json::to_vec(message).map_err(|error| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Serialize JSON-RPC failed: {error}"),
-        )
-    })?;
+    let body = serde_json::to_vec(message)
+        .map_err(|error| Error::new(format!("Serialize JSON-RPC failed: {error}")))?;
     let header = format!("Content-Length: {}\r\n\r\n", body.len());
     let mut frame = Vec::with_capacity(header.len() + body.len());
     frame.extend_from_slice(header.as_bytes());

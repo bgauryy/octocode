@@ -30,7 +30,7 @@ npx octocode scheme <toolName> --view query --compact
 
 ## How every tool call works
 
-The CLI and MCP server expose the same canonical contracts from `@octocodeai/octocode-core` and execute through `@octocodeai/octocode-native`. Ordinary tools validate a strict `queries[]` envelope, run independent queries with bounded concurrency, and return one row for every input position. `clasify` instead accepts one complete `SemanticQuery` directly or a batch of complete queries; see [Semantic assessment reference](#semantic-assessment-reference). A failure in one row or assessment page does not erase successful siblings.
+The CLI and MCP server expose the same canonical contracts from `@octocodeai/octocode-core` and execute through `@octocodeai/octocode-native`. Every tool, `clasify` included, validates a strict `queries[]` envelope, runs independent queries with bounded concurrency, and returns one row for every input position; a flat row or bare array is rejected. A `clasify` query is one complete matrix; see [Semantic assessment reference](#semantic-assessment-reference). A failure in one row or assessment page does not erase successful siblings.
 
 ### Base call envelope
 
@@ -43,22 +43,22 @@ The CLI and MCP server expose the same canonical contracts from `@octocodeai/oct
       "reasoning": "A definition anchor is needed before requesting references"
     }
   ],
-  "responseCharLength": 20000,
-  "responseCharOffset": 0
+  "responseLength": 20000,
+  "responseOffset": 0
 }
 ```
 
 | Field | Scope | Meaning |
 | --- | --- | --- |
 | `queries` | Required outer field | Array of 1–5 queries for the **same tool**. Queries are independent and response rows retain their zero-based input `index`. Rows of one call run concurrently (`ghCloneRepo` and `astRewrite` rows run in order; `clasify` schedules its own provider work), so batching reduces round trips but does not create dependencies between rows. |
-| `mainGoal` | Optional per query, at most 500 characters | The research question this row serves. Set it only in multi-call research on an unknown; omit it on simple lookups. Each row states its own; a top-level value is not inherited. `next.*` pages and `hints.*` leads carry it only when the producing query sent it. The legacy name `goal` is accepted for one release and maps to `mainGoal`. It is not a ranking instruction or proof of correctness. |
+| `mainGoal` | Optional per query, at most 500 characters | The research question this row serves. Set it only in multi-call research on an unknown; omit it on simple lookups. Each row states its own; a top-level value is not inherited. `next.*` pages of the same tool carry it only when the producing query sent it; cross-tool `hints.*` leads never do. It is not a ranking instruction or proof of correctness. |
 | `reasoning` | Optional per query, at most 500 characters | Why this row advances `mainGoal`; omit it on simple lookups. Continuations carry it only when the producing query sent it. Do not put secrets, hidden chain-of-thought, or required runtime data here. |
 | `debug` | Optional per query | `true` adds the output fields core classes verbose (scan stats, receipts, echoes, diagnostics). Default output is minimal; paging snapshots stay in `next`. |
-| `responseCharLength` | Optional outer field | Limits the rendered whole-response text window to 1–50,000 characters. It does not replace a tool's own result pagination. When omitted, responses larger than `output.pagination.defaultCharLength` (default 50,000) are paged automatically; follow `responsePagination.next`. |
-| `responseCharOffset` | Optional outer field | Continues a whole-response text window. Copy the returned executable `responsePagination.next` call instead of constructing an offset by hand. |
+| `responseLength` | Optional outer field | Limits the rendered whole-response text window to 1–50,000 characters. It does not replace a tool's own result pagination. When omitted, responses larger than `output.pagination.defaultCharLength` (default 50,000) are paged automatically; follow `responsePagination.next`. A page with rows left for later pages opens with an `incomplete — …` envelope warning. |
+| `responseOffset` | Optional outer field | Continues a whole-response text window. Copy the returned executable `responsePagination.next` call instead of constructing an offset by hand. |
 | `responseSnapshot`, `responseScope` | Optional outer fields | `responseSnapshot` is copied from `responsePagination.next`. `responseScope` selects what an explicit window pages: `text` (default), `structured` (the serialized envelope), or `rows` (whole result rows). |
 
-No tool requires a brief: a blank `mainGoal` or `reasoning` is dropped, and an omitted one is valid. All other fields belong to a specific tool variant. Fields from different `operation` branches cannot be mixed, selector pairs such as `startLine`/`endLine` must be complete, and mutually exclusive selectors must not be combined. When they are set, `clasify` sends `reasoning` and `mainGoal` in each page's evidence state, and sends `mainGoal` again with every question.
+No tool requires a brief: a blank `mainGoal` or `reasoning` is dropped, and an omitted one is valid. All other fields belong to a specific tool variant. Fields from different `operation` branches cannot be mixed, a line range is one `ranges` entry (`"a-b"`), and mutually exclusive selectors must not be combined. When they are set, `clasify` sends `reasoning` and `mainGoal` in each page's evidence state, and sends `mainGoal` again with every question.
 
 ### Schema discovery, variants, defaults, and hints
 
@@ -113,13 +113,13 @@ CLI exit codes: `0` success, `1` every row empty, `2` invalid input (including a
 | `localSearch` | Internal/local | Runs bounded lexical text/regex search against allowed local paths. |
 | `structureSearch` | Internal/local | Outlines directories and finds files by name or metadata under allowed local paths, without parsing. |
 | `astSearch` | Internal/local | Finds structural AST matches, declarations, and paginated syntax trees against allowed local paths. |
-| `astTopology` | Internal/local | Analyzes syntactic cross-file dependency graphs for dependencies, dependents, paths, cycles, reachability, dead code, and drift. |
+| `astTopology` | CLI only | Opt-in beta feature (`OCTOCODE_BETA=true`); never exposed through MCP. Analyzes syntactic cross-file dependency graphs for dependencies, dependents, paths, cycles, reachability, dead code, and drift. |
 | `astRewrite` | CLI only | Opt-in beta feature (`OCTOCODE_BETA=true`); never exposed through MCP. Previews structural ast-grep rewrites and performs serialized, snapshot-bound, hash-guarded applies with journal recovery; inspect the commit or recovery receipt. Cross-file changes are not simultaneously visible. |
 | `localFetch` | Internal/local | Reads a known allowed path with full, match, line-range, minified, or symbol-outline views and exact continuations. |
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
 | `clasify` | External Jev provider | Executes unread read-tool requests or accepts supplied state, applies Noul, Choice, or Score questions across a resource-question matrix, and returns correlated typed pages without retrieved bodies. |
 
-Remote GitHub tools require provider runtime and credentials ([authentication](AUTHENTICATION.md)). `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools are on unless `ENABLE_LOCAL`/`local.enabled` is `false`; `ghCloneRepo` is CLI-only and requires persistent storage. `astRewrite` and `astTopology` additionally require `OCTOCODE_BETA=true` (or `local.beta: true`), their sole gate (for `astRewrite` it covers preview and apply); `scheme` reports them as `availability.enabled:false` with `envVar:"OCTOCODE_BETA"` until then. LSP availability also depends on a compatible server for the file language. `clasify` requires a resolved classification key (see [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md)); without one, MCP omits it and a CLI call returns an actionable missing-key error. Configuration keys are owned by [CONFIGURATION.md](CONFIGURATION.md).
+Remote GitHub tools require provider runtime and credentials ([authentication](AUTHENTICATION.md)). `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools are on unless `ENABLE_LOCAL`/`local.enabled` is `false`; `ghCloneRepo` is CLI-only and requires persistent storage. `astRewrite` and `astTopology` are CLI-only too, and additionally require `OCTOCODE_BETA=true` (or `local.beta: true`), their sole gate (for `astRewrite` it covers preview and apply); until then `scheme` and root help omit them, and `scheme <name>` reports `availability.enabled:false` with `envVar:"OCTOCODE_BETA"`. LSP availability also depends on a compatible server for the file language. `clasify` requires a resolved classification key (see [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md)); without one, MCP omits it and a CLI call returns an actionable missing-key error. Configuration keys are owned by [CONFIGURATION.md](CONFIGURATION.md).
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -129,7 +129,7 @@ These surfaces complement one another; they are not interchangeable.
 | --- | --- | --- | --- |
 | Text/regex | `localSearch` | Exact lexical occurrences, paths, and source-line anchors within the scanned scope. | Symbol identity, reachability, or all runtime uses. |
 | Structural AST | `astSearch(operation:"match")` with exactly one of `pattern` or `rule` | Syntax-shaped matches that ignore formatting differences and can expose captures. | That two same-shaped nodes refer to the same symbol or execute at runtime. |
-| File graph | `astTopology` | Syntactic import topology, candidate paths/cycles, and reachability under stated roots and exclusions. | Symbol-level identity, dynamic imports that were not resolved, or safe deletion by itself. |
+| File graph | `astTopology` (CLI) | Syntactic import topology, candidate paths/cycles, and reachability under stated roots and exclusions. | Symbol-level identity, dynamic imports that were not resolved, or safe deletion by itself. |
 | LSP semantics | `lspSearch` | Language-server identity and relations such as definitions, references, callers, callees, implementations, types, symbols, and diagnostics. | Runtime behavior outside the server's configured project/build context. |
 
 Recommended proof ladder:
@@ -137,7 +137,7 @@ Recommended proof ladder:
 1. Orient with `structureSearch(operation:"tree"|"files")`.
 2. Find a lexical anchor with `localSearch`.
 3. Use structural search when syntax shape matters or text is noisy.
-4. Use `astTopology` to map file-level blast radius or candidate reachability.
+4. On the CLI, use `astTopology` to map file-level blast radius or candidate reachability.
 5. Read exact source with `localFetch`.
 6. Use `lspSearch` from a real file/line/symbol anchor to prove identity and usages.
 7. Run the relevant test, build, or runtime path before claiming behavior.
@@ -151,7 +151,7 @@ Example:
     {
       "operation": "match",
       "path": ".",
-      "langType": "typescript",
+      "language": "typescript",
       "pattern": "defineTool({ $$$FIELDS })"
     }
   ]
@@ -170,7 +170,7 @@ Concise reference for Octocode MCP remote research tools: GitHub code/repo/PR se
 
 Token variables, their precedence, `GITHUB_API_URL` (GitHub Enterprise), OAuth login, and token refresh are owned by [AUTHENTICATION.md](AUTHENTICATION.md).
 
-Every tool accepts bulk input (`{ "queries": [...] }`), up to 5 queries per call. Page-based tools use `page` and `pageSize`. When more results remain, run the matching schema-valid `next.*` call: `nextPage` or a content continuation (`continue`, `continuePatch`, `nextCharOffset`, and similar). At an unexpandable public or provider cap, metadata reports `terminalLimitReached` and omits unusable continuations. Numeric page, offset, cursor, and raw `nextQuery` fields are not executable by themselves. `matchString` selects all matching slices; file chunks page that selected view without changing the selector. `ghCloneRepo` is atomic and does not paginate its input. Use `npx octocode scheme <toolName> --view query --compact` for the exact active schema and operation scopes.
+Every tool takes `{ "queries": [...] }`, up to 5 queries per call; the JSON examples below show one query row per line. Page-based tools use `page` and `pageSize`. When more results remain, run the matching schema-valid `next.*` call: `nextPage` or a content continuation (`continue`, `continuePatch`, `nextFilePage`, and similar). At an unexpandable public or provider cap, metadata reports `terminalLimitReached` and omits unusable continuations. Numeric page, offset, cursor, and raw `nextQuery` fields are not executable by themselves. `matchString` selects all matching slices; file chunks page that selected view without changing the selector. `ghCloneRepo` is atomic and does not paginate its input. Use `npx octocode scheme <toolName> --view query --compact` for the exact active schema and operation scopes.
 
 Search match values and provider text snippets are evidence previews, not collection pagination; read exact bytes before quoting them.
 
@@ -200,26 +200,36 @@ Discover repositories by keywords, topics, owner, and metadata filters.
 {"keywords": ["code research"], "language": "TypeScript"}
 ```
 
-Fields: `keywords`, `topics`, `language`, `owner`, `stars`, `license`,
-`archived`, `match` (array of `name`, `description`, `readme`), `qualifiers`,
-`sort`, `page`, `pageSize` (1-100), and `concise`. `qualifiers` carries the
-rarer GitHub filters as one space-separated string (`forks:>50 size:<5000
-created:>2023-01 pushed:>2025-01 good-first-issues:>2 is:public`; keys are
-allowlisted, no `repo:`/`org:`/`user:`). The older `forks`, `goodFirstIssues`,
-`updated`, `created`, `size`, and `visibility` fields stay valid but are not
-advertised to MCP hosts.
+Fields: `keywords`, `topics`, `language`, `owner`, `stars` (`">100"`,
+`"10..50"`), `pushed` and `created` (ISO date or range such as `">2025-01-01"` or
+`"2024-01..2024-06"`, or a window such as `"30d"`), `license`, `archived`
+(`true` lists archived repositories only), `match` (array of `name`,
+`description`, `readme`), `qualifiers`, `sort`, `page`, `pageSize` (1-100,
+default 20), and `concise`. Malformed counts and dates fail validation with the
+accepted forms. `qualifiers` carries the rarer GitHub filters as one
+space-separated string (`forks:>50 size:<5000 good-first-issues:>2 is:public`;
+keys are allowlisted, no `repo:`/`org:`/`user:`, and no key that has a typed
+field).
 
-Rows are compact: `repo` (`owner/name`), `stars`, `language`, `license`,
-`pushedAt`, the full `description`, and every returned `topic`. `debug:true` adds `forks`,
-`createdAt`, and `updatedAt`. `pagination` holds only `totalMatches`/`hasMore`;
-the page cursor is `next.nextPage`.
+Rows are compact: `owner`, `repo` (the name only), `stars`, `language`, `license`,
+`pushedAt`, `createdAt`, `archived: true` on an archived repository, the full
+`description`, and every returned `topic`. `debug:true` adds `forks` and
+`updatedAt`. `pagination` holds `totalItems`, `hasMore`, `currentPage` and
+`totalPages`; the page cursor is `next.nextPage`. The top row leads to its root
+listing (`hints.viewRepo`) and, for a keyword search, to the same keywords in
+its code (`hints.searchContent`, ghSearchCode). Without `archived`, archived
+repositories are excluded: page 1 of a search leads to them
+(`hints.includeArchived`, the same search with `archived:true`), ahead of
+`searchContent`. An empty filtered search leads to the keywords alone
+(`hints.findRepository`).
 
 `ghSearchRepo` with only `owner` (optionally `sort:"updated"`) reads the REST
 owner listing ordered by latest push (`order: "pushed"`) and excludes archived
-repositories. One call reads up to 5 provider pages to fill a page, so it can
+repositories; a page that skipped some names their count in `warnings` and
+leads to them (`hints.includeArchived`). One call reads up to 5 provider pages to fill a page, so it can
 return more than `pageSize` rows. `next.nextPage.query.page` is a provider page
 cursor that follows GitHub's `Link` header. The listing reports no
-`totalMatches`.
+`totalItems`.
 
 ### `ghSearchCode`
 
@@ -230,14 +240,19 @@ Search indexed default-branch code within one owner (required) and optional repo
 {"keywords": ["useReducer"], "owner": "vercel", "repo": "next.js"}
 ```
 
-Fields: `keywords`, required `owner`, `repo`, `path` (prefix), `extension`,
-`filename`, `language`, `match` (`"file"` or `"path"`), `page`, `pageSize`
-(1-100, default 30), and `concise`. `match` defaults to `"file"`; use
-`match:"path"` for path-only discovery. `hints.readTopMatch` routes to
-`ghGetFileContent` pinned to the commit the hit was verified at; a file absent
-at a requested `branch` offers no read. A page GitHub marks incomplete is
-`isPartial` with `partialReasons:["providerIncompleteResults"]`, empty or not. A repository that GitHub reports as renamed returns
-`hints.retryRenamed` against the new name.
+Fields: `keywords`, required `owner`, `repo`, `ref`, `path` (prefix),
+`extensions` (≤5; each is its own indexed search, merged into one page), `filename`, `language`, `match` (`"file"` or `"path"`), `page`,
+`pageSize` (1-100, default 20), and `concise`. Candidates always come from the
+default-branch index; with `ref` (a tag, SHA, or PR head) a repo-scoped page
+reads its hit lines at that ref, and a non-head ref adds a warning plus
+`hints.viewRepo` (see the [data contract](TOOL_DATA_CONTRACT.md#requests-and-result-rows)). `match` defaults to `"file"`; use
+`match:"path"` for path-only discovery. A repo-scoped `"file"` search resolves
+the commit its hit lines are read at while the index search runs, then reads
+the page's files concurrently. `hints.readTopMatch` routes to
+`ghGetFileContent` (`ranges`) pinned to the commit the hit was verified at; a file absent
+at a requested `ref` offers no read. A page GitHub marks incomplete is
+`isPartial` with `partialReasons:["providerIncompleteResults"]`, empty or not. A repository that GitHub reports as renamed is
+searched under its new name, with a warning naming it.
 
 Keywords (also for `ghSearchRepo`) are literal ANDed terms. Each one is sent as
 a bare word or as a single quoted phrase. Interior double quotes and backslashes
@@ -256,25 +271,37 @@ directory (`""` or `"."` for the root).
 {"owner": "vercel", "repo": "next.js", "path": "packages", "maxDepth": 2}
 ```
 
-Fields: `owner`, `repo`, `path`, `branch`, `maxDepth` (1-20), `pattern`,
-`page`, `pageSize` (1-500, default 300), `include` (`sizes`, `languages`,
-`contributors`, `branches`, `tags`), `metadataPage`, `materialize`, and
+Fields: `owner`, `repo`, `operation`, `path`, `ref`, `maxDepth` (1-20),
+`include`, `page`, `pageSize` (1-500, default 300), `materialize`, and
 `materializeOffset`.
-`pattern` finds paths by name at any ref in one call: a case-insensitive glob
-over repo-relative paths (`**/_exception_handler.py`, `src/**/*.ts`); without
-a `/` it matches entry names, and a bare word matches names containing it.
-With `pattern` and no `maxDepth`, the depth bound is 20. Rows keep the
-`dir`/`files`/`folders` shape. A listing names `resolvedBranch` only when it
-resolved the default branch, and `commitSha` only when it differs from the
+`operation` defaults to `tree`. `"refs"` lists `branches` and `tags` as
+`{name, sha}` rows plus `defaultBranch`; each page holds the same page of both
+lists (`pageSize` up to 100) and `next.nextPage` continues while either has
+more. `"languages"` returns bytes of code per language on the default branch,
+largest first. `ref`, `path`, `maxDepth`, `include`, `materialize`, and
+`materializeOffset` apply only to `tree`. Contributors are not listed: they
+describe people, not code, and `ghSearchHistory` author qualifiers answer
+who changed a path.
+`include` finds paths by name at any ref in one call: case-insensitive globs
+(ORed) over repo-relative paths (`**/_exception_handler.py`, `src/**/*.ts`);
+without a `/` a glob matches entry names, and a bare word matches names
+containing it. With `include` and no `maxDepth`, the depth bound is 20. Rows
+under `entries` keep the `dir`/`files`/`folders` shape. A listing names
+`resolvedRef` only when it resolved the default branch, and `commitSha` only when it differs from the
 requested ref; page totals ride `pagination`, and `debug: true` adds the
 per-page `summary`.
 For cross-file grep at a ref over MCP (where `ghCloneRepo` is unavailable),
-combine `pattern` with `materialize:true` (≤50 files, ≤300 KiB each), then run
-`localSearch` at the returned `location.localPath`.
-A `branch` that does not exist is an error; it never falls back to the default
+combine `include` with `materialize:true` (≤50 files, ≤300 KiB each), then run
+`localSearch` at the returned `location.localPath` (the listed directory;
+`hints.exploreClone` lists it). Files land under
+`<home>/tmp/materialize/v2/<owner>/<repo>/<commitSha>/`; a manifest beside it
+records each written file and size, so a later materialize reuses those files
+and clears a directory it did not write. Folders at `maxDepth` are listed, not written. A
+first listing page leads to an outline read of its entry file (`hints.read`).
+A `ref` that does not exist is an error; it never falls back to the default
 branch. A missing `path` is a not-found error whose `hints.viewTree` lists the
 nearest existing directory (case-corrected).
-For exact field types and branch rules, inspect `scheme ghStructure --view query`.
+For exact field types and ref rules, inspect `scheme ghStructure --view query`.
 
 ### `ghGetFileContent`
 
@@ -285,27 +312,28 @@ Key fields:
 | Field | Meaning |
 |-------|---------|
 | `owner`, `repo`, `path` | Required repository and path. |
-| `branch` | Branch, tag, or commit SHA. Omit to use default branch. |
+| `ref` | Branch, tag, or commit SHA. Omit to use default branch. |
 | `fullContent` | Read the whole file. Use only for small files. |
-| `startLine`, `endLine` | Read a line range. |
+| `ranges` | Read up to 10 line spans (`["95-105"]`); the only line selector. |
+| `block` | Widen each window to its enclosing declaration (≤400 lines). |
 | `matchString` | Return matching slices. |
 | `contextLines` / `contextBytes` | Line or byte context around `matchString` (mutually exclusive; `contextBytes` requires `matchString`). |
-| `matchStringIsRegex`, `matchStringCaseSensitive` | Match behavior. |
-| `chunkType`, `offset`, `chunkSize` | Same line/UTF-8 byte pagination as `localFetch`; follow `next.continue`. |
+| `regex`, `caseMode` | Match behavior, as in `localSearch`: `regex` is `literal` (default; pasted code stays literal), `rust`, or `pcre2` (lookaround and backreferences, 5 s deadline); `caseMode` is `smart` (default: insensitive unless the pattern has an uppercase letter), `sensitive`, or `insensitive`. |
+| `unit`, `offset`, `length` | Same line/UTF-8 byte pagination as `localFetch`; follow `next.continue`. |
 | `minify` | `standard` (lossy, language-dependent compression), `none` (no minification), or `symbols` (structural outline). Defaults to `none`, exactly as `localFetch`. Security redaction still applies. |
 | `forceRefresh` | Bypass the content cache. |
 
-Choose one extraction intent: whole file, line range, matching slices, or symbol outline. Both readers reject symbol outlines combined with match or line selectors. Selection precedes minification, redaction, and pagination. `chunkType` defaults to `lines` with `chunkSize:2000` (the 16384-byte page budget usually ends the page first); `bytes` defaults to 16384 UTF-8 bytes. Offsets are zero-based in the selected view. Line pages have a 16384-byte budget and oversized lines switch to bytes. Byte ends may extend by up to three bytes to finish a code point.
+Choose one extraction intent: whole file, line range, matching slices, or symbol outline. Both readers reject symbol outlines combined with match or line selectors. Selection precedes minification, redaction, and pagination. `unit` defaults to `lines` with `length:2000` (the 16384-byte page budget usually ends the page first); `bytes` defaults to 16384 UTF-8 bytes. Offsets are zero-based in the selected view. Line pages have a 16384-byte budget and oversized lines switch to bytes. Byte ends may extend by up to three bytes to finish a code point.
 
-`fullContent:true` requests an unpaged view and rejects chunk controls. A view over 50000 bytes (or a source over 100 KB) returns its first bounded line page inline, `partialReasons:["full-content-size-limit"]`, and `next.continue` (pinned to the resolved commit SHA) for the rest. Each read returns `data.files[]` with `commitSha`. A range remains bounded by its original `endLine`; continuing a match preserves its pattern and source-line context. `totalLines` (and, with `debug: true`, `sourceBytes`) describe the original file; `pagination.totalLines`/`totalBytes` describe the complete selected view. `matchedLines` contains source anchors on the current page; with `debug: true`, `selectedMatchCount` counts all selected matching lines and a first-page read adds `lastModified`/`lastModifiedBy` from the last commit touching the path (one more request, sent only after the content read succeeds). `minifyFallback` explains when match evidence or unavailable outlines prevent the requested transform.
+`fullContent:true` requests an unpaged view and rejects window controls. A view over 50000 bytes (or a source over 100 KB) returns its first bounded line page inline, `partialReasons:["full-content-size-limit"]`, and `next.continue` (pinned to the resolved commit SHA) for the rest. Each read returns its file fields (`path`, `content`, `totalLines`, `commitSha`, …) directly on `data`. A range remains bounded by its original end line; continuing a match preserves its pattern and source-line context. `totalLines` (and, with `debug: true`, `sourceBytes`) describe the original file; `pagination.totalLines`/`totalBytes` describe the complete selected view. `matchedLines` contains source anchors on the current page; with `debug: true`, `selectedMatchCount` counts all selected matching lines and a first-page read adds `lastModified`/`lastModifiedBy` from the last commit touching the path (one more request, sent only after the content read succeeds). `minifyFallback` explains when match evidence or unavailable outlines prevent the requested transform.
 
-File reads return content without creating a checkout. Use `ghStructure` to browse directories or `ghCloneRepo` with `sparsePath` to create a local subtree.
+File reads return content without creating a checkout. Use `ghStructure` to browse directories or `ghCloneRepo` with `path` to create a local subtree.
 
 Examples:
 
 <!-- tool: ghGetFileContent -->
 ```json
-{"owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/config.ts", "matchString": "export", "contextLines": 2, "chunkType": "lines", "chunkSize": 20}
+{"owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/config.ts", "matchString": "export", "contextLines": 2, "unit": "lines", "length": 20}
 ```
 
 Cost by mode:
@@ -313,16 +341,18 @@ Cost by mode:
 | Mode | What you get | Approx tokens |
 |------|-------------|---------------|
 | `matchString` | Every matching slice, plus context | ~50-300 |
-| `startLine`/`endLine` (small) | Exact line range | ~100-500 |
+| `ranges` (small) | Exact line range | ~100-500 |
 | `minify: "symbols"` | Imports and signatures, bodies stripped | 5-20% of the full file |
-| `startLine`/`endLine` (large range) | One bounded page of the range, plus `next.continue` | 1k-10k |
+| `ranges` (large range) | One bounded page of the range, plus `next.continue` | 1k-10k |
 | `fullContent` | Entire file; defaults to no minification | Can exceed 50k |
 
 Behaviors worth knowing:
 
-- `matchString` selects all occurrences with context and source anchors in `matchedLines`/`matchRanges`; both readers disable minification for matches (redaction still applies). Non-adjacent windows are separated by a `... [lines A-B not requested] ...` line (byte windows: `... [N bytes omitted] ...`), so a gap never reads as contiguous source; lines inside a requested span are never elided (a cut page continues through `next.continue`). In numbered `ghGetFileContent` content, a run of single-line windows (a grep map) shares one `... [N gaps in lines A-B not requested] ...` marker; the line numbers state each gap. Follow character continuations when selected content exceeds a window.
-- `minify: "symbols"` returns a paginated outline; read its source-line gutter, then follow up with `startLine`/`endLine` and `minify:"none"`.
-- Continuation offsets are exact — execute `next` unchanged rather than recomputing them.
+- `matchString` selects all occurrences with context and source anchors in `matchedLines`/`matchRanges`; both readers disable minification for matches (redaction still applies). Non-adjacent windows are separated by a `... [lines A-B not requested] ...` line (byte windows: `... [N bytes omitted] ...`), so a gap never reads as contiguous source; lines inside a requested span are never elided (a cut page continues through `next.continue`). In numbered `ghGetFileContent` content, a run of single-line windows (a grep map) shares one `... [N gaps in lines A-B not requested] ...` marker; the line numbers state each gap. Follow character continuations when selected content exceeds a window. A batch of reads shares the automatic response window: a row larger than its fair share returns a shorter line page plus its own `next.continue`, so every row shows content, and the envelope opens with `warnings: ["incomplete — N of M rows partial …"]`.
+- `minify: "symbols"` returns a paginated outline; read its source-line gutter, then follow up with `ranges` and `minify:"none"`.
+- Continuation offsets are exact — execute `next` unchanged rather than recomputing them. `next` and `hints` queries omit default view fields (`fullContent`, `minify:"none"`) and keep a chosen `minify`.
+- A match window that stops inside a declaration offers `hints.readBlock` for the rest; a small file the window mostly covers returns whole instead, with no lead.
+- A failed read keeps `errorCode`, `httpStatus`, and `retryable`; GitHub's `requestId` and `documentationUrl` appear only with `debug: true`.
 - `standard` removes comments and rewrites formatting but does no JS/TS optimization or type-declaration removal; use `none` for source quotes and comment-sensitive evidence. See [minification coverage](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md#minification--file-reads-and-search-fragments).
 - Files too large for the `/contents/` API fall back to the Git tree/blob API automatically — no need to switch to `ghCloneRepo` for size alone.
 
@@ -338,37 +368,39 @@ The search tool returns candidates and stable identities. Fetch detailed content
 with `ghGetHistoryItem`; search queries do not accept singular-item identities.
 Pull-request search may omit `owner` and `repo` to search all of GitHub; issue
 and commit searches require both. Commit `keywords` search commit messages on
-the default branch and cannot be combined with `path` or `branch`.
+the default branch and cannot be combined with `path` or `ref`.
 
 <!-- tool: ghSearchHistory -->
 ```json
-{"operation": "pullRequest", "owner": "vercel", "repo": "next.js", "keywords": ["middleware"], "match": ["title"], "state": "merged"}
-{"operation": "issue", "owner": "vercel", "repo": "next.js", "keywords": ["memory leak"], "match": ["title"], "state": "open"}
+{"operation": "pullRequest", "owner": "vercel", "repo": "next.js", "keywords": ["middleware"], "qualifiers": "in:title", "state": "merged"}
+{"operation": "issue", "owner": "vercel", "repo": "next.js", "keywords": ["memory leak"], "qualifiers": "in:title", "state": "open"}
 {"operation": "commit", "owner": "vercel", "repo": "next.js", "path": "packages/next/src/server/", "since": "30d"}
 ```
 
 Prefer title-first PR and issue searches. For commit archaeology, narrow by path
-and time before fetching a commit diff. Rarer PR/issue filters go in one
-`qualifiers` string (`"reviewed-by:x review:approved label:bug comments:>5"`);
-it maps onto the typed fields (which stay valid), and rejects `repo:`/`org:`/
-`user:` (scope comes from `owner`/`repo`), unknown keys (with a suggestion),
-negation other than a PR's `-is:draft`, and a filter set twice. `archived`
-always routes a PR query through search, which enforces it. `hints.readPr` targets the first merged row (else the first); a bare issue
+and time (`since`/`until`; `pageSize` for the last N) before fetching a commit
+diff. Rarer PR/issue filters go in one `qualifiers` string
+(`"author:x reviewed-by:y review:approved is:draft in:title merged:>2024-01-01 comments:>5"`),
+which rejects `repo:`/`org:`/`user:` (scope comes from `owner`/`repo`),
+unknown keys (with a suggestion), negation other than a PR's `-is:draft`, and a
+filter set twice. An `archived:` qualifier always routes a PR query through
+search, which enforces it. PR branch filters are the `head:` and
+`base:` qualifiers. `hints.readPullRequest` targets the first merged row (else the first); a bare issue
 number in `keywords` adds
 `hints.readIssueLinks`, the issue read whose `closedBy` names its fix PRs.
 Search rows are an index: each carries its identity (a PR search beyond one
-repository adds `repository`), and `readPr`, `readIssue`, and `readCommit`
+repository adds `repository`), and `readPullRequest`, `readIssue`, and `readCommit`
 read any row by swapping in its number or sha (the rows name them; no separate
 candidate list). Commit rows carry the author's login (else git name), never an email;
 read the full message with `hints.readCommit`.
 
 Keywords follow the `ghSearchCode` rule: a bare word or one quoted phrase, never an
-operator. `owner`, `repo`, and person fields (`author`, `committer`, `assignee`,
-`mentions`, `commenter`, `reviewed-by`, `review-requested`) must be GitHub logins,
-names, or commit emails. Labels cannot contain quotes or backslashes. Range and
+operator. `owner`, `repo`, commit `author`/`committer`, and person qualifiers
+(`author:`, `assignee:`, `mentions:`, `commenter:`, `reviewed-by:`,
+`review-requested:`) must be GitHub logins, names, or commit emails. Labels cannot contain quotes or backslashes. Range and
 state qualifiers must be one term; whitespace inside a range such as `> 5` is
 removed. Any other value is a validation error, never a changed scope. Commit
-search does not accept `includeDiff`; read diffs with `ghGetHistoryItem`.
+search returns no diffs; read them with `ghGetHistoryItem`.
 
 ### `ghGetHistoryItem`
 
@@ -379,20 +411,18 @@ Read one known history item or compare two refs through one strict operation:
 | `pullRequest` | `owner`, `repo`, `number` | body, changed files, selected patches, comments, reviews, commits |
 | `issue` | `owner`, `repo`, `number` | body and comments |
 | `commit` | `owner`, `repo`, `ref` (+ `base` to compare `base...ref`) | commit metadata and optional diff |
-| `compare` | `owner`, `repo`, `base`, `head` | ahead/behind counts and commits between refs |
+| `compare` | `owner`, `repo`, `base`, `head` | ahead/behind counts and commits between refs; GitHub lists at most 300 changed files (`partialReasons:["providerFileLimit"]`), and a `path` scope past them gets a warning plus `hints.narrowScope`, the path's commits up to `head` |
 
-Sections are selected with `include` (PR: `body`, `files`, `patches`,
-`comments`, `reviews`, `commits`; issue: `body`, `comments`; commit:
-`patches`) and narrowed with `files` (paths, `dir/`, or globs) and `status`.
-The nested spellings (`content.*`, `fileFilter`, `includeDiff`, `path`,
-`operation:"compare"`) stay valid aliases and return identical rows. Every PR
+Sections are selected with `sections` (PR: `body`, `files`, `patches`,
+`comments`, `reviewComments`, `reviews`, `commits`, `commitFiles`; issue:
+`body`, `comments`; commit and compare: `patches`) and narrowed with `include`
+(paths, `dir/`, or globs), `status`, and `minChanges`. Every PR
 row carries its merge state (`mergedAt`, or `closedAt` for a PR closed without
 merging, and `targetBranch`; labels on the first page; `updatedAt` only while
-open). The body is opt-in (`include:["body"]`, offered by the menu). An issue read lists up to 25 pull requests that closed it
-(`closedBy`, merged first) and offers `hints.readFixPr` (every patch of a small
+open). The body is opt-in (`sections:["body"]`, offered by the menu). An issue read lists up to 25 pull requests that closed it
+(`closedBy`, merged first) and offers `hints.readFixPullRequest` (every patch of a small
 fix; a larger one's body and file inventory; only the patches of files the
-`mainGoal` names, as `fileFilter.paths`, when it names any);
-`content:{body:false}` skips the issue body when `closedBy` is enough; past 25 every body and
+`mainGoal` names, as `include`, when it names any); past 25 every body and
 comment window is `isPartial` with `partialReasons:["closingReferenceLimit"]`
 and the fix is a medium-confidence candidate.
 
@@ -410,36 +440,41 @@ each commit or file page carries only its own data.
 
 <!-- tool: ghGetHistoryItem -->
 ```json
-{"operation": "pullRequest", "owner": "vercel", "repo": "next.js", "number": 12345, "include": ["body", "files"]}
-{"mainGoal": "Find where a large PR touches esbuild.", "reasoning": "Search patches for the literal before paging the file inventory.", "operation": "pullRequest", "owner": "microsoft", "repo": "TypeScript", "number": 51387, "matchString": "esbuild", "files": ["*.json", "*.mjs"]}
-{"operation": "issue", "owner": "vercel", "repo": "next.js", "number": 12345, "content": {"body": true, "comments": {"discussion": true}}}
-{"operation": "commit", "owner": "vercel", "repo": "next.js", "ref": "abc123", "includeDiff": true}
+{"operation": "pullRequest", "owner": "vercel", "repo": "next.js", "number": 12345, "sections": ["body", "files"]}
+{"mainGoal": "Find where a large PR touches esbuild.", "reasoning": "Search patches for the literal before paging the file inventory.", "operation": "pullRequest", "owner": "microsoft", "repo": "TypeScript", "number": 51387, "matchString": "esbuild", "include": ["*.json", "*.mjs"]}
+{"operation": "issue", "owner": "vercel", "repo": "next.js", "number": 12345, "sections": ["body", "comments"]}
+{"operation": "commit", "owner": "vercel", "repo": "next.js", "ref": "abc123", "sections": ["patches"]}
 {"operation": "compare", "owner": "vercel", "repo": "next.js", "base": "v14.0.0", "head": "v14.1.0"}
 ```
 
 Request selected PR patches instead of every patch for large PRs, and leave
 commit diffs off until the relevant commit is known. A PR summary offers at
-most three reads: `getChangedFiles` (the body rides along), `reviewPatches`
+most three reads: `readFiles` (the body rides along), `readPatches`
 (every patch on a small PR, with the body when no file list is offered), and
-`getDiscussion` (comments and reviews). A merged PR whose first patch window
-holds a changed code file (not a test) also offers `readAtMerge`: its
-most-changed such file at the merge commit, as one `ranges` read of every
-hunk's new-side lines (10 lines of padding, at most 10 ranges).
-An inventory read offers `reviewPatches`: up to 30 source files (no tests,
+`readDiscussion` (comments and reviews). A merged PR's first patch read also
+offers `readAtMerge` when a changed code file (not a test) adds lines: the
+most-changed such file of every loaded file, not only the window shown, at the
+merge commit, as one `ranges` read of every hunk's new-side lines (10 lines of
+padding, at most 10 ranges).
+An inventory read offers `readSelectedPatches`: up to 30 source files (no tests,
 docs, lockfiles, generated or binary files; tests by each language's layout
 and naming, such as `_test.go`, `test_*.py`, `FooTest.java`, `_spec.rb`, or a
 `test/` directory), the ones that fit one patch budget first, the rest through
-`continuePatch`.
-Rows of one call share one patch budget, so a multi-row patch read fits one
-response page. An explicit `responseCharLength` (up to 50,000) replaces the
-configured automatic page for that call: patch windows fill the larger page.
-A `continuePatch` walk asks for the largest page itself: when the call's page
-is below 50,000 (or was set explicitly), the hop is a one-row call
-`{queries:[row], responseCharLength}` to run unchanged, so a whole-PR walk
-takes proportionally fewer calls, with the same per-file offsets (nothing
-skipped or repeated).
+`next.continuePatch`.
+Rows of one call share one response page, so a multi-row patch read fits it.
+An explicit `responseLength` (up to 50,000) replaces the configured automatic
+page for that call: patch windows fill the larger page.
+A patch window (PR, commit, and comparison) ends at the last file it holds
+whole; a file larger than the window is cut at the last line end it holds.
+`next.continuePatch` is the same file page at the page-stream `offset`: no
+path list, the same page budget on every hop, nothing skipped or repeated. A
+file page with unread patches offers only `continuePatch`; the window that
+finishes them offers `next.nextFilePage`. Each is one row query in the
+published spelling, and its `query` is the whole input: run it unchanged.
+Every REST read revalidates its stored copy (ETag), so a repeated read
+answered 304 costs no body.
 
-`content.changedFiles` returns compact patch-free rows,
+`sections:["files"]` returns compact patch-free rows,
 `"M +3 -1 [!flag ]path[ <- old/path]"`: a git status letter (`T` changed,
 `U` unchanged), line counts, and the path, with files sharing a directory
 grouped as `{"dir/": [rows]}` (path = dir + name). `!flag` marks a file GitHub
@@ -462,22 +497,23 @@ GitHub lists at most 3000 files. Past that limit the file page reports
 
 PR reads narrow with three optional fields:
 
-- `fileFilter` keeps files matching all given filters: `paths` (any-of, 1–100
-  file or directory paths or globs; `*` one segment, `**` any depth, no `/`
-  matches the file name, e.g. `"*.ts"`), `status` (`added`, `removed`,
-  `modified`, `renamed`, `copied`, `changed`, `unchanged`), and `minChanges`
-  (additions + deletions ≥ n; files without counts pass).
+- `include`, `status`, and `minChanges` keep files matching all that are set:
+  `include` (any-of, 1–100 file or directory paths or globs; `*` one segment,
+  `**` any depth, no `/` matches the file name, e.g. `"*.ts"`), `status`
+  (`added`, `removed`, `modified`, `renamed`, `copied`, `changed`,
+  `unchanged`), and `minChanges` (additions + deletions ≥ n; files without
+  counts pass).
 - `matchString` keeps only the patch lines that match, implies patches, and
   returns every hit file of the PR on one page. Files with no patch to search
   (`!tooLarge`, `!binary`, `!omitted`) are listed as unsearched, so a miss
   there is not absence.
-- `matchContext` (0–10) sets the lines kept around each hit. Omitted, it is 0
+- `contextLines` (0–10) sets the lines kept around each hit. Omitted, it is 0
   (hit lines only). Every narrowed or clipped file is re-read raw by
-  `hints.readFullPatches` (100 files per read, then `readFullPatches2`, …);
-  more than five narrowed files without `matchContext` also get
-  `hints.widenContext` (`matchContext: 3`).
-- A `files`/`status` scope that matches no changed file returns
-  `noSelectedFilesMatched` with an inventory hint.
+  `next.readFullPatches` (100 files per read, then `readFullPatches2`, …);
+  more than five narrowed files without `contextLines` also get
+  `hints.widenContext` (`contextLines: 3`).
+- An `include`/`status` scope that matches no changed file returns an
+  empty row with an inventory hint.
 
 A file inventory, a patch read, or a later page (a file, comment, commit, or
 review page after the first, or a nonzero body offset) returns a slim identity header (`number`, `state`, `sourceSha`,
@@ -494,8 +530,8 @@ compaction drops text from a body, comment, or review, the row says
 Match-filtered reads preserve source anchors.
 
 Issue, commit, and compare details do not accept `minify`; they return exact
-selected text after redaction. Issue bodies and comment bodies use
-`charOffset`/`charLength`, with automatic 12,000-character windows.
+selected text after redaction. Bodies and comment bodies use `offset`/`length`,
+with automatic 12,000-character windows; a continuation reads one surface.
 Comment-item continuations reset the text offset. Follow each returned
 continuation independently: body, comment body, item page, file, and patch
 windows address different parts of the response.
@@ -503,9 +539,9 @@ windows address different parts of the response.
 PR collection reads fetch at most one provider batch per requested source:
 100 discussion comments, inline comments, or reviews, and 50 commit summaries.
 `pageSize` bounds displayed items within each batch (default 30, max 100); a
-patch read lists 100 changed files a page by default, so one `continuePatch`
-walk covers every patch of a PR of up to 100 files. A
-patch-free `content.changedFiles` inventory pages by `filePage`; with
+patch read lists 100 changed files a page by default, so its patch pages
+cover every patch of a PR of up to 100 files. A
+patch-free `sections:["files"]` inventory pages by `filePage`; with
 `pageSize` omitted it fills the response page (100–1000 rows), and an explicit
 `pageSize` may reach 1000.
 `reviewPage` pages reviews independently; review bodies retain their text
@@ -515,18 +551,19 @@ reset the relevant item and text windows when advancing. A zero position marks
 an exhausted comment source, which is no longer fetched. Counts labeled
 `countScope: "providerBatch"` describe that batch, not the complete collection.
 
-Nested `content.commits.includeFiles` reads fetch one file batch for each
+`sections:["commitFiles"]` reads fetch one file batch for each
 displayed commit and return at most `pageSize` files per commit. Each commit's
 `next.nextFilePage` and `next.continuePatch` call `ghGetHistoryItem` with its
 exact SHA. Exact commit reads page files with `filePage` and retain independent
-file and patch (`charOffset`/`charLength`) windows. An explicit `charLength`
-sizes the patch window up to what one response page holds (a larger value is
-clamped, with a `warnings` note, so a row never splits across response
-pages and `continuePatch` never skips text); omitted, the window fits one
-automatic response page. Each
+file and patch (`offset`/`length`) windows. An explicit `length`
+sizes the patch window up to one response page (a larger value is clamped,
+with a `warnings` note on the call that asked, so a row never splits across
+response pages and `continuePatch` never skips text); omitted, the window fits
+the response page. A comparison's commit list rides its first window only.
+Each
 file's `patchPagination` uses that file's own offsets; a commit or compare
-page's stream cursor is `filesPagination.nextPatchCharOffset`, which
-`next.continuePatch` carries. History reads are never cached. Provider caps and omitted patches remain explicit
+page's patch stream cursor rides `filePagination`, and
+`next.continuePatch` carries it. Provider caps and omitted patches remain explicit
 terminal limits; a provider cap does not establish completeness.
 
 A commit read that stops at its file-batch cap reports
@@ -548,19 +585,20 @@ Key fields:
 | Field | Meaning |
 |-------|---------|
 | `owner`, `repo` | Required repository. |
-| `branch` | Branch, tag, or exact commit SHA. Omit to use the default branch. |
-| `sparsePath` | Optional file or directory, or an array of up to 10, for a sparse checkout. A missing path is a not-found error (exit 3). |
-| `depth` | Commits of history, 1–50 (default 1). |
+| `ref` | Branch, tag, or exact commit SHA. Omit to use the default branch. |
+| `path` | Optional file or directory, or an array of up to 10, for a sparse checkout. A missing path is a not-found error (exit 3). |
+| `historyDepth` | Commits of history, 1–50 (default 1). |
 | `forceRefresh` | Fetch current state; refuses to replace a checkout containing local edits. |
 
 A checkout containing the reserved root path `.octocode-clone-meta.json` returns
-`clone.cache.metadataConflict` before bookkeeping is written. An existing checkout
+`cacheUnavailable` before bookkeeping is written. An existing checkout
 is preserved; use `ghGetFileContent` or `ghStructure` to read that repository.
 
-Returns a location with an absolute path, commit identity, resolved branch,
+Returns a location with an absolute path, commit identity, `resolvedRef`,
+`requestedPaths`, `historyDepth`,
 `cached`, and `location.clonedAt`/`expiresAt` (fresh clones and cache hits
 alike; a hit's commit may lag the branch until then, so pass `forceRefresh` for
-the current head). `verified` and `complete` appear only when false.
+the current head). `verified` appears only when false.
 `hints.exploreClone` lists the checkout (the sparse subtree for one path, the
 root for several) with `structureSearch operation:"tree"`; a single sparse
 file is read with `localFetch` instead. No GitHub API call
@@ -573,29 +611,29 @@ Examples:
 
 <!-- tool: ghCloneRepo -->
 ```json
-{"owner": "vercel", "repo": "next.js", "branch": "canary"}
-{"owner": "microsoft", "repo": "TypeScript", "sparsePath": "src/compiler"}
+{"owner": "vercel", "repo": "next.js", "ref": "canary"}
+{"owner": "microsoft", "repo": "TypeScript", "path": "src/compiler"}
 ```
 
 Rules:
 
-- Use `sparsePath` for large monorepos.
+- Use `path` for large monorepos.
 - Use `ghGetFileContent` when you only need one file.
 - Cached clones are reused.
 - Use the returned path as-is. A cache hit requires a clean working tree at the
   recorded HEAD; an edited cache is re-cloned, so `verified` holds for cached
-  bytes. Check `verified` separately from scoped `complete`.
+  bytes.
 
 ### `artifactSearch`
 
-Find packages for a capability, resolve a known dependency to registry metadata, or locate its upstream source. Use local tools to explain installed code and GitHub tools when the repository is already known. A repository link is metadata, not implementation or published-version proof. `version` pins an exact lookup to an exact version, a range (`^3`, `>=2.31,<3`), or a tag (`latest`, `next`) on npm, PyPI, and crates.io, and to an exact version or `latest` on Go (the `name@version` and PyPI `name==version` coordinates stay valid); a range resolves like the registry's installer, and a missing version is `versionNotFound` with the nearest published versions. Exact rows add release facts when the registry has them: `publishedAt`, `deprecated`, `yanked`, `dependencies`/`peerDependencies` counts, and `engines` (npm), `requiresPython` (PyPI), or `rustVersion` (crates), beside their `description` and a `homepage` that is not the repository page. Rows never restate the requested `type`. npm discovery rows carry `downloadsMonthly`. Exact GitHub-backed lookups offer `hints.viewRepo` for default-branch code and, when the registry names a commit or tag, `hints.viewReleaseSource` for that release; a lookup with `version` offers only the release lead (drop its `branch` for the default branch). crates.io exact versions read the version record and crate metadata, not the whole version list. Each labels `source.scope` (`defaultBranch` or `release`); `viewRepo` is always `source.verification:"unverified"`, and `viewReleaseSource.source.verification` is `provenance` when an npm SLSA provenance attestation binds this exact tarball (subject digest equals `dist.integrity`) to the manifest's repository and names the commit (the registry verifies the attestation at publish; octocode does not re-verify signatures), else `unverified` (npm `gitHead`, Go/Composer refs). Execute the selected lead and check its resolved revision before treating it as evidence. A missing release ref may be unpublished or stale; the default branch is a recovery lead, not evidence of that release.
+Find packages for a capability, resolve a known dependency to registry metadata, or locate its upstream source. Use local tools to explain installed code and GitHub tools when the repository is already known. A repository link is metadata, not implementation or published-version proof. `version` pins an exact lookup to an exact version, a range (`^3`, `>=2.31,<3`), or a tag (`latest`, `next`) on npm, PyPI, and crates.io, and to an exact version or `latest` on Go and NuGet (the `name@version` and PyPI `name==version` coordinates stay valid); a range resolves like the registry's installer, and a missing version is `versionNotFound` with the nearest published versions. Exact rows add release facts when the registry has them: `publishedAt`, `deprecated`, `yanked`, `dependencies`/`peerDependencies` counts, and `engines` (npm), `requiresPython` (PyPI), or `rustVersion` (crates), beside their `description` and a `homepage` that is not the repository page. Rows never restate the requested `type`. npm discovery rows carry `downloadsMonthly`. Exact GitHub-backed lookups offer one ghStructure lead at the package directory (plus the `main` directory of an npm package without a build step): `hints.viewReleaseSource` when the release has a ref, else `hints.viewRepo` for the default branch. Release refs: npm `gitHead` or a provenance-attested commit, the Go version tag or pseudo-version commit, the Composer source reference, the NuGet nuspec commit, the crates.io packaging commit (`.cargo_vcs_info.json`, with its `path_in_vcs` as `repositoryDirectory`), or for PyPI (and crates without VCS info) an upstream `v<version>`/`<version>` tag that exists on GitHub. crates.io exact versions read the version record and crate metadata, not the whole version list. Only a commit from an npm SLSA provenance attestation bound to this exact tarball (subject digest equals `dist.integrity`) and the manifest's repository is labeled `verification:"provenance"` (the registry verifies the attestation at publish; octocode does not re-verify signatures); other refs are unchecked registry leads. Execute the lead and check its resolved revision before treating it as evidence. A ref that is missing upstream recovers on the default branch: run the same query without `ref`; that tree is not evidence of the release.
 
 | Field | Meaning |
 |-------|---------|
 | `type` | Required ecosystem: `npm` (JavaScript/TypeScript), `pypi` (Python/pip/uv), `crates` (Rust/Cargo), `maven` (Java/Kotlin), `nuget` (.NET), `go` (Go modules), `packagist` (PHP/Composer), or `rubygems` (Ruby/Bundler). |
 | `packageName` | Exact ecosystem coordinate, such as `@scope/name`, `group:artifact`, or a Go module path. Exclusive with `keywords`. |
 | `keywords` | One or more discovery terms as an array. PyPI supports exact lookup only. |
-| `cursor` | Opaque discovery continuation; copy the complete returned `next.nextPage` query. Exact lookup has no pagination controls. |
+| `page` | Discovery page (1-based); copy the complete returned `next.nextPage` query. Exact lookup has no pagination controls. |
 | `pageSize` | Discovery result count, default 10, range 1–100. |
 | `registry` | npm-only HTTP or HTTPS registry override. Omit for npm environment and `.npmrc` routing. Credentials are not tool inputs. |
 
@@ -612,7 +650,7 @@ Each query selects one ecosystem. Compare ecosystems using independent entries i
 
 `artifacts[]` contains canonical package identities and available version, description, license, homepage (omitted when it is the repository page), and source metadata; `debug:true` adds registry URLs. Go package paths stay separate from module identities. Optional metadata can be absent; cross-registry popularity scores are not comparable. Read exact source to establish behavior and match the published or installed version before making version-specific claims.
 
-For npm, scoped names honor `@scope:registry` and an explicit `registry` takes precedence; authentication uses registry-scoped npm configuration (with environment interpolation), caches isolate registry/configuration identities, and continuations preserve the selected registry. Private registries must support npm's search endpoint for discovery; other ecosystems use official public services. Follow executable continuations rather than constructing page numbers or interpreting cursors; unknown totals stay unknown, an empty page may still continue, and auth/unsupported/rate-limit/provider failures are errors while a missing exact package is `notFound`.
+For npm, scoped names honor `@scope:registry` and an explicit `registry` takes precedence; authentication uses registry-scoped npm configuration (with environment interpolation), caches isolate registry/configuration identities, and continuations preserve the selected registry. Private registries must support npm's search endpoint for discovery; other ecosystems use official public services. Follow executable continuations rather than constructing page numbers; unknown totals stay unknown, an empty page may still continue, and auth/unsupported/rate-limit/provider failures are errors while a missing exact package is `notFound`.
 
 ### Token cost control by goal
 
@@ -621,12 +659,12 @@ For npm, scoped names honor `@scope:registry` and an explicit `registry` takes p
 | Find if a function exists in a file | `ghSearchCode` with `keywords: ["functionName"]` |
 | Read one function body | `ghGetFileContent` with `matchString: "function name"` + small `contextLines` |
 | Scan a whole file's structure | `ghGetFileContent` with `minify: "symbols"` |
-| Read 2–10 functions from a file | Multiple `startLine`/`endLine` reads in one batched call |
+| Read 2–10 functions from a file | One `ranges` read with up to 10 spans |
 | Read a 3MB+ file | `ghCloneRepo` sparse + local read |
-| Understand why a PR was made | `ghSearchHistory(operation:"pullRequest")`, then `ghGetHistoryItem(operation:"pullRequest", number)` with `include: ["body"]` |
-| Review a PR's changes | Small PR: `include: ["patches"]`. Large PR: `matchString` (+ `files`) over all patches, or `include: ["files"]` then `hints.reviewPatches` |
-| Get all inline code comments on a PR | `content: { comments: { reviewInline: true, discussion: false } }` |
-| Count repositories in an org | `owner: "vercel", archived: false` → search `totalMatches` (an owner-only listing reports no total) |
+| Understand why a PR was made | `ghSearchHistory(operation:"pullRequest")`, then `ghGetHistoryItem(operation:"pullRequest", number)` with `sections: ["body"]` |
+| Review a PR's changes | Small PR: `sections: ["patches"]`. Large PR: `matchString` (+ `include`) over all patches, or `sections: ["files"]` then `hints.readSelectedPatches` |
+| Get all inline code comments on a PR | `sections: ["reviewComments"]`; each comment carries `path`, `side`, `startLine` (multi-line only), `line`, `commitSha` (read the code with `ghGetFileContent` at that ref), `outdated:true` when the anchor is the original diff, and `inReplyToId` on replies |
+| Count repositories in an org | `owner: "vercel", archived: false` → search `pagination.totalItems` (an owner-only listing reports no total) |
 | Get package version only | `artifactSearch` with `type` and `packageName`; an upstream manifest is not proof of the published version |
 
 ### Workflows
@@ -662,7 +700,7 @@ End-to-end GitHub, history, and clone flows are owned by the [research manifest]
 | `localSearch` | Lexical local discovery; matches provide anchors for `lspSearch`. |
 | `structureSearch` | Directory outlines and file discovery by name or metadata. |
 | `astSearch` | Structural AST matches, syntax trees, and symbols. |
-| `astTopology` | Cross-file dependency graph analysis and coverage diagnostics. |
+| `astTopology` | CLI only: cross-file dependency graph analysis and coverage diagnostics. |
 | `localFetch` | Read targeted file content by line range, match, signature skeleton, or line/byte chunk. |
 
 ---
@@ -684,7 +722,7 @@ Local tools are on by default. To turn the whole local surface off:
 
 Relative local paths resolve against the workspace root (`WORKSPACE_ROOT`, default the process cwd). The allowed roots are the workspace root, `ALLOWED_PATHS`/`local.allowedPaths` entries, and the Octocode home; the user home directory is not allowed unless listed.
 
-A path outside the allowed roots (directly or through a symlink) fails with `errorCode: "pathOutsideAllowedRoots"` in `localSearch`, `localFetch`, `lspSearch`, and `astRewrite` (`astSearch` keeps `ast.policy.outsideAllowedRoots`/`ast.policy.symlinkEscape`; `structureSearch` returns `structure.policy.outsideAllowedRoots`); the recovery hint is keyed on that code. Run from inside the workspace or extend `ALLOWED_PATHS` / `WORKSPACE_ROOT`.
+A path outside the allowed roots (directly or through a symlink) fails with `errorCode: "outsideAllowedRoots"`, and a path that does not exist with `errorCode: "pathNotFound"`, in every local tool (`localSearch`, `localFetch`, `structureSearch`, `astSearch`, `astTopology`, `lspSearch`, `astRewrite`); the recovery hint is keyed on that code. Run from inside the workspace or extend `ALLOWED_PATHS` / `WORKSPACE_ROOT`.
 
 Config reference: [Configuration Reference](CONFIGURATION.md).
 
@@ -707,9 +745,9 @@ Local tools expose two pagination layers:
 | Layer | Fields | Applies To |
 |-------|--------|------------|
 | Native result pagination | `page`, `pageSize` | `localSearch`, `structureSearch`, `astSearch`, `astTopology` |
-| Per-file match pagination | `matchPage`, `maxMatchesPerFile` | `localSearch` when a matched file has more matches |
-| Local content pagination | `chunkType`, `offset`, `chunkSize` | `localFetch` selected views |
-| Bulk response pagination | `responseCharOffset`, `responseCharLength` | Any bulk response |
+| Per-file match pagination | `matchPage`, `matchPageSize` | `localSearch` when a matched file has more matches |
+| Local content pagination | `unit`, `offset`, `length` | `localFetch` selected views |
+| Bulk response pagination | `responseOffset`, `responseLength` | Any bulk response |
 
 Use native pagination first for result lists, then char pagination only when a single result payload is still too large.
 
@@ -736,7 +774,7 @@ Start broad with structure or metadata, narrow with content search, then read th
 
 `localSearch` handles lexical search, `structureSearch` handles directory
 outlines and file metadata, `astSearch` handles structural matches, syntax
-trees, and symbols, and `astTopology` handles file graphs. Each public tool rejects fields
+trees, and symbols, and the CLI-only `astTopology` handles file graphs. Each public tool rejects fields
 from other operations. Removed compatibility names cannot be restored with
 `TOOLS_TO_RUN` or `.octocoderc`.
 
@@ -744,9 +782,9 @@ from other operations. Removed compatibility names cannot be restored with
 
 ### `localSearch`
 
-Lexical local search. The query is selected by `searchText` and `regex`; use
+Lexical local search. The query is selected by `matchString` and `regex`; use
 `structureSearch` for directory outlines or file metadata, `astSearch` for syntax
-matches, syntax trees, or symbols, and `astTopology` for file-graph queries.
+matches, syntax trees, or symbols, and the CLI-only `astTopology` for file-graph queries.
 
 #### Best for
 
@@ -759,16 +797,15 @@ matches, syntax trees, or symbols, and `astTopology` for file-graph queries.
 | Parameter | Description |
 |-----------|-------------|
 | `path` | File or directory to search. Relative paths resolve from the workspace root. For remote repos: pass `localPath` from a `ghCloneRepo` result — it is already absolute and immediately valid. |
-| `searchText` | Text or regex pattern. Required, with `path`. |
+| `matchString` | The search pattern. With `regex` unset it is literal text unless it has a regex operator (`\|`, `\`, `[`, `]`, `*`, `+`, `?`, `^`, `$`, `{`, `}`); `regex:"literal"`, `"rust"` or `"pcre2"` sets the mode. The inferred mode is disclosed in `warnings` when the readings differ. Required, with `path`. In `localFetch`, `ghGetFileContent` and `ghGetHistoryItem` the same field is a literal anchor into content. |
 | `resultView` | Lexical response shape: `paginated`, `detailed`, `content`, `files`, `filesWithout`, `countLines`, `countMatches`, or `matchOnly`. |
-| `matchWindow` | With `resultView:"matchOnly"`, widen each matched span by this many characters of context on each side (… marks trimmed sides). 0 = bare match. |
 | `unique` | With `resultView:"matchOnly"`, use `list` for distinct match values per file or `count` for frequencies. |
 | `contextLines` | Lines around each match. Default 0 (`detailed`: 3), max 100. |
-| `matchContentLength` | Max characters per match snippet, clipped around the hit. Default 200 × (2·contextLines + 1), capped at 4000; explicit max 100000. A clipped value carries `next.expandValues`: on a `pageSize`/`maxMatchesPerFile` page, the same page with a wider `matchContentLength`; on a default page, one localFetch of the clipped lines per file (`expandValues2`, …), or for a multiline match the file searched alone with a wider `matchContentLength`. |
+| `matchContentLength` | Max characters per match snippet, clipped around the hit (`matchOnly`: per matched span). Default 200 × (2·contextLines + 1), capped at 4000; explicit max 100000. A clipped value carries `next.expandValues`: on a `pageSize`/`matchPageSize` page, the same page with a wider `matchContentLength`; on a default page, one localFetch of the clipped lines per file (`expandValues2`, …), or for a multiline match the file searched alone with a wider `matchContentLength`. |
 | `pageSize` | Files per lexical result page, 1–1000. Omitted: pages of about 24 KB (path/count views: 100 files). |
-| `maxMatchesPerFile` | Per-file match page size. Omitted: every row when the result fits one page, else 10 per file on page 1. Pair with `matchPage` to continue. |
+| `matchPageSize` | Per-file match page size. Omitted: every row when the result fits one page, else 10 per file on page 1. Pair with `matchPage` to continue. |
 | `page` | Result page. |
-| `matchPage` | Per-file match page when a file has more matches (with `pageSize` or `maxMatchesPerFile`). |
+| `matchPage` | Per-file match page when a file has more matches (with `pageSize` or `matchPageSize`). |
 
 #### Match options
 
@@ -784,11 +821,11 @@ matches, syntax trees, or symbols, and `astTopology` for file-graph queries.
 
 | Parameter | Description |
 |-----------|-------------|
-| `langType` | Ripgrep language/type filter such as `ts`, `js`, `py`, `go`. |
-| `maxDepth` | Directory depth limit, 0–20. |
-| `include` | Glob patterns to include. |
-| `exclude` | Glob patterns to exclude. |
-| `excludeDir` | Directory names to skip, added to the default prune (dependency, build, cache, credential, and editor/CI config directories such as `node_modules`, `target`, `.git`, `secrets`, `.github`). `defaultExcludes: false` turns that prune off, but `.gitignore` still hides ignored directories until `noIgnore: true`, and sensitive directories such as `secrets/` are never walked. |
+| `language` | Ripgrep language/type filter such as `ts`, `js`, `py`, `go`. |
+| `maxDepth` | Levels below `path`, 1–20 (1 = its children). |
+| `include` | Glob patterns to include; a bare word (no `/` or glob character) matches names containing it, and a plain path (`/`, no glob character) also matches everything under it, as in every local tool. |
+| `exclude` | Glob patterns to exclude, added to the default prune; a bare name skips that file or directory at any depth, and `dir/**` skips a path. |
+| `defaultExcludes` | `false` turns off the default prune (dependency, build, cache, credential, and editor/CI config directories such as `node_modules`, `target`, `.git`, `secrets`, `.github`). `.gitignore` still hides ignored directories until `noIgnore: true`, and sensitive directories such as `secrets/` are never walked. |
 | `hidden` | Include hidden files. |
 | `noIgnore` | Ignore `.gitignore` and `.ignore` files. |
 | `sort` | `relevance` (default), `traversal`, `matchCount`, `path`, `modified`, `accessed`, or `created`. |
@@ -800,31 +837,35 @@ Normal results include matched files and match snippets with line and column inf
 
 Coverage and limits:
 
-- `relevance` (default): for one bare identifier, source files that declare it rank first; then match count, source paths before test/generated/vendored paths, then declaration hits before code and comment/string hits, then path; `files`/`filesWithout` have no count and order by source paths first, then path. `relevance` and `matchCount` keep the 10,000 highest-ranked files across every searched file. Debug `stats` totals count all matched files; `capReason:"maxCollectedFiles"` marks the trimmed list.
+- `relevance` (default): for one bare identifier, source files that declare it rank first; generated files (a `generated` directory, a `.generated.`/`_pb2.`-style name, or a `DO NOT EDIT`/`@generated`/`Automatically generated` header in the first lines) follow every hand-written file; then match count, source paths before test/vendored/bundled paths, then declaration hits before code and comment/string hits, then path; `files`/`filesWithout` have no count and order by source paths first, then path. `relevance` and `matchCount` keep the 10,000 highest-ranked files across every searched file. Debug `stats` totals count all matched files; `capReason:"maxCollectedFiles"` marks the trimmed list.
 - If no file under `path` can be read, the call fails with `errorCode:"fileAccessFailed"` (exit 5). If some paths are unreadable, the result sets `isPartial` and `terminalLimit`, and `stats.errorCount`/`firstError` report the failures. Zero matches in that result do not prove absence.
-- A file that is binary from its leading bytes (a NUL before any text, or after a short single-line header such as a font or database magic that matched nothing) is outside a text search, as rg skips it. It does not make the result partial. A `binarySkipped` warning gives the count by extension, and `next.binarySkipped` is a `structureSearch` `files` query that lists every such file.
+- A file that is binary from its leading bytes (a NUL before any text, or after a short single-line header such as a font or database magic that matched nothing) is outside a text search, as rg skips it. It does not make the result partial. A one-line `binarySkipped` warning gives the count by extension, and the `hints.binarySkipped` lead is a `structureSearch` `files` query that lists every such file (extensionless ones by exact name). Both appear on the first page only. Bytes of such a file that happen to match are not hits.
 - A file with real text before its first NUL (a match, a complete line, or a long text run) is searched up to that byte, and matches before it are kept. A `binaryFileSkipped` warning names every such file (files sharing a directory as `dir/{a,b}`) and the result is `isPartial` (debug stats also show `capped` and `capReason: binaryQuit`) (with `terminalLimit` when no other continuation exists): no text tool reads past the NUL, so the kept matches are not the file's full set and an empty result does not prove absence.
 - Match values whose secret-shaped text was replaced by `[REDACTED…]` placeholders carry a `redactedMatches` warning; those values are not verbatim source.
 - `regex:"pcre2"` searches have a wall-clock limit. At the limit the result keeps the files finished so far and reports `capReason:"pcre2Deadline"`.
 - Files are opened without following symlinks. A path replaced by a symlink or special file after the walk counts as a read error.
 
-Row `path` values are relative to the envelope `base`, which is the queried directory (or the parent of a queried file) on every page; `join(base, path)` is the absolute file to pass to `localFetch` or `lspSearch`. The `next` map carries pages, and `hints` carries optional leads:
+On a page of at most 50 hit rows, each row inside a declaration carries `in: "<kind> name@<line>"` (`fn`, `const`, `var`, `prop` shorten those kinds), the innermost declaration around the hit and its name line (a hit on a declaration's own name line names the declaration around it). Consecutive rows in one declaration name it once, on the first row, as `name@<line>-<end>`; the rows after it inside that range omit `in`. A declaration search (`fn foo`, `class Foo`) names the owners of rows that declare the symbol only. While pages remain, `stats` holds `totalMatches` (every match), `totalMatchedLines` (the rows a walk shows), and `filesMatched`; `pagination` holds `currentPage`, `matchPage` (past the first match page), `totalPages`, `pageSize`, `totalItems`, and `hasMore`. When the repository's HEAD can be read from the root's `.git`, the envelope reports it once as `shared.commitSha` (also on `localFetch` and `structureSearch`; per row when rows read different repositories). It names the checked-out commit; uncommitted edits are not reflected.
+
+Row `path` values are relative to the envelope `root`, which is the queried directory (or the parent of a queried file) on every page; `join(root, path)` is the absolute file to pass to `localFetch` or `lspSearch`. The `next` map carries pages, and `hints` carries optional leads:
 
 | Key | Tool | Purpose |
 |----------|------|---------|
-| `next.nextPage` / `next.nextMatchPage` | `localSearch` | Continue pagination. Without `pageSize`/`maxMatchesPerFile`, `nextPage` alone walks the rest in pages of about 24 KB. With either set, `nextPage` moves to the next files and `nextMatchPage` to each shown file's next rows; a later match page lists only files that still have rows. |
+| `next.nextPage` / `next.nextMatchPage` | `localSearch` | Continue pagination. Without `pageSize`/`matchPageSize`, `nextPage` alone walks the rest in pages of about 24 KB. With either set, `nextPage` moves to the next files and `nextMatchPage` to each shown file's next rows; a later match page lists only files that still have rows. |
 | `next.restart` | `localSearch` | Rerun from page 1 when the result snapshot is stale. |
-| `next.binarySkipped` | `structureSearch` | List the files skipped as binary from their leading bytes (by extension; it may also list same-extension text files). |
-| `hints.read` | `localFetch` | A complete result over at most three files: a `matchString` read of the top file's hits. |
+| `hints.binarySkipped` | `structureSearch` | List the files skipped as binary from their leading bytes (by extension; it may also list same-extension text files). |
+| `hints.read` | `localFetch` | The first page of a complete result: a shown declaration of the searched symbol read whole (`ranges` of the declaration), else a `ranges` read of ±6 lines around the top file's hits (a `matchString` read when they need more than 10 ranges). |
+| `hints.verifyReferences` | `lspSearch` | The search names one symbol (an identifier, or one after `fn`/`def`/`class`…) and a shown hit is its declaration: `callers` for a function or method, else `references`, anchored on that line with `lineHint`. Omitted when no language server is available for the file. |
+| `hints.includeIgnored` | `localSearch` | An empty result when ignored, hidden or default-excluded paths match, or when default-excluded directories (named in the hint) could not be checked: the same search with `noIgnore`, `hidden` and `defaultExcludes:false`. |
 | `hints.repair` | `localSearch` | An invalid regex: the same search with the broken pattern escaped. |
-| `hints.clasify` | `clasify` | Wide pages only (see [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md)); present only while `clasify` is available and the query set `mainGoal`. |
+| `hints.clasify` | `clasify` | Wide pages only (see [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md)); present only while `clasify` is available and the query is a multi-word phrase. |
 
 #### Examples
 
 ```bash
-localSearch( path="packages/octocode-mcp/src", searchText="registerTool", langType="ts")
-localSearch( path=".", searchText="TODO", resultView="files")
-localSearch( path="src", searchText="class\\s+\\w+Service", regex="rust", contextLines=3)
+localSearch( path="packages/octocode-mcp/src", matchString="registerTool", language="ts")
+localSearch( path=".", matchString="TODO", resultView="files")
+localSearch( path="src", matchString="class\\s+\\w+Service", regex="rust", contextLines=3)
 ```
 
 #### Structural and AST search
@@ -835,7 +876,7 @@ Structural results distinguish file-scan caps from execution limits. Reaching
 `maxFiles` (default 2000) adds a `structural.scan.truncated` warning
 diagnostic; narrow the scope or raise `maxFiles` and rerun. Parser or matcher
 exhaustion preserves completed files and reports staged `diagnostics`. Zero
-matches in an incomplete result do not establish absence. `maxDepth: 0`
+matches in an incomplete result do not establish absence. `maxDepth: 1`
 includes files directly in the root; depth filtering happens before the
 file-scan cap. `operation:"symbols"` scans up to `maxFiles` (default 2000,
 max 50000) and reports `terminalLimit` when the scan was truncated or files were skipped.
@@ -843,11 +884,11 @@ max 50000) and reports `terminalLimit` when the scan was truncated or files were
 `astSearch` match, `syntaxTree`, and `symbols` positions use one-based lines and
 zero-based UTF-16 code-unit columns. A `symbols` row's `name` + `line`, or an
 identifier capture's `text` + `line`, is `lspSearch` `symbolName` + `lineHint`
-as-is (with `uri` = the file path).
+as-is (with `path` = the file path).
 
-`operation:"syntaxTree"` pages one file's parsed syntax tree: `nodeOffset`
-(default 0), `nodeLimit` (default 100, max 1000), and `namedOnly` (default
-`true`).
+`operation:"syntaxTree"` pages one file's parsed syntax tree: `page`
+(default 1), `pageSize` (default 100, max 1000), and `namedOnly` (default
+`true`); `pagination.totalItems` counts the nodes.
 
 **Supported structural extensions:** `asm`, `assembly`, `c`, `cc`, `cjs`, `cpp`, `cs`, `cts`,
 `cxx`, `go`, `h`, `hh`, `hpp`, `hxx`, `java`, `js`, `jsx`, `mjs`, `mts`, `py`,
@@ -855,8 +896,13 @@ as-is (with `uri` = the file path).
 set backs signatures and graph facts in the default release build. Query the
 compiled engine capability API when optional grammar features are disabled.
 
-A code-shaped pattern that returns zero matches is not retried in another form;
-use an explicit `rule` query when exact query equivalence matters.
+A declaration pattern that omits a return type or (Rust) a visibility
+modifier also runs as a rule over the pattern plus those spellings; when that
+finds more, the result is the union with a `structural.pattern.relaxed`
+warning naming the variants, and its continuations replay that rule. Use an
+explicit `rule` query when exact query equivalence matters. A match page offers
+`hints.read`: `localFetch` of the top file's hits with 3 lines of context, when
+they fit 5 ranges.
 
 YAML `kind` rules are checked against the selected source grammar before
 execution; YAML is the rule-document format, not a supported source grammar.
@@ -868,7 +914,7 @@ depth), so deeply nested files do not hit the deadline on `stopBy: end`. A
 file that still exceeds the deadline is reported as a
 `structural.match.deadline` diagnostic, never as zero matches.
 
-`operation:"symbols"` takes `name` as one substring or a list (`name:["complete","try_read_output"]` returns either); pages hold 500 declarations by default. Each declaration is one outline string, the same row in structured content and in the YAML text (which prints the rows under `=== symbols <path> (line[-endLine] kind name; + exported; indented = member; doc = comment above) ===`):
+`operation:"symbols"` takes `symbolName` as one name or a list (`symbolName:["complete","try_read_output"]` returns either); each entry that equals a declaration name matches only that name, else it matches as a substring, and a directory scan parses only files whose text contains an entry. A single named declaration gets `hints.verifyReferences` (lspSearch `callers` for a function or method, else `references`) when a language server runs for the file; pages hold 500 declarations by default. Each declaration is one outline string, the same row in structured content and in the YAML text (which prints the rows under `=== symbols <path> (line[-endLine] kind name; + exported; indented = member; doc = comment above) ===`):
 
 ```text
 105-107 struct NamedPipeServer + doc@43
@@ -877,10 +923,10 @@ file that still exceeds the deadline is reported as a
 ```
 
 - `<line>[-<endLine>] <kind> <name>`: `line` is the name line (it feeds `lspSearch` as `symbolName` + `lineHint`); `endLine` appears when the declaration spans lines.
-- Two leading spaces per nesting level place a member under the preceding row that contains it (a function inside a function, in TypeScript as in Python and Rust). A member whose container is not on the page (a page break, or a `kinds`/`name` filter that drops it) ends with `(in Parent@line)`.
+- Two leading spaces per nesting level place a member under the preceding row that contains it (a function inside a function, in TypeScript as in Python and Rust). A member whose container is not on the page (a page break, or a `kinds`/`symbolName` filter that drops it) ends with `(in Parent@line)`.
 - Suffixes only when they add information: ` +` exported; ` as a,b` public names when exported under another name (`export { foo as bar }` gives `foo + as bar`, `export default function foo` gives `as default`); ` doc` when a comment block (JSDoc, `///`, `#` in Python) ends on the line above, ` doc@N` when it starts at N; ` from@N` when attributes or decorators start before the name line; ` col N` (0-based) only when two declarations of the same kind share a name and line.
 
-A single-file outline returns top-level `declarations`. A directory outline returns `files: [{path, declarations}]`, the same grouping as `match`, so each path is written once. `snapshot` appears only on paginated results. A JS/TS declaration is `exported` by its local binding.
+A single-file outline returns top-level `symbols`. A directory outline returns `files: [{path, symbols}]`, the same grouping as `match`, so each path is written once. `snapshot` appears only on paginated results. A JS/TS declaration is `exported` by its local binding.
 
 Java call patterns may omit their trailing semicolon. The structural compiler
 supplies grammar-checked statement context for direct patterns and patterns
@@ -901,9 +947,9 @@ offered as `next.expandCaptures` when a row hides something it returns: a match
 cut to its header, or capture text the value does not show.
 
 `rule` is a YAML string or the equivalent ast-grep rule object (the same
-`AstRule` shape astRewrite takes). A directory `match` without `langType`
+`AstRule` shape astRewrite takes). A directory `match` without `language`
 uses the one grammar whose files occur under `path` and that parses the query
-(`inferredLangType` names it and continuations pin it); several candidates
+(`inferredLanguage` names it and continuations pin it); several candidates
 return `ast.language.required` naming them.
 
 Structural failures retain native public codes such as
@@ -918,7 +964,7 @@ astSearch(operation="match", path="src", pattern="track($$$ARGS)")
 # arg (not literal backslash-n). On the CLI, use $'...' or a real multiline string.
 astSearch(operation="match", path="src", rule="rule:\n  pattern: await $C\n  inside:\n    kind: for_statement\n    stopBy: end")
 astSearch(operation="match", path=".", pattern="eval($X)")
-astSearch(operation="syntaxTree", path="src/index.ts", nodeLimit=100)
+astSearch(operation="syntaxTree", path="src/index.ts", pageSize=100)
 ```
 
 ---
@@ -938,25 +984,27 @@ Bounded directory outline (no parser) for understanding shape, ownership, and fi
 | Parameter | Description |
 |-----------|-------------|
 | `path` | Directory to browse. Relative paths resolve from the workspace root. |
-| `maxDepth` | Levels below `path`, 0–20, default 1; `0` lists immediate children. Use low depth first. |
+| `maxDepth` | Levels below `path`, 1–20: `1` lists the children only, `2` adds their contents. Omitted: 1, or 20 with `include` (an `include` filter searches every level, as in ghStructure). |
+| `include` | Globs OR-combined; a bare word matches names containing it; with `/` a glob matches the path below `path`, and a plain path also matches everything under it. |
 | `page` | Result page. |
 | `pageSize` | Directory entries per page, max 1000. Omitted: pages of about 24 KB. |
-| `limit` | Hard pre-pagination cap. Max 10000. |
+| `maxEntries` | Entries scanned before paging. Max 10000. |
 | `entryType` | `f` for files only, `d` for directories only; omit for both. |
 | `extensions` | Only include files with selected extensions. |
-| `excludeDir` | Directory names to prune, added to the default prune (dependency, build, cache, and credential directories such as `node_modules`, `target`, `.git`, `secrets`; `.github`-style config stays visible). `defaultExcludes: false` turns that prune off; sensitive directories such as `secrets/` stay hidden. |
+| `exclude` | Path globs to skip, added to the default prune (dependency, build, cache, and credential directories such as `node_modules`, `target`, `.git`, `secrets`; `.github`-style config stays visible); a bare name skips that file or directory at any depth. `defaultExcludes: false` turns the default prune off; sensitive directories such as `secrets/` stay hidden. |
 | `hidden` | Include hidden files and directories. |
 | `snapshot` | Copy from `next` when paging. |
 
 #### Output
 
-`operation` defaults to `"tree"`. The response lists `entries` as compact strings (`name (size)`, directories with a trailing `/`) plus pagination metadata when more remain. `summary` counts what the outline left out: `.gitignore`d entries, sensitive entries withheld by path policy, and, without `hidden`, skipped dot entries (pruned directories such as `.git` excluded); when it skipped any dot entry, `hints.includeHidden` reruns the outline with `hidden:true`.
+`operation` defaults to `"tree"`. The response lists `entries` as compact strings (`name (size)`, directories with a trailing `/`, symlinks with `@`) plus a `pagination` block when more pages remain. Entries of `path` itself come first as bare strings; each subdirectory's entries follow as one `{dir, entries}` group (`dir` relative to `path`), directories in walk order, so no path prefix repeats. A page that continues a group repeats its `dir`. `summary` counts what the outline left out: `.gitignore`d entries, sensitive entries withheld by path policy, default-excluded directories not walked (named, e.g. `build, node_modules`), and, without `hidden`, skipped dot entries (pruned directories such as `.git` excluded). On an empty or filtered outline that skipped dot entries, `hints.includeHidden` reruns it with `hidden:true`; an empty result that `.gitignore` or the default prune may hide offers `hints.includeIgnored` (`noIgnore:true` and/or `defaultExcludes:false`). A missing `path` fails with `pathNotFound` and `hints.viewTree`, an outline of the nearest existing parent. A file given as `path` fails with `notADirectory` and `next.read`, its `localFetch` `minify:"symbols"` outline.
 
 #### Examples
 
 ```bash
-structureSearch(operation="tree", path=".", maxDepth=1)
-structureSearch(operation="tree", path="packages/octocode-mcp/src", maxDepth=2, entryType="d")
+structureSearch(operation="tree", path=".", maxDepth=2)
+structureSearch(operation="tree", path=".", include=["config"])
+structureSearch(operation="tree", path="packages/octocode-mcp/src", maxDepth=3, entryType="d")
 structureSearch(operation="tree", path="docs", extensions=["md"])
 ```
 
@@ -977,11 +1025,10 @@ Metadata search for files and directories.
 | Parameter | Description |
 |-----------|-------------|
 | `path` | Directory root for metadata search. |
-| `names` | Filename globs OR-combined, such as `["*.ts", "*.tsx"]`. |
-| `pathPattern` | Glob matched against the full path. |
-| `pathRegex` | Rust regex over the basename only. |
+| `include` | Filename globs OR-combined, such as `["*.ts", "*.tsx"]`; a bare word matches names containing it. |
+| `nameRegex` | Rust regex over the basename only. |
 | `entryType` | `f` for files, `d` for directories. |
-| `minDepth` / `maxDepth` | Depth bounds. |
+| `minDepth` / `maxDepth` | Depth bounds, 1 = children of `path`. |
 | `time.modifiedWithin` | Files modified within a window, such as `7d` or `2h`. |
 | `time.modifiedBefore` | Files older than a relative window, such as `7d`. |
 | `time.accessedWithin` | Files accessed within a window. |
@@ -989,20 +1036,20 @@ Metadata search for files and directories.
 | `empty` | Empty files/directories only. |
 | `permissions` | Octal permission filter, such as `"644"`. |
 | `access` | Permission predicate: `executable`, `readable`, or `writable`. |
-| `excludeDir` | Directory names to prune, added to the default prune (dependency, build, cache, and credential directories such as `node_modules`, `target`, `.git`, `secrets`; `.github`-style config stays visible). `defaultExcludes: false` turns that prune off; sensitive directories such as `secrets/` stay hidden. |
+| `exclude` | Path globs to skip, added to the default prune (dependency, build, cache, and credential directories such as `node_modules`, `target`, `.git`, `secrets`; `.github`-style config stays visible); a bare name skips that file or directory at any depth. `defaultExcludes: false` turns the default prune off; sensitive directories such as `secrets/` stay hidden. |
 | `detail` | `basic` (default: name and size), `modified` (adds `modifiedMs`, Unix milliseconds), or `full` (also adds `lineCount`). |
 | `sort` | Sort by `path` (default, walk order), `modified`, `name`, `size`, or `lines`. |
 | `page` | Result page. |
 | `pageSize` | Files per page, max 1000. Omitted: pages of about 24 KB. |
-| `limit` | Hard pre-pagination cap. Max 10000. |
+| `maxEntries` | Entries scanned before paging. Max 10000. |
 
-Rows are grouped by directory in listing order: `files: [{"dir": "src/app", "files": ["main.ts (1533)", "util/"]}]`. An entry is its name, `/` after a directory (`./` is `dir` itself), then ` (<fields>)`: the size in bytes for every non-directory, `symlink`, `lineCount=N`, `modifiedMs=N`. `dir` resolves against `base` like any row path, so an entry's path is `dir` + `/` + name. Consecutive entries of one directory share a group; a page that continues a group repeats its `dir`. Every entry appears once, in the requested sort order.
+Rows group like `tree`: entries of `path` itself are bare strings, and each subdirectory is a `{dir, files}` group with `dir` relative to `path`: `files: ["main.ts (1533)", {"dir": "util", "files": ["a.ts (88)"]}]`. An entry is its name, `/` after a directory (`./` is `path` itself), then ` (<fields>)`: the size in bytes for every non-directory, `symlink`, `lineCount=N`, `modifiedMs=N`; an entry's path is `path` + `/` + `dir` + `/` + name. With `sort:"path"` each directory is one group in walk order; other sorts keep their order, so a directory may open several groups. A page that continues a group repeats its `dir`, and a bare `"name/"` entry is left out when that directory has its own group, on any page. Every other entry appears once across all pages, in the requested sort order. The first page offers `hints.read`: the first source or doc file's `localFetch` `minify:"symbols"` outline. `summary` names default-excluded directories not walked; the policy-withheld warning counts only entries the query's filters could match. Later pages reuse the first page's walk while the listed entries are unchanged.
 
 #### Examples
 
 ```bash
-structureSearch(operation="files", path=".", names=["*.test.ts"])
-structureSearch(operation="files", path="packages", pathRegex="^readme\\.md$")
+structureSearch(operation="files", path=".", include=["*.test.ts"])
+structureSearch(operation="files", path="packages", nameRegex="^readme\\.md$")
 structureSearch(operation="files", path=".", time={"modifiedWithin":"24h"}, entryType="f", detail="full")
 ```
 
@@ -1010,32 +1057,32 @@ structureSearch(operation="files", path=".", time={"modifiedWithin":"24h"}, entr
 
 ### `localFetch`
 
-Read a known local path. Path-only reads are valid and return exact source subject to redaction. Optionally select a source range (`startLine` + `endLine`, one-based inclusive), `matchString`, or `fullContent:true`; these selectors are mutually exclusive.
+Read a known local path. Path-only reads are valid and return exact source subject to redaction. Optionally select source ranges (`ranges: ["a-b"]`, one-based inclusive), `matchString`, or `fullContent:true`; these selectors are mutually exclusive.
 
 | Field | Meaning |
 | --- | --- |
-| `chunkType` | `lines` (default) or UTF-8 `bytes` in the selected returned view. |
+| `unit` | `lines` (default) or UTF-8 `bytes` in the selected returned view. |
 | `offset` | Zero-based view offset; byte offsets must start on code-point boundaries. Default 0. |
-| `chunkSize` | Requested lines or bytes, 1–50000. Omitted, a line page fills the 16 KiB page budget (the continuation carries the line count it used); a byte page is 16384 bytes. A first read of a file of at least 2,000 lines with no selector (no `matchString`, range, `block`, `offset`, `chunkType`, `chunkSize`, `minify` view, or `fullContent`) returns only its first 50 lines with a hint; `next.continue` pages on at the default size and `fullContent: true` reads it whole. |
-| `matchString` | Nonempty literal source text; enable `matchStringIsRegex` for regex or `matchStringCaseSensitive` for case sensitivity. |
-| `contextLines` | Explicit source-line context per side; default 5 for line chunks. Values above 100 clamp to 100 with a warning; the schema rejects values above 10000. Exclusive with `contextBytes`. |
-| `contextBytes` | UTF-8 context bytes per side, 0–16384; default 256 for byte chunks. Requires `matchString`. Full-source redaction precedes byte matching; edges expand to whole code points, and disjoint windows are separated by a `... [N bytes omitted] ...` marker. |
+| `length` | Requested lines or bytes, 1–50000. Omitted, a line page fills the 16 KiB page budget (the continuation carries the line count it used); a byte page is 16384 bytes. A first read of a file of at least 2,000 lines with no selector (no `matchString`, `ranges`, `block`, `offset`, `unit`, `length`, `minify` view, or `fullContent`) returns only its first 50 lines with a hint; `next.continue` pages on at the default size and `fullContent: true` reads it whole. |
+| `matchString` | Nonempty source text; `regex:"rust"` or `"pcre2"` makes it a regex (default `literal`), and `caseMode` sets case matching (`smart` by default, `sensitive`, or `insensitive`). A multiline match keeps every source line it touches, in original byte coordinates. |
+| `contextLines` | Explicit source-line context per side; default 5 for line pages. Values above 100 clamp to 100 with a warning; the schema rejects values above 10000. Exclusive with `contextBytes`. |
+| `contextBytes` | UTF-8 context bytes per side, 0–16384; default 256 for byte pages. Requires `matchString`. Full-source redaction precedes byte matching; edges expand to whole code points, and disjoint windows are separated by a `... [N bytes omitted] ...` marker. |
 | `minify` | `none` (default), `standard` compact source, or `symbols` whole-file outline. Match views preserve source text; symbols cannot accompany range/match selectors. |
-| `block` | Widen each range or match window to its enclosing declaration (at most 400 lines). JS/TS functions assigned to a member (`res.redirect = function () {}`, `exports.x = () => {}`) are declarations. A window that no declaration encloses keeps its lines and says so in a `block:` warning. |
-| `fullContent` | Complete unpaged view within resource/security limits; cannot accompany chunk controls. |
+| `block` | Widen each range or match window to its enclosing declaration (at most 400 lines). A range, or a match on the declaration's own first line, also takes the doc comments and attributes directly above it. JS/TS functions assigned to a member (`res.redirect = function () {}`, `exports.x = () => {}`) are declarations. A window that no declaration encloses keeps its lines and says so in a `block:` warning. |
+| `fullContent` | Complete unpaged view within resource/security limits; cannot accompany window controls. |
 | `snapshot` | Copied from a continuation; a file that changed since is rejected rather than mixed. |
 
 Selection precedes minification, redaction, and pagination. Line pages preserve complete lines within a 16384-byte budget. An offset at or past the end of the view returns empty content with an offset-zero `next.restart` (`pagination.outOfRange:true` with `debug: true`). An oversized line switches to byte paging from the unreturned position. Byte ends extend by at most three bytes to finish a UTF-8 code point. Copy the complete `next.continue` query; do not calculate offsets. Continuations stop at the selected range or matched view.
 
 Every successful text read reports original-file `totalLines`, including empty files and no matches. A numbered read omits `startLine`, `endLine`, and `returnedLines`: its gutter states them. `sourceBytes`, `returnedBytes`, and `returnedLines` are debug-only; a partial page also reports `returnedChars` (UTF-16 code units). `pagination.totalLines`/`totalBytes` describe the selected returned view. Content whose lines map onto original source lines is numbered in the structured result itself, `cat -n` style (`279<TAB>fn a() {`), with omission markers unnumbered and `sourceLineRanges` then omitted; strip the prefix up to the first TAB before copying text (see [numbered source content](TOOL_DATA_CONTRACT.md#numbered-source-content)). Whitespace and line endings after the prefix are preserved. YAML text prints the same lines under `content (source lines):`, or `content (copy-safe):` unnumbered when lines cannot be mapped. The `symbols` outline uses the same `<line><TAB>` prefix with original line numbers.
 
-`matchRanges` describe all selected source context windows; `matchedLines` contains matching source anchors intersecting the current page, and `selectedMatchCount` counts matching source lines in the selected view. Overlapping context windows are merged. `matchString` forces exact content so minification cannot remove the evidence. `minifyFallback` reports the requested/applied modes and reason when a match forces exact content or an outline is unavailable.
+`matchRanges` describe all selected source context windows; `matchedLines` contains matching source anchors intersecting the current page, and `selectedMatchCount` counts matching source lines in the selected view. Overlapping context windows are merged. `matchString` forces exact content so minification cannot remove the evidence. `minifyFallback` reports the requested/applied modes and reason when a match forces exact content or an outline is unavailable. A context window that stops inside its enclosing declaration (not with `block`, `contextLines:0`, or `contextBytes`) shows the declaration's rest inline when that costs no more than a lead (about 200 bytes); otherwise `hints.readBlock` reads the rest of the top hit's declaration (a `ranges` read that stops inside a declaration offers it too). A missing file fails with `errorCode:"pathNotFound"` (exit 3), as in `localSearch`.
 
 Private-key blocks are redacted across the whole file before any selection, so a key split across a page or range boundary never leaks. A line page is then scanned on its own lines plus 8 KiB of surrounding lines, so a multi-line secret crossing the page edge is still matched whole and paging a large file costs one page scan per call. A byte page is scanned on its whole lines plus at least 8 KiB of surrounding whole lines (single-line secrets are always scanned whole); a redacted line cut by the page end is returned whole and the page extends to that line's end, so `next.continue` never splits a secret. Byte offsets stay in the unredacted view's coordinates. `fullContent` views are scanned as the complete selected view; above the scanner's 10,000,000-byte limit, `contentSecurityLimit` provides a smaller-source-range alternative when possible, otherwise an explicit terminal limit. File totals unavailable due to access or resource limits are identified as unavailable. A full-content view over 50000 bytes supplies executable bounded recovery.
 
 ```bash
-localFetch(path="/ABS/repo/src/index.ts", startLine=1, endLine=80)
-localFetch(path="/ABS/repo/README.md", matchString="Configuration", contextBytes=256, chunkType="bytes", chunkSize=1024)
+localFetch(path="/ABS/repo/src/index.ts", ranges=["1-80"])
+localFetch(path="/ABS/repo/README.md", matchString="Configuration", contextBytes=256, unit="bytes", length=1024)
 localFetch(path="/ABS/repo/src/index.ts", minify="symbols")
 ```
 
@@ -1043,7 +1090,7 @@ localFetch(path="/ABS/repo/src/index.ts", minify="symbols")
 
 ### `astTopology`
 
-`astTopology` is a beta tool: it needs `OCTOCODE_BETA=true` (or `local.beta: true`); without it MCP omits the tool and the CLI explains the gate.
+`astTopology` is a CLI-only beta tool: run `octocode astTopology` with `OCTOCODE_BETA=true` (or `local.beta: true`); without the gate the CLI explains it. MCP never registers it, even with the gate on, and no MCP instruction, description or lead names it.
 
 Scope admission: without an explicit `maxFiles`, a root with more than 5,000
 parseable files is refused before parsing (`ast.graph.scopeTooBroad`). The
@@ -1054,15 +1101,16 @@ error message lists admissible package directories, and the row offers
 The `coverage` object separates parser inventory from module-linking support.
 It reports language coverage, resolved, external, and non-code (`imports.nonCode`:
 JSON, styles, assets) import counts, unresolved internal imports, unsupported
-linking, and parse-recovery diagnostics. These gaps lower `confidence` and are
-listed in `completeness.coverageGapReasons`; they do not set `truncated` or
-`terminalLimit`, which mark only real scope cuts.
+linking, and parse-recovery diagnostics. These gaps lower `confidence` and set
+`completeness.graph: "coverage-incomplete"` (each gap's count is in `coverage`);
+they do not set `truncated` or `terminalLimit`, which mark only real scope cuts.
 A result with unresolved internal imports is never reported as complete, so an empty dependency result under a subdirectory root that cannot resolve its imports is not absence.
 Inspect coverage before interpreting an empty dependency or cycle result.
 By default coverage carries counts only: `coverage.diagnosticCounts` and import
-counts describe the full scan, and `completeness.diagnostics` stays `pageable`
-while rows exist. Follow `next.nextDiagnostics` (`diagnosticPage:1`) to
-retrieve the rows, 25 per page by default (`diagnosticPageSize` up to 100).
+counts describe the full scan, and the answer stays complete. Follow the
+`hints.readDiagnostics` lead (`diagnosticPage:1`) to retrieve the rows, which
+come without the results, 25 per page by default (`diagnosticPageSize` up to
+100); `next.nextDiagnosticPage` continues them.
 Rows with the same code and message are grouped into one row whose `files`
 lists each `path[:line]`. The snapshot token prevents combining different
 diagnostic inventories; if diagnostics change, follow `next.restartDiagnostics`.
@@ -1075,7 +1123,7 @@ target's items through a module re-exporting them (`pub use notify::Notify`,
 `export { x } from './t'`, `export *`); those rows carry `reexportVia` naming
 that module, and importers of other items from the module are not listed.
 
-`astTopology` is the contract surface (MCP and CLI, validated input, `next.*`
+`astTopology` is the contract surface (CLI, validated input, `next.*`
 pages and `hints.*` leads); `octocode graph ingest|query` is the CLI power surface over the
 same graph builder (persisted snapshots, symbol-level callers/callees/impact,
 issue detectors). Their `deps`/`dependents`/`path`/`cycles` file sets agree on
@@ -1117,18 +1165,17 @@ Use `astTopology` to discover repository-scale file topology and candidate reach
 
 | Parameter | Description |
 |-----------|-------------|
-| `analysis` | Required: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, `deadCode`, or `drift`. |
-| `path` | Absolute scan root. Required for `cycles` and `drift`; otherwise it may be omitted when an absolute `file`, `target`, or entrypoint implies it. |
+| `operation` | Required: `dependencies`, `dependents`, `path`, `reachability`, `cycles`, `deadCode`, or `drift`. |
+| `path` | Absolute scan root. Required for `cycles` and `drift`; otherwise it may be omitted when an absolute `source`, `target`, or entrypoint implies it. |
 | `baseline` | Absolute baseline root for `drift` (required there). |
 | `languageGlobs` | Optional root-relative AST parser map, e.g. `{"cpp":["include/**/*.h"]}`. Also accepted by directory `astSearch` symbols. Does not configure clangd; use compile commands or `.clangd` for C++ header LSP parsing. |
-| `file` | Traversal start file, relative to `path`; required for `dependencies`, `dependents`, and `path`. |
+| `source` | Traversal start file, relative to `path`; required for `dependencies`, `dependents`, and `path`. |
 | `target` | Destination file for `path` (required there). |
 | `depth` | Traversal depth for `dependencies` and `dependents`. Default 1, max 50. |
 | `entrypoints` | Roots for `reachability` and `deadCode`; omit to detect `package.json` `main`, `exports`, and `bin`. |
 | `includeTests` | Treat tests as roots for `reachability` and `deadCode`. Default `true`. |
-| `excludeDir` | Directory names to prune, added to the default prune shared with structureSearch and astSearch (dependency, build, cache, and credential directories such as `node_modules`, `target`, `.git`, `secrets`; `.github`-style config stays visible). |
+| `exclude` | Path globs to skip, added to the default prune shared with structureSearch and astSearch (dependency, build, cache, and credential directories such as `node_modules`, `target`, `.git`, `secrets`; `.github`-style config stays visible); a bare name skips that file or directory at any depth. |
 | `maxFiles` | Cap on files scanned. Max 50000. The scan stops and warns past this bound. |
-| `limit` | Result cap before pagination. Max 5000. |
 | `page` | Result page. Max 1000. |
 | `pageSize` | Results per page. Max 100. |
 | `diagnosticPage`, `diagnosticPageSize`, `diagnosticSnapshot` | Coverage-diagnostic pagination, independent of `page` (see above). |
@@ -1150,9 +1197,9 @@ The graph assigns no weights to edges. `path` therefore uses breadth-first searc
 #### Examples
 
 ```bash
-astTopology(analysis="dependencies", path="/ABS/repo", file="src/index.ts", depth=2)
-astTopology(analysis="cycles", path="/ABS/repo", pageSize=20, limit=100)
-astTopology(analysis="deadCode", path="/ABS/repo", entrypoints=["src/index.ts"], includeTests=false)
+astTopology(operation="dependencies", path="/ABS/repo", source="src/index.ts", depth=2)
+astTopology(operation="cycles", path="/ABS/repo", pageSize=20)
+astTopology(operation="deadCode", path="/ABS/repo", entrypoints=["src/index.ts"], includeTests=false)
 ```
 
 For a cycle, read the exact imports named by `cycleEdges`; use `runtimeCycleEdges` when investigating loading behavior. Verify a dead-code or transitive-edge candidate with `lspSearch` before removing it.
@@ -1170,7 +1217,7 @@ The discover → search → read → prove flow is owned by the [research manife
 1. Use `structureSearch(operation:"tree")` or `structureSearch(operation:"files")` before reading when the file is unknown.
 2. Use `localSearch( resultView:"files")` for fast discovery when match bodies are not needed.
 3. Use `localSearch` with `contextLines` before opening a large file.
-4. Use `localFetch` with `matchString`, `startLine`/`endLine`, or `minify:"symbols"` instead of `fullContent` for large files.
+4. Use `localFetch` with `matchString`, `ranges`, or `minify:"symbols"` instead of `fullContent` for large files.
 5. Use pagination fields when a response advertises `hasMore=true`.
 
 ---
@@ -1186,8 +1233,7 @@ The discover → search → read → prove flow is owned by the [research manife
 | Anti-Pattern | Better Approach |
 |--------------|-----------------|
 | `fullContent=true` on large files | Use `matchString`, line range, or `minify:"symbols"` |
-| Search without scoping dirs | Use `excludeDir` to skip generated/vendor folders |
-| Regex for exact literals | Use `regex:"literal"` |
+| Search without scoping dirs | Use `exclude` (e.g. `["vendor", "gen/**"]`) to skip generated/vendor folders |
 | Combining mutually exclusive flags | Pick one extraction mode |
 
 **Parallelism:** independent queries run in parallel (batch limit: 5 per call). Sequential dependencies (`structure → search → read`) stay sequential.
@@ -1204,26 +1250,25 @@ This is a beta feature, disabled by default. Set `OCTOCODE_BETA=true` (or
 | Field | Meaning |
 | --- | --- |
 | `path` | Source file or directory; relative paths resolve against `WORKSPACE_ROOT`. |
-| `langType` | Optional parser. Omitted: a file's extension, or the one grammar under a directory that compiles the rule (several return `ast.rewrite.language_required` naming them). `hints.apply` pins the resolved value. |
-| `ruleKind` | Optional; inferred from the fields (`pattern`+`rewrite` or `rule`+`fix`). |
+| `language` | Optional parser. Omitted: a file's extension, or the one grammar under a directory that compiles the rule (several return `ast.rewrite.language_required` naming them). `hints.apply` pins the resolved value. |
 | `pattern`, `rewrite` | Match and replacement for the `pattern` form. |
 | `rule`, `fix`, `constraints`, `utils`, `transform` | ast-grep rule (YAML string, bare or a rule file's `rule:`, or the rule object; both preview identically) and fix for the `rule` form; inspect the live schema. |
 | `include`, `exclude`, `defaultExcludes` | Optional file filters. |
 | `maxFiles`, `maxMatches` | Scan bounds; defaults are 2,000 files (max 50,000) and 10,000 matches (max 100,000). |
 | `page`, `pageSize`, `snapshot` | Preview pagination (`pageSize` default 100, max 1000); copy executable continuations and their snapshot. A page lists only the files its matches touch, and each file's `patch` holds only the hunks of that page's matches (`patchMatchCount` of `matchCount` when the file spans pages); `beforeHash` and the final page's `hints.apply` still cover the whole file; a complete preview states each hash once, in `hints.apply.query.expectedHashes`, and its file rows omit `beforeHash`. Match rows are `{id, path, line}` with a 16-hex id prefix (the patch shows text and replacement); `debug:true` restores full rows, `afterHash`, `patchBytes` and `absolutePath`. |
-| `apply` | Defaults to `false`. Applying requires the unchanged preview snapshot and non-empty `expectedHashes`; a complete preview returns `hints.apply` with both filled in. |
+| `apply` | Defaults to `false`. Applying requires the unchanged preview snapshot and non-empty `expectedHashes`; a complete preview returns `hints.apply` with both filled in. That lead writes files: its `why` starts with "Writes", it is only ever a hint, never a `next` page, and replay tools skip it. After an applied `pattern` edit, `hints.verify` is a read-only astSearch `match` of the old pattern (0 matches confirms). |
 | `expectedHashes`, `selectedMatchIds` | Preview SHA-256 hashes for exactly the selected files. Match ids may be any unique prefix of at least 12 hex digits. With explicit match selection, omit unselected-file hashes. A stale or missing selected-file hash aborts the apply. |
 | `postconditions` | 1–10 checks, `{kind:"remainingMatches", equals:n}`, evaluated in the staged rewritten files before commit. |
 
 ```bash
-node packages/octocode/out/octocode.js astRewrite '{"path":"/ABS/repo/src","pattern":"console.log($A)","rewrite":"logger.info($A)"}'
+node packages/octocode/out/octocode.js astRewrite '{"queries":[{"path":"/ABS/repo/src","pattern":"console.log($A)","rewrite":"logger.info($A)"}]}'
 ```
 
 Match `range.start`/`range.end` lines are one-based; columns are zero-based UTF-16 code units (an emoji counts 2). `range.byteOffset` is the UTF-8 byte span.
 
 Use the preview's identities and diff to review the change. Inspect `scheme astRewrite --view variants` for the current operation constraints before applying. A successful preview alone does not verify applied behavior.
 
-Apply returns the complete selected-match receipt in one page. A committed transaction
+Apply returns the complete selected-match receipt in one page, with or without `debug` (which adds only the executable and isolation receipts). A committed transaction
 may include cleanup warnings; an error may report incomplete recovery. Inspect those
 outcomes before retrying instead of assuming every error restored the original files.
 
@@ -1239,12 +1284,12 @@ Octocode exposes **one** public semantic tool:
 
 Semantic operations are local-only. Local tools default on for both CLI and MCP; set `ENABLE_LOCAL=false` to disable them. LSP needs a file that exists on disk. Use `localSearch` first when you need a symbol `lineHint`; `astSearch(operation:"match")` can provide AST-derived anchors before LSP proves symbol identity.
 
-For external repos: clone first with `ghCloneRepo` (set `sparsePath` for a subtree), then use the returned `localPath` as the `uri` prefix for `lspSearch`. The path is always absolute and immediately valid.
+For external repos: clone first with `ghCloneRepo` (set `path` for a subtree), then use the returned `localPath` as the `path` prefix for `lspSearch`. The path is always absolute and immediately valid.
 
 ### Workflow
 
 1. Search with `localSearch` or `astSearch(operation:"match"|"symbols")`, then read the observed source with `localFetch` to verify the exact symbol spelling and line.
-2. Query `lspSearch` with `uri`, `operation`, and either `symbolName` plus a 1-based `lineHint` or a zero-based UTF-16 `position`.
+2. Query `lspSearch` with `path`, `operation`, and either `symbolName` plus a 1-based `lineHint` or a zero-based UTF-16 `position`.
 3. Page large symbol or call-flow results by executing `next.nextPage` unchanged;
    pages after the first require its snapshot token.
 4. Run project lint, typecheck, and tests before claiming risky changes are fully verified.
@@ -1270,7 +1315,7 @@ Required fields:
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `uri` | Required for anchored, document, and diagnostic operations; one of `uri` or `workspaceRoot` for `workspaceSymbol` | Absolute local file path. For `workspaceSymbol`, `uri` selects one language server. |
+| `path` | Required for anchored, document, and diagnostic operations; one of `path` or `workspaceRoot` for `workspaceSymbol` | Local file path. For `workspaceSymbol`, `path` selects one language server. |
 | `operation` | Required for document, diagnostic, and workspace-symbol requests; anchored requests default to `definition` | One of the documented semantic, document, diagnostic, or workspace-symbol operations. Include it in durable examples and continuations. |
 | `symbolName` | Required for name-anchored operations and `workspaceSymbol` | Exact symbol text at the target line; omitted with `position`. |
 | `lineHint` | Required for name-anchored operations | 1-based line number from search results. Use `position` instead for an exact zero-based UTF-16 position. |
@@ -1282,7 +1327,7 @@ Optional fields:
 | `orderHint` | Disambiguates repeated symbol text on the same line. |
 | `position` | Alternative anchor for semantic symbol operations: zero-based UTF-16 `{line, character}`. Use either `position` or `symbolName` + `lineHint`, never both. |
 | `workspaceRoot` | Overrides automatic project-root detection. |
-| `rustContext` | Explicit rust-analyzer build context. Requires a `.rs` URI, including for `workspaceSymbol`. See [Rust build context](#rust-build-context). |
+| `rustContext` | Explicit rust-analyzer build context. Requires a `.rs` `path`, including for `workspaceSymbol`. See [Rust build context](#rust-build-context). |
 | `contextLines` | Source lines around each returned location, 0–100. Keep `0` unless previews are needed. |
 | `page` | Result page copied from an executable semantic continuation. |
 | `pageSize` | Semantic items per page. Defaults to `40`. Max `100`. |
@@ -1295,26 +1340,25 @@ Semantic types:
 
 | `operation` | Best for | Output |
 |--------|----------|--------|
-| `definition` | Jumping from usage/import to declaration. Unresolved provider locations are preserved unchanged. | `payload.kind="definition"`, `locations[]`. |
-| `references` | Affected references for functions, types, variables, constants, and classes. | `byFile[]` of `{path, refs: ["<line>[-<end>]:<col> <first line>"]}` (`definitionLines`, and `recovered` by label, when present); `groupByFile:true` gives `{path, references, lines}` summaries, and `groupByFile:false` or `contextLines` per-location `locations[]`; `totalReferences`, `totalFiles`. |
-| `callers` | Static incoming calls to a callable symbol. | `depth` 1: `byFile[]` of `{path, calls: ["<line>:<col>[,…] in <kind> <name>[ (<detail>)] <line>-<endLine>"]}`, the call sites in that file and the calling declaration (its start line is the next `lineHint`), with `recovered` by label; deeper walks: `payload.items[]` of `{from, fromRanges, level, via?}`. Pagination. |
-| `callees` | Static outgoing calls made by a callable symbol. | `payload.items[]` of `{to, fromRanges, level, via?}`, pagination. |
-| `callHierarchy` | Bidirectional call-flow snapshot. | Incoming (`from`) then outgoing (`to`) items in one paginated list. |
+| `definition` | Jumping from usage/import to declaration. Unresolved provider locations are preserved unchanged. | `payload.kind="definition"`, `matches[]`. |
+| `references` | Affected references for functions, types, variables, constants, and classes. | `files[]` of `{path, matches: ["<line>[-<end>]:<col> <first line>"]}` (`definitionLines`, and `recovered` by label, when present); `groupByFile:true` gives `{path, matchCount, lines}` summaries, and `groupByFile:false` or `contextLines` per-location `matches[]`; the reference total is `totalMatches`; `hints.read` reads the listed sites in context. |
+| `callers` | Static incoming calls to a callable symbol. | `files[]` of `{path, matches: ["<line>:<col>[,…] in <kind> <name>[ (<detail>)] <line>-<endLine>[ via <name>@<line>]"]}`: the call sites in that file and the calling declaration (its start line is the next `lineHint`), with `recovered` by label; `detail` is a container name, or a signature only when listed callers share a name. `hints.read` reads the sites in context. Pagination. |
+| `callees` | Static outgoing calls made by a callable symbol. | `files[].matches` rows `"<line>:<col>[,…] to <kind> <name> [<file>:]<line>-<endLine>[ via …]"`, filed under the caller's file (where the call sites are); `<file>` names the callee's file, relative to it, when they differ. Pagination. |
+| `callHierarchy` | Bidirectional call-flow snapshot. | Incoming (`in`) entries, then outgoing (`to`) entries, in one paginated `files[]`; a file with both gets one entry per direction. |
 | `hover` | Quick type/signature/docs from the language server. | `payload.hover`; a `null` hover is `empty` with category `noHover`. |
-| `documentSymbols` | File outline and symbol inventory. | Compact `symbols[]`, `summary.kinds`, pagination. |
-| `typeDefinition` | Declared type behind a symbol. | `locations[]`. |
-| `implementation` | Concrete implementation behind an interface/abstract symbol when the server supports it. | `locations[]`. |
-| `workspaceSymbol` | Symbols reported by one language server for a workspace. Provide `uri` to select the language and project; a `workspaceRoot`-only query opens one representative source (tsconfig `include` root, then `src/`). This operation does not merge results from every language server. | `payload.items[]` of `{name, kind, containerName?, uri, displayRange}`, pagination. |
-| `supertypes` | Supertypes (recursive with `depth`) when the server advertises type hierarchy. | `payload.items[]` of `{name, kind, detail?, uri, displayRange, level, via?}`, or `lsp.capabilityUnavailable`. |
+| `documentSymbols` | File outline and symbol inventory. | `symbols[]` outline rows in the astSearch format (`"<line>[-<endLine>] <kind> <name>"`, members indented, same-kind siblings joined by `; `), `unlistedNested` (locals of functions, counted only), pagination. |
+| `typeDefinition` | Declared type behind a symbol. | `matches[]`. |
+| `implementation` | Concrete implementation behind an interface/abstract symbol when the server supports it. | `matches[]`. |
+| `workspaceSymbol` | Symbols reported by one language server for a workspace. Provide `path` to select the language and project; a `workspaceRoot`-only query opens one representative source (tsconfig `include` root, then `src/`). This operation does not merge results from every language server. | `payload.matches[]` of `{name, kind, containerName?, path, displayRange}`, pagination. |
+| `supertypes` | Supertypes (recursive with `depth`) when the server advertises type hierarchy. | `payload.matches[]` of `{name, kind, detail?, path, displayRange, level, via?}`, or `lsp.capabilityUnavailable`. |
 | `subtypes` | Subtypes (recursive with `depth`) when the server advertises type hierarchy. | Same item shape as `supertypes`. |
 | `diagnostic` | Pull diagnostics when the server advertises a pull-diagnostic provider; otherwise the bounded push-diagnostic cache. | Diagnostics or typed `empty` (`noDiagnostics`, `diagnosticsNotPublished`). |
 
-Semantic responses use this envelope (minimal output drops `operation`, `uri`, `lsp`, and `meta`; add `debug: true` to see them, for example to check `lsp.source`):
+Semantic responses use this envelope (minimal output drops `operation`, `lsp`, and `meta`; add `debug: true` to see them, for example to check `lsp.source`):
 
 | Field | Meaning |
 |-------|---------|
 | `operation` | Requested semantic type. |
-| `uri` | Resolved local file path. |
 | `resolvedSymbol` | Symbol anchor for symbol-based requests. |
 | `lsp` | Server availability and provider/source metadata (debug-only). |
 | `meta.evidence` | Confidence for the bulk result (debug-only). |
@@ -1324,7 +1368,7 @@ Semantic responses use this envelope (minimal output drops `operation`, `uri`, `
 | `pagination` | Native semantic pagination for symbol and call-flow requests. |
 | `rustContext` | Normalized requested Rust settings and their fingerprint, when supplied. This field also remains visible on native document-symbol results. |
 | `next` | Pagination and completeness requests (`nextPage`, `restart`, `retry`, `continueWalk*`). |
-| `hints` | Optional executable leads (`readFile`, `textSearch`, …) and prose tips in `hints.text`. |
+| `hints` | Optional executable leads (`read`, `textSearch`, …) and prose tips in `hints.text`. |
 
 Empty semantic payloads use `payload.kind="empty"` with a machine-readable
 `category`: `noLocations` (no locations, calls, symbols, or types), `noHover`,
@@ -1342,26 +1386,28 @@ Paginated semantic results fingerprint the canonical query plus the complete
 result set into `pagination.snapshot`. Follow `next.nextPage` unchanged; it
 carries the snapshot. If the result set changed between requests, or a later
 page omits its snapshot, the row is an error with `errorCode:
-"lsp.snapshot.changed"`, no page items, and `next.restart` (page 1, no
+"staleSnapshot"`, no page items, and `next.restart` (page 1, no
 snapshot): discard previously collected pages and run it. Tokens validate a
 recomputed result set across processes; they do not retain historical rows.
 
 Coordinates: `position` input is zero-based UTF-16 (LSP). Every emitted
 coordinate is one-based — lines and UTF-16 code-unit columns (LSP
-`character + 1`): `resolvedSymbol.foundAtLine`/`foundAtCharacter`, location
+`character + 1`): `resolvedSymbol.foundAtLine`/`foundAtCharacter` (only when the symbol sat off `lineHint`), location
 and `payload.hover` `displayRange {startLine, startCharacter, endLine}`, call/type-hierarchy and
-workspace-symbol `displayRange`, call `fromRanges[]` (same shape),
-`via.line`/`via.character`, and document-symbol `line`/`character`/`endLine`.
+workspace-symbol `displayRange`, and call rows `<line>:<col>`. Outline
+rows carry one-based lines and, when two symbols share a line, a zero-based `col`.
 To reuse an emitted point as `position`, subtract 1 from line and character.
 Hierarchy-node `displayRange` starts at the symbol name (usable as `lineHint`)
 and ends with the declaration.
 
-Call-flow and type-hierarchy items are edges: each carries `level` (`1` =
-direct edge of the anchor), and items with `level > 1` also carry
-`via {name, uri, line, character}`, the parent node they connect to, so the
-tree is reconstructable from the flat list. Incoming calls put call-site
-`fromRanges` in the caller's file; outgoing calls put them in the `via` (or
-anchor) file. Repeated (parent, node) pairs merge into one edge with all call
+Call-flow rows and type-hierarchy items are edges. Type-hierarchy items carry
+`level` (`1` = direct edge of the anchor) and, below level 1,
+`via {name, path, line, character}`. A call row below level 1 ends with
+`via <name>@<line>` (`via <name>@<path>:<line>`, path relative to the row's
+file, when another listed node shares that name and line), so the tree is
+reconstructable from the flat list. Incoming (`in`) rows put call sites in
+the caller's file; outgoing (`to`) rows put them in the `via` (or anchor)
+file. Repeated (parent, node) pairs merge into one edge with all call
 sites. The walk is breadth-first: nodes are identified by canonical path and
 selection range, each expands once at the shallowest level it is reached, and
 a node reached again (cycle or diamond) keeps its edge without re-expanding.
@@ -1371,7 +1417,7 @@ node cap the row has `payload.truncated: true`, `isPartial: true`,
 `next.continueWalk` that re-anchors on the first parent whose children were
 dropped with the remaining depth. Every other such parent gets its own
 `next.continueWalk2`…`next.continueWalkN`, and `payload.unexpandedParents`
-lists them all (`name`, `uri`, one-based `line`/`character`,
+lists them all (`name`, `path`, one-based `line`/`character`,
 `remainingDepth`). `callHierarchy` walks both directions and keeps one combined
 list: each unexpanded parent also carries `direction` (`incoming` or
 `outgoing`), and its continuation runs `callers` or `callees` so it resumes only
@@ -1380,18 +1426,18 @@ that direction. At the fan-out cap it has
 `references` with pagination for the full list). Items outside the allowed
 read roots are omitted with a warning. A provider failure after some results
 is marked `callHierarchyExpansionFailed` / `typeHierarchyExpansionFailed` with
-`next.retry`; items recovered from a references query carry
-`source: "recoveredFromReferences"`. Use `contextLines>0` only when source previews are useful.
+`next.retry`; callers recovered from a references query are listed under
+`recovered.recoveredFromReferences`. Use `contextLines>0` only when source previews are useful.
 
 Request failures are typed: a path outside the allowed roots is
-`pathOutsideAllowedRoots` (other path failures stay `fileAccessFailed`); invalid fields are
+`outsideAllowedRoots`, a missing one `pathNotFound` (other path failures stay `fileAccessFailed`); invalid fields are
 `lsp.invalidQuery`; a request timeout is `lsp.timeout` (`retryable: true`); a
 server that exited mid-request is `lsp.serverCrashed` (`retryable: true`); a
 method the server does not implement is `lsp.capabilityUnavailable`; any other
 failed server request is `lsp.requestFailed` (`retryable: true` except for
 rejected parameters); no configured or startable server is
 `lsp.serverUnavailable`. An explicit `position` past the end of the document
-or line is `lsp.anchorUnresolved`. Recovery `hints.readFile` reads the
+or line is `lsp.anchorUnresolved`. Recovery `hints.read` reads the
 `symbolName` match windows when a name anchored the request; empty diagnostic
 results carry no read recovery.
 
@@ -1411,7 +1457,7 @@ Supply `rustContext` to select the Rust configuration used for a semantic query:
 For a Rust call found at line 5, query the definition with the `selected` feature:
 
 ```bash
-octocode lspSearch '{"uri":"/ABS/repo/src/lib.rs","operation":"definition","symbolName":"selected","lineHint":5,"rustContext":{"features":["selected"]}}'
+octocode lspSearch '{"queries":[{"path":"/ABS/repo/src/lib.rs","operation":"definition","symbolName":"selected","lineHint":5,"rustContext":{"features":["selected"]}}]}'
 ```
 
 Replace the path, symbol, and line with an anchor from `localSearch`. An explicit
@@ -1548,7 +1594,7 @@ Definition:
 <!-- tool: lspSearch -->
 ```json
 {
-  "uri": "/workspace/src/run.ts",
+  "path": "/workspace/src/run.ts",
   "operation": "definition",
   "symbolName": "printSchema",
   "lineHint": 133
@@ -1560,7 +1606,7 @@ References grouped by file:
 <!-- tool: lspSearch -->
 ```json
 {
-  "uri": "/workspace/src/run.ts",
+  "path": "/workspace/src/run.ts",
   "operation": "references",
   "symbolName": "isOctokitDeprecation",
   "lineHint": 27,
@@ -1574,7 +1620,7 @@ Paginated call flow:
 <!-- tool: lspSearch -->
 ```json
 {
-  "uri": "/workspace/src/run.ts",
+  "path": "/workspace/src/run.ts",
   "operation": "callHierarchy",
   "symbolName": "printSchema",
   "lineHint": 133,
@@ -1588,7 +1634,7 @@ Diagnostics:
 <!-- tool: lspSearch -->
 ```json
 {
-  "uri": "/workspace/src/run.ts",
+  "path": "/workspace/src/run.ts",
   "operation": "diagnostic"
 }
 ```
@@ -1606,7 +1652,7 @@ Workspace-symbol search:
 
 ## Semantic assessment reference
 
-`clasify` accepts one complete matrix directly or one to five matrices in `queries[]`. Each matrix carries an optional `mainGoal` and `reasoning`, 1–25 `resources` (supplied `{value}` state or one unread `{tool,query}` read request), and 1–25 `questions`, and results are keyed by query, resource, and question IDs. Inspect `octocode scheme clasify --view query` before hand-authoring a call, and follow an executable `next.clasify` page unchanged. Question types, cell limits, result fields, credentials, and the research workflow are owned by [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md).
+`clasify` takes one to five matrices in `queries[]`, like every tool. Each matrix carries an optional `mainGoal` and `reasoning`, 1–25 `resources` (supplied `{value}` state or one unread `{tool,query}` read request), and 1–25 `questions`, and results are keyed by query, resource, and question IDs. Inspect `octocode scheme clasify --view query` before hand-authoring a call, and follow an executable `next.clasify` page unchanged. Question types, cell limits, result fields, credentials, and the research workflow are owned by [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md).
 
 ---
 
@@ -1618,29 +1664,29 @@ Use `ghCloneRepo` to bring remote source into local AST, search, and LSP tools. 
 |---|---|
 | Read one remote file | `ghGetFileContent` |
 | Browse remote paths | `ghStructure` |
-| Inspect a subtree locally | `ghCloneRepo` with `sparsePath` |
+| Inspect a subtree locally | `ghCloneRepo` with `path` |
 | Analyze cross-file semantics | `ghCloneRepo`, then `lspSearch` |
 
 Use the returned `location.localPath` for local queries. Preserve the resolved revision and requested scope; a sparse checkout can omit dependencies required by LSP.
 
 ### Two clone modes
 
-- **Full clone** — general exploration; LSP works best with full repositories. Omit `branch` to auto-detect the default.
-- **Sparse fetch** — one package/directory of a large monorepo via `sparsePath`; much faster, but LSP cross-file resolution may be limited since not all files are present.
+- **Full clone** — general exploration; LSP works best with full repositories. Omit `ref` to auto-detect the default.
+- **Sparse fetch** — one package/directory of a large monorepo via `path`; much faster, but LSP cross-file resolution may be limited since not all files are present.
 
-Both return `location.localPath` (absolute), `location.kind` (`repo`/`tree`), `source`, `cached`, `verified`, `complete`, `commitSha`, `resolvedBranch`, and `requestedPath` for sparse. Use `location.localPath` as the absolute `path`/`uri` for local queries. Clone directories use the lowercased owner and repository names. Sparse checkouts use a separate cache key (`{branch}__sp_{hash}__host_{hash}/`) and can coexist with a full clone. `complete` is relative to the requested scope, so a finished sparse clone reports `complete: true`.
+Both return `location.localPath` (absolute), `location.kind` (`repo`/`tree`), `source`, `cached`, `verified`, `commitSha`, `resolvedRef`, `historyDepth`, and `requestedPaths` for sparse. Use `location.localPath` as the absolute `path` for local queries. Clone directories use the lowercased owner and repository names. Sparse checkouts use a separate cache key (`{branch}__sp_{hash}__host_{hash}/`) and can coexist with a full clone.
 
 ```
-ghCloneRepo(owner="microsoft", repo="TypeScript", sparsePath="src/compiler")
+ghCloneRepo(owner="microsoft", repo="TypeScript", path="src/compiler")
 → location.localPath = <octocode-home>/tmp/clone/microsoft/typescript/main__sp_a3f8c1__host_4dc11541e2f7a1d9  (kind: tree, complete: true)
 ```
 
 ### Step-by-step workflows
 
-- **Browse a cloned tree:** `ghCloneRepo` → `structureSearch(operation="tree", path=localPath, maxDepth=2)`, drilling into subdirectories.
-- **Deep analysis with LSP:** `ghCloneRepo` → `localSearch` for the symbol + `lineHint` → `lspSearch(operation="definition"|"callers", uri=localPath+"/file", symbolName, lineHint)`.
+- **Browse a cloned tree:** `ghCloneRepo` → `structureSearch(operation="tree", path=localPath, maxDepth=3)`, drilling into subdirectories.
+- **Deep analysis with LSP:** `ghCloneRepo` → `localSearch` for the symbol + `lineHint` → `lspSearch(operation="definition"|"callers", path=localPath+"/file", symbolName, lineHint)`.
 - **GitHub browse → local:** `ghStructure` to scout → `ghCloneRepo` → `localSearch` (full regex/type filters) → `lspSearch(operation="references")`.
-- **Sparse monorepo package:** scout with `ghStructure` → `ghCloneRepo(sparsePath=...)` → `localSearch`/`structureSearch(operation="files")` within the subtree.
+- **Sparse monorepo package:** scout with `ghStructure` → `ghCloneRepo(path=...)` → `localSearch`/`structureSearch(operation="files")` within the subtree.
 
 ---
 
@@ -1658,7 +1704,7 @@ ghCloneRepo(owner="microsoft", repo="TypeScript", sparsePath="src/compiler")
 | **Identity** | File reads resolve an omitted branch; pass a commit SHA for reproducible reads. Clones accept branch, tag, or full commit SHA and return the actual HEAD as `location.commitSha` |
 | **Sparse clones** | Separate cache: `{branch}__sp_{hash}__host_{hash}/` |
 | **Coexistence** | Full clone and sparse clones of the same repository can coexist |
-| **Cache hit** | Reuses a clone checkout only when its working tree is clean at the recorded HEAD; a modified cache returns `clone.cache.dirty` and keeps its files. Inspect `verified` separately from scoped `complete`. |
+| **Cache hit** | Reuses a clone checkout only when its working tree is clean at the recorded HEAD; a modified cache returns `checkoutDirty` and keeps its files. Inspect `verified` before trusting cached bytes. |
 | **Expired** | Clone activity evicts clean expired entries under their locks; locally modified clone checkouts are preserved. Automatic directory-age sweeps do not remove clones |
 | **Force refresh** | Set `forceRefresh: true` in the query to bypass cache and re-clone/re-fetch |
 | **Periodic GC** | Native runtime bootstrap performs a persisted due-check once per CLI process and at MCP startup, using one 24-hour marker. A cleanup failure does not block startup. See [Cache storage and lifecycle](CONFIGURATION.md#cache-storage-and-lifecycle). |
@@ -1676,7 +1722,7 @@ Clones live under `<octocode-home>/tmp/...`, and both the path and execution-con
 
 | Action | Tool | Key parameter |
 |--------|------|---------------|
-| Clone repository / branch / one folder | `ghCloneRepo` | `owner`, `repo`, optional `branch` or `sparsePath` |
+| Clone repository / branch / one folder | `ghCloneRepo` | `owner`, `repo`, optional `ref` or `path` |
 | Force re-clone | `ghCloneRepo` | `forceRefresh: true` |
 | Browse / search / read / find in a clone | `localSearch`, `localFetch` | `path` = `localPath` |
-| Definition / references / callers / callees | `lspSearch` | `uri` = file in `localPath` |
+| Definition / references / callers / callees | `lspSearch` | `path` = file in `localPath` |

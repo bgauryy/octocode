@@ -1,28 +1,19 @@
 #!/usr/bin/env node
 /**
- * Builds and stages the native artifacts.
- *
- *   hosts  = `octocode` + `octocode-regex-worker` binaries and the runtime addon,
- *            one Cargo invocation (shared engine feature resolution).
- *   engine = the engine addon via `napi build` (`portable-default,napi-addon`).
- *
- * The two resolve octocode-engine with different features, so they cannot share
- * one Cargo invocation, and Cargo holds one lock per target dir. Each therefore
- * gets its own target dir and they build concurrently: the engine is compiled at
- * `codegen-units = 1` in release, so the two serial engine compiles are the
- * critical path. `--serial` keeps the old one-dir sequential flow for comparison.
+ * Builds and stages the native artifacts: the `octocode` and
+ * `octocode-regex-worker` binaries plus the runtime addon, in one Cargo
+ * invocation.
  *
  * Usage:
- *   build-native.cjs [--release] [--only hosts|engine] [--serial]
+ *   build-native.cjs [--release]
  *   build-native.cjs --release --target <platform> [--target <platform>...]
  *   build-native.cjs --release --all [--jobs N]
  *
- * No --target builds for the host and stages binaries and both addons into
- * npm/<host>/, plus both addons into the package root (what the local
- * launcher and MCP load). A
- * --target build stages all four artifacts into npm/<platform>/ (and the root
- * addons too when the platform is the host). Cross targets use cargo-zigbuild
- * (Linux) or cargo-xwin (Windows), as napi's --cross-compile does.
+ * No --target builds for the host and stages the binaries and addon into
+ * npm/<host>/, plus the addon into the package root (what the local launcher
+ * and MCP load). A --target build stages all three artifacts into
+ * npm/<platform>/ (and the root addon too when the platform is the host).
+ * Cross targets use cargo-zigbuild (Linux) or cargo-xwin (Windows).
  */
 'use strict';
 
@@ -30,47 +21,34 @@ const { spawn } = require('child_process');
 const { mkdirSync } = require('fs');
 const { availableParallelism, totalmem } = require('os');
 const { join, relative } = require('path');
-const { getPlatformSuffix } = require('../bin/platform.cjs');
+const { BINARIES, PLATFORMS, executableName, getPlatformSuffix } = require('../bin/platform.cjs');
 const { stageFile, verifyAddonLoads, verifyBinaryRuns } = require('./native-addon-utils.cjs');
 
 const ROOT = join(__dirname, '..');
-const PLATFORMS = {
-  'darwin-arm64': { triple: 'aarch64-apple-darwin', os: 'darwin', arch: 'arm64', libc: null },
-  'darwin-x64': { triple: 'x86_64-apple-darwin', os: 'darwin', arch: 'x64', libc: null },
-  'linux-arm64-gnu': { triple: 'aarch64-unknown-linux-gnu', os: 'linux', arch: 'arm64', libc: 'gnu' },
-  'linux-x64-gnu': { triple: 'x86_64-unknown-linux-gnu', os: 'linux', arch: 'x64', libc: 'gnu' },
-  'linux-x64-musl': { triple: 'x86_64-unknown-linux-musl', os: 'linux', arch: 'x64', libc: 'musl' },
-  'win32-x64-msvc': { triple: 'x86_64-pc-windows-msvc', os: 'win32', arch: 'x64', libc: null },
-};
-const ENGINE_FEATURES = 'portable-default,napi-addon';
 
 function usage(message) {
   if (message) console.error(`build-native: ${message}`);
   console.error(
-    'Usage: build-native.cjs [--release] [--only hosts|engine] [--serial] [--target <platform>... | --all] [--jobs N]\n' +
+    'Usage: build-native.cjs [--release] [--target <platform>... | --all] [--jobs N]\n' +
       `Platforms: ${Object.keys(PLATFORMS).join(', ')}`,
   );
   process.exit(2);
 }
 
 function parseArgs(argv) {
-  const options = { release: false, only: null, serial: false, targets: [], all: false, jobs: null };
+  const options = { release: false, targets: [], all: false, jobs: null };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = () => (i + 1 < argv.length ? argv[++i] : usage(`${arg} needs a value`));
     if (arg === '--release') options.release = true;
-    else if (arg === '--serial') options.serial = true;
     else if (arg === '--all') options.all = true;
-    else if (arg === '--only') options.only = value();
     else if (arg === '--target') options.targets.push(value());
     else if (arg === '--jobs') options.jobs = Number(value());
     else usage(`unknown argument ${arg}`);
   }
-  if (options.only && !['hosts', 'engine'].includes(options.only)) usage(`--only must be hosts or engine`);
   if (options.all && options.targets.length) usage('--all and --target are exclusive');
   if (options.all) options.targets = Object.keys(PLATFORMS);
   for (const target of options.targets) if (!PLATFORMS[target]) usage(`unknown platform ${target}`);
-  if (options.targets.length && options.only) usage('--only applies to host builds only');
   if (options.jobs !== null && !(Number.isInteger(options.jobs) && options.jobs > 0)) usage('--jobs must be a positive integer');
   return options;
 }
@@ -96,7 +74,7 @@ function formatSeconds(ms) {
 
 const running = new Set();
 
-/** Spawn with line-prefixed output so concurrent builds stay readable. */
+/** Spawn with line-prefixed output so concurrent platform builds stay readable. */
 function run(label, command, args, env) {
   const started = Date.now();
   console.log(`[${label}] $ ${command} ${args.join(' ')}`);
@@ -129,22 +107,12 @@ function run(label, command, args, env) {
   });
 }
 
-function napiCli() {
-  const manifest = require.resolve('@napi-rs/cli/package.json', { paths: [ROOT] });
-  const { bin } = require(manifest);
-  return join(manifest, '..', typeof bin === 'string' ? bin : bin.napi);
-}
-
 /**
- * Target dirs. Host builds keep `target/` for hosts (warm with test/lint
- * artifacts) and `target/napi-engine` for the engine. Each explicit platform
- * gets its own pair so platforms never contend on one Cargo lock.
+ * Host builds keep `target/` (warm with test/lint artifacts). Each explicit
+ * platform gets its own dir so platforms never contend on one Cargo lock.
  */
-function targetDirs(platform, serial) {
-  if (serial) return { hosts: join(ROOT, 'target'), engine: join(ROOT, 'target') };
-  if (!platform) return { hosts: join(ROOT, 'target'), engine: join(ROOT, 'target', 'napi-engine') };
-  const base = join(ROOT, 'target', 'platforms', platform);
-  return { hosts: join(base, 'hosts'), engine: join(base, 'engine') };
+function targetDir(platform) {
+  return platform ? join(ROOT, 'target', 'platforms', platform) : join(ROOT, 'target');
 }
 
 function crossEnv(platform) {
@@ -170,38 +138,18 @@ function hostsCommand(platform, release, dir) {
     '--locked',
     '-p', 'octocode-cli',
     '-p', 'octocode-runtime-napi',
-    '--bins', '--lib', '--no-default-features',
-    ...(release ? ['--release'] : []),
+    '--bins', '--lib',
+    // Dev builds share compiled crates with `test:rust` (see crates/runtime `dev-unify`).
+    ...(release ? ['--release'] : ['--features', 'octocode-native/dev-unify']),
     ...(target ? ['--target', target.triple] : []),
     '--target-dir', dir,
-  ];
-}
-
-function engineCommand(platform, release, dir, outDir) {
-  const target = platform && PLATFORMS[platform];
-  return [
-    napiCli(),
-    'build',
-    '--manifest-path', 'crates/engine/Cargo.toml',
-    '--package-json-path', 'package.json',
-    '--output-dir', outDir,
-    '--target-dir', dir,
-    '--platform',
-    ...(release ? ['--release'] : []),
-    ...(target ? ['--target', target.triple] : []),
-    ...(target && target.os !== 'darwin' && isCross(platform) ? ['--cross-compile'] : []),
-    '--no-default-features', '--features', ENGINE_FEATURES,
-    '--js', 'engine-generated.cjs',
-    '--dts', 'engine-generated.d.ts',
-    '--', '--locked',
   ];
 }
 
 function artifactNames(platform) {
   const os = PLATFORMS[platform].os;
-  const exe = os === 'win32' ? '.exe' : '';
   return {
-    binaries: ['octocode', 'octocode-regex-worker'].map(name => `${name}${exe}`),
+    binaries: BINARIES.map(name => executableName(name, os)),
     library:
       os === 'win32' ? 'octocode_runtime_napi.dll'
         : os === 'darwin' ? 'liboctocode_runtime_napi.dylib'
@@ -233,20 +181,6 @@ function stageHosts(platform, explicitTarget, release, dir) {
   return staged;
 }
 
-function stageEngine(platform, outDir) {
-  const addon = `octocode-engine.${platform}.node`;
-  // napi emits the real ABI declarations; the hand-written loader stays
-  // canonical and check-engine-napi-abi diffs the two.
-  stageFile(join(outDir, 'engine-generated.d.ts'), join(ROOT, '.napi-abi-snapshot.d.ts'));
-  const destinations = [join(ROOT, 'npm', platform, addon)];
-  if (platform === hostPlatform) destinations.push(join(ROOT, addon));
-  for (const destination of destinations) {
-    mkdirSync(join(destination, '..'), { recursive: true });
-    stageFile(join(outDir, addon), destination, { platform });
-  }
-  return destinations;
-}
-
 function verifyStaged(platform, staged) {
   if (platform !== hostPlatform) return;
   for (const artifact of staged) {
@@ -257,32 +191,16 @@ function verifyStaged(platform, staged) {
 
 async function buildPlatform(platform, explicitTarget, options) {
   const label = explicitTarget ? platform : 'host';
-  const dirs = targetDirs(explicitTarget ? platform : null, options.serial);
-  const outDir = join(dirs.engine, 'napi-out', platform);
-  const env = crossEnv(explicitTarget ? platform : null);
-  const hosts = options.only !== 'engine';
-  const engine = options.only !== 'hosts';
-  const buildHosts = () =>
-    run(`${label}:hosts`, 'cargo', hostsCommand(explicitTarget ? platform : null, options.release, dirs.hosts), env);
-  const buildEngine = () =>
-    run(`${label}:engine`, process.execPath, engineCommand(explicitTarget ? platform : null, options.release, dirs.engine, outDir), env);
+  const target = explicitTarget ? platform : null;
+  const dir = targetDir(target);
+  await run(`${label}:hosts`, 'cargo', hostsCommand(target, options.release, dir), crossEnv(target));
 
-  if (options.serial) {
-    if (hosts) await buildHosts();
-    if (engine) await buildEngine();
-  } else {
-    await Promise.all([hosts && buildHosts(), engine && buildEngine()]);
-  }
-
-  const staged = [
-    ...(hosts ? stageHosts(platform, explicitTarget, options.release, dirs.hosts) : []),
-    ...(engine ? stageEngine(platform, outDir) : []),
-  ];
+  const staged = stageHosts(platform, explicitTarget, options.release, dir);
   verifyStaged(platform, staged);
   for (const artifact of staged) console.log(`[${label}] staged ${relative(ROOT, artifact)}`);
 }
 
-/** Two concurrent release links per platform peak at a few GB each. */
+/** A release link per platform peaks at a few GB. */
 function defaultJobs(count) {
   const byCpu = Math.max(1, Math.floor(availableParallelism() / 4));
   const byMemory = Math.max(1, Math.floor(totalmem() / (8 * 1024 ** 3)));
@@ -322,4 +240,4 @@ async function main() {
 }
 
 if (require.main === module) main();
-else module.exports = { PLATFORMS, engineCommand, hostsCommand, stageFile, targetDirs };
+else module.exports = { hostsCommand, stageFile, targetDir };

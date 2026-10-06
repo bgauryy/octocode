@@ -249,85 +249,75 @@ pub(super) fn map_graphql_pr_metadata(pr: &Value) -> Value {
     })
 }
 
-pub(super) fn map_graphql_files(pr: &Value) -> Vec<Value> {
-    pr.pointer("/files/nodes")
+/// Each node of the connection at `pointer`, mapped by `row`.
+fn nodes(pr: &Value, pointer: &str, row: impl Fn(&Value) -> Value) -> Vec<Value> {
+    pr.pointer(pointer)
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .map(|node| {
-            json!({
-                "filename": str_at(node, "/path").unwrap_or(""),
-                "additions": node.get("additions"),
-                "deletions": node.get("deletions"),
-                "status": match str_at(node, "/changeType").unwrap_or("MODIFIED") {
-                    "ADDED" => "added",
-                    "DELETED" => "removed",
-                    "RENAMED" => "renamed",
-                    _ => "modified",
-                }
-            })
-        })
+        .map(row)
         .collect()
+}
+
+pub(super) fn map_graphql_files(pr: &Value) -> Vec<Value> {
+    nodes(pr, "/files/nodes", |node| {
+        json!({
+            "filename": str_at(node, "/path").unwrap_or(""),
+            "additions": node.get("additions"),
+            "deletions": node.get("deletions"),
+            "status": match str_at(node, "/changeType").unwrap_or("MODIFIED") {
+                "ADDED" => "added",
+                "DELETED" => "removed",
+                "RENAMED" => "renamed",
+                _ => "modified",
+            }
+        })
+    })
 }
 
 pub(super) fn map_graphql_comments(pr: &Value) -> Vec<Value> {
-    pr.pointer("/commentsConn/nodes")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .map(|node| {
-            json!({
-                "id": node.get("databaseId").cloned().unwrap_or_else(|| node["id"].clone()),
-                "body": node.get("body"),
-                "user": { "login": str_at(node, "/author/login").unwrap_or("unknown") },
-                "created_at": node.get("createdAt"),
-                "html_url": node.get("url"),
-            })
+    nodes(pr, "/commentsConn/nodes", |node| {
+        json!({
+            "id": node.get("databaseId").cloned().unwrap_or_else(|| node["id"].clone()),
+            "body": node.get("body"),
+            "user": { "login": str_at(node, "/author/login").unwrap_or("unknown") },
+            "created_at": node.get("createdAt"),
+            "html_url": node.get("url"),
         })
-        .collect()
+    })
 }
 
 pub(super) fn map_graphql_reviews(pr: &Value) -> Vec<Value> {
-    pr.pointer("/reviews/nodes")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .map(|node| {
-            // The REST review shape: numeric id and the reviewed commit.
-            json!({
-                "id": node.get("databaseId"),
-                "user": { "login": str_at(node, "/author/login").unwrap_or("unknown") },
-                "state": node.get("state"),
-                "body": node.get("body"),
-                "submitted_at": node.get("submittedAt"),
-                "commit_id": node.pointer("/commit/oid"),
-            })
+    nodes(pr, "/reviews/nodes", |node| {
+        // The REST review shape: numeric id and the reviewed commit.
+        json!({
+            "id": node.get("databaseId"),
+            "user": { "login": str_at(node, "/author/login").unwrap_or("unknown") },
+            "state": node.get("state"),
+            "body": node.get("body"),
+            "submitted_at": node.get("submittedAt"),
+            "commit_id": node.pointer("/commit/oid"),
         })
-        .collect()
+    })
 }
 
 pub(super) fn map_graphql_commits(pr: &Value) -> Vec<Value> {
-    pr.pointer("/commits/nodes")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .map(|node| {
-            json!({
-                "sha": str_at(node, "/commit/oid").unwrap_or(""),
-                "commit": {
-                    // Full message (headline + body), like the REST shape;
-                    // the headline is only a fallback for older servers.
-                    "message": str_at(node, "/commit/message")
-                        .or_else(|| str_at(node, "/commit/messageHeadline"))
-                        .unwrap_or(""),
-                    "author": {
-                        "name": str_at(node, "/commit/author/user/login").unwrap_or("unknown"),
-                        "date": str_at(node, "/commit/authoredDate").unwrap_or("")
-                    }
+    nodes(pr, "/commits/nodes", |node| {
+        json!({
+            "sha": str_at(node, "/commit/oid").unwrap_or(""),
+            "commit": {
+                // Full message (headline + body), like the REST shape;
+                // the headline is only a fallback for older servers.
+                "message": str_at(node, "/commit/message")
+                    .or_else(|| str_at(node, "/commit/messageHeadline"))
+                    .unwrap_or(""),
+                "author": {
+                    "name": str_at(node, "/commit/author/user/login").unwrap_or("unknown"),
+                    "date": str_at(node, "/commit/authoredDate").unwrap_or("")
                 }
-            })
+            }
         })
-        .collect()
+    })
 }
 
 #[cfg(test)]
@@ -425,8 +415,7 @@ mod tests {
     fn outgoing_documents_validate_against_the_github_schema() {
         let every: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","number":1,
-            "content":{"body":true,"changedFiles":true,"reviews":true,
-                "comments":{"discussion":true},"commits":{}}
+            "sections":["body","files","comments","reviews","commits"]
         }))
         .expect("GitHub history test data should be valid");
         let wants = content_wants(&every);
@@ -475,13 +464,13 @@ mod tests {
         assert!(!super::graphql_complete_collection_eligible(&bare));
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
-            "content":{"body":true,"changedFiles":true}
+            "sections":["body","files"]
         }))
         .expect("GitHub history test data should be valid");
         assert!(super::graphql_complete_collection_eligible(&query));
         let file_page: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
-            "content":{"body":true,"changedFiles":true},"filePage":2
+            "sections":["body","files"],"filePage":2
         }))
         .expect("GitHub history test data should be valid");
         assert!(!super::graphql_complete_collection_eligible(&file_page));
@@ -489,21 +478,21 @@ mod tests {
         assert!(
             HistoryItemRequest::from_row(json!({
                 "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
-                "content":{"body":true,"comments":{"discussion":true}},
+                "sections":["body","comments"],
                 "collectionPages":{"discussion":2}
             }))
             .is_err()
         );
         let paged: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
-            "content":{"body":true,"comments":{"discussion":true}},
+            "sections":["body","comments"],
             "commentPage":2
         }))
         .expect("GitHub history test data should be valid");
         assert!(!super::graphql_complete_collection_eligible(&paged));
         let patches: HistoryItemRequest = HistoryItemRequest::from_row(json!({
             "operation":"pullRequest","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","number":1,
-            "content":{"body":true,"changedFiles":true,"patches":{"mode":"all"}}
+            "sections":["body","files","patches"]
         }))
         .expect("GitHub history test data should be valid");
         assert!(!super::graphql_complete_collection_eligible(&patches));

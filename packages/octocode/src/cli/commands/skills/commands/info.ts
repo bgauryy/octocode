@@ -1,5 +1,6 @@
 import { getSkill, getSkillContent, retiredHint } from '../registry.js';
-import { getSkillEnvStatus, isGroupSatisfied } from '../env-params.js';
+import { envParamRows, getSkillEnvStatus } from '../env-params.js';
+import { reportFailure } from './fail.js';
 import { bold, c, dim } from '../../../../utils/colors.js';
 
 export function runInfo(
@@ -8,32 +9,17 @@ export function runInfo(
 ): void {
   const skill = getSkill(skillName);
   if (!skill) {
-    const error = `Skill not found: "${skillName}". Run \`octocode skill list\` to see available skills.${retiredHint(skillName)}`;
-    if (opts.jsonErrors)
-      console.log(
-        JSON.stringify({ kind: 'octocode.toolError', version: 1, error })
-      );
-    else if (opts.json) console.log(JSON.stringify({ success: false, error }));
-    else console.error(`\n  ${c('red', '✗')} ${error}\n`);
-    process.exitCode = 1;
+    reportFailure(
+      `Skill not found: "${skillName}". Run \`octocode skill list\` to see available skills.${retiredHint(skillName)}`,
+      opts.json,
+      opts.jsonErrors
+    );
     return;
   }
 
   const skillMd = getSkillContent(skill);
   const env = getSkillEnvStatus(skill.folder);
-  const params = env.params.map(param => ({
-    key: param.param.key,
-    status: param.status,
-    required: param.param.required,
-    description: param.param.description,
-    ...(param.param.group
-      ? {
-          group: param.param.group,
-          groupSatisfied: isGroupSatisfied(param, env.params),
-        }
-      : {}),
-    ...(param.param.link ? { link: param.param.link } : {}),
-  }));
+  const params = envParamRows(env);
   if (opts.json) {
     console.log(
       JSON.stringify(

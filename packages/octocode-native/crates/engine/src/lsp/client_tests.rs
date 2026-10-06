@@ -43,7 +43,7 @@ fn location_links_select_the_symbol_and_preserve_definition_context() {
         let locations = snippets_from_locations(json!([
             {"targetUri":uri,"targetRange":{"start":{"line":0,"character":0},"end":{"line":4,"character":0}},"targetSelectionRange":selection},
             {"uri":uri,"range":selection}
-        ]), &SnippetReadPolicy::allow_all()).await.unwrap();
+        ]), &SnippetReadPolicy::default()).await.unwrap();
         std::fs::remove_file(file_path).unwrap();
         assert_eq!(locations.len(), 2);
         for location in &locations {
@@ -188,7 +188,6 @@ fn content_modified_not_triggered_by_other_codes_or_untyped_text() {
     )));
     // Rendered text is never parsed back into a code.
     assert!(!is_retryable_error(&Error::new(
-        Status::GenericFailure,
         "LSP error: {\"code\":-32801,\"message\":\"content modified\"}",
     )));
 }
@@ -249,7 +248,7 @@ fn snippet_content_cache_reuses_file_content_for_later_ranges() {
         let file_path = temp_file("octocode-engine-snippet-cache");
         std::fs::write(&file_path, "alpha\nbeta\ngamma\n").expect("write fixture");
         let file_path = file_path.to_string_lossy().into_owned();
-        let mut cache = SnippetContentCache::new(SnippetReadPolicy::allow_all());
+        let mut cache = SnippetContentCache::new(SnippetReadPolicy::default());
 
         let first = cache
             .read_range_content(&file_path, &range(0, 0))
@@ -317,7 +316,7 @@ fn parse_position_rejects_values_beyond_u32_instead_of_wrapping() {
     let too_big = u64::from(u32::MAX) + 1;
     let error = parse_position(&json!({"line": too_big, "character": 0}))
         .expect_err("line overflow must not wrap to 0");
-    assert_eq!(error.status, Status::InvalidArg);
+    assert!(error.reason.contains("line"), "{}", error.reason);
     assert!(parse_position(&json!({"line": 0, "character": too_big})).is_err());
     let max =
         parse_position(&json!({"line": u32::MAX, "character": u32::MAX})).expect("u32::MAX fits");
@@ -404,26 +403,6 @@ fn slice_range_includes_end_line_when_end_character_positive() {
         },
     };
     assert_eq!(slice_range_content(&cached(content), &r), "beta");
-}
-
-#[test]
-fn graph_server_receipt_is_stable_without_exposing_session_handles() {
-    let client = NativeLspClient::new(JsLanguageServerConfig {
-        command: "/opt/bin/rust-analyzer".to_owned(),
-        args: Some(vec!["--stdio".to_owned()]),
-        workspace_root: "/workspace".to_owned(),
-        language_id: Some("rust".to_owned()),
-        initialization_options: Some(json!({"cargo":{"features":"all"}})),
-        env: None,
-        max_memory_mb: None,
-    });
-    let first = client.graph_server_receipt();
-    let second = client.graph_server_receipt();
-    assert_eq!(first.family, "rust-analyzer");
-    assert_eq!(first.configuration_digest, second.configuration_digest);
-    assert!(!first.configuration_digest.is_empty());
-    assert!(first.capabilities.is_empty());
-    assert_eq!(client.document_version("/workspace/src/lib.rs"), None);
 }
 
 #[test]
@@ -583,7 +562,15 @@ fn first_open_waits_for_the_project_load_the_open_triggers() {
             .expect("document syncs");
         assert_eq!(readiness.as_deref(), Some("progressIdle"));
         let references = client
-            .get_references(source_path.clone(), 0, 9, Some(true))
+            .get_locations(
+                LocationRequest::References {
+                    include_declaration: true,
+                },
+                source_path.clone(),
+                0,
+                9,
+                &SnippetReadPolicy::default(),
+            )
             .await
             .expect("references");
         assert_eq!(
@@ -803,7 +790,7 @@ fn snippet_reads_reject_fifos_and_devices_without_blocking() {
         let fifo = temp_file("octocode-engine-snippet-fifo");
         make_fifo(&fifo);
         for path in [fifo.to_string_lossy().into_owned(), "/dev/zero".to_owned()] {
-            let mut cache = SnippetContentCache::new(SnippetReadPolicy::allow_all());
+            let mut cache = SnippetContentCache::new(SnippetReadPolicy::default());
             let result = tokio::time::timeout(
                 Duration::from_secs(10),
                 cache.read_range_content(&path, &range(0, 0)),
@@ -1237,4 +1224,35 @@ fn server_over_its_memory_cap_is_killed_with_a_clear_error() {
         let _ = client.stop().await;
     });
     let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn open_documents_remember_the_synced_content() {
+    let mut docs = OpenDocuments::new(2);
+    let (version, _) = docs.reserve("file:///a");
+    assert_eq!(docs.unchanged("file:///a", 7), None, "nothing synced yet");
+    docs.record("file:///a", version, 7);
+    assert_eq!(
+        docs.unchanged("file:///a", 7),
+        Some(1),
+        "same content: no resync"
+    );
+    assert_eq!(
+        docs.unchanged("file:///a", 8),
+        None,
+        "edited content resyncs"
+    );
+    // A new sync forgets the old content until it is recorded.
+    let (version, _) = docs.reserve("file:///a");
+    assert_eq!(docs.unchanged("file:///a", 7), None);
+    docs.record("file:///a", version, 8);
+    assert_eq!(docs.unchanged("file:///a", 8), Some(2));
+    // A failed sync or an eviction forgets the content too.
+    let (version, _) = docs.reserve("file:///a");
+    docs.rollback("file:///a", version);
+    assert_eq!(docs.unchanged("file:///a", 8), None);
+    docs.record("file:///a", 2, 8);
+    docs.reserve("file:///b");
+    docs.reserve("file:///c");
+    assert_eq!(docs.unchanged("file:///a", 8), None, "evicted");
 }

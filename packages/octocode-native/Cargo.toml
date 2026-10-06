@@ -16,14 +16,14 @@ repository = "https://github.com/bgauryy/octocode.git"
 
 # ── Shared dependency versions ────────────────────────────────────────────────
 # Dependencies shared across crates, or that are ABI/security-critical, are
-# centralized. The napi / napi-derive / napi-build trio is the important one:
-# both addon crates compile against one N-API ABI, so a version skew between them would
-# be a silent breakage. Crate-local single-consumer deps stay in their own
-# manifest — a single-use version has no second place to drift to.
+# centralized. The napi / napi-derive / napi-build trio is ABI-critical: the
+# runtime addon must compile against one N-API ABI. Crate-local single-consumer
+# deps stay in their own manifest — a single-use version has no second place to
+# drift to.
 #
-# `optional` is a per-crate concern and cannot live here, so members write
-# `napi = { workspace = true, optional = true }`. Per-crate `features = [...]`
-# are additive on top of the baseline declared here (see tokio / windows-sys).
+# `optional` is a per-crate concern and cannot live here. Per-crate
+# `features = [...]` are additive on top of the baseline declared here (see
+# tokio / windows-sys).
 [workspace.dependencies]
 napi = { version = "3", default-features = false, features = ["napi4", "tokio_rt", "serde-json"] }
 napi-derive = { version = "3" }
@@ -39,12 +39,30 @@ hex = "0.4"
 tokio = { version = "1" }
 libc = "0.2"
 windows-sys = { version = "0.61" }
+# http2 is intentionally omitted: it links the `h2` stack (HPACK tables, ~0.2 MB)
+# and no code path relies on HTTP/2 semantics — GitHub's REST/raw endpoints all
+# serve over HTTP/1.1. Re-add "http2" if a future endpoint requires h2.
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json", "stream", "query", "system-proxy"] }
+tokio-util = { version = "0.7", default-features = false }
+futures-util = "0.3"
+bytes = "1"
+base64 = "0.23"
+getrandom = "0.3"
+secrecy = "0.10"
+flate2 = "1"
+toml = { version = "0.9", features = ["preserve_order"] }
+regress = "0.12"
+ignore = "0.4"
+globset = "0.4"
+tempfile = "3"
+wiremock = "0.6"
 
 # ── Shared lint policy ────────────────────────────────────────────────────────
-# The common floor both crates enforce. `crates/runtime` inherits this verbatim
-# (`[lints] workspace = true`). `crates/engine` keeps its own stricter inline
-# block: as a pure library it additionally denies stdout/stderr printing and
-# enables extra style lints that would be noise in the CLI-owning runtime.
+# The common floor every crate enforces. `crates/runtime`, `crates/cli`,
+# `crates/github`, and `crates/runtime-napi` inherit it verbatim
+# (`[lints] workspace = true`). `crates/engine` mirrors it inline and adds its
+# stricter library policy: it denies stdout/stderr printing and enables extra
+# style lints that would be noise in the host crates.
 [workspace.lints.rust]
 dead_code = "deny"
 unused_imports = "deny"
@@ -130,9 +148,6 @@ opt-level = 3
 [profile.dev.package."regex"]
 opt-level = 3
 
-[profile.test.package."regex-automata"]
-opt-level = 3
-
 # ── Heavy dep clusters: optimise for dev-loop runtime without slowing own-crate rebuilds ──
 # Own code stays at opt-level=0 for fast incremental recompile; only dependency
 # code is bumped. This mirrors the regex-automata pattern already applied above.
@@ -165,31 +180,4 @@ opt-level = 2
 [profile.dev.package."oxc_semantic"]
 opt-level = 2
 [profile.dev.package."ast-grep-core"]
-opt-level = 2
-
-[profile.test.package."tree-sitter"]
-opt-level = 3
-[profile.test.package."tree-sitter-asm"]
-opt-level = 3
-[profile.test.package."tree-sitter-cuda"]
-opt-level = 3
-[profile.test.package."tree-sitter-javascript"]
-opt-level = 3
-[profile.test.package."tree-sitter-typescript"]
-opt-level = 3
-[profile.test.package."tree-sitter-rust"]
-opt-level = 3
-[profile.test.package."tree-sitter-python"]
-opt-level = 3
-[profile.test.package."tree-sitter-go"]
-opt-level = 3
-[profile.test.package."tree-sitter-java"]
-opt-level = 3
-[profile.test.package."tree-sitter-c"]
-opt-level = 3
-[profile.test.package."oxc_parser"]
-opt-level = 2
-[profile.test.package."oxc_semantic"]
-opt-level = 2
-[profile.test.package."ast-grep-core"]
 opt-level = 2

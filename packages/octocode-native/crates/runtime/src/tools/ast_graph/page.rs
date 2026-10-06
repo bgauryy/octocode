@@ -1,0 +1,424 @@
+//! astTopology response shaping: pagination, coverage, continuations and
+//! the read lead.
+
+use super::{analysis::*, types::*};
+use crate::tools::id::ToolId;
+use crate::tools::id::query_limits::ast_topology::{DIAGNOSTIC_PAGE_MAXIMUM, PAGE_MAXIMUM};
+use crate::tools::result::Continuation;
+use serde_json::{Map, Value, json};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::Path,
+};
+
+pub(super) fn paginate(items: Vec<Value>, q: &AstTopologyQuery) -> (Vec<Value>, Value) {
+    let limited = items;
+    let size = q.page_size().clamp(1, super::topology_max("pageSize")) as usize;
+    let pages = usize::max(1, limited.len().div_ceil(size));
+    // A page past the end is empty, terminal and flagged — never clamped to
+    // the last page, which would repeat rows the caller already has.
+    let current = q.page().max(1) as usize;
+    let out_of_range = current > pages;
+    let start = (current - 1).saturating_mul(size);
+    let mut pagination = json!({
+        "currentPage": current,
+        "totalPages": pages,
+        "pageSize": size,
+        "totalItems": limited.len(),
+        "hasMore": !out_of_range && current < pages
+    });
+    if out_of_range {
+        pagination["outOfRange"] = json!(true);
+    }
+    (
+        limited.into_iter().skip(start).take(size).collect(),
+        pagination,
+    )
+}
+
+/// The warning for a result page past the end, naming the valid range.
+pub(super) fn out_of_range_warning(pagination: &Value) -> Option<String> {
+    (pagination["outOfRange"] == true).then(|| {
+        let pages = pagination["totalPages"].as_u64().unwrap_or(1);
+        format!(
+            "page:{} is out of range (only {pages} page(s), {} result(s)) — returned 0 results. Use page:1..{pages}.",
+            pagination["currentPage"],
+            pagination["totalItems"]
+        )
+    })
+}
+
+/// Mark a replayed page whose graph snapshot no longer matches.
+pub(super) fn insert_snapshot_changed(base: &mut Map<String, Value>) {
+    base.insert("status".into(), json!("error"));
+    base.insert("errorCode".into(), json!("staleSnapshot"));
+    base.insert(
+        "error".into(),
+        json!(crate::response::pages::STALE_SNAPSHOT_ERROR),
+    );
+}
+
+/// Restart both result and diagnostic pagination from the current graph.
+pub(super) fn restart_continuation(q: &AstTopologyQuery) -> Value {
+    let mut query = clean_query(q);
+    query["page"] = json!(1);
+    if let Some(query) = query.as_object_mut() {
+        query.remove("diagnosticSnapshot");
+        query.remove("diagnosticPage");
+    }
+    Continuation::new(ToolId::AstTopology, query)
+        .why("Restart pagination from the current graph snapshot.")
+        .confidence("exact")
+        .build()
+}
+
+/// Coverage outcome of one response: whether the caller's diagnostic snapshot
+/// is stale, and the snapshot id of diagnostic rows withheld by the
+/// counts-only default (rows stay reachable through `next.readDiagnostics`).
+pub(super) struct CoverageState {
+    pub(super) changed: bool,
+    pub(super) withheld: Option<String>,
+}
+
+/// Attach coverage and diagnostics. The snapshot id binds both the diagnostic
+/// list and the full result list, so a replayed result or diagnostic page from
+/// a changed graph is rejected instead of silently mixing graph versions.
+/// Diagnostic rows are returned only for an explicit `diagnosticPage`; the
+/// default carries `diagnosticCounts` and gap reasons, and rows with the same
+/// code and message are grouped into one row listing every `path[:line]`.
+pub(super) fn add_coverage(
+    base: &mut Map<String, Value>,
+    b: &mut BuiltGraph,
+    q: &AstTopologyQuery,
+    results_digest: &str,
+) -> CoverageState {
+    b.diagnostics.sort();
+    b.diagnostics.dedup();
+    let tuples = b
+        .diagnostics
+        .iter()
+        .map(|d| json!([d.file, d.line, d.code, d.message]))
+        .collect::<Vec<_>>();
+    let id = crate::digest::json_sha256(&json!([
+        tuples,
+        results_digest,
+        q.page_size(),
+        q.diagnostic_page_size()
+    ]));
+    // `coverage.imports.unresolvedInternal` already counts these rows.
+    let mut counts = BTreeMap::<String, u32>::new();
+    for d in b
+        .diagnostics
+        .iter()
+        .filter(|d| d.code != "unresolved-internal")
+    {
+        *counts.entry(d.code.clone()).or_default() += 1
+    }
+    let languages=b.languages.iter().map(|(language,files,linking)|json!({"language":language,"files":files,"linking":linking})).collect::<Vec<_>>();
+    let mut imports = json!({"resolved":b.imports[0],"external":b.imports[1],"unresolvedInternal":b.imports[2],"unsupported":b.imports[3]});
+    if b.imports[4] > 0 {
+        imports["nonCode"] = json!(b.imports[4]);
+    }
+    let mut coverage = json!({"basis":"syntactic","referenceBasis":"lexical-occurrence","languages":languages,"imports":imports});
+    if !counts.is_empty() {
+        coverage["diagnosticCounts"] = json!(counts);
+    }
+    if q.diagnostic_snapshot().as_ref().is_some_and(|x| x != &id) {
+        insert_snapshot_changed(base);
+        base.insert("results".into(), json!([]));
+        base.insert("coverage".into(), coverage);
+        return CoverageState {
+            changed: true,
+            withheld: None,
+        };
+    }
+    if base["pagination"]["hasMore"] == true {
+        base["pagination"]["resultId"] = json!(id);
+    }
+    if !q.diagnostic_rows_requested() {
+        base.insert("coverage".into(), coverage);
+        return CoverageState {
+            changed: false,
+            withheld: (!b.diagnostics.is_empty()).then_some(id),
+        };
+    }
+    let groups = group_diagnostics(&b.diagnostics);
+    let size = q
+        .diagnostic_page_size()
+        .clamp(1, super::topology_max("diagnosticPageSize")) as usize;
+    let pages = usize::max(1, groups.len().div_ceil(size));
+    let current = (q.diagnostic_page().max(1) as usize).min(pages);
+    let more = current < pages;
+    let ds = groups
+        .into_iter()
+        .skip((current - 1) * size)
+        .take(size)
+        .collect::<Vec<_>>();
+    let total = b
+        .diagnostics
+        .iter()
+        .map(|d| (&d.code, &d.message))
+        .collect::<BTreeSet<_>>()
+        .len();
+    let mut diagnostics_pagination = json!({"currentPage":current,"totalPages":pages,"pageSize":size,"totalItems":total,"hasMore":more,"resultId":id});
+    if q.diagnostic_page() as usize > pages {
+        diagnostics_pagination["outOfRange"] = json!(true);
+        let warning = format!(
+            "diagnosticPage:{} is out of range; returned diagnostic page {}.",
+            q.diagnostic_page(),
+            current
+        );
+        match base.get_mut("warnings") {
+            Some(Value::Array(warnings)) => warnings.push(json!(warning)),
+            _ => {
+                base.insert("warnings".into(), json!([warning]));
+            }
+        }
+    }
+    if !ds.is_empty() {
+        coverage["diagnostics"] = json!(ds);
+    }
+    // One diagnostic page needs no pagination envelope; emit it only when a
+    // continuation or an out-of-range correction depends on it.
+    if pages > 1 || diagnostics_pagination["outOfRange"] == true {
+        coverage["diagnosticPagination"] = diagnostics_pagination;
+    }
+    base.insert("coverage".into(), coverage);
+    CoverageState {
+        changed: false,
+        withheld: None,
+    }
+}
+
+/// One row per distinct code+message, in first-file order. A single
+/// occurrence keeps `file`/`line`; repeated ones list `files` as `path[:line]`.
+pub(super) fn group_diagnostics(diagnostics: &[Diagnostic]) -> Vec<Value> {
+    let mut order = Vec::<(&str, &str)>::new();
+    let mut members = BTreeMap::<(&str, &str), Vec<&Diagnostic>>::new();
+    for d in diagnostics {
+        let key = (d.code.as_str(), d.message.as_str());
+        let list = members.entry(key).or_default();
+        if list.is_empty() {
+            order.push(key);
+        }
+        list.push(d);
+    }
+    order
+        .into_iter()
+        .map(|key| match members[&key].as_slice() {
+            [single] => json!(single),
+            many => json!({
+                "code": key.0,
+                "message": key.1,
+                "files": many
+                    .iter()
+                    .map(|d| match d.line {
+                        Some(line) => format!("{}:{line}", d.file),
+                        None => d.file.clone(),
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        })
+        .collect()
+}
+pub(super) fn add_next(
+    base: &mut Map<String, Value>,
+    q: &AstTopologyQuery,
+    root: &Path,
+    scan_truncated: bool,
+    withheld_diagnostics: Option<&str>,
+) {
+    let mut next = Map::new();
+    let more_results = base
+        .get("pagination")
+        .is_some_and(|pagination| pagination["hasMore"] == true);
+    if more_results && (q.page() as usize) < PAGE_MAXIMUM {
+        let why = match q.analysis() {
+            GraphAnalysis::Dependencies => "Continue dependencies.",
+            GraphAnalysis::Dependents => "Continue dependents.",
+            GraphAnalysis::Path => "Continue path results.",
+            GraphAnalysis::Cycles => "Continue cycle components.",
+            GraphAnalysis::Reachability => "Continue reachability classifications.",
+            GraphAnalysis::DeadCode => "Continue dead-code candidates.",
+            GraphAnalysis::Drift => "Continue topology drift results.",
+        };
+        // Bind the next result page to this graph snapshot; result pages
+        // never re-send diagnostic rows.
+        let snapshot = base["pagination"].get("resultId").cloned();
+        let mut page = continuation(q, Some(q.page() + 1), None, snapshot, why);
+        if let Some(row) = page
+            .pointer_mut("/query/queries/0")
+            .and_then(Value::as_object_mut)
+        {
+            row.shift_remove("diagnosticPage");
+        }
+        next.insert("nextPage".into(), page);
+    }
+    if let Some(snapshot) = withheld_diagnostics {
+        let mut value = clean_query(q);
+        value["diagnosticPage"] = json!(1);
+        value["diagnosticPageSize"] = json!(q.diagnostic_page_size());
+        value["diagnosticSnapshot"] = json!(snapshot);
+        if let Some(row) = value.as_object_mut() {
+            row.shift_remove("page");
+        }
+        next.insert(
+            "readDiagnostics".into(),
+            Continuation::new(ToolId::AstTopology, value)
+                .why("Coverage diagnostic rows behind the coverage counts.")
+                .confidence("exact")
+                .build(),
+        );
+    }
+    if base["coverage"]["diagnosticPagination"]["hasMore"] == true
+        && (q.diagnostic_page() as usize) < DIAGNOSTIC_PAGE_MAXIMUM
+    {
+        let mut value = clean_query(q);
+        value["diagnosticPage"] = json!(q.diagnostic_page() + 1);
+        value["diagnosticPageSize"] = json!(q.diagnostic_page_size());
+        value["diagnosticSnapshot"] = base["coverage"]["diagnosticPagination"]["resultId"].clone();
+        next.insert(
+            "nextDiagnosticPage".into(),
+            Continuation::new(ToolId::AstTopology, value)
+                .why("Continue coverage diagnostics from the same diagnostic snapshot.")
+                .confidence("exact")
+                .build(),
+        );
+    }
+    if base["coverage"]["diagnosticPagination"]["outOfRange"] == true {
+        let mut value = clean_query(q);
+        value["diagnosticPage"] = json!(1);
+        if let Some(query) = value.as_object_mut() {
+            query.remove("diagnosticSnapshot");
+        }
+        next.insert(
+            "restartDiagnostics".into(),
+            Continuation::new(ToolId::AstTopology, value)
+                .why("Restart diagnostic pagination from the current diagnostic snapshot.")
+                .confidence("exact")
+                .build(),
+        );
+    }
+    let max_files = super::topology_max("maxFiles");
+    if scan_truncated && q.max_files().unwrap_or(20_000) < max_files {
+        let cur = q.max_files().unwrap_or(20_000);
+        next.insert(
+            "expandScan".into(),
+            continuation(
+                q,
+                Some(1),
+                Some((cur * 2).max(cur + 1).min(max_files)),
+                None,
+                "Re-run with a larger file-scan bound because this graph is partial.",
+            ),
+        );
+    }
+    if q.analysis() == GraphAnalysis::DeadCode
+        && let Some(c) = base["results"].as_array().and_then(|x| x.first())
+        && let (Some(file), Some(name), Some(line)) =
+            (c["file"].as_str(), c["name"].as_str(), c["line"].as_u64())
+    {
+        // The path anchors on the canonical graph root (inferred when `path`
+        // is omitted). No lead when no language server would answer it.
+        let path = root.join(file).to_string_lossy().into_owned();
+        if let Some(mut row) = crate::tools::lsp_search::verify_query(
+            &path,
+            name,
+            line,
+            crate::tools::lsp_search::Verify::References,
+        ) {
+            row["includeDeclaration"] = json!(false);
+            row["groupByFile"] = json!(true);
+            next.insert(
+                "verifyReferences".into(),
+                Continuation::new(ToolId::LspSearch, row)
+                    .why(format!("Verify candidate \"{name}\" before deletion; repeat for each result, prioritizing viaHeuristic:\"reexport-chain\"."))
+                    .confidence("high")
+                    .build(),
+            );
+        }
+    }
+    if !next.is_empty() {
+        base.insert("next".into(), Value::Object(next));
+    }
+}
+/// The natural next step after a graph answer: read the import line that
+/// links the top result (dependents: in the importer; dependencies: in the
+/// file that imports it; path and cycles: the first edge).
+pub(super) fn read_lead(
+    b: &BuiltGraph,
+    q: &AstTopologyQuery,
+    base: &Map<String, Value>,
+) -> Option<Value> {
+    let top = base.get("results")?.as_array()?.first()?;
+    let (importer, line) = match q.analysis() {
+        GraphAnalysis::Dependents => (top["file"].as_str()?, top["importLine"].as_u64()?),
+        GraphAnalysis::Dependencies => (top["via"].as_str()?, top["importLine"].as_u64()?),
+        GraphAnalysis::Path => {
+            let edge = top["edges"].as_array()?.first()?;
+            (edge["from"].as_str()?, edge["importLine"].as_u64()?)
+        }
+        GraphAnalysis::Cycles => {
+            let edge = top["cycleEdges"].as_array()?.first()?;
+            let from = edge["from"].as_str()?;
+            let line = first_import_line(b, from, edge["to"].as_str()?)?;
+            (from, u64::from(line))
+        }
+        _ => return None,
+    };
+    let path = b.root.join(importer).to_string_lossy().into_owned();
+    Some(
+        Continuation::new(
+            ToolId::LocalFetch,
+            json!({"path": path, "ranges": [format!("{line}-{line}")]}),
+        )
+        .why("Read the import line behind the top result.")
+        .confidence("high")
+        .build(),
+    )
+}
+pub(super) fn clean_query(q: &AstTopologyQuery) -> Value {
+    let mut v = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
+    if let Some(m) = v.as_object_mut() {
+        m.retain(|_, x| !x.is_null());
+        if m.get("diagnosticPage") == Some(&json!(1)) {
+            m.remove("diagnosticPage");
+        }
+    }
+    v
+}
+/// A re-run over a new graph restarts diagnostic paging: rows stay requested
+/// only when this query requested them, and the old snapshot is dropped.
+pub(super) fn restart_diagnostic_rows(query: &mut Value, q: &AstTopologyQuery) {
+    if let Some(fields) = query.as_object_mut() {
+        fields.remove("diagnosticSnapshot");
+        if q.diagnostic_rows_requested() {
+            fields.insert("diagnosticPage".into(), json!(1));
+        } else {
+            fields.remove("diagnosticPage");
+        }
+    }
+}
+pub(super) fn continuation(
+    q: &AstTopologyQuery,
+    page: Option<u32>,
+    max: Option<u32>,
+    snapshot: Option<Value>,
+    why: &str,
+) -> Value {
+    let mut v = clean_query(q);
+    if let Some(x) = page {
+        v["page"] = json!(x)
+    }
+    if let Some(x) = max {
+        v["maxFiles"] = json!(x);
+        restart_diagnostic_rows(&mut v, q);
+    }
+    if let Some(snapshot) = snapshot {
+        v["diagnosticSnapshot"] = snapshot;
+    }
+    Continuation::new(ToolId::AstTopology, v)
+        .why(why)
+        .confidence("exact")
+        .build()
+}

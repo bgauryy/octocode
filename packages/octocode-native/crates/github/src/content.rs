@@ -48,6 +48,10 @@ impl CachePartition {
         &self.0
     }
 }
+/// Cache seam for GitHub reads. A hit without an ETag is fresh: serve it as
+/// is. A hit with an ETag must be revalidated with `If-None-Match` (a 304
+/// costs no rate limit). Keys are `<namespace>:<resource>`; a namespace keyed
+/// by a resolved commit SHA never goes stale.
 pub trait ConditionalCache: Send + Sync {
     fn get<'a>(
         &'a self,
@@ -251,6 +255,9 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
             format!("github-tree:{}", hex::encode(digest.finalize()))
         };
         let cached = self.cache.get(&partition, &key).await;
+        if let Some(value) = cached.as_ref().filter(|value| value.etag.is_none()) {
+            return super::tree::parse_contents_listing(&value.bytes);
+        }
         let mut segments = vec!["repos", owner, repo, "contents"];
         if !path.is_empty() && path != "." {
             segments.push(path);
@@ -279,7 +286,7 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
         } else {
             page.body.to_vec()
         };
-        let listing = parse_contents_listing(&body)?;
+        let listing = super::tree::parse_contents_listing(&body)?;
         if page.status != 304 {
             let etag = page
                 .headers
@@ -563,7 +570,7 @@ fn unix_now() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs())
 }
-fn is_full_sha(value: &str) -> bool {
+pub(crate) fn is_full_sha(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 type RefFlights = std::sync::Mutex<
@@ -685,40 +692,6 @@ fn validate_name(value: &str) -> Result<(), ProviderError> {
         Ok(())
     }
 }
-fn parse_contents_listing(body: &[u8]) -> Result<super::ContentsListing, ProviderError> {
-    let value: serde_json::Value = serde_json::from_slice(body).map_err(|_| {
-        ProviderError::new(
-            ProviderErrorKind::Decode,
-            "invalid GitHub repository contents response",
-        )
-    })?;
-    let raw_entry_count = value.as_array().map_or(1, Vec::len);
-    let raw_entries = match value {
-        serde_json::Value::Array(entries) => entries,
-        entry @ serde_json::Value::Object(_) => vec![entry],
-        _ => {
-            return Err(ProviderError::new(
-                ProviderErrorKind::Decode,
-                "invalid GitHub repository contents response",
-            ));
-        }
-    };
-    let entries = raw_entries
-        .into_iter()
-        .map(serde_json::from_value)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|_| {
-            ProviderError::new(
-                ProviderErrorKind::Decode,
-                "invalid GitHub repository contents entry",
-            )
-        })?;
-    Ok(super::ContentsListing {
-        entries,
-        raw_entry_count,
-    })
-}
-
 fn cache_key(request: &ContentRequest, resolved_ref: &str) -> String {
     let mut h = Sha256::new();
     for value in [&request.owner, &request.repo, &request.path, resolved_ref] {

@@ -1,6 +1,6 @@
 use std::path::{Component, Path, PathBuf};
 
-use super::discovery::is_sensitive_path;
+use super::discovery::{is_sensitive_path, withheld_message};
 use super::{PolicyError, PolicyErrorCode};
 
 #[derive(Clone, Debug, Default)]
@@ -25,6 +25,18 @@ pub struct PathPolicy {
     /// `/private/var`), so canonical paths still display workspace-relative.
     workspace_real: Option<PathBuf>,
     home_dir: Option<PathBuf>,
+}
+
+/// A search walk enters a directory the policy admits and reads a file it
+/// admits for reading.
+impl octocode_engine::portable::RipgrepPathFilter for PathPolicy {
+    fn allows(&self, path: &Path, is_dir: bool) -> bool {
+        if is_dir {
+            self.validate(path).is_ok()
+        } else {
+            self.validate_read(path).is_ok()
+        }
+    }
 }
 
 impl PathPolicy {
@@ -113,12 +125,33 @@ impl PathPolicy {
         }
     }
 
+    /// Discovery decisions for one walk ([`DiscoveryWalk::permits`]), equal
+    /// to [`Self::permits_discovery`] at a fraction of its cost.
+    pub fn discovery_walk(&self) -> DiscoveryWalk<'_> {
+        DiscoveryWalk {
+            policy: self,
+            parents: std::sync::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
     pub fn exists(&self, input: impl AsRef<Path>) -> bool {
         self.validate(input).is_ok()
     }
 
     pub fn allowed_roots(&self) -> Vec<PathBuf> {
         self.roots.clone()
+    }
+
+    /// Digest of the allowed roots: a result stored under one policy never
+    /// serves a caller with other roots.
+    pub fn identity(&self) -> String {
+        crate::digest::json_sha256(
+            &self
+                .roots
+                .iter()
+                .map(|root| root.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
+        )
     }
 
     pub fn validate_output(&self, input: impl AsRef<Path>) -> Result<ValidatedPath, PolicyError> {
@@ -197,13 +230,13 @@ impl PathPolicy {
             )
             .with_path(self.display_requested(input, &absolute)));
         }
-        if self.ignored(&absolute) || self.ignored(&real_ancestor) || self.ignored(&resolved) {
+        if let Some(sensitive) = [&absolute, &real_ancestor, &resolved]
+            .into_iter()
+            .find(|path| is_sensitive_path(path))
+        {
             return Err(PolicyError::new(
                 PolicyErrorCode::IgnoredPath,
-                format!(
-                    "Path '{}' is in an ignored directory or matches an ignored pattern",
-                    self.redact(input)
-                ),
+                withheld_message(&self.redact(input), sensitive),
             )
             .with_path(self.redact(input)));
         }
@@ -245,22 +278,19 @@ impl PathPolicy {
                 PolicyError::new(code, message).with_path(self.display_requested(input, lexical))
             );
         }
-        if self.ignored(lexical) {
+        if is_sensitive_path(lexical) {
             return Err(PolicyError::new(
                 PolicyErrorCode::IgnoredPath,
-                format!(
-                    "Path '{}' is in an ignored directory or matches an ignored pattern",
-                    self.redact(lexical)
-                ),
+                withheld_message(&self.redact(lexical), lexical),
             )
             .with_path(self.redact(lexical)));
         }
-        if self.ignored(&real) {
+        if is_sensitive_path(&real) {
             return Err(PolicyError::new(
                 PolicyErrorCode::IgnoredPath,
                 format!(
-                    "Symlink target '{}' is in an ignored directory or matches an ignored pattern",
-                    self.redact(&real)
+                    "Symlink target: {}",
+                    withheld_message(&self.redact(&real), &real)
                 ),
             )
             .with_path(self.redact(&real)));
@@ -286,16 +316,6 @@ impl PathPolicy {
         self.roots
             .iter()
             .any(|root| path == root || path.starts_with(root))
-    }
-
-    fn ignored(&self, path: &Path) -> bool {
-        is_sensitive_path(path)
-    }
-
-    /// Whether the sensitive-file policy (credentials, key material) denies
-    /// `path`, as opposed to a sandbox or I/O denial.
-    pub fn is_sensitive(&self, path: impl AsRef<Path>) -> bool {
-        self.ignored(path.as_ref())
     }
 
     pub(crate) fn expand_and_resolve(&self, input: &Path) -> PathBuf {
@@ -480,26 +500,100 @@ fn default_home() -> Option<PathBuf> {
     std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
 }
 
+/// [`PathPolicy::permits_discovery`] over one walk. An entry that is not a
+/// symlink resolves to its parent directory's real path plus its own name,
+/// so only each parent (once) and each symlink are canonicalized; the
+/// decision then applies the same root and sensitive-path checks to the
+/// same lexical and real paths.
+pub struct DiscoveryWalk<'a> {
+    policy: &'a PathPolicy,
+    parents: std::sync::Mutex<std::collections::HashMap<PathBuf, Option<PathBuf>>>,
+}
+
+impl DiscoveryWalk<'_> {
+    pub fn permits(&self, path: &Path) -> bool {
+        let lexical = self.policy.expand_and_resolve(path);
+        let (Some(parent), Some(name)) = (lexical.parent(), lexical.file_name()) else {
+            return self.policy.permits_discovery(path);
+        };
+        let plain =
+            std::fs::symlink_metadata(&lexical).is_ok_and(|meta| !meta.file_type().is_symlink());
+        if !plain {
+            return self.policy.permits_discovery(path);
+        }
+        let parent_real = {
+            let mut parents = self
+                .parents
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            parents
+                .entry(parent.to_path_buf())
+                .or_insert_with(|| std::fs::canonicalize(parent).ok())
+                .clone()
+        };
+        let Some(parent_real) = parent_real else {
+            return self.policy.permits_discovery(path);
+        };
+        let real = parent_real.join(name);
+        self.policy.allowed(&real) && !is_sensitive_path(&lexical) && !is_sensitive_path(&real)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicU64, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
 
-    static FIXTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-
+    /// Callers own cleanup.
     fn fixture() -> PathBuf {
-        let id = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
+        tempfile::Builder::new()
+            .prefix("octocode-policy-")
+            .tempdir()
             .expect("path policy test setup should succeed")
-            .as_nanos();
-        let root = std::env::temp_dir().join(format!(
-            "octocode-policy-{}-{id}-{}",
-            std::process::id(),
-            FIXTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ));
-        std::fs::create_dir_all(&root).expect("path policy test setup should succeed");
-        root
+            .keep()
+    }
+
+    /// A walk's discovery decisions equal `permits_discovery` for every
+    /// entry: plain files, directories, sensitive names, and symlinks that
+    /// stay inside or escape the allowed roots.
+    #[cfg(unix)]
+    #[test]
+    fn walk_discovery_matches_permits_discovery_for_every_entry() {
+        let root = fixture();
+        let outside = fixture();
+        std::fs::create_dir_all(root.join("src/nested")).expect("dirs");
+        std::fs::write(root.join("src/lib.rs"), "x").expect("file");
+        std::fs::write(root.join("src/nested/.env.production"), "x").expect("sensitive");
+        std::fs::create_dir_all(root.join(".ssh")).expect("credential dir");
+        std::fs::write(outside.join("secret.txt"), "x").expect("outside");
+        std::os::unix::fs::symlink(outside.join("secret.txt"), root.join("src/escape"))
+            .expect("escaping link");
+        std::os::unix::fs::symlink(root.join("src/lib.rs"), root.join("src/inside"))
+            .expect("inner link");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.clone()),
+            ..Default::default()
+        })
+        .expect("policy");
+        let walk = policy.discovery_walk();
+        for entry in [
+            "src",
+            "src/lib.rs",
+            "src/nested",
+            "src/nested/.env.production",
+            ".ssh",
+            "src/escape",
+            "src/inside",
+            "src/missing.rs",
+        ] {
+            let path = root.join(entry);
+            assert_eq!(
+                walk.permits(&path),
+                policy.permits_discovery(&path),
+                "{entry}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(root);
+        let _ = std::fs::remove_dir_all(outside);
     }
 
     #[test]

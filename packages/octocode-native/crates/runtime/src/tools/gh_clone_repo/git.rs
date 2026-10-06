@@ -3,9 +3,20 @@ use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
 
-const CLONE_TIMEOUT: Duration = Duration::from_secs(2 * 60);
-const SPARSE_TIMEOUT: Duration = Duration::from_secs(30);
-const HEAD_TIMEOUT: Duration = Duration::from_secs(5);
+/// A clone or checkout fetch: a few network round trips plus transfer.
+fn clone_timeout(context: &CloneContext<'_>) -> Duration {
+    context.config.network_timeout.saturating_mul(4)
+}
+
+/// One sparse-checkout or fetch step.
+fn sparse_timeout(context: &CloneContext<'_>) -> Duration {
+    context.config.network_timeout
+}
+
+/// A local `rev-parse`/`status` on the checkout.
+fn head_timeout(context: &CloneContext<'_>) -> Duration {
+    context.config.network_timeout / 6
+}
 
 pub(super) fn read_head(
     context: &CloneContext<'_>,
@@ -20,14 +31,14 @@ pub(super) fn read_head(
             "--verify".into(),
             "HEAD^{commit}".into(),
         ],
-        HEAD_TIMEOUT,
+        head_timeout(context),
         "read checkout HEAD",
         None,
     )?;
     let sha = output.stdout.trim().to_ascii_lowercase();
     if sha.len() != 40 || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(CloneError::new(
-            "clone.git.invalidHead",
+            "gitFailed",
             "Git returned an invalid checkout HEAD commit SHA.",
         ));
     }
@@ -63,7 +74,7 @@ pub(super) fn checkout_status(
             "--untracked-files=all".into(),
             "--ignored=matching".into(),
         ],
-        HEAD_TIMEOUT,
+        head_timeout(context),
         "check cached checkout cleanliness",
         None,
     )?;
@@ -97,14 +108,14 @@ pub(super) fn current_branch(
     let output = run(
         context,
         scoped(directory, &["symbolic-ref", "--quiet", "--short", "HEAD"]),
-        HEAD_TIMEOUT,
+        head_timeout(context),
         "read checkout branch",
         None,
     )?;
     let branch = output.stdout.trim().to_owned();
     if branch.is_empty() {
         return Err(CloneError::new(
-            "clone.git.invalidHead",
+            "gitFailed",
             "Git did not report the checked-out default branch.",
         ));
     }
@@ -159,7 +170,7 @@ fn checkout_branch(
     run(
         context,
         args,
-        CLONE_TIMEOUT,
+        clone_timeout(context),
         if sparse_paths.is_some() {
             "sparse clone"
         } else {
@@ -171,7 +182,7 @@ fn checkout_branch(
         run(
             context,
             sparse_set_args(context, target, "HEAD", paths),
-            SPARSE_TIMEOUT,
+            sparse_timeout(context),
             "set sparse checkout paths",
             Some(repository_url),
         )?;
@@ -201,7 +212,7 @@ fn sparse_set_args(
     let files = run(
         context,
         ls_tree,
-        SPARSE_TIMEOUT,
+        sparse_timeout(context),
         "resolve sparse path type",
         None,
     )
@@ -262,14 +273,14 @@ fn checkout_commit(
     run(
         context,
         vec!["init".into(), "--".into(), target.as_os_str().to_owned()],
-        CLONE_TIMEOUT,
+        clone_timeout(context),
         "initialize commit checkout",
         None,
     )?;
     run(
         context,
         scoped(target, &["remote", "add", "origin", repository_url]),
-        CLONE_TIMEOUT,
+        clone_timeout(context),
         "configure commit remote",
         Some(repository_url),
     )?;
@@ -277,7 +288,7 @@ fn checkout_commit(
         run(
             context,
             scoped(target, &["config", "remote.origin.promisor", "true"]),
-            SPARSE_TIMEOUT,
+            sparse_timeout(context),
             "configure sparse promisor",
             Some(repository_url),
         )?;
@@ -287,7 +298,7 @@ fn checkout_commit(
                 target,
                 &["config", "remote.origin.partialclonefilter", "blob:none"],
             ),
-            SPARSE_TIMEOUT,
+            sparse_timeout(context),
             "configure sparse filter",
             Some(repository_url),
         )?;
@@ -305,7 +316,7 @@ fn checkout_commit(
     run(
         context,
         fetch,
-        CLONE_TIMEOUT,
+        clone_timeout(context),
         "fetch requested commit",
         Some(repository_url),
     )?;
@@ -313,7 +324,7 @@ fn checkout_commit(
         run(
             context,
             sparse_set_args(context, target, "FETCH_HEAD", paths),
-            SPARSE_TIMEOUT,
+            sparse_timeout(context),
             "set sparse commit paths",
             Some(repository_url),
         )?;
@@ -321,7 +332,7 @@ fn checkout_commit(
     run(
         context,
         scoped(target, &["checkout", "--detach", "FETCH_HEAD", "--"]),
-        CLONE_TIMEOUT,
+        clone_timeout(context),
         "check out requested commit",
         Some(repository_url),
     )?;
@@ -351,7 +362,7 @@ fn git_permit(
     use crate::providers::github::{GitHubBudget, LimiterKey, ProviderErrorKind};
     let Ok(url) = url::Url::parse(repository_url) else {
         return Err(CloneError::new(
-            "clone.input.invalid",
+            "invalidInput",
             "Repository URL could not be parsed",
         ));
     };
@@ -369,14 +380,10 @@ fn git_permit(
             &|| context.cancellation.check().is_err(),
         )
         .map_err(|error| match error.kind {
-            ProviderErrorKind::Cancelled => {
-                CloneError::new("clone.execution.cancelled", error.message.to_string())
-            }
-            ProviderErrorKind::Timeout => {
-                CloneError::new("clone.execution.timeout", error.message.to_string())
-            }
+            ProviderErrorKind::Cancelled => CloneError::new("cancelled", error.message.to_string()),
+            ProviderErrorKind::Timeout => CloneError::new("timeout", error.message.to_string()),
             _ => CloneError::new(
-                "clone.rateLimited",
+                "rateLimited",
                 format!(
                     "{} Retry after {}s.",
                     error.message,

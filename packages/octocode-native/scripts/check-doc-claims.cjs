@@ -14,6 +14,9 @@
 //   3. docs/CONFIGURATION.md env-var names ↔ config sources (both ways for
 //      config-contract.json source keys)
 //   4. Active source/docs/examples contain no retired pre-v20 CLI grammar
+//   5. ARCHITECTURE.md Ownership-table modules exist under crates/
+//   6. README `scheme` examples carry no instructions the CLI does not emit
+//   7. Docs pass Cargo feature flags only to crates that declare [features]
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -27,6 +30,7 @@ const configContract = JSON.parse(
   read(path.join(repoRoot, 'packages/octocode-config/config-contract.json'))
 );
 const nativeReadme = read(path.join(nativeRoot, 'README.md'));
+const nativeArchitecture = read(path.join(nativeRoot, 'ARCHITECTURE.md'));
 const rootReadme = read(path.join(repoRoot, 'README.md'));
 const configDoc = read(path.join(repoRoot, 'docs/CONFIGURATION.md'));
 const generatedConfigDoc = read(path.join(repoRoot, 'docs/generated/CONFIG_SETTINGS.md'));
@@ -142,14 +146,35 @@ for (const key of sourceKeys) {
 // 4. Retired CLI grammar ----------------------------------------------------
 // Historical benchmark receipts keep their original commands. Everything
 // else that is maintained must use `scheme` and direct root tool commands.
+const retiredQueriesFlag = /--queries\b/;
 const retiredCliPatterns = [
   /\bnode\s+[^\n]*octocode(?:\.js)?\s+tools(?:\s|$)/,
   /\bnpx(?:\s+-y)?\s+octocode\s+tools(?:\s|$)/,
   /\bcontext\s+--(?:json|compact|minimal)\b/,
   /--scheme(?:-view)?\b/,
-  /--queries\b/,
+  retiredQueriesFlag,
   /\[\s*['"]tools['"]\s*,\s*['"][A-Za-z]/,
 ];
+const schemaCliRoot = path.join(repoRoot, 'packages/octocode-mcp-cli');
+function hasRetiredCliGrammar(line, file) {
+  // The MCP-to-CLI library derives flags from arbitrary schemas. A queries
+  // property legitimately becomes --queries there; it is a separate grammar.
+  const schemaCli = file.startsWith(`${schemaCliRoot}${path.sep}`);
+  const nativeInvocation = /(?:\boctocode(?:\.js)?|\$OCTO)\s+[^\n]*--queries\b/.test(line);
+  return retiredCliPatterns.some((pattern) =>
+    pattern === retiredQueriesFlag && schemaCli && !nativeInvocation
+      ? false
+      : pattern.test(line),
+  );
+}
+const schemaCliDoc = path.join(schemaCliRoot, 'README.md');
+if (
+  hasRetiredCliGrammar('node examples/octocode-cli.ts localSearch --queries []', schemaCliDoc) ||
+  !hasRetiredCliGrammar('node packages/octocode/out/octocode.js localSearch --queries []', schemaCliDoc) ||
+  !hasRetiredCliGrammar('--queries []', path.join(repoRoot, 'docs/CONFIGURATION.md'))
+) {
+  fail('retired CLI grammar', 'the detector confuses schema-derived flags with the native CLI grammar');
+}
 const retiredCliSelfTest = [
   'node packages/octocode/out/octocode.js tools localFetch --scheme --json',
   "['tools', 'localFetch', '--queries', '{}']",
@@ -202,7 +227,7 @@ function scanRetiredCliGrammar(dir) {
     if (!activeExtensions.has(path.extname(entry.name))) continue;
     const lines = read(file).split('\n');
     for (let index = 0; index < lines.length; index += 1) {
-      if (retiredCliPatterns.some((pattern) => pattern.test(lines[index]))) {
+      if (hasRetiredCliGrammar(lines[index], file)) {
         fail(
           'retired CLI grammar',
           `${path.relative(repoRoot, file)}:${index + 1} still contains: ${lines[index].trim()}`,
@@ -212,6 +237,63 @@ function scanRetiredCliGrammar(dir) {
   }
 }
 scanRetiredCliGrammar(repoRoot);
+
+// 5. Ownership modules -------------------------------------------------------
+// Every backticked module in the Ownership table's first column must name a
+// crate directory or a module under crates/runtime/src.
+const ownership = nativeArchitecture.match(/^## Ownership\n([\s\S]*?)(?=^## )/m);
+if (!ownership) {
+  fail('ownership modules', 'Ownership section not found in ARCHITECTURE.md');
+} else {
+  const runtimeSrc = path.join(nativeRoot, 'crates/runtime/src');
+  let rows = 0;
+  for (const row of ownership[1].matchAll(/^\|([^|\n]+)\|/gm)) {
+    for (const [, module] of row[1].matchAll(/`([^`]+)`/g)) {
+      rows += 1;
+      const candidates = module.startsWith('crates/')
+        ? [path.join(nativeRoot, module)]
+        : [path.join(runtimeSrc, module), path.join(runtimeSrc, `${module}.rs`)];
+      if (!candidates.some((candidate) => fs.existsSync(candidate))) {
+        fail('ownership modules', `ARCHITECTURE.md Ownership table names \`${module}\`, which does not exist`);
+      }
+    }
+  }
+  if (rows === 0) fail('ownership modules', 'no modules parsed from the Ownership table (parser drift)');
+}
+
+// 6. Scheme instructions ----------------------------------------------------
+// The CLI catalog states that workflow instructions ship elsewhere; README
+// scheme examples must not show an `instructions` field.
+if (/workflow instructions ship with/.test(cliSource) && /"instructions"\s*:/.test(nativeReadme)) {
+  fail('scheme output', 'README.md shows `instructions` in scheme output, but cli/mod.rs says instructions ship with the npm launcher and MCP');
+}
+
+// 7. Cargo feature flags ----------------------------------------------------
+const featurelessCrates = fs.readdirSync(path.join(nativeRoot, 'crates'))
+  .map((crate) => path.join(nativeRoot, 'crates', crate, 'Cargo.toml'))
+  .filter((manifest) => fs.existsSync(manifest))
+  .map(read)
+  .filter((manifest) => !/^\[features\]/m.test(manifest))
+  .map((manifest) => manifest.match(/^name\s*=\s*"([^"]+)"/m)?.[1])
+  .filter(Boolean);
+const docsDir = path.join(nativeRoot, 'docs');
+const featureDocs = [
+  ['README.md', nativeReadme],
+  ['ARCHITECTURE.md', nativeArchitecture],
+  ...fs.readdirSync(docsDir)
+    .filter((name) => name.endsWith('.md'))
+    .map((name) => [`docs/${name}`, read(path.join(docsDir, name))]),
+];
+for (const [name, text] of featureDocs) {
+  for (const line of text.split('\n')) {
+    if (!/--no-default-features|--all-features/.test(line)) continue;
+    for (const crate of featurelessCrates) {
+      if (new RegExp(`-p ${crate}(?![\\w-])`).test(line)) {
+        fail('cargo features', `${name} passes a feature flag to ${crate}, which declares no [features]: ${line.trim()}`);
+      }
+    }
+  }
+}
 
 if (failures.length > 0) {
   console.error('check-doc-claims: pinned doc claims drifted from source:\n');

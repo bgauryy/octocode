@@ -1,6 +1,6 @@
 # Word choice, abbreviations, and inclusive terms
 
-Load when a specific word, short form, specialist term, or possibly exclusive term is in question. The guide's word list decides, not preference: `assets/google-word-list.tsv` holds all 597 entries as `term`, `verdict` (`dont-use`, `avoid`, `caution`, `usage`), and guidance. Look the term up, then quote it:
+Load when a specific word, short form, specialist term, or possibly exclusive term is in question. The guide's word list decides, not preference: `assets/google-word-list.tsv` holds all 599 entries as `term`, `verdict` (`dont-use`, `avoid`, `caution`, `usage`), and guidance. Look the term up, then quote it:
 
 ```bash
 grep -iP "^[^\t]*allows you to" assets/google-word-list.tsv
@@ -19,6 +19,8 @@ IF a word isn't in the list → THEN use Merriam-Webster's first spelling (`canc
 | `allows you to` | lets you |
 | `via`, `leverage`, `utilize` | with, through, use |
 | `just`, `simply`, `easy` | delete (`just` is fine in "or just example-kind") |
+| `careful`, `carefully` | name the exact check |
+| `proper`, `properly` | name the technical state |
 | `please note`, `note that` | state the fact |
 | `click on` | click; hyphenate `right-click`, `double-click`; Android uses tap |
 | `abort`, `terminate`, `kill` | stop, exit, cancel, end |

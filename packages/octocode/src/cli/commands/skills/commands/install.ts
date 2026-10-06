@@ -4,7 +4,9 @@ import { existsSync, statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   installBundledSkills,
+  parseSkillPlatforms,
   type InstallBundledSkillsResult,
+  type SkillInstallMode,
   type SkillInstallTarget,
 } from '@octocodeai/octocode-skill-installer';
 import {
@@ -14,10 +16,9 @@ import {
   retiredHint,
   type SkillInfo,
 } from '../registry.js';
-import { parsePlatforms } from '../platforms.js';
-import type { InstallMode } from '../installer.js';
 import { getSkillsEnvStatus } from '../env-params.js';
 import { bold, dim, c } from '../../../../utils/colors.js';
+import { reportFailure } from './fail.js';
 import { shortPath } from '../utils/paths.js';
 
 export interface InstallOptions {
@@ -30,7 +31,7 @@ export interface InstallOptions {
   global: boolean;
   projectDir: string | null;
   customPath: string | null;
-  mode: InstallMode;
+  mode: SkillInstallMode;
   /** Replace existing canonical copies or destinations that differ. */
   force: boolean;
   /** Refresh changed bundled content without replacing arbitrary destination drift. */
@@ -40,15 +41,11 @@ export interface InstallOptions {
   jsonErrors?: boolean;
 }
 
-function fail(message: string, json: boolean, jsonErrors = false): void {
-  if (jsonErrors)
-    console.log(
-      JSON.stringify({ kind: 'octocode.toolError', version: 1, error: message })
-    );
-  else if (json) console.log(JSON.stringify({ ok: false, error: message }));
-  else console.error(`\n  ${c('red', '✗')}  ${message}\n`);
-  process.exitCode = 1;
-}
+const fail = (message: string, json: boolean, jsonErrors = false): void =>
+  reportFailure(message, json, jsonErrors, {
+    okKey: 'ok',
+    human: `\n  ${c('red', '✗')}  ${message}\n`,
+  });
 
 function resolveSkills(
   skillNames: string[],
@@ -130,7 +127,7 @@ function resolveTargets(opts: InstallOptions): SkillInstallTarget[] | null {
     return null;
   }
 
-  const parsed = parsePlatforms(opts.platform);
+  const parsed = parseSkillPlatforms(opts.platform);
   if (parsed.error) {
     fail(parsed.error, opts.json, opts.jsonErrors);
     return null;

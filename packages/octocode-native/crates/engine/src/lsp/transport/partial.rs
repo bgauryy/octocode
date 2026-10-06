@@ -1,7 +1,7 @@
 //! Bounded collection of `partialResultToken` `$/progress` chunks, merged into
 //! the final response in protocol order.
 
-use crate::error::{Error, Result, Status};
+use crate::error::{Error, Result};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Mutex as StdMutex;
@@ -86,7 +86,6 @@ impl PartialTokenGuard<'_> {
         let buffer = self.store.take(&self.token).unwrap_or_default();
         if buffer.overflowed {
             return Err(Error::new(
-                Status::GenericFailure,
                 "LSP partial results exceeded the bounded collection limit",
             ));
         }

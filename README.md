@@ -122,7 +122,7 @@ Every MCP tool is also a plain command named after the tool: JSON in, structured
 
 ```bash
 npx octocode localSearch \
-  '{"path":"/absolute/path/to/project","searchText":"authenticate","pageSize":20,"goal":"find auth","reasoning":"locate the auth entry point"}'
+  '{"queries":[{"path":"/absolute/path/to/project","matchString":"authenticate","pageSize":20,"mainGoal":"find auth","reasoning":"locate the auth entry point"}]}'
 ```
 ```json
 {
@@ -199,15 +199,15 @@ First full run (`full-1`, 2026-09-30, on a build that predates the schema slimmi
 ## Tools
 
 **16 tools in the full discovery catalog.** By default MCP registers **12**.
-`ghCloneRepo` and `astRewrite` mutate the machine, so they are CLI-only; MCP
-never registers them. `clasify` needs `OCTOCODE_CLASSIFICATION_API` (or its
+`ghCloneRepo`, `astTopology` and `astRewrite` are CLI-only; MCP never registers
+them. `clasify` needs `OCTOCODE_CLASSIFICATION_API` (or its
 `OCTOCODE_JEV_KEY` alias), while `astRewrite` and `astTopology` need
 `OCTOCODE_BETA`. The CLI keeps all 16 commands discoverable; cloning requires
 persistent storage.
 
 | Surface | Registers by default | Gated tools |
 |---|---:|---|
-| MCP, no flags | 12 of 16 | `ghCloneRepo` and `astRewrite` are always omitted; `clasify` and `astTopology` can be enabled. |
+| MCP, no flags | 12 of 16 | `ghCloneRepo`, `astTopology` and `astRewrite` are always omitted; `clasify` can be enabled. |
 | CLI, no flags | 16 discoverable | Clone runs with persistent storage; other gated commands explain the gate to set. |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
@@ -226,7 +226,7 @@ Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIG
 | `ghGetFileContent` | Read a GitHub file or region: full file, line range, match slice, or paginated chars. | `minify` |
 | `ghSearchHistory` | Search or list pull requests, issues, or commits through strict `operation:"pullRequest"`, `"issue"`, or `"commit"` queries. | `operation` |
 | `ghGetHistoryItem` | Read one pull request or issue by `number`, one commit by `ref`, or a comparison by `base`+`head`. | `operation` |
-| `ghCloneRepo` | CLI-only clone of a repository or sparse subtree into the local cache for local and LSP analysis. Requires persistent storage. | `sparsePath` |
+| `ghCloneRepo` | CLI-only clone of a repository or sparse subtree into the local cache for local and LSP analysis. Requires persistent storage. | `path` |
 
 Each GitHub search tool accepts 1 to 5 parallel queries and has no `operation` field.
 
@@ -234,10 +234,10 @@ Each GitHub search tool accepts 1 to 5 parallel queries and has no `operation` f
 
 | Tool | What it does | Knob |
 |------|--------------|------|
-| `localSearch` | Lexical text and regex search over local files. | `searchText` |
+| `localSearch` | Lexical text and regex search over local files. | `matchString` |
 | `structureSearch` | Directory outlines and file discovery by name or metadata; no parser. | `operation` |
 | `astSearch` | AST shape, syntax-tree, and symbol queries. | `operation` |
-| `astTopology` | Cross-file dependency graph analysis: dependencies, dependents, paths, cycles, reachability, dead code, and drift. Beta feature gated by `OCTOCODE_BETA`. | `analysis` |
+| `astTopology` | CLI only. Cross-file dependency graph analysis: dependencies, dependents, paths, cycles, reachability, dead code, and drift. Beta feature gated by `OCTOCODE_BETA`. | `operation` |
 | `astRewrite` | CLI only. Preview or apply snapshot-bound structural rewrites. Beta feature gated by `OCTOCODE_BETA` (the sole gate for both preview and apply). | `apply` |
 | `localFetch` | Read a local file or region: exact slice, match string, line range, or paginated chars. | `minify` |
 
@@ -296,10 +296,10 @@ Same research engine, no MCP client needed. Every tool is a plain command named 
 | `npx octocode <toolName> '<json>'` | Run a tool (same tools as MCP), single-line JSON output (`--pretty` to indent) |
 | `npx octocode <toolName> --input <file>` | Run a tool with the JSON query read from a file |
 | `npx octocode scheme <toolName>` | Show one tool's public input contract: fields, types, bounds, defaults |
-| `npx octocode scheme` | Compact catalog of every tool with availability |
+| `npx octocode scheme` | Compact catalog of enabled tools |
 
-Every new query row needs its own nonblank `goal` and `reasoning`. Only a
-`next.*` continuation, which carries `followUp:true`, inherits the brief.
+Input is always `{"queries":[row, …]}`. A row may carry `mainGoal` and
+`reasoning`; a `next.*` continuation inherits its row's brief.
 
 #### More commands
 
@@ -333,7 +333,7 @@ Some security-sensitive keys (for example `WORKSPACE_ROOT`, `ALLOWED_PATHS`, `OC
 | `WORKSPACE_ROOT` | `local.workspaceRoot` | process cwd | Default allowed root. Relative tool paths still resolve against the process cwd; pass absolute paths. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Extra allowed roots (comma-separated in env). |
 | `TOOLS_TO_RUN` / `DISABLE_TOOLS` | `tools.enabled` / `tools.disabled` | unset | Strict tool allowlist / tools removed from the default set. |
-| `OCTOCODE_BETA` | `local.beta` | `false` | Enable beta tools `astTopology` and `astRewrite` (preview and apply). |
+| `OCTOCODE_BETA` | `local.beta` | `false` | Enable the CLI-only beta tools `astTopology` and `astRewrite` (preview and apply). |
 | `OCTOCODE_OUTPUT_FORMAT` | `output.format` | `yaml` | MCP text-channel encoding: `yaml` or `json`. Structured content and CLI stdout are always JSON. |
 | `OCTOCODE_STORAGE_MODE` | `storage.mode` | `persistent` | `memory` prevents persistent cache, materialization, and state writes. |
 | `GITHUB_API_URL` | `github.apiUrl` | `https://api.github.com` | GitHub REST API root (GitHub Enterprise). |
@@ -496,7 +496,7 @@ Each workspace package owns one layer of the toolkit. The package map, contract 
 | Research runtime | [`packages/octocode-native`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-native) · `@octocodeai/octocode-native` | Consolidated distribution for the native CLI, runtime addon (`.`/`./runtime`), and engine primitive addon (`./engine`), backed by separate Rust crates. |
 | Configuration and contracts | [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) · `@octocodeai/config` | Octocode home resolution, `.env` / `.octocoderc` loading, and the configuration contract; also the only tool-contract generator (embeds the `octocode-core` contract for native and TypeScript consumers). |
 | Skill distribution | [`packages/octocode-skill-installer`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-skill-installer) · `@octocodeai/octocode-skill-installer` | Shared installer for durable skill materialization, platform-specific links or copies, upgrades, and conflict reporting. |
-| Coordination | [`skills/octocode-agents-communication`](https://github.com/bgauryy/octocode/tree/main/skills/octocode-agents-communication) · `@octocodeai/octocode-agents-communication` | Private, unpublished Python CLI distributed inside its communication skill. Coordinates session identity, advisory path leases, and direct messages. |
+| Coordination | [`packages/octocode-agents-communication`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-agents-communication) · `@octocodeai/octocode-agents-communication` | Standalone npm CLI with a separate lean communication skill. Coordinates session identity, advisory path leases, and direct messages. |
 | Evaluation | [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) · `@octocodeai/octocode-benchmark` | Private agent-vs-agent eval: a Claude agent with Octocode against the same agent with `rg` and `gh`, with a blind judge and generated reports. |
 
 The separately versioned [`@octocodeai/octocode-core`](https://github.com/bgauryy/octocode-mcp-host/tree/main/packages/octocode-core) package authors the public tool schemas, descriptions, and shared MCP/CLI instructions. This monorepo consumes those contracts through `@octocodeai/config`; `octocode-native` owns their execution.

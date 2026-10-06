@@ -20,7 +20,7 @@ import { RESULTS_DIR, TARIFF, parseArgs, readJson, weightedUsage } from './lib.m
 // `next` holds page continuations and `hints` holds leads. Legacy streams
 // also carried leads in `next`, so pages are selected by core's channel rule
 // in either shape.
-const BRIEF_KEYS = new Set(['goal', 'mainGoal', 'reasoning', 'debug']);
+const BRIEF_KEYS = new Set(['mainGoal', 'reasoning', 'debug']);
 const PAGING_KEY = /page|offset|cursor|after|resume/i;
 const IDENTITY_KEYS = ['path', 'uri', 'owner', 'repo', 'number', 'symbolName', 'sha', 'ref'];
 const isHint = v => !!v && typeof v === 'object' && !Array.isArray(v) && typeof v.tool === 'string' && v.query && typeof v.query === 'object';
@@ -113,14 +113,14 @@ function selfTest() {
   const ev = o => JSON.stringify(o);
   const result = (id, body) => ev({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: [{ type: 'text', text: JSON.stringify(body) }] }] } });
   const call = (id, name, input) => ev({ type: 'assistant', message: { id, content: [{ type: 'tool_use', id, name: `mcp__octocode__${name}`, input }] } });
-  const page = { tool: 'localSearch', query: { goal: 'g', path: 'src', searchText: 'x', page: 2, snapshot: 's' } };
+  const page = { tool: 'localSearch', query: { mainGoal: 'g', path: 'src', matchString: 'x', page: 2, snapshot: 's' } };
   const lead = { tool: 'localFetch', query: { path: 'src/a.ts' } };
   const stream = [
-    call('a', 'localSearch', { path: 'src', searchText: 'x' }),
-    result('a', { results: [{ data: { next: { nextPage: page, readFile: lead } } }] }),
-    call('b', 'localSearch', { queries: [{ goal: 'other', path: 'src', searchText: 'x', page: 2, snapshot: 's' }] }),
-    result('b', { results: [{ data: { next: { nextPage: { ...page, query: { ...page.query, page: 3 } } } } }], responsePagination: { next: { tool: 'localSearch', query: { queries: [{ path: 'src' }], responseCharOffset: 900 } } } }),
-    call('c', 'localSearch', { path: 'src', searchText: 'x', page: 3 }),
+    call('a', 'localSearch', { queries: [{ path: 'src', matchString: 'x' }] }),
+    result('a', { results: [{ data: { next: { nextPage: page, read: lead } } }] }),
+    call('b', 'localSearch', { queries: [{ mainGoal: 'other', path: 'src', matchString: 'x', page: 2, snapshot: 's' }] }),
+    result('b', { results: [{ data: { next: { nextPage: { ...page, query: { ...page.query, page: 3 } } } } }], responsePagination: { next: { tool: 'localSearch', query: { queries: [{ path: 'src' }], responseOffset: 900 } } } }),
+    call('c', 'localSearch', { queries: [{ path: 'src', matchString: 'x', page: 3 }] }),
     ev({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'c', is_error: true, content: 'Input validation error: Invalid arguments for tool localSearch' }] } }),
   ].join('\n');
   const f = followRate(stream);
@@ -128,7 +128,7 @@ function selfTest() {
   assert(f.offered === 3, 'three page hints offered (lead excluded, envelope included)');
   assert(f.verbatim === 1 && f.followed === 2, 'page 2 verbatim (brief differs), page 3 re-typed without snapshot is followed loosely, envelope not followed');
   assert(f.schemaErrors === 1, 'schema error counted');
-  assert(pageHints({ hints: { readFixPr: lead }, next: { continuePatch: page } }).length === 1, 'hints leads are not page hints');
+  assert(pageHints({ hints: { readFixPullRequest: lead }, next: { continuePatch: page } }).length === 1, 'hints leads are not page hints');
   assert(pageHints({ queries: [{ next: { clasify: { tool: 'clasify', query: {} }, read: lead } }] }).length === 1, 'clasify walk is a page, its read a lead (legacy shape)');
   assert(pageHints({ results: [{ data: { next: { clasify: { tool: 'clasify', query: {} } } } }] }, 'localSearch').length === 0, 'a clasify handoff on another tool is a lead (legacy shape)');
   const repoPage = { tool: 'ghSearchRepo', query: { keywords: ['x'], page: 2 } };

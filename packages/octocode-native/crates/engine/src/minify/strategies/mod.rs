@@ -5,13 +5,10 @@ pub mod markdown;
 pub mod web;
 
 pub use code::minify_javascript_core;
-pub use core::{
-    minify_aggressive, minify_brace_code, minify_code_core, minify_conservative,
-    minify_general_core,
-};
-pub use json::{minify_json_core_inner, minify_json_readable_inner};
+pub use core::{minify_brace_code, minify_code_core, minify_general_core};
+pub use json::minify_json_readable_inner;
 pub use markdown::minify_markdown_core;
-pub use web::{minify_css_quality, minify_embedded_web, minify_html_core, minify_html_quality};
+pub use web::{minify_css_quality, minify_embedded_web};
 
 // ── Shared byte-level helpers (used across submodules) ────────────────────────
 
@@ -113,6 +110,45 @@ pub(super) fn re_tighten_punct(
     s: &str,
     rules: Option<&crate::minify::comment_remover::CommentRules>,
 ) -> String {
+    rewrite_outside_literals(s, rules, |bytes, i, result| {
+        drop_punct_space(bytes, i, result, b"{}:;,<>", b"{}:;,").or_else(|| {
+            (bytes[i] == b'>' && bytes.get(i + 1) == Some(&b' ') && bytes.get(i + 2) == Some(&b'<'))
+                .then(|| {
+                    result.push('>');
+                    i + 2
+                })
+        })
+    })
+}
+
+/// At byte `i`: skip a space that precedes a byte in `before`, or emit a byte
+/// in `after` and skip the space that follows it. Returns the next index.
+pub(super) fn drop_punct_space(
+    bytes: &[u8],
+    i: usize,
+    result: &mut String,
+    before: &[u8],
+    after: &[u8],
+) -> Option<usize> {
+    let b = bytes[i];
+    if b == b' ' && bytes.get(i + 1).is_some_and(|next| before.contains(next)) {
+        return Some(i + 1);
+    }
+    if after.contains(&b) && bytes.get(i + 1) == Some(&b' ') {
+        result.push(b as char);
+        return Some(i + 2);
+    }
+    None
+}
+
+/// Copy `s`, literal ranges (see `collapse_whitespace`) verbatim. At any other
+/// byte `step` may write a replacement and return the next index; otherwise
+/// the whole UTF-8 sequence is copied.
+pub(super) fn rewrite_outside_literals(
+    s: &str,
+    rules: Option<&crate::minify::comment_remover::CommentRules>,
+    mut step: impl FnMut(&[u8], usize, &mut String) -> Option<usize>,
+) -> String {
     let ranges = rules
         .map(|r| crate::minify::comment_remover::literal_ranges(s, r))
         .unwrap_or_default();
@@ -126,27 +162,10 @@ pub(super) fn re_tighten_punct(
             i = end;
             continue;
         }
-        let b = bytes[i];
-        if b == b' '
-            && matches!(
-                bytes.get(i + 1).copied(),
-                Some(b'{' | b'}' | b':' | b';' | b',' | b'<' | b'>')
-            )
-        {
-            i += 1;
-            continue;
-        }
-        if matches!(b, b'{' | b'}' | b':' | b';' | b',') && bytes.get(i + 1) == Some(&b' ') {
-            result.push(b as char);
-            i += 2;
-            continue;
-        }
-        if b == b'>' && bytes.get(i + 1) == Some(&b' ') && bytes.get(i + 2) == Some(&b'<') {
-            result.push('>');
-            i += 2;
-            continue;
-        }
-        i = copy_seq(s, i, &mut result);
+        i = match step(bytes, i, &mut result) {
+            Some(next) => next,
+            None => copy_seq(s, i, &mut result),
+        };
     }
     result
 }
@@ -157,36 +176,6 @@ mod tests {
     use super::*;
 
     // ── JSON ──────────────────────────────────────────────────────────────────
-    #[test]
-    fn json_core_compacts_valid_json() {
-        let (out, failed) = minify_json_core_inner("{\"a\": 1,  \"b\": 2 }");
-        assert_eq!(out, r#"{"a":1,"b":2}"#);
-        assert!(!failed);
-    }
-
-    #[test]
-    fn json_core_strips_jsonc_comments_and_trailing_commas() {
-        let src = "{ // comment\n  \"key\": \"value\", // trailing comma\n}";
-        let (out, failed) = minify_json_core_inner(src);
-        assert!(!failed);
-        assert!(out.contains("key"));
-        assert!(!out.contains("comment"));
-    }
-
-    #[test]
-    fn json_core_preserves_non_ascii_through_jsonc_strip() {
-        let (out, failed) = minify_json_core_inner("{\n  // comment\n  \"k\": \"café\",\n}");
-        assert!(!failed);
-        assert!(out.contains("café"), "JSONC strip corrupted UTF-8: '{out}'");
-        assert!(!out.contains('Ã'), "Latin-1 mojibake detected: '{out}'");
-    }
-
-    #[test]
-    fn json_core_marks_unparseable_input_failed() {
-        let (out, failed) = minify_json_core_inner("{ invalid json");
-        assert!(failed);
-        assert_eq!(out, "{ invalid json");
-    }
 
     #[test]
     fn json_readable_marks_unparseable_input_failed() {
@@ -204,57 +193,13 @@ mod tests {
         assert!(!out.contains("comment"));
     }
 
-    #[test]
-    fn json_core_preserves_bignum_precision() {
-        let (out, failed) = minify_json_core_inner(r#"{"n": 123456789012345678901234567890}"#);
-        assert!(!failed);
-        assert!(
-            out.contains("123456789012345678901234567890"),
-            "bignum lost precision: '{out}'"
-        );
-    }
-
-    #[test]
-    fn json_core_preserves_decimal_precision() {
-        let (out, failed) = minify_json_core_inner(r#"{"pi": 3.14159265365358979}"#);
-        assert!(!failed);
-        assert!(
-            out.contains("3.14159265365358979"),
-            "high-precision decimal was rounded: '{out}'"
-        );
-    }
-
-    #[test]
-    fn json_core_preserves_key_order() {
-        let (out, failed) = minify_json_core_inner(r#"{"z": 1, "a": 2, "m": 3}"#);
-        assert!(!failed);
-        assert_eq!(
-            out, r#"{"z":1,"a":2,"m":3}"#,
-            "keys were reordered: '{out}'"
-        );
-    }
-
-    // ── conservative ──────────────────────────────────────────────────────────
-    #[test]
-    fn conservative_strips_c_style_comments() {
-        let out = minify_conservative("int x; // comment\nint y;", Some(&["c-style"]));
-        assert!(!out.contains("comment"));
-        assert!(out.contains("int x"));
-    }
+    // ── brace code ────────────────────────────────────────────────────────────
 
     #[test]
     fn brace_code_strips_indent_blanks_and_comments_but_keeps_literals() {
         let src = "fn main() {\n    // note\n\n\n    let s = \"a\n    b\";\n    call(s);\n}\n";
         let out = minify_brace_code(src, &["c-style"]);
         assert_eq!(out, "fn main() {\nlet s = \"a\n    b\";\ncall(s);\n}");
-    }
-
-    #[test]
-    fn conservative_strips_hash_comments_preserving_code() {
-        let out = minify_conservative("x = 1 # comment\n# full line\ny = 2", Some(&["hash"]));
-        assert!(!out.contains("comment"));
-        assert!(!out.contains("full line"));
-        assert!(out.contains("x = 1") && out.contains("y = 2"));
     }
 
     // ── code core ─────────────────────────────────────────────────────────────
@@ -264,15 +209,43 @@ mod tests {
         assert_eq!(minify_code_core("a\n\n\n\nb"), "a\n\nb");
     }
 
-    // ── aggressive: UTF-8 safety through collapse + punct tightening ──────────
+    // ── whitespace collapse + punct tightening ────────────────────────────────
+
+    fn collapse_and_tighten(content: &str, group: Option<&str>) -> String {
+        let rules = group.and_then(crate::minify::comment_remover::rules_for);
+        re_tighten_punct(&collapse_whitespace(content, rules), rules)
+            .trim()
+            .to_owned()
+    }
+
     #[test]
-    fn aggressive_preserves_non_ascii() {
-        let out = minify_aggressive("local s = \"café → naïve\" { x = 1 }", None);
-        assert!(
-            out.contains("café → naïve"),
-            "aggressive path corrupted UTF-8: '{out}'"
-        );
+    fn collapse_and_tighten_preserve_non_ascii() {
+        let out = collapse_and_tighten("local s = \"café → naïve\" { x = 1 }", None);
+        assert!(out.contains("café → naïve"), "corrupted UTF-8: '{out}'");
         assert!(!out.contains('Ã'), "Latin-1 mojibake detected: '{out}'");
+    }
+
+    #[test]
+    fn collapse_preserves_newline_as_statement_separator() {
+        // Elixir-shaped input: a bare newline ends a statement; flattening it
+        // to a space produces invalid Elixir.
+        assert_eq!(
+            collapse_and_tighten("x = 1\ny = 2", Some("hash")),
+            "x = 1\ny = 2"
+        );
+    }
+
+    #[test]
+    fn clojure_quote_prefix_does_not_swallow_following_string() {
+        // `'` is Clojure's quote-prefix, not a string delimiter. Treating it
+        // as one would swallow the real string literal that follows and
+        // collapse its internal whitespace.
+        let out =
+            collapse_and_tighten("(def x '(a b))  (def y \"hello   world\")", Some("clojure"));
+        assert!(
+            out.contains("\"hello   world\""),
+            "quote-prefix apostrophe corrupted a later real string literal: '{out}'"
+        );
     }
 
     // ── javascript core ───────────────────────────────────────────────────────
@@ -286,38 +259,12 @@ mod tests {
         assert!(!out.contains("strip me"));
     }
 
-    // ── regression: aggressive strategy must not mutate string content ────────
-
-    #[test]
-    fn aggressive_preserves_newline_as_statement_separator() {
-        // Elixir-shaped input: a bare newline ends a statement. Flattening it
-        // to a space (the pre-fix behavior) produces invalid Elixir.
-        let out = minify_aggressive("x = 1\ny = 2", Some(&["hash"]));
-        assert_eq!(out, "x = 1\ny = 2");
-    }
-
     #[test]
     fn javascript_core_preserves_template_literal_content() {
         let out = minify_javascript_core("const s = `key: ${v}, end`;");
         assert!(
             out.contains("`key: ${v}, end`"),
             "JS heuristic fallback mutated template literal content: '{out}'"
-        );
-    }
-
-    #[test]
-    fn aggressive_clojure_quote_prefix_does_not_swallow_following_string() {
-        // Regression: `'` is Clojure's quote-prefix, not a string delimiter.
-        // Using the shared DEFAULT_QUOTE_DELIMITERS (which include `'`) would
-        // treat `'(a b))` as an unterminated string, swallow the real string
-        // literal that follows, and collapse its internal whitespace.
-        let out = minify_aggressive(
-            "(def x '(a b))  (def y \"hello   world\")",
-            Some(&["clojure"]),
-        );
-        assert!(
-            out.contains("\"hello   world\""),
-            "quote-prefix apostrophe corrupted a later real string literal: '{out}'"
         );
     }
 

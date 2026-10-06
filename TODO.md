@@ -20,7 +20,7 @@ Claude Code defers MCP tool schemas until a tool is selected, so for Claude the 
 - [ ] Prose pass on descriptions over 75 chars (~30 strings). They are already budget-tested and dense; expect ~1–2k chars. Keep every deciding fact: defaults, bounds, exclusivity, continuation rules.
 
 ### Contract changes (need a decision; they change the flow)
-- [ ] Response paging fields (`responseCharLength`, `responseCharOffset`, `responseScope`, `responseSnapshot`) repeat on all 12 tools: ~4.5k chars. Options: keep them only on tools that emit large text pages, or document them once in the server instructions.
+- [ ] Response paging fields (`responseLength`, `responseOffset`, `responseScope`, `responseSnapshot`) repeat on all 12 tools: ~4.5k chars. Options: keep them only on tools that emit large text pages, or document them once in the server instructions.
 - [ ] `debug` repeats on every tool (~1k): consider a server-level debug switch.
 - [ ] Variant-heavy tools (ghGetHistoryItem 9.2k, astSearch 8.6k, lspSearch 8.6k, clasify 8.5k, ghSearchHistory 7.9k): check whether rarely used fields can move behind a nested `options` object or a separate operation. Use transcript usage from `context-audit` before cutting.
 - [ ] High error rates in transcripts: lspSearch (5 of 8 calls), ghSearchHistory and artifactSearch (~25%). Check whether schema wording causes them before trimming these tools.

@@ -1,26 +1,24 @@
 // Remote surfaces: GitHub discovery/read/history, package search, clasify.
 // Each result must answer, and every next.* page and hints.* lead it offers (one level) must execute.
-import { checks, collect, nextHints, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { checks, collect, findHint, nextHints, rowData, startServer, writeResults } from './mcp-client.mjs';
 
 const { check, summary } = checks('remote');
 const client = await startServer();
-const { call, raw } = client;
+const { call, raw, follow } = client;
 const OWNER = 'microsoft';
 const REPO = 'TypeScript';
 
 async function followAll(entry, label) {
   const hints = nextHints(entry.sc).slice(0, 4);
   for (const h of hints) {
-    const out = await raw(h.tool, h.query);
-    if (h.path.endsWith('.viewReleaseSource') && out.rowErrors) {
+    const out = await follow(h);
+    if (h.query?.queries?.[0]?.ref && /\.(viewReleaseSource|readManifest)$/.test(h.path) && out.rowErrors) {
+      // An unpushed release ref recovers on the default branch: the same lead without ref.
       const unavailable = collect(out.sc, o => o.errorCode === 'notFound').length > 0;
-      check(`${label}: unavailable release lead has explicit provenance`, unavailable && h.source?.scope === 'release' && h.source?.verification === 'unverified', JSON.stringify(h.source));
-      const fallback = nextHints(entry.sc).find(x => x.path.endsWith('.hints.viewRepo'));
-      check(`${label}: release recovery preserves default-branch provenance`, fallback?.source?.scope === 'defaultBranch' && fallback?.source?.verification === 'unverified');
-      if (fallback) {
-        const recovered = await raw(fallback.tool, fallback.query);
-        check(`${label}: unavailable release lead recovers through hints.viewRepo`, !recovered.isError && !recovered.rowErrors && (rowData(recovered)?.structure ?? []).length > 0, recovered.text.slice(0, 100));
-      }
+      check(`${label}: unavailable release lead is an unlabeled registry ref`, unavailable && h.verification === undefined, JSON.stringify(h));
+      const { ref, ...recovery } = h.query.queries[0];
+      const recovered = await follow({ tool: h.tool, query: { queries: [recovery] } });
+      check(`${label}: unavailable release lead recovers without ref`, !recovered.isError && !recovered.rowErrors && (h.tool !== 'ghStructure' || (rowData(recovered)?.entries ?? []).length > 0), recovered.text.slice(0, 100));
       continue;
     }
     check(`${label}: ${h.path.replace(/^\.results\.\d+\.data\./, '')} executes`, !/Input validation error/.test(out.text) && !out.isError && !out.rowErrors, out.text.slice(0, 100).replace(/\s+/g, ' '));
@@ -32,13 +30,13 @@ const repos = await call('ghSearchRepo', { keywords: ['typescript', 'compiler'],
 check('ghSearchRepo answers', !repos.isError && !repos.rowErrors && /TypeScript/.test(repos.text), repos.text.slice(0, 100));
 await followAll(repos, 'ghSearchRepo');
 
-const code = await call('ghSearchCode', { owner: OWNER, repo: REPO, keywords: ['createTypeChecker'], pageSize: 5 });
+const code = await call('ghSearchCode', { owner: OWNER, repo: REPO, keywords: ['NewChecker'], pageSize: 5 });
 check('ghSearchCode answers with paths', !code.isError && collect(rowData(code), o => typeof o.path === 'string').length > 0, code.text.slice(0, 120));
-const readTop = nextHints(code.sc).find(h => h.path.endsWith('.hints.readTopMatch'));
+const readTop = findHint(code.sc, 'hints.readTopMatch');
 check('ghSearchCode offers hints.readTopMatch', !!readTop);
 if (readTop) {
-  const top = await raw(readTop.tool, readTop.query);
-  check('hints.readTopMatch reads the matching source', /createTypeChecker/.test(top.text), top.text.slice(0, 120));
+  const top = await follow(readTop);
+  check('hints.readTopMatch reads the matching source', /NewChecker/i.test(top.text), top.text.slice(0, 120));
 }
 
 const tree = await call('ghStructure', { owner: OWNER, repo: REPO, maxDepth: 1, pageSize: 50 });
@@ -47,7 +45,7 @@ await followAll(tree, 'ghStructure');
 
 const file = await call('ghGetFileContent', { owner: OWNER, repo: REPO, path: 'README.md', matchString: 'TypeScript', contextLines: 1 });
 check('ghGetFileContent match window', !file.isError && !file.rowErrors && /TypeScript/.test(rowData(file)?.content ?? file.text), file.text.slice(0, 100));
-const outline = await call('ghGetFileContent', { owner: OWNER, repo: REPO, path: 'package.json', startLine: 1, endLine: 10 });
+const outline = await call('ghGetFileContent', { owner: OWNER, repo: REPO, path: 'package.json', ranges: ['1-10'] });
 check('ghGetFileContent bounded range', !outline.isError && /"name"/.test(outline.text), outline.text.slice(0, 100));
 
 const prs = await call('ghSearchHistory', { operation: 'pullRequest', owner: OWNER, repo: REPO, state: 'merged', pageSize: 3 });
@@ -62,7 +60,7 @@ const commits = await call('ghSearchHistory', { operation: 'commit', owner: OWNE
 const sha = collect(rowData(commits), o => typeof o.sha === 'string' || typeof o.oid === 'string')[0];
 check('ghSearchHistory commit returns SHAs', !!sha, commits.text.slice(0, 120));
 if (sha) {
-  const commit = await call('ghGetHistoryItem', { operation: 'commit', owner: OWNER, repo: REPO, ref: sha.sha ?? sha.oid, includeDiff: false });
+  const commit = await call('ghGetHistoryItem', { operation: 'commit', owner: OWNER, repo: REPO, ref: sha.sha ?? sha.oid });
   check('ghGetHistoryItem commit', !commit.isError && !commit.rowErrors, commit.text.slice(0, 100));
 }
 const issues = await call('ghSearchHistory', { operation: 'issue', owner: OWNER, repo: REPO, state: 'closed', pageSize: 2 });
@@ -78,8 +76,8 @@ const judged = await raw('clasify', {
   queries: [{
     mainGoal: 'Judge supplied code',
     reasoning: 'held-state judgment smoke',
-    resources: [{ id: 'r1', context: { value: 'export function add(a, b) { return a + b; }' } }],
-    questions: [{ id: 'q1', type: 'noul', instructions: 'Does this code define a function named add?' }],
+    resources: [{ id: 'r1', value: 'export function add(a, b) { return a + b; }' }],
+    questions: [{ id: 'q1', type: 'yesno', ask: 'Does this code define a function named add?' }],
   }],
 });
 check('clasify supplied-context judgment answers', !/Input validation error/.test(judged.text) && !judged.isError && !judged.rowErrors, judged.text.slice(0, 160).replace(/\s+/g, ' '));

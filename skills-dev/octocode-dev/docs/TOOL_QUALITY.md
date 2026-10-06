@@ -12,8 +12,8 @@ How to evaluate the tools in the Octocode catalog.
 
 Every acceptance run covers the shared contract and the tool-specific behavior:
 
-- a strict `{ queries: [...] }` envelope (`clasify` takes its own query shape) with 1–5 same-tool rows;
-- optional `mainGoal` and `reasoning` on every row: a row without them validates, a blank one is dropped, legacy `goal` maps to `mainGoal`, a top-level brief is not inherited, and `next.*` pages and `hints.*` leads carry the producing query's brief only when it sent one;
+- a strict `{ queries: [...] }` envelope (for `clasify` too) with 1–5 same-tool rows; a flat row or bare array is rejected;
+- optional `mainGoal` and `reasoning` on every row: a row without them validates, a blank one is dropped, a top-level brief is not inherited, and `next.*` pages and `hints.*` leads carry the producing query's brief only when it sent one;
 - zero-based result `index` alignment and isolated row errors;
 - `scheme` `variants` and `rules`;
 - collection, content, and whole-response continuations in `next` (pages only), optional `hints` leads and `hints.text` tips, and typed terminal limits.
@@ -27,7 +27,7 @@ node packages/octocode/out/octocode.js scheme --compact
 node packages/octocode/out/octocode.js scheme localFetch --view query --compact
 ```
 
-- The catalog has 16 tools, with 12 enabled by default in MCP: `clasify` needs a classification key, `ghCloneRepo` is CLI-only, and the beta tools `astTopology` and `astRewrite` need `OCTOCODE_BETA` (or `local.beta`).
+- The catalog has 16 tools, with 12 enabled by default in MCP: `clasify` needs a classification key, and `ghCloneRepo` and the beta tools `astTopology` and `astRewrite` are CLI-only (the beta tools also need `OCTOCODE_BETA` or `local.beta`).
 - MCP omits `clasify` when no key resolves (`OCTOCODE_CLASSIFICATION_API`, `OCTOCODE_JEV_KEY`, or `.octocoderc` `classification.api`) or when `OCTOCODE_CLASSIFICATION_API` is blank. Local-tool, clone, storage, and allowlist settings also gate tools.
 - Record effective configuration and unavailable capabilities per run; enabling a tool installs no language server and grants no provider access. Test CLI and MCP when registration, schema projection, formatting, or continuation rendering changes.
 
@@ -51,7 +51,7 @@ node packages/octocode/out/octocode.js scheme localFetch --view query --compact
 - With `debug: true`, check row-local `meta.evidence` (`kind`, `confidence`) and `meta.diagnostics` after response shaping, then the operation's own completeness fields (no universal `answerReady` or `complete` exists).
 - MCP must not publish `outputSchema`. Validate real structured results against the internal core/native validator, not static output types.
 - Verify `none` views against source after redaction, and transformed views separately; short is not faithful.
-- Keep source and revision anchors; search, AST, graph, package, and LSP evidence differ. Verify CLI compact output (`shared`, `base`) by reconstructed meaning.
+- Keep source and revision anchors; search, AST, graph, package, and LSP evidence differ. Verify CLI compact output (`shared`, `root`) by reconstructed meaning.
 - Check mixed success/error batches: a successful MCP envelope does not prove every query succeeded.
 
 ### Lossless reachable pagination
@@ -95,7 +95,7 @@ Test only controls the public operation supports.
 | GitHub code search, PR/issue discovery | `concise`; no `minify`. | Snippets keep matched evidence and positions; list continuations; unsupported controls rejected. |
 | PR detail | `none`, `standard`; bodies, patches, comments, reviews, commits. | Exact text with `none`; every content surface and continuation. |
 | Issue detail | Body/comment selectors, character windows; no `minify`. | Selected text; all reachable comment/body windows. |
-| Commit/compare | `includeDiff`, path selection, file and character windows; no `minify`. | Diff lines, immutable identity; absent/omitted patch vs empty change. |
+| Commit/compare | `sections:["patches"]`, `include` path selection, file and character windows; no `minify`. | Diff lines, immutable identity; absent/omitted patch vs empty change. |
 
 - Build the native minification matrix from runtime configuration, including filename overrides. Grammar fixtures, outline fixtures, graph resolution, and real LSP-server runs are separate coverage dimensions (`<repo>/packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md`).
 - Fixtures: delimiter comments, comment-like strings, TS types/imports, JSX/TSX, data, markup, indentation-sensitive, empty, malformed, near-size-limit; check validity and preservation, not byte counts.

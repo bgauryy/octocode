@@ -13,8 +13,7 @@ pub(super) fn validate(input: &Value, extraction: bool) -> Result<(), ContractVa
     {
         let full = query.get("fullContent") == Some(&Value::Bool(true));
         let matched = query.get("matchString").is_some();
-        let ranged = query.get("startLine").is_some() || query.get("endLine").is_some();
-        let multi = query.get("ranges").is_some();
+        let ranged = query.get("ranges").is_some();
         let mut add = |condition: bool, rule: &str, field: &str, message: &str| {
             if condition {
                 issues.extend(
@@ -29,54 +28,22 @@ pub(super) fn validate(input: &Value, extraction: bool) -> Result<(), ContractVa
         };
         if extraction {
             add(
-                multi && (full || matched || ranged),
+                ranged && (full || matched),
                 "content.extraction-mode",
                 "ranges",
-                "Choose ranges or fullContent/matchString/startLine.",
+                "Choose ranges or fullContent/matchString.",
             );
             add(
-                query.get("block") == Some(&Value::Bool(true)) && !(matched || ranged || multi),
+                query.get("block") == Some(&Value::Bool(true)) && !(matched || ranged),
                 "content.block-selector",
                 "block",
-                "block widens startLine/endLine, ranges, or matchString; set one.",
+                "block widens ranges or matchString; set one.",
             );
             add(
                 full && matched,
                 "content.extraction-mode",
                 "matchString",
                 "Choose fullContent or matchString.",
-            );
-            add(
-                full && ranged,
-                "content.extraction-mode",
-                "startLine",
-                "Choose fullContent or startLine/endLine.",
-            );
-            add(
-                matched && ranged,
-                "content.extraction-mode",
-                "startLine",
-                "Choose matchString or startLine/endLine.",
-            );
-            add(
-                query.get("startLine").is_some() != query.get("endLine").is_some(),
-                "content.range-pair",
-                if query.get("startLine").is_none() {
-                    "startLine"
-                } else {
-                    "endLine"
-                },
-                "Set startLine and endLine together.",
-            );
-            add(
-                query
-                    .get("startLine")
-                    .and_then(Value::as_f64)
-                    .zip(query.get("endLine").and_then(Value::as_f64))
-                    .is_some_and(|(start, end)| end < start),
-                "content.range-order",
-                "endLine",
-                "Set endLine greater than or equal to startLine.",
             );
         } else {
             add(
@@ -87,24 +54,22 @@ pub(super) fn validate(input: &Value, extraction: bool) -> Result<(), ContractVa
                 "contextBytes requires matchString and is exclusive with contextLines.",
             );
             add(
-                full && ["offset", "chunkSize", "chunkType"]
+                full && ["offset", "length", "unit"]
                     .iter()
                     .any(|field| query.get(field).is_some()),
                 "content.full-controls",
                 "fullContent",
-                "Choose fullContent or chunk controls.",
+                "Remove unit, offset, and length when fullContent is true.",
             );
             add(
                 query.get("minify").and_then(Value::as_str) == Some("symbols")
-                    && (matched || ranged || multi),
+                    && (matched || ranged),
                 "content.symbol-selector",
                 "minify",
-                "minify:\"symbols\" cannot accompany matchString, startLine/endLine, or ranges. Read the outline, then select source lines.",
+                "minify:\"symbols\" cannot accompany matchString or ranges. Read the outline, then select source lines.",
             );
             add(
-                !matched
-                    && (query.get("matchStringIsRegex").is_some()
-                        || query.get("matchStringCaseSensitive").is_some()),
+                !matched && (query.get("regex").is_some() || query.get("caseMode").is_some()),
                 "content.match-controls",
                 "matchString",
                 "Match options require matchString.",
@@ -120,10 +85,7 @@ pub(super) fn validate(input: &Value, extraction: bool) -> Result<(), ContractVa
             {
                 let reversed = range
                     .as_str()
-                    .and_then(|range| range.split_once('-'))
-                    .and_then(|(start, end)| {
-                        Some((start.parse::<u64>().ok()?, end.parse::<u64>().ok()?))
-                    })
+                    .and_then(crate::tools::line_spans::parse_span::<u64>)
                     .is_some_and(|(start, end)| end < start);
                 if reversed {
                     issues.extend(

@@ -153,28 +153,12 @@
       "file": true,
       "resolved": true,
       "fields": {
-        "publishedView": {
-          "type": "enum",
-          "values": ["queries", "flat"],
-          "description": "Input shape in tools/list: queries (a queries[] batch) or flat (one row per call). Validation accepts both.",
-          "env": {
-            "OCTOCODE_PUBLISHED_VIEW": { "priority": 0, "normalize": "lower", "invalid": "skip" }
-          }
-        },
         "deferred": {
           "type": "stringArray",
           "default": null,
           "description": "Available tools left out of tools/list; one run({tool, query}) tool executes them and next/hints leads that name them.",
           "env": {
             "OCTOCODE_DEFER_TOOLS": { "priority": 0 }
-          }
-        },
-        "instructions": {
-          "type": "enum",
-          "values": ["default", "guide"],
-          "description": "MCP server instructions: default, or guide (the longer workflow guide).",
-          "env": {
-            "OCTOCODE_INSTRUCTIONS": { "priority": 0, "normalize": "lower", "invalid": "skip" }
           }
         }
       }
@@ -294,7 +278,7 @@
           "values": ["persistent", "memory"],
           "description": "Whether caches and runtime state may persist on disk.",
           "env": {
-            "OCTOCODE_STORAGE_MODE": { "priority": 0, "dotenv": "home", "normalize": "lower", "invalid": "skip" }
+            "OCTOCODE_STORAGE_MODE": { "priority": 0, "dotenv": "home", "normalize": "lower", "invalid": "skip", "workspaceNarrowsTo": "memory" }
           }
         }
       }
@@ -335,32 +319,6 @@
           "description": "Maximum repositories the ghCloneRepo cache keeps.",
           "env": {
             "OCTOCODE_MAX_CLONES": { "priority": 0 }
-          }
-        }
-      }
-    },
-    "extension": {
-      "title": "Extension overrides",
-      "file": true,
-      "resolved": true,
-      "fields": {}
-    },
-    "extension.storage": {
-      "title": "Extension storage",
-      "rustTypeName": "Storage",
-      "file": true,
-      "resolved": true,
-      "fields": {
-        "mode": {
-          "type": "enum",
-          "typeName": "StorageMode",
-          "enumStyle": "quotedOr",
-          "values": ["persistent", "memory"],
-          "defaultFrom": "storage.mode",
-          "displayDefault": "inherits storage.mode",
-          "description": "Pi extension storage mode override.",
-          "env": {
-            "OCTOCODE_EXTENSION_STORAGE_MODE": { "priority": 0, "dotenv": "home", "normalize": "lower", "invalid": "skip" }
           }
         }
       }

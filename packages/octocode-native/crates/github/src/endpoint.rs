@@ -2,6 +2,17 @@ use url::Url;
 
 use super::{ProviderError, ProviderErrorKind};
 
+/// The host stored credentials and limits belong to for an API host:
+/// github.com's API host `api.github.com` folds to `github.com`; any other
+/// host is itself.
+pub fn credential_host(api_host: &str) -> &str {
+    if api_host.eq_ignore_ascii_case("api.github.com") {
+        "github.com"
+    } else {
+        api_host
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct GitHubEndpoint {
     rest_base: Url,
@@ -59,11 +70,7 @@ impl GitHubEndpoint {
         self.rest_base.host_str().unwrap_or_default()
     }
     pub fn credential_host(&self) -> &str {
-        if self.host() == "api.github.com" {
-            "github.com"
-        } else {
-            self.host()
-        }
+        credential_host(self.host())
     }
     pub fn graphql(&self) -> Url {
         self.graphql.clone()

@@ -7,6 +7,7 @@ export {
 } from './native/index.js';
 
 export type {
+  ClassificationProbe,
   NativeRuntime,
   NativeRuntimeOptions,
   NativeRuntimeBinding,

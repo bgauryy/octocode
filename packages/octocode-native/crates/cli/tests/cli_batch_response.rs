@@ -1,12 +1,12 @@
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-mod support;
+use crate::support;
 use serde_json::json;
 use support::Workspace;
 
 fn search(root: &str, extra: serde_json::Value) -> serde_json::Value {
     let mut query =
-        json!({"path":root,"searchText":"needle","mainGoal": "test", "reasoning":"Find needles."});
+        json!({"path":root,"matchString":"needle","mainGoal": "test", "reasoning":"Find needles."});
     for (key, value) in extra.as_object().unwrap() {
         query[key] = value.clone();
     }
@@ -53,7 +53,7 @@ fn cli_exit_is_six_while_response_pages_remain() {
     let output = workspace
         .cli()
         .env("OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH", "2000")
-        .args(["localSearch", &query.to_string()])
+        .args(["localSearch", &json!({"queries":[query]}).to_string()])
         .output()
         .unwrap();
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();

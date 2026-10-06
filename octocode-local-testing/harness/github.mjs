@@ -19,7 +19,7 @@ const pinned = Object.fromEntries(REPO_DIRS.map(dir => {
 }));
 const local = (dir, file) => fs.readFileSync(path.join(REPOS, dir, file), 'utf8');
 const localLines = (dir, file) => local(dir, file).replace(/\n$/, '').split('\n');
-const fileRow = entry => rowData(entry)?.files?.[0];
+const fileRow = entry => rowData(entry);
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 let rateLimitWaits = 0;
 /** GitHub search that waits out GitHub's code-search quota (10/min) instead of reading an error row as "no results". */
@@ -29,7 +29,7 @@ async function search(query, tool) {
   // a `next.*` query is replayed verbatim with its own tool.
   const { operation, ...rest } = query;
   for (let attempt = 0; attempt < 6; attempt++) {
-    const out = tool ? await raw(tool, query) : await call(SEARCH_TOOL[operation], rest);
+    const out = tool ? await client.follow({ tool, query }) : await call(SEARCH_TOOL[operation], rest);
     const data = rowData(out);
     if (data?.errorCode !== 'rateLimited') return out;
     rateLimitWaits += 1;
@@ -56,7 +56,7 @@ for (const r of Object.values(pinned)) {
     if (!fs.existsSync(path.join(REPOS, r.dir, file))) { check(`${r.dir}: ${file} exists locally`, false); continue; }
     const text = local(r.dir, file);
     const lines = localLines(r.dir, file);
-    const base = { owner: r.owner, repo: r.repo, branch: r.sha, path: file };
+    const base = { owner: r.owner, repo: r.repo, ref: r.sha, path: file };
     // Whole file when it fits; otherwise the tool must say why and offer a way on.
     const whole = await call('ghGetFileContent', { ...base, fullContent: true, debug: true });
     const w = fileRow(whole);
@@ -77,7 +77,7 @@ for (const r of Object.values(pinned)) {
     let mismatch = null;
     for (let guard = 0; next <= lines.length && guard < 40; guard++) {
       const end = Math.min(lines.length, next + 1499);
-      const out = await call('ghGetFileContent', { ...base, startLine: next, endLine: end });
+      const out = await call('ghGetFileContent', { ...base, ranges: [`${next}-${end}`] });
       const row = fileRow(out);
       const view = sourceView(row);
       const ranges = view.ranges;
@@ -97,7 +97,7 @@ for (const r of Object.values(pinned)) {
   const picks = [[1, 1], [lines.length, lines.length], [lines.length - 5, lines.length]];
   for (let i = 0; i < 12; i++) { const s = 1 + Math.floor(((i * 7919) % 997) / 997 * (lines.length - 40)); picks.push([s, s + (i % 5) * 9]); }
   for (const [s, e] of picks) {
-    const row = fileRow(await call('ghGetFileContent', { owner: r.owner, repo: r.repo, branch: r.sha, path: file, startLine: s, endLine: e }));
+    const row = fileRow(await call('ghGetFileContent', { owner: r.owner, repo: r.repo, ref: r.sha, path: file, ranges: [`${s}-${e}`] }));
     const got = sourceView(row).text.replace(/\n$/, '');
     if (got !== lines.slice(s - 1, e).join('\n')) bad.push(`${s}-${e}`);
     stats.rangesCompared += 1;
@@ -105,7 +105,7 @@ for (const r of Object.values(pinned)) {
   check(`${r.dir}: ${picks.length} exact ranges (first/last/single line) equal git`, bad.length === 0, bad.join(','));
   // matchString windows: each returned range is exact and every literal hit is covered.
   const needle = { rust: 'pub fn try_', c: 'serverCron', python: 'def _', go: 'func (db *DB)', typescript: 'export function is' }[r.dir];
-  const m = fileRow(await call('ghGetFileContent', { owner: r.owner, repo: r.repo, branch: r.sha, path: file, matchString: needle, matchStringCaseSensitive: true, contextLines: 0 }));
+  const m = fileRow(await call('ghGetFileContent', { owner: r.owner, repo: r.repo, ref: r.sha, path: file, matchString: needle, caseMode: 'sensitive', contextLines: 0 }));
   const hitLines = lines.map((l, i) => l.includes(needle) ? i + 1 : 0).filter(Boolean);
   const mView = sourceView(m);
   const ranges = mView.ranges;
@@ -126,7 +126,7 @@ for (const r of Object.values(pinned)) {
   let offset = 0;
   let joined = '';
   for (let guard = 0; guard < 60 && offset < text.length; guard++) {
-    const row = fileRow(await call('ghGetFileContent', { owner: r.owner, repo: r.repo, branch: r.sha, path: file, chunkType: 'bytes', offset, chunkSize: 4000 }));
+    const row = fileRow(await call('ghGetFileContent', { owner: r.owner, repo: r.repo, ref: r.sha, path: file, unit: 'bytes', offset, length: 4000 }));
     const piece = row?.content ?? '';
     if (!piece) break;
     joined += piece;
@@ -152,6 +152,15 @@ for (const r of Object.values(pinned)) {
         const hay = body.split('\n').map(l => l.trimEnd()).filter(l => l.trim()).join('\n');
         if (hay.includes(core)) snippetsFound += 1;
       }
+      // Numbered hit lines ("<line>\t<text>", a long line cut to a window
+      // marked with an ellipsis) are source text too.
+      for (const l of f.lines ?? []) {
+        const m = /^\d+\t(.*)$/s.exec(l);
+        if (!m) continue;
+        snippets += 1;
+        const text = m[1].replace(/^…|…$/g, '').trim();
+        if (body.includes(text)) snippetsFound += 1;
+      }
     }
   }
   stats.snippetsChecked += snippets;
@@ -169,7 +178,7 @@ for (const r of Object.values(pinned)) {
     const out = await search(query, tool);
     const data = rowData(out);
     pages += 1;
-    total ??= data?.pagination?.totalMatches;
+    total ??= data?.pagination?.totalItems;
     for (const f of data?.files ?? []) { const key = f.path; if (seen.has(key)) dupes += 1; seen.add(key); }
     query = data?.next?.nextPage?.query;
     tool = data?.next?.nextPage?.tool;
@@ -179,8 +188,8 @@ for (const r of Object.values(pinned)) {
 // Filters are honored on every row.
 {
   const r = pinned.rust;
-  const ext = rowData(await search({ operation: 'code', owner: r.owner, repo: r.repo, keywords: ['Semaphore'], extension: 'rs', pageSize: 20 }))?.files ?? [];
-  check('extension filter: every path ends in .rs', ext.length > 0 && ext.every(f => f.path.endsWith('.rs')), ext.filter(f => !f.path.endsWith('.rs')).map(f => f.path).join(','));
+  const ext = rowData(await search({ operation: 'code', owner: r.owner, repo: r.repo, keywords: ['Semaphore'], extensions: ['rs'], pageSize: 20 }))?.files ?? [];
+  check('extensions filter: every path ends in .rs', ext.length > 0 && ext.every(f => f.path.endsWith('.rs')), ext.filter(f => !f.path.endsWith('.rs')).map(f => f.path).join(','));
   const pre = rowData(await search({ operation: 'code', owner: r.owner, repo: r.repo, keywords: ['Semaphore'], path: 'tokio/src/sync', pageSize: 20 }))?.files ?? [];
   check('path filter: every path is under tokio/src/sync', pre.length > 0 && pre.every(f => f.path.startsWith('tokio/src/sync')), pre.filter(f => !f.path.startsWith('tokio/src/sync')).map(f => f.path).join(','));
   const fname = rowData(await search({ operation: 'code', owner: r.owner, repo: r.repo, keywords: ['impl'], filename: 'bounded.rs', pageSize: 20 }))?.files ?? [];
@@ -193,15 +202,15 @@ for (const r of Object.values(pinned)) {
   const dir = path.dirname(SOURCES[r.dir].large);
   const listed = new Set();
   let data;
-  let treeQuery = { operation: 'tree', owner: r.owner, repo: r.repo, branch: r.sha, path: dir, maxDepth: 1, pageSize: 200 };
+  let treeQuery = { operation: 'tree', owner: r.owner, repo: r.repo, ref: r.sha, path: dir, maxDepth: 1, pageSize: 200 };
   let treeTool;
   for (let page = 0; treeQuery && page < 10; page++) {
     data = rowData(await search(treeQuery, treeTool));
-    for (const node of data?.structure ?? []) {
+    for (const node of data?.entries ?? []) {
       for (const f of node.files ?? []) listed.add(node.dir === '.' ? f : `${node.dir}/${f}`);
       for (const d of node.folders ?? node.dirs ?? []) listed.add(`${node.dir === '.' ? '' : `${node.dir}/`}${d}/`);
     }
-    const pageHint = data?.pagination?.hasMore ? Object.values(data?.next ?? {}).find(n => n?.query?.page) : null;
+    const pageHint = data?.pagination?.hasMore ? Object.values(data?.next ?? {}).find(n => n?.query?.queries?.[0]?.page) : null;
     treeQuery = pageHint?.query;
     treeTool = pageHint?.tool;
   }
@@ -211,15 +220,15 @@ for (const r of Object.values(pinned)) {
   const listedFiles = [...listed].filter(n => !n.endsWith('/'));
   const missingFiles = truthFiles.filter(n => !listed.has(n));
   const extra = listedFiles.filter(n => !truth.has(n));
-  check(`${r.dir}: tree ${dir} lists exactly git's files`, missingFiles.length === 0 && extra.length === 0 && (data?.commitSha ?? data?.resolvedBranch ?? r.sha) === r.sha, `missing=${missingFiles.slice(0, 5)} extra=${extra.slice(0, 5)} resolved=${(data?.commitSha ?? data?.resolvedBranch)?.slice(0, 8)}`);
+  check(`${r.dir}: tree ${dir} lists exactly git's files`, missingFiles.length === 0 && extra.length === 0 && (data?.commitSha ?? data?.resolvedRef ?? r.sha) === r.sha, `missing=${missingFiles.slice(0, 5)} extra=${extra.slice(0, 5)} resolved=${(data?.commitSha ?? data?.resolvedRef)?.slice(0, 8)}`);
 }
 // Repository search filters (hoisted `shared` fields apply to every row).
 {
   const out = await search({ operation: 'repositories', owner: 'tokio-rs', stars: '>3000', pageSize: 10 });
   const shared = out.sc?.shared ?? {};
   const rows = (rowData(out)?.repositories ?? []).map(row => ({ ...shared, ...row }));
-  // Rows name the repository as `owner/name`.
-  check('repositories: owner and stars filters hold on every row', rows.length > 0 && rows.every(x => x.repo?.split('/')[0] === 'tokio-rs' && x.stars > 3000), rows.map(x => `${x.repo}:${x.stars}`).join(','));
+  // Rows name the repository by `owner` and `repo` (the name).
+  check('repositories: owner and stars filters hold on every row', rows.length > 0 && rows.every(x => x.owner === 'tokio-rs' && x.stars > 3000), rows.map(x => `${x.owner}/${x.repo}:${x.stars}`).join(','));
   const lang = await search({ operation: 'repositories', keywords: ['async runtime'], language: 'rust', stars: '>1000', pageSize: 10 });
   const langRows = (rowData(lang)?.repositories ?? []).map(row => ({ ...(lang.sc?.shared ?? {}), ...row }));
   check('repositories: language filter holds on every row', langRows.length > 0 && langRows.every(x => /rust/i.test(x.language ?? '')), langRows.map(x => `${x.repo}:${x.language}`).join(','));
@@ -235,33 +244,33 @@ for (const r of Object.values(pinned)) {
   check('commit: message equals git', (commit?.message ?? '').trim() === git(r.dir, 'log', '-1', '--format=%B').trim(), commit?.message?.slice(0, 80));
   check('commit: author name/email and parents equal git', commit?.author?.name === git(r.dir, 'log', '-1', '--format=%an').trim() && commit?.author?.email === git(r.dir, 'log', '-1', '--format=%ae').trim() && JSON.stringify(commit?.parents) === JSON.stringify([parent]), JSON.stringify({ a: commit?.author, p: commit?.parents }));
   // Commit file rows: `path` + `stat` ("M +3 -1"), like PR patch rows.
-  const fileRow = f => { const [, a, d] = (f?.stat ?? '').match(/\+(\d+) -(\d+)/) ?? []; return { path: f?.path ?? f?.filename, additions: a === undefined ? f?.additions : +a, deletions: d === undefined ? f?.deletions : +d }; };
+  const fileRow = f => { const [, a, d] = (f?.stat ?? '').match(/\+(\d+) -(\d+)/) ?? []; return { path: f?.path, additions: a === undefined ? f?.additions : +a, deletions: d === undefined ? f?.deletions : +d }; };
   const files = (commit?.files ?? []).map(fileRow);
   check('commit: changed files and +/- counts equal git numstat', files.length === numstat.length && numstat.every(n => files.some(f => f.path === n.f && f.additions === n.a && f.deletions === n.d)), JSON.stringify(files) + ' vs ' + JSON.stringify(numstat));
-  const withDiff = rowData(await call('ghGetHistoryItem', { operation: 'commit', owner: r.owner, repo: r.repo, ref: r.sha, includeDiff: true }));
+  const withDiff = rowData(await call('ghGetHistoryItem', { operation: 'commit', owner: r.owner, repo: r.repo, ref: r.sha, sections: ['patches'] }));
   const patchOk = numstat.every(n => {
     const f = (withDiff?.files ?? []).find(x => fileRow(x).path === n.f);
     const gitPatch = git(r.dir, 'diff', parent, 'HEAD', '--', n.f).split('\n').filter(l => /^[+-](?![+-])/.test(l));
     const toolPatch = rawPatch(f?.patch).split('\n').filter(l => /^[+-](?![+-])/.test(l));
     return f && JSON.stringify(toolPatch) === JSON.stringify(gitPatch);
   });
-  check('commit includeDiff: +/- lines equal git diff', patchOk);
+  check('commit patches: +/- lines equal git diff', patchOk);
   const compare = rowData(await call('ghGetHistoryItem', { operation: 'compare', owner: r.owner, repo: r.repo, base: parent, head: r.sha }));
   const cmpFiles = (compare?.files ?? []).map(f => fileRow(f).path);
   check('compare parent...HEAD: same files as the commit', cmpFiles.length === numstat.length && numstat.every(n => cmpFiles.includes(n.f)), cmpFiles.join(','));
   const prNumber = +(git(r.dir, 'log', '-1', '--format=%s').match(/#(\d+)\)/)?.[1] ?? 0);
   if (prNumber) {
-    const pr = rowData(await call('ghGetHistoryItem', { operation: 'pullRequest', owner: r.owner, repo: r.repo, number: prNumber, content: { changedFiles: true } }))?.pullRequests?.[0];
-    check(`PR #${prNumber}: mergeCommitSha is the pinned squash commit`, pr?.mergeCommitSha === r.sha && !pr?.hints?.getMergeCommit, `mergeCommitSha=${pr?.mergeCommitSha}`);
+    const pr = rowData(await call('ghGetHistoryItem', { operation: 'pullRequest', owner: r.owner, repo: r.repo, number: prNumber, sections: ['files'] }))?.pullRequests?.[0];
+    check(`PR #${prNumber}: mergeCommitSha is the pinned squash commit`, pr?.mergeCommitSha === r.sha && !pr?.hints?.readMergeCommit, `mergeCommitSha=${pr?.mergeCommitSha}`);
     // A squash headline `… (#N)` routes straight to hints.readPullRequest; otherwise hints.findPullRequest searches by SHA.
     const prHint = commit?.hints?.readPullRequest ?? commit?.hints?.findPullRequest;
     check(`commit ${r.sha.slice(0, 8)}: PR continuation exists`, !!prHint);
-    const found = prHint ? rowData(await raw(prHint.tool, prHint.query)) : null;
+    const found = prHint ? rowData(await client.follow(prHint)) : null;
     check(`commit ${r.sha.slice(0, 8)}: hints.readPullRequest/findPullRequest reaches PR #${prNumber}`, collect(found, o => o.number === prNumber && typeof o.title === 'string').length > 0, JSON.stringify(prHint?.query));
-    check(`PR #${prNumber}: merged, and its changed files/+/- equal the squash commit`, pr?.state === 'merged' && pr?.additions === numstat.reduce((s, n) => s + n.a, 0) && pr?.deletions === numstat.reduce((s, n) => s + n.d, 0) && numstat.every(n => inventoryRows(pr.changedFiles).some(f => f.path === n.f && f.additions === n.a && f.deletions === n.d)), JSON.stringify({ state: pr?.state, add: pr?.additions, del: pr?.deletions }));
-    const patches = rowData(await call('ghGetHistoryItem', { operation: 'pullRequest', owner: r.owner, repo: r.repo, number: prNumber, content: { patches: { mode: 'all' } } }))?.pullRequests?.[0];
+    check(`PR #${prNumber}: merged, and its changed files/+/- equal the squash commit`, pr?.state === 'merged' && pr?.additions === numstat.reduce((s, n) => s + n.a, 0) && pr?.deletions === numstat.reduce((s, n) => s + n.d, 0) && numstat.every(n => inventoryRows(pr.files).some(f => f.path === n.f && f.additions === n.a && f.deletions === n.d)), JSON.stringify({ state: pr?.state, add: pr?.additions, del: pr?.deletions }));
+    const patches = rowData(await call('ghGetHistoryItem', { operation: 'pullRequest', owner: r.owner, repo: r.repo, number: prNumber, sections: ['patches'] }))?.pullRequests?.[0];
     const prPatchOk = numstat.every(n => {
-      const f = collect(patches, o => (o.path === n.f || o.filename === n.f) && typeof o.patch === 'string')[0];
+      const f = collect(patches, o => o.path === n.f && typeof o.patch === 'string')[0];
       const gitPatch = git(r.dir, 'diff', parent, 'HEAD', '--', n.f).split('\n').filter(l => /^[+-](?![+-])/.test(l));
       return f && JSON.stringify(rawPatch(f.patch).split('\n').filter(l => /^[+-](?![+-])/.test(l))) === JSON.stringify(gitPatch);
     });
@@ -285,13 +294,13 @@ for (const r of Object.values(pinned)) {
   const ranged = rowData(await call('ghSearchHistory', { operation: 'commit', owner: r.owner, repo: r.repo, since: '2026-09-01', until: '2026-09-20', pageSize: 10 }));
   const dates = collect(ranged, o => typeof o.sha === 'string').map(o => o.date ?? o.author?.date ?? o.committer?.date ?? o.committedDate);
   check('commit search since/until: every date inside the range', dates.length > 0 && dates.every(d => d && d >= '2026-09-01' && d <= '2026-09-20T23:59:59Z'), dates.join(','));
-  const merged = rowData(await call('ghSearchHistory', { operation: 'pullRequest', owner: r.owner, repo: r.repo, state: 'merged', author: 'Darksonn', pageSize: 10 }));
+  const merged = rowData(await call('ghSearchHistory', { operation: 'pullRequest', owner: r.owner, repo: r.repo, state: 'merged', qualifiers: 'author:Darksonn', pageSize: 10 }));
   const prRows = collect(merged, o => typeof o.number === 'number' && typeof o.title === 'string');
   check('PR search state+author: every row merged and by the author', prRows.length > 0 && prRows.every(p => p.state === 'merged' && (p.author === 'Darksonn' || p.author?.login === 'Darksonn')), JSON.stringify(prRows.filter(p => !(p.state === 'merged' && (p.author === 'Darksonn' || p.author?.login === 'Darksonn'))).slice(0, 2)));
-  const labeled = rowData(await call('ghSearchHistory', { operation: 'pullRequest', owner: r.owner, repo: r.repo, label: ['M-signal'], pageSize: 10 }));
+  const labeled = rowData(await call('ghSearchHistory', { operation: 'pullRequest', owner: r.owner, repo: r.repo, qualifiers: 'label:M-signal', pageSize: 10 }));
   const lrows = collect(labeled, o => typeof o.number === 'number' && typeof o.title === 'string');
   check('PR search label: every row carries the label', lrows.length > 0 && lrows.every(p => (p.labels ?? []).map(l => l.name ?? l).includes('M-signal')), JSON.stringify(lrows.filter(p => !(p.labels ?? []).map(l => l.name ?? l).includes('M-signal')).slice(0, 2)));
-  const closed = rowData(await call('ghSearchHistory', { operation: 'issue', owner: r.owner, repo: r.repo, state: 'closed', created: '2026-01-01..2026-06-30', pageSize: 10 }));
+  const closed = rowData(await call('ghSearchHistory', { operation: 'issue', owner: r.owner, repo: r.repo, state: 'closed', qualifiers: 'created:2026-01-01..2026-06-30', pageSize: 10 }));
   const irows = collect(closed, o => typeof o.number === 'number' && typeof o.title === 'string');
   check('issue search state+created: every row closed and created in range', irows.length > 0 && irows.every(i => i.state === 'closed' && (i.createdAt ?? '') >= '2026-01-01' && (i.createdAt ?? '') <= '2026-06-30T23:59:59Z'), JSON.stringify(irows.filter(i => !(i.state === 'closed' && (i.createdAt ?? '') >= '2026-01-01' && (i.createdAt ?? '') <= '2026-06-30T23:59:59Z')).slice(0, 2)));
 }
@@ -309,32 +318,31 @@ for (const r of Object.values(pinned)) {
     const r = pinned[t.dir];
     const lines = localLines(r.dir, t.file);
     const bytes = Buffer.byteLength(local(r.dir, t.file));
-    let request = {
+    let request = { queries: [{
       mainGoal: 'Locate a declaration in an unread GitHub file',
       reasoning: 'Locate in an unread GitHub file.',
-      resources: [{ id: 'gh', context: { tool: 'ghGetFileContent', query: { reasoning: 'unread', owner: r.owner, repo: r.repo, path: t.file, branch: r.sha, fullContent: true } } }],
-      questions: [{ id: 't', questionType: 'locate', target: t.target }],
-    };
+      resources: [{ id: 'gh', tool: 'ghGetFileContent', query: { reasoning: 'unread', owner: r.owner, repo: r.repo, path: t.file, ref: r.sha, fullContent: true } }],
+      questions: [{ id: 't', type: 'locate', ask: t.target }],
+    }] };
     const windows = [];
     let host = 0, calls = 0, refs = new Set(), paths = new Set(), sources = [];
     while (request && calls < 20) {
       calls += 1;
-      const out = await raw('clasify', { queries: [request] });
+      const out = await raw('clasify', request);
       host += out.bytes;
       const q = out.sc?.queries?.[0];
       for (const res of q?.resources ?? []) for (const page of res.pages ?? []) {
         if (page.source?.ref) refs.add(page.source.ref);
         if (page.source?.path) { paths.add(page.source.path); sources.push(page.source); }
       }
-      // Compact best rows: `{lines:[start,end], exists, p}`, ranked server-side.
-      for (const b of q?.best?.t ?? []) windows.push({ startLine: b.lines[0], endLine: b.lines[1], exists: b.exists, probability: b.p });
-      const more = q?.next?.clasify;
-      request = more?.query ?? more;
+      // Best rows: `{lines:[start,end], exists, probability}`, ranked server-side.
+      for (const b of q?.best?.t ?? []) windows.push({ startLine: b.lines[0], endLine: b.lines[1], exists: b.exists, probability: b.probability });
+      request = q?.next?.clasify;
     }
     windows.sort((a, b) => b.exists - a.exists || b.probability - a.probability);
     const top = windows[0];
     const strict = !!top && lines.slice(top.startLine - 1, top.endLine).some(l => t.re.test(l));
-    const verify = top ? await call('ghGetFileContent', { owner: r.owner, repo: r.repo, branch: r.sha, path: t.file, startLine: top.startLine, endLine: top.endLine }) : null;
+    const verify = top ? await call('ghGetFileContent', { owner: r.owner, repo: r.repo, ref: r.sha, path: t.file, ranges: [`${top.startLine}-${top.endLine}`] }) : null;
     host += verify?.bytes ?? 0;
     const verified = !!verify && sourceView(fileRow(verify)).text.split('\n').some(l => t.re.test(l));
     rows.push({ file: `${r.repo}/${path.basename(t.file)}`, KB: Math.round(bytes / 1024), calls, window: top ? `${top.startLine}-${top.endLine}` : '-', exists: top?.exists, strict, verified, hostKB: (host / 1024).toFixed(1), saving: `${Math.round(100 - 100 * host / bytes)}%` });
@@ -344,12 +352,12 @@ for (const r of Object.values(pinned)) {
   console.table(rows);
   // Absent target on a remote file stays low everywhere.
   const r = pinned.rust;
-  const absent = await raw('clasify', { queries: [{ mainGoal: 'Absent target stays low', reasoning: 'absent', resources: [{ context: { tool: 'ghGetFileContent', query: { reasoning: 'x', owner: r.owner, repo: r.repo, path: 'tokio/src/sync/oneshot.rs', branch: r.sha, fullContent: true } } }], questions: [{ id: 'a', questionType: 'locate', target: 'The function that parses a YAML configuration file into nested dictionaries.' }] }] });
+  const absent = await raw('clasify', { queries: [{ mainGoal: 'Absent target stays low', reasoning: 'absent', resources: [{ tool: 'ghGetFileContent', query: { reasoning: 'x', owner: r.owner, repo: r.repo, path: 'tokio/src/sync/oneshot.rs', ref: r.sha, fullContent: true } }], questions: [{ id: 'a', type: 'locate', ask: 'The function that parses a YAML configuration file into nested dictionaries.' }] }] });
   // Compact pages answer a locate question with the bare exists value.
   const ex = (absent.sc?.queries?.[0]?.resources ?? []).flatMap(res => [res, ...(res.pages ?? [])]).map(p => p.answers?.a).filter(v => typeof v === 'number');
   check('clasify GitHub absent target: every page exists < 0.5', ex.length > 0 && Math.max(...ex) < 0.5, `max=${Math.max(...ex)}`);
   // Scout over a code search: each page is one returned file with its own source.path.
-  const scout = await raw('clasify', { queries: [{ mainGoal: 'Rank code-search files', reasoning: 'scout', resources: [{ context: { tool: 'ghSearchCode', query: { reasoning: 'x', owner: r.owner, repo: r.repo, keywords: ['try_recv'], pageSize: 5 } } }], questions: [{ id: 's', type: 'noul', instructions: 'Does this file define the public try_recv method of an mpsc receiver (not a test)?' }] }] });
+  const scout = await raw('clasify', { queries: [{ mainGoal: 'Rank code-search files', reasoning: 'scout', resources: [{ tool: 'ghSearchCode', query: { reasoning: 'x', owner: r.owner, repo: r.repo, keywords: ['try_recv'], pageSize: 5 } }], questions: [{ id: 's', type: 'yesno', ask: 'Does this file define the public try_recv method of an mpsc receiver (not a test)?' }] }] });
   // Compact scout pages: the bare P(yes) per file, with the file's path.
   const spages = collect(scout.sc, o => typeof o.answers?.s === 'number' && (o.path ?? o.source?.path)).map(p => ({ path: p.path ?? p.source.path, p: p.answers.s }));
   const topPage = spages.sort((a, b) => b.p - a.p)[0];

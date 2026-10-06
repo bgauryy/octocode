@@ -1458,7 +1458,7 @@ mod tests {
     /// `method name -> receiverType` of every call in `source`. Fixture
     /// methods under test are unique, so each lookup names exactly one call.
     fn receivers(source: &str, path: &str) -> BTreeMap<String, Vec<Option<String>>> {
-        let json = super::super::extract_graph_facts(source, path).expect("graph facts");
+        let json = super::super::tests::extract_graph_facts(source, path).expect("graph facts");
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         let mut out: BTreeMap<String, Vec<Option<String>>> = BTreeMap::new();
         for call in value["calls"].as_array().unwrap() {
@@ -1551,7 +1551,7 @@ impl Svc {
 
     #[test]
     fn callee_stays_as_written_when_a_receiver_type_is_set() {
-        let json = super::super::extract_graph_facts(
+        let json = super::super::tests::extract_graph_facts(
             "struct S { store: Store }\nimpl S { fn f(&self) { self.store.save(); } }",
             "src/lib.rs",
         )

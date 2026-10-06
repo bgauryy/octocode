@@ -1,28 +1,28 @@
 import {startServer,rowData,nextHints,checks,writeResults,inventoryRows} from './mcp-client.mjs';
 const c=await startServer();const {check,summary}=checks('review-large');const calls=[];
 const q={operation:'pullRequest',owner:'microsoft',repo:'TypeScript',number:51387};
-async function run(label,args,raw=false){const e=raw?await c.raw('ghGetHistoryItem',args):await c.call('ghGetHistoryItem',args);calls.push({...e,label,bytes:Buffer.byteLength(e.text)});check(label+' succeeds',!e.isError&&!e.rowErrors);return e}
+async function run(label,args,hint){const e=hint?await c.follow(hint):await c.call('ghGetHistoryItem',args);calls.push({...e,label,bytes:Buffer.byteLength(e.text)});check(label+' succeeds',!e.isError&&!e.rowErrors);return e}
 try {
  const m=rowData(await run('metadata',q)).pullRequests[0];
  check('fixture exceeds 100 changed files',m.changedFilesCount>100,m.changedFilesCount);
- check('metadata excludes changed-file bodies',!m.changedFiles);
- check('metadata offers file inventory',!!m.hints?.getChangedFiles);
- let e=await run('inventory page 1',{...q,content:{changedFiles:true},pageSize:100});let files=[];let pages=0;
+ check('metadata excludes changed-file bodies',!m.files);
+ check('metadata offers file inventory',!!m.hints?.readFiles);
+ let e=await run('inventory page 1',{...q,sections:['files'],pageSize:100});let files=[];let pages=0;
  for(;e&&pages<40;pages++){
   const pr=rowData(e)?.pullRequests?.[0];
-  check('page '+(pages+1)+' has file metadata',Array.isArray(pr?.changedFiles)&&pr.changedFiles.length>0);
-  check('page '+(pages+1)+' excludes patches',inventoryRows(pr?.changedFiles).every(f=>f.path&&!Object.hasOwn(f,'patch')));
+  check('page '+(pages+1)+' has file metadata',Array.isArray(pr?.files)&&pr.files.length>0);
+  check('page '+(pages+1)+' excludes patches',inventoryRows(pr?.files).every(f=>f.path&&!Object.hasOwn(f,'patch')));
   check('page '+(pages+1)+' preserves head SHA',pr?.sourceSha===m.sourceSha);
-  files.push(...inventoryRows(pr?.changedFiles));
-  const next=nextHints(e.sc).find(h=>h.path.endsWith('.next.nextChangedFilesPage'));
-  e=next?await run('inventory page '+(pages+2),next.query,true):null;
+  files.push(...inventoryRows(pr?.files));
+  const next=nextHints(e.sc).find(h=>h.path.endsWith('.next.nextFilePage'));
+  e=next?await run('inventory page '+(pages+2),null,next):null;
  }
  check('inventory terminates',!e);
  check('all changed files returned exactly once',files.length===m.changedFilesCount&&new Set(files.map(f=>f.path)).size===m.changedFilesCount,files.length);
  const chosen=files[110];
- if(chosen){const selected=rowData(await run('selected patch beyond file 100',{...q,content:{patches:{mode:'selected',files:[chosen.path]}},minify:'none'})).pullRequests[0];
- check('selection finds requested late file only',selected.changedFiles?.length===1&&selected.changedFiles[0].path===chosen.path,chosen.path);
- check('selected patch or explicit unavailability',typeof selected.changedFiles?.[0]?.patch==='string'||!!selected.changedFiles?.[0]?.patchUnavailable);
+ if(chosen){const selected=rowData(await run('selected patch beyond file 100',{...q,sections:['patches'],include:[chosen.path],minify:'none'})).pullRequests[0];
+ check('selection finds requested late file only',selected.files?.length===1&&selected.files[0].path===chosen.path,chosen.path);
+ check('selected patch or explicit unavailability',typeof selected.files?.[0]?.patch==='string'||!!selected.files?.[0]?.patchUnavailable);
  }
  const apiFiles=[];
  for(let page=1;page<=Math.ceil(m.changedFilesCount/100);page++){

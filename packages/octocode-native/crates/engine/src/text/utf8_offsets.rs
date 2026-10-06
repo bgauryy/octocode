@@ -1,27 +1,9 @@
-/// Zero-allocation UTF-8 offset helpers and content slicer.
-///
-/// All functions here walk the UTF-8 byte sequence in-place via `str::char_indices()`
-/// with no heap allocation proportional to content length.
-use crate::types::{SliceContentOptions, SliceContentResult};
+//! Zero-allocation UTF-8 offset helpers.
+//!
+//! All functions here walk the UTF-8 byte sequence in-place via `str::char_indices()`
+//! with no heap allocation proportional to content length.
 
 // ── core offset helpers ───────────────────────────────────────────────────────
-
-/// Number of UTF-8 bytes up to (not including) the `char_index`-th JavaScript
-/// UTF-16 code unit in `s`. Clamps to `s.len()` if `char_index` exceeds the string.
-pub(crate) fn char_to_byte_offset_inner(s: &str, char_index: usize) -> usize {
-    if char_index == 0 {
-        return 0;
-    }
-
-    let mut utf16_units = 0usize;
-    for (byte_idx, ch) in s.char_indices() {
-        if utf16_units >= char_index || utf16_units + ch.len_utf16() > char_index {
-            return byte_idx;
-        }
-        utf16_units += ch.len_utf16();
-    }
-    s.len() // char_index beyond string length - clamp
-}
 
 /// JavaScript UTF-16 code-unit offset corresponding to `byte_offset` bytes into `s`.
 /// Clamps to the JS string length if `byte_offset` exceeds `s.len()`.
@@ -30,20 +12,6 @@ pub(crate) fn byte_to_char_offset_inner(s: &str, byte_offset: usize) -> usize {
     // Safe: we snap to the nearest valid boundary
     let valid_offset = floor_char_boundary(s, clamped);
     utf16_len(&s[..valid_offset])
-}
-
-/// Extract a byte-range substring from `s`. Returns `""` for an out-of-range or
-/// invalid range.
-pub(crate) fn byte_slice_content_inner(s: &str, byte_start: usize, byte_end: usize) -> String {
-    if byte_start >= byte_end || byte_start >= s.len() {
-        return String::new();
-    }
-    let start = floor_char_boundary(s, byte_start.min(s.len()));
-    let end = floor_char_boundary(s, byte_end.min(s.len()));
-    if start > end {
-        return String::new();
-    }
-    s[start..end].to_owned()
 }
 
 /// Snap `byte_pos` down to the nearest valid UTF-8 character boundary in `s`
@@ -70,94 +38,6 @@ pub(crate) fn ceil_char_boundary(s: &str, i: usize) -> usize {
 
 fn utf16_len(s: &str) -> usize {
     s.chars().map(char::len_utf16).sum()
-}
-
-// ── combined slicer ───────────────────────────────────────────────────────────
-
-/// Paginate `content` starting at `char_offset` for up to `char_length` chars.
-///
-/// When `snap_to_line_boundary` is true the slice always starts at the
-/// beginning of the containing line and ends at the end of the last complete
-/// line within the window.
-pub(crate) fn slice_content_inner(
-    content: &str,
-    char_offset: usize,
-    char_length: usize,
-    options: Option<SliceContentOptions>,
-) -> SliceContentResult {
-    let snap = options
-        .as_ref()
-        .and_then(|o| o.snap_to_line_boundary)
-        .unwrap_or(false);
-
-    let total_chars = utf16_len(content);
-
-    if total_chars == 0 {
-        return SliceContentResult {
-            text: String::new(),
-            char_offset: 0,
-            char_length: 0,
-            byte_offset: 0,
-            byte_length: 0,
-            has_more: false,
-            next_char_offset: None,
-        };
-    }
-
-    let start_char = char_offset.min(total_chars);
-    let raw_end_char = (start_char + char_length).min(total_chars);
-
-    let (actual_start, actual_end) = if snap {
-        snap_to_lines(content, start_char, raw_end_char)
-    } else {
-        (start_char, raw_end_char)
-    };
-
-    let start_byte = char_to_byte_offset_inner(content, actual_start);
-    let end_byte = char_to_byte_offset_inner(content, actual_end);
-    let text = content[start_byte..end_byte].to_owned();
-    let actual_char_length = actual_end - actual_start;
-    let has_more = actual_end < total_chars;
-
-    SliceContentResult {
-        text,
-        char_offset: actual_start as u32,
-        char_length: actual_char_length as u32,
-        byte_offset: start_byte as u32,
-        byte_length: (end_byte - start_byte) as u32,
-        has_more,
-        next_char_offset: if has_more {
-            Some(actual_end as u32)
-        } else {
-            None
-        },
-    }
-}
-
-/// Snap `(start_char, end_char)` to line boundaries: push start back to line
-/// start, extend end to line end (or next line start).
-fn snap_to_lines(content: &str, start_char: usize, end_char: usize) -> (usize, usize) {
-    // Single pass over the content (no allocated line table, no second utf16_len
-    // walk): track the last line start at or before start_char, and the first
-    // line start after end_char. Offsets are JavaScript UTF-16 code units.
-    let mut char_idx = 0usize;
-    let mut actual_start = 0usize;
-    let mut actual_end: Option<usize> = None;
-    for ch in content.chars() {
-        char_idx += ch.len_utf16();
-        if ch == '\n' {
-            let line_start = char_idx; // start of the next line
-            if line_start <= start_char {
-                actual_start = line_start;
-            }
-            if actual_end.is_none() && line_start > end_char {
-                actual_end = Some(line_start);
-            }
-        }
-    }
-    // char_idx is now the total UTF-16 length: the fallback when end_char sits in
-    // the final line (no newline after it).
-    (actual_start, actual_end.unwrap_or(char_idx))
 }
 
 /// A leading byte-order mark. Editors and LSP clients hide it, so user-facing
@@ -394,24 +274,24 @@ impl<'a> LineIndex<'a> {
 mod tests {
     use super::*;
 
+    /// Number of UTF-8 bytes up to (not including) the `char_index`-th JavaScript
+    /// UTF-16 code unit in `s`. Clamps to `s.len()` if `char_index` exceeds the string.
+    pub(super) fn char_to_byte_offset_inner(s: &str, char_index: usize) -> usize {
+        if char_index == 0 {
+            return 0;
+        }
+
+        let mut utf16_units = 0usize;
+        for (byte_idx, ch) in s.char_indices() {
+            if utf16_units >= char_index || utf16_units + ch.len_utf16() > char_index {
+                return byte_idx;
+            }
+            utf16_units += ch.len_utf16();
+        }
+        s.len() // char_index beyond string length - clamp
+    }
+
     // ── char_to_byte_offset_inner ─────────────────────────────────────────────
-
-    #[test]
-    fn snap_to_lines_snaps_start_back_and_end_forward() {
-        let content = "aa\nbbb\ncccc"; // line starts at UTF-16 offsets 0, 3, 7
-        assert_eq!(snap_to_lines(content, 4, 4), (3, 7));
-        // end_char in the final line → snap end to total length (11)
-        assert_eq!(snap_to_lines(content, 8, 8), (7, 11));
-        // start at offset 0 stays at 0
-        assert_eq!(snap_to_lines(content, 0, 1), (0, 3));
-    }
-
-    #[test]
-    fn snap_to_lines_handles_multibyte() {
-        // "é\nb": é is 1 UTF-16 unit, '\n' at offset 1, line 2 starts at 2.
-        let content = "é\nbb";
-        assert_eq!(snap_to_lines(content, 2, 2), (2, 4));
-    }
 
     #[test]
     fn char_to_byte_ascii_identity() {
@@ -472,134 +352,6 @@ mod tests {
     #[test]
     fn byte_to_char_clamps_beyond_length() {
         assert_eq!(byte_to_char_offset_inner("hi", 100), 2);
-    }
-
-    // ── byte_slice_content_inner ──────────────────────────────────────────────
-
-    #[test]
-    fn byte_slice_ascii() {
-        assert_eq!(byte_slice_content_inner("hello world", 6, 11), "world");
-    }
-
-    #[test]
-    fn byte_slice_multibyte() {
-        let s = "café"; // bytes: 63 61 66 C3 A9
-        assert_eq!(byte_slice_content_inner(s, 3, 5), "é");
-    }
-
-    #[test]
-    fn byte_slice_empty_on_bad_range() {
-        assert_eq!(byte_slice_content_inner("hello", 3, 2), "");
-        assert_eq!(byte_slice_content_inner("hello", 10, 20), "");
-    }
-
-    // ── slice_content_inner ───────────────────────────────────────────────────
-
-    #[test]
-    fn slice_content_basic_window() {
-        let content = "abcdefghij";
-        let r = slice_content_inner(content, 3, 4, None);
-        assert_eq!(r.text, "defg");
-        assert_eq!(r.char_offset, 3);
-        assert_eq!(r.char_length, 4);
-        assert!(r.has_more);
-    }
-
-    #[test]
-    fn slice_content_last_page_no_more() {
-        let content = "abcde";
-        let r = slice_content_inner(content, 3, 10, None);
-        assert_eq!(r.text, "de");
-        assert!(!r.has_more);
-        assert!(r.next_char_offset.is_none());
-    }
-
-    #[test]
-    fn slice_content_snap_to_line_start() {
-        let content = "line1\nline2\nline3\n";
-        // char 3 is inside "line1", should snap back to 0
-        let r = slice_content_inner(
-            content,
-            3,
-            8,
-            Some(SliceContentOptions {
-                snap_to_line_boundary: Some(true),
-            }),
-        );
-        assert!(r.text.starts_with("line1"));
-    }
-
-    #[test]
-    fn slice_content_snap_to_line_end() {
-        let content = "line1\nline2\nline3\n";
-        // start at 0 with 4 chars → raw end mid-"line1", snap extends to end of line1
-        let r = slice_content_inner(
-            content,
-            0,
-            4,
-            Some(SliceContentOptions {
-                snap_to_line_boundary: Some(true),
-            }),
-        );
-        // "line1\n" = 6 chars, so snapped end should be at line2 start (char 6)
-        assert_eq!(r.char_offset, 0);
-        assert!(r.char_length >= 5); // at least "line1"
-    }
-
-    #[test]
-    fn slice_content_empty_input() {
-        let r = slice_content_inner("", 0, 100, None);
-        assert_eq!(r.text, "");
-        assert!(!r.has_more);
-    }
-
-    #[test]
-    fn slice_content_offset_past_eof_reports_clamped_offset() {
-        // char_offset far beyond total_chars must clamp char_offset to
-        // total_chars (not reset it to 0) and report has_more: false —
-        // otherwise callers get a bogus next_char_offset that loops back to
-        // the start of the file.
-        let content = "abcde";
-        let r = slice_content_inner(content, 1000, 10, None);
-        assert_eq!(r.text, "");
-        assert_eq!(r.char_offset, 5);
-        assert_eq!(r.char_length, 0);
-        assert!(!r.has_more);
-        assert!(r.next_char_offset.is_none());
-    }
-
-    #[test]
-    fn slice_content_zero_length_preserves_offset() {
-        // An explicit char_length:0 request mid-content must not be treated
-        // as "no offset given" — it should report has_more relative to the
-        // requested offset, not the start of the file.
-        let content = "abcdefghij";
-        let r = slice_content_inner(content, 3, 0, None);
-        assert_eq!(r.text, "");
-        assert_eq!(r.char_offset, 3);
-        assert_eq!(r.char_length, 0);
-        assert!(r.has_more);
-        assert_eq!(r.next_char_offset, Some(3));
-    }
-
-    #[test]
-    fn slice_content_multibyte_chars() {
-        let content = "café world";
-        let r = slice_content_inner(content, 0, 4, None);
-        assert_eq!(r.text, "café");
-        assert_eq!(r.char_length, 4);
-        assert_eq!(r.byte_length, 5); // é = 2 bytes
-    }
-
-    #[test]
-    fn slice_content_uses_javascript_utf16_indices() {
-        let content = "a🌍b";
-        let r = slice_content_inner(content, 0, 3, None);
-        assert_eq!(r.text, "a🌍");
-        assert_eq!(r.char_length, 3);
-        assert_eq!(r.byte_length, 5);
-        assert!(r.has_more);
-        assert_eq!(r.next_char_offset, Some(3));
     }
 
     #[test]
@@ -778,6 +530,7 @@ mod tests {
 
 #[cfg(test)]
 mod proptests {
+    use super::tests::char_to_byte_offset_inner;
     use super::*;
     use proptest::prelude::*;
 
@@ -871,23 +624,6 @@ mod proptests {
             }
         }
 
-        #[test]
-        fn slice_content_pagination_is_lossless(
-            content in content_strategy(),
-            page in 1usize..16,
-        ) {
-            let mut assembled = String::new();
-            let mut offset = 0usize;
-            loop {
-                let slice = slice_content_inner(&content, offset, page, None);
-                assembled.push_str(&slice.text);
-                match slice.next_char_offset {
-                    Some(next) => offset = next as usize,
-                    None => break,
-                }
-            }
-            prop_assert_eq!(assembled, content);
-        }
     }
 }
 

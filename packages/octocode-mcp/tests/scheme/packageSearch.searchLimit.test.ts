@@ -22,7 +22,7 @@ describe('artifactSearch schema', () => {
     });
     expect(() =>
       parsedQuery({ type: 'npm', packageName: 'lodash', page: 2 })
-    ).toThrow(/Unrecognized key/);
+    ).toThrow(/Remove 'page': it applies only with keywords/);
   });
 
   it('accepts pagination for keyword discovery', () => {
@@ -30,10 +30,10 @@ describe('artifactSearch schema', () => {
       parsedQuery({
         type: 'npm',
         keywords: ['schema', 'validation'],
-        cursor: 'opaque',
+        page: 2,
         pageSize: 25,
       })
-    ).toMatchObject({ cursor: 'opaque', pageSize: 25 });
+    ).toMatchObject({ page: 2, pageSize: 25 });
   });
 
   it('does not expose itemsPerPage, searchLimit, limit, or verbose', () => {
@@ -106,7 +106,7 @@ describe('artifactSearch schema', () => {
   });
 
   it('rejects discovery pagination on exact lookup', () => {
-    for (const pagination of [{ cursor: 'opaque' }, { pageSize: 10 }]) {
+    for (const pagination of [{ page: 2 }, { pageSize: 10 }]) {
       expect(() =>
         parsedQuery({ type: 'npm', packageName: 'react', ...pagination })
       ).toThrow();

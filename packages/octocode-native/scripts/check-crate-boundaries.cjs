@@ -18,15 +18,11 @@ function checkBoundaries(packages) {
     if (!pkg) { failures.push(`missing workspace crate ${name}`); continue; }
     if (!Array.isArray(pkg.publish) || pkg.publish.length !== 0) failures.push(`${name} must set publish = false`);
     for (const dependency of pkg.dependencies) {
-      if (dependency.name === 'octocode-engine' &&
-          (dependency.uses_default_features || dependency.features.some(feature => feature === 'napi-addon' || feature === 'napi-test'))) {
-        failures.push(`${name} must consume the engine without its Node addon features`);
-      }
       if (crates.has(dependency.name) && !dependencies.includes(dependency.name)) {
         failures.push(`${name} must not depend on ${dependency.name}`);
       }
-      if (name === 'octocode-native' && /^napi(?:-|$)/.test(dependency.name)) {
-        failures.push('runtime must not depend on N-API');
+      if ((name === 'octocode-native' || name === 'octocode-engine') && /^napi(?:-|$)/.test(dependency.name)) {
+        failures.push(`${name} must not depend on N-API`);
       }
       if (name === 'octocode-github' && /^(?:napi(?:-|$)|octocode-(?:native|engine|config)$)|keyring|^config$/.test(dependency.name)) {
         failures.push(`GitHub protocol crate must not depend on ${dependency.name}`);

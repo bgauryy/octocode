@@ -1,0 +1,3272 @@
+{
+  "commands": [
+    {
+      "name": "join",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Unique among live repository peers; a taken name gets the first free -2, -3 suffix (see the returned name)."
+          },
+          "vendor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Host vendor owning this identity."
+          },
+          "vendorSession": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Exact host session ID bound to this identity."
+          },
+          "task": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Current task visible to peers."
+          },
+          "status": {
+            "enum": [
+              "available",
+              "busy",
+              "blocked",
+              "unknown"
+            ],
+            "description": "Current presence status visible to peers."
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256,
+            "description": "Git branch associated with this entry."
+          }
+        },
+        "required": [
+          "name",
+          "vendor"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Register identity; reuse supplied ID. Presence lasts 60s: listen or heartbeat every 15s.",
+      "usage": "join [json] --workspace <path> [--database <file>]",
+      "cliFlags": [
+        "workspace",
+        "database"
+      ]
+    },
+    {
+      "name": "heartbeat",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vendorSession": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Native session ID; use attach to change an existing receiver."
+          },
+          "task": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Current task visible to peers."
+          },
+          "status": {
+            "enum": [
+              "available",
+              "busy",
+              "blocked",
+              "unknown"
+            ],
+            "description": "Current presence status visible to peers."
+          },
+          "ttlMs": {
+            "type": "integer",
+            "minimum": 60000,
+            "maximum": 600000,
+            "description": "Presence lifetime in ms (default 60000, max 10 min, the lease cap). Raw CLI agents set it to cover their longest turn."
+          },
+          "renewLeases": {
+            "type": "boolean",
+            "description": "Extend currently live owned leases to at least the presence lifetime; never revive expired leases. Raw CLI identities and host-managed owners both use it."
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256,
+            "description": "Git branch associated with this entry."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Rename; rejected while a live peer uses it."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Renew live presence (60s, or ttlMs up to 10 min); optionally update task/status. renewLeases extends live owned leases; expired identities need resume and fresh leases.",
+      "usage": "heartbeat [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "set_status",
+      "description": "Update the bound agent's task/status; no presence renewal.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "task": {
+            "type": "string",
+            "maxLength": 256,
+            "description": "Current task visible to peers."
+          },
+          "status": {
+            "enum": [
+              "available",
+              "busy",
+              "blocked",
+              "unknown"
+            ],
+            "description": "Current presence status visible to peers."
+          }
+        },
+        "minProperties": 1,
+        "additionalProperties": false
+      },
+      "usage": "set_status [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "resume",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vendor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Host vendor owning this identity."
+          }
+        },
+        "required": [
+          "vendor"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Resume expired same-vendor identity, deleting old leases; lock fresh before edits. Live sessions cannot be taken over.",
+      "usage": "resume [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "leave",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "description": "Expire your session and release its leases and delivery claims.",
+      "usage": "leave [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "prune",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "description": "Remove one batch of expired leases in this workspace; follow next. History is kept.",
+      "usage": "prune [json] --workspace <path> [--database <file>]",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "peers",
+      "description": "List live peers with exact IDs, worktrees, branches, tasks and status. Follow next.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": "string",
+            "description": "Exclusive continuation cursor copied from next.input; keep the same filters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "peers [json] --workspace <path> [--database <file>]",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "send_message",
+      "description": "Send to one recipient or topic. Direct: action, reply required. Fanout: passive, no reply. Replies use complete.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Peer name or exact ID"
+          },
+          "topic": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Subscribed topic; mutually exclusive with to."
+          },
+          "body": {
+            "$ref": "#/$defs/body"
+          },
+          "key": {
+            "$ref": "#/$defs/key"
+          },
+          "ttlMs": {
+            "$ref": "#/$defs/ttlMs"
+          },
+          "reasoning": {
+            "$ref": "#/$defs/reasoning"
+          },
+          "wake": {
+            "$ref": "#/$defs/wake"
+          },
+          "conversationId": {
+            "$ref": "#/$defs/conversationId"
+          },
+          "replyRequired": {
+            "type": "boolean",
+            "description": "Require a durable reply before completion."
+          }
+        },
+        "required": [
+          "body",
+          "reasoning"
+        ],
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "to"
+            ]
+          },
+          {
+            "required": [
+              "topic"
+            ]
+          }
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "send_message [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "notify_all",
+      "description": "Broadcast to live repository peers excluding sender. Defaults to passive/no reply; no backfill.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "$ref": "#/$defs/body"
+          },
+          "key": {
+            "$ref": "#/$defs/key"
+          },
+          "ttlMs": {
+            "$ref": "#/$defs/ttlMs"
+          },
+          "reasoning": {
+            "$ref": "#/$defs/reasoning"
+          },
+          "wake": {
+            "$ref": "#/$defs/wake"
+          },
+          "conversationId": {
+            "$ref": "#/$defs/conversationId"
+          },
+          "replyRequired": {
+            "type": "boolean",
+            "description": "Require a durable reply before completion."
+          }
+        },
+        "required": [
+          "body",
+          "reasoning"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "notify_all <json> --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "inbox",
+      "description": "Read pending mail by optional message ID; does not handle it. Follow next.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Exclusive continuation cursor copied from next.input; keep the same filters."
+          },
+          "message": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Exact message ID."
+          }
+        },
+        "additionalProperties": false,
+        "not": {
+          "required": [
+            "after",
+            "message"
+          ]
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "inbox [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "complete",
+      "description": "Complete requests with message+reply; handled FYIs with message/messages only. Keep unfinished work pending; retry unchanged.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "description": "Exact message ID."
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "exclusiveMinimum": 0
+            },
+            "minItems": 1,
+            "maxItems": 100,
+            "uniqueItems": true,
+            "description": "Message IDs to complete without a reply."
+          },
+          "reply": {
+            "$ref": "#/$defs/body"
+          },
+          "reasoning": {
+            "$ref": "#/$defs/reasoning",
+            "description": "For a reply only; normally omit. Forbidden for silent completion."
+          }
+        },
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "required": [
+              "message"
+            ]
+          },
+          {
+            "required": [
+              "messages"
+            ]
+          }
+        ],
+        "dependentRequired": {
+          "reply": [
+            "message"
+          ],
+          "reasoning": [
+            "reply"
+          ]
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "complete <json> --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "subscribe",
+      "description": "Replace this agent's topics; [] unsubscribes.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "topics": {
+            "$ref": "#/$defs/topics"
+          }
+        },
+        "required": [
+          "topics"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "subscribe [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "lock",
+      "description": "Reserve file/tree; only ok:true grants it. wait:true queues and wakes you with the lease.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Path within the repository; export paths must be absolute."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "tree"
+            ],
+            "description": "File or whole directory tree scope."
+          },
+          "ttlMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 600000,
+            "description": "Lifetime in milliseconds; renew before expiry."
+          },
+          "reasoning": {
+            "$ref": "#/$defs/reasoning"
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Wait for conflicting leases instead of failing immediately."
+          }
+        },
+        "required": [
+          "path",
+          "reasoning"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "lock [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "renew",
+      "description": "Renew a live owned lease. Reacquire before editing if false.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "leaseId": {
+            "$ref": "#/$defs/leaseId"
+          },
+          "ttlMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 600000,
+            "description": "Lifetime in milliseconds; renew before expiry."
+          }
+        },
+        "required": [
+          "leaseId"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "renew [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "unlock",
+      "description": "Release one live owned lease.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "leaseId": {
+            "$ref": "#/$defs/leaseId"
+          }
+        },
+        "required": [
+          "leaseId"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "unlock [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "db info",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "description": "Inspect the resolved path and compatibility without creating a database.",
+      "usage": "db info [--database <file>] [--workspace <path>]",
+      "cliFlags": [
+        "workspace",
+        "database"
+      ]
+    },
+    {
+      "name": "db protocol",
+      "description": "SQLite-only client protocol and DDL, for other adapters. Opens no database.",
+      "usage": "db protocol",
+      "cliFlags": [
+        "workspace",
+        "database"
+      ]
+    },
+    {
+      "name": "inbox wait",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "timeoutMs": {
+            "default": 30000,
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 60000,
+            "description": "Maximum wait in milliseconds."
+          },
+          "after": {
+            "default": 0,
+            "type": "integer",
+            "minimum": 0,
+            "description": "Exclusive continuation cursor copied from next.input; keep the same filters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "description": "Wait for inbox messages or timeout, without acknowledging. Explicit recovery only.",
+      "usage": "inbox wait [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "mcp",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "description": "Bound stdio tools. --managed owns raw presence/cleanup; plain mode uses host lifecycle. --tools limits exposed tools.",
+      "usage": "mcp --workspace <path> [--database <file>] [--tools <names>] [--managed --vendor <host>] [--name <name> | --session <id>]",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session",
+        "managed",
+        "vendor",
+        "name",
+        "tools"
+      ],
+      "cliSchema": {
+        "oneOf": [
+          {
+            "properties": {
+              "managed": {
+                "const": false
+              }
+            },
+            "required": [
+              "session"
+            ],
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "name"
+                  ]
+                },
+                {
+                  "required": [
+                    "vendor"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "properties": {
+              "managed": {
+                "const": true
+              }
+            },
+            "required": [
+              "managed",
+              "vendor"
+            ],
+            "oneOf": [
+              {
+                "required": [
+                  "name"
+                ],
+                "not": {
+                  "required": [
+                    "session"
+                  ]
+                }
+              },
+              {
+                "required": [
+                  "session"
+                ],
+                "not": {
+                  "required": [
+                    "name"
+                  ]
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "run",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "vendor": {
+            "type": "string",
+            "enum": [
+              "codex",
+              "claude",
+              "pi"
+            ],
+            "description": "Host vendor owning this identity."
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Host model identifier."
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Stable agent or document name."
+          },
+          "prompt": {
+            "type": "string",
+            "minLength": 1,
+            "description": "User task starting the managed worker."
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 86400000,
+            "description": "Maximum lifetime in milliseconds."
+          },
+          "trace": {
+            "type": "boolean",
+            "description": "Emit protocol trace diagnostics."
+          }
+        },
+        "required": [
+          "vendor",
+          "model",
+          "prompt"
+        ],
+        "additionalProperties": false
+      },
+      "description": "Start managed Codex/Claude/Pi on request; host owns presence/delivery. --session resumes same-vendor expiry unless delivery is staged. Existing conversations: attach. Pi needs Node/model. --tools selects tools.",
+      "usage": "run --vendor codex|claude|pi --model <model> --prompt <task> [--name <name>] [--duration-ms <ms>] [--trace] --workspace <path> [--database <file>] [--session <expired-id>] [--tools <comma-separated-tool-names>]",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session",
+        "vendor",
+        "model",
+        "name",
+        "prompt",
+        "duration-ms",
+        "trace",
+        "tools"
+      ]
+    },
+    {
+      "name": "skill",
+      "description": "Read the companion skill; --vendor <host> returns its body without install frontmatter.",
+      "usage": "skill",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "vendor"
+      ]
+    },
+    {
+      "name": "schema",
+      "description": "Discover commands, tools or record types without opening a database; schema types --compact gives every field, schema type <name> gives its schema and example.",
+      "usage": "schema [<command> | types [--compact] | type <name> | tools]",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "compact",
+        "tools"
+      ]
+    },
+    {
+      "name": "attach",
+      "description": "Bind existing receiver: raw; claude/grok same-user socket; codex owning loopback WebSocket/Unix socket; opencode idle workspace and loopback HTTP. OpenCode auth: listener env OPENCODE_SERVER_PASSWORD, OPENCODE_SERVER_USERNAME, OCTOCODE_OPENCODE_AUTH_ENDPOINT. Grok needs ACP bridge.",
+      "usage": "attach [json] --session <id>",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "transport": {
+            "enum": [
+              "raw",
+              "claude",
+              "codex",
+              "opencode",
+              "grok"
+            ],
+            "description": "Attached host transport."
+          },
+          "endpoint": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Host endpoint used for attached delivery."
+          },
+          "vendorSession": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Exact host session ID bound to this identity."
+          }
+        },
+        "required": [
+          "transport"
+        ],
+        "additionalProperties": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "dispatch",
+      "description": "Submit one DB batch to the attached native receiver. Codex/OpenCode defer busy recipients. Submission is not handling; attempts never replay automatically.",
+      "usage": "dispatch [json] --session <id>",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "hook",
+      "description": "Offer new host context; refresh presence. Formats: text (empty if idle), json (SDK), claude (UserPromptSubmit). Complete handled IDs; inspect failed delivery before retry.",
+      "usage": "hook [json] --session <id>",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "enum": [
+              "text",
+              "json",
+              "claude"
+            ],
+            "description": "Host hook output format."
+          },
+          "deferConfirm": {
+            "type": "boolean",
+            "description": "Acknowledge only after the host confirms submission."
+          },
+          "consumer": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Stable host lifecycle owner for inspecting staged delivery receipts."
+          },
+          "managed": {
+            "type": "boolean",
+            "description": "Host-managed lifecycle: renew presence and live leases without resuming expired identity."
+          }
+        },
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "deferConfirm": {
+                  "const": true,
+                  "description": "Acknowledge only after the host confirms submission."
+                }
+              },
+              "required": [
+                "deferConfirm"
+              ]
+            },
+            "then": {
+              "properties": {
+                "format": {
+                  "const": "json",
+                  "description": "Host hook output format."
+                }
+              },
+              "required": [
+                "format"
+              ]
+            }
+          }
+        ]
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "listen",
+      "description": "Maintain presence and dispatch native mail; raw uses hooks. No model calls or lease renewal.",
+      "usage": "listen --session <id> --workspace <path> [--database <file>] [--duration-ms <ms>]",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session",
+        "duration-ms"
+      ]
+    },
+    {
+      "name": "retry_delivery",
+      "description": "Reoffer one of your unacknowledged messages after inspecting its prior attempt; may duplicate an uncertain write. reason is audited.",
+      "usage": "retry_delivery [json] --session <id>",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Exact message ID."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Reason for retrying delivery."
+          }
+        },
+        "required": [
+          "message",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "record_usage",
+      "description": "Record host token counters once per key, without text. scope: request, turn or cumulative (never sum cumulative). Missing means unknown, not zero.",
+      "usage": "record_usage [json] --session <id>",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Stable idempotency key; reuse only for unchanged input."
+          },
+          "scope": {
+            "enum": [
+              "request",
+              "turn",
+              "cumulative"
+            ],
+            "description": "Usage accounting scope."
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Host model identifier."
+          },
+          "inputTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Consumed input tokens."
+          },
+          "outputTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Produced output tokens."
+          },
+          "cachedInputTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Input tokens served from cache."
+          },
+          "contextTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Tokens currently in model context."
+          },
+          "cacheWriteTokens": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Tokens written to cache."
+          }
+        },
+        "required": [
+          "key",
+          "scope"
+        ],
+        "additionalProperties": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "confirm_delivery",
+      "description": "SDK context receipt: exact IDs and dispatch tokens required. Rejects stale tokens; work stays pending.",
+      "usage": "confirm_delivery [json] --session <id>",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 16,
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "Exact delivery item identifier."
+                },
+                "dispatchToken": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Exact dispatch token returned by the delivery operation."
+                }
+              },
+              "required": [
+                "id",
+                "dispatchToken"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Exact delivery items and tokens returned by dispatch."
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "host-hook",
+      "description": "Claude/Codex/Cursor/Grok stdin lifecycle JSON. Bind identity at session start; offer mail on supported post-tool events. Fails open; configure a timeout.",
+      "usage": "host-hook --vendor claude|codex|cursor|grok --workspace <path> [--database <file>]",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "vendor",
+        "session"
+      ],
+      "cliSchema": {
+        "required": [
+          "vendor"
+        ],
+        "properties": {
+          "vendor": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex",
+              "cursor",
+              "grok"
+            ],
+            "description": "Host receiving the hook configuration."
+          }
+        }
+      }
+    },
+    {
+      "name": "host-config",
+      "description": "Preview Claude/Codex/Cursor/Grok messaging hook config with 10s timeouts; writes no settings or DB. Merge into the documented host location; separate edit guards are optional.",
+      "usage": "host-config --vendor claude|codex|cursor|grok --workspace <path> [--database <file>]",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "vendor",
+        "session"
+      ],
+      "cliSchema": {
+        "required": [
+          "vendor"
+        ],
+        "properties": {
+          "vendor": {
+            "type": "string",
+            "enum": [
+              "claude",
+              "codex",
+              "cursor",
+              "grok"
+            ],
+            "description": "Host receiving the hook configuration."
+          }
+        }
+      }
+    },
+    {
+      "name": "lock_many",
+      "description": "Reserve all paths atomically; conflict grants none. wait:true queues.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "paths": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/$defs/pathTarget"
+            },
+            "description": "Path targets to check or lease as one operation."
+          },
+          "ttlMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 600000,
+            "description": "Lifetime in milliseconds; renew before expiry."
+          },
+          "reasoning": {
+            "$ref": "#/$defs/reasoning"
+          },
+          "wait": {
+            "type": "boolean",
+            "description": "Wait for conflicting leases instead of failing immediately."
+          }
+        },
+        "required": [
+          "paths",
+          "reasoning"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "lock_many [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "share_document",
+      "description": "Publish immutable UTF-8 evidence with hash and optional context. Retry unchanged; revisions need a new name.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "description": "Stable agent or document name."
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 1048576,
+            "description": "Complete UTF-8 evidence document."
+          },
+          "context": {
+            "type": "object",
+            "properties": {
+              "summary": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 320,
+                "description": "Short context summary for discovery."
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "default": ".",
+                "description": "Path within the repository; export paths must be absolute."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "tree"
+                ],
+                "default": "tree",
+                "description": "File or whole directory tree scope."
+              },
+              "branch": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255,
+                "description": "Git branch associated with this entry."
+              },
+              "ttlMs": {
+                "type": "integer",
+                "minimum": 1000,
+                "maximum": 604800000,
+                "default": 86400000,
+                "description": "Lifetime in milliseconds; renew before expiry."
+              }
+            },
+            "required": [
+              "summary"
+            ],
+            "additionalProperties": false,
+            "description": "Optional discovery context for the evidence document."
+          },
+          "reasoning": {
+            "$ref": "#/$defs/reasoning"
+          }
+        },
+        "required": [
+          "name",
+          "content",
+          "reasoning"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "share_document <json|-> --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "read_document",
+      "description": "Read an exact name and verify its hash. Use workspace for historical name collisions. Follow next.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "description": "Stable agent or document name."
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1048576,
+            "description": "Byte offset copied from next.input."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 4,
+            "maximum": 16384,
+            "description": "Maximum items or bytes per page; follow next for remaining evidence."
+          },
+          "workspace": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Origin checkout for name collisions; same repository."
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "read_document <json|-> --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "context",
+      "description": "Find live notes by path/branch. Follow next, including empty pages.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "default": ".",
+            "description": "Path within the repository; export paths must be absolute."
+          },
+          "branch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "description": "Git branch associated with this entry."
+          },
+          "after": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Exclusive continuation cursor copied from next.input; keep the same filters."
+          },
+          "through": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Inclusive snapshot upper bound copied from next.input."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 20,
+            "default": 10,
+            "description": "Maximum items or bytes per page; follow next for remaining evidence."
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "context [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "activity",
+      "description": "Read Git history/changes with coverage and paging; changes grant no ownership.",
+      "usage": "activity [json] --workspace <path>",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "view": {
+            "type": "string",
+            "enum": [
+              "files",
+              "commits",
+              "reflog"
+            ],
+            "default": "files",
+            "description": "Git activity view to read."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 20,
+            "description": "Maximum items or bytes per page; follow next for remaining evidence."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Path within the repository; export paths must be absolute."
+          },
+          "pathRegex": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512,
+            "description": "Regular expression filtering repository paths."
+          },
+          "sinceMs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Inclusive lower timestamp in epoch milliseconds; excludes withinMs."
+          },
+          "untilMs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Inclusive upper timestamp in epoch milliseconds."
+          },
+          "withinMs": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31536000000,
+            "description": "Look back this many milliseconds; excludes sinceMs."
+          },
+          "scanLimit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2000,
+            "default": 200,
+            "description": "Maximum scanned entries per page; continue for remaining coverage."
+          },
+          "after": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1000000,
+            "description": "Exclusive continuation cursor copied from next.input; keep the same filters."
+          },
+          "snapshot": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "Snapshot fingerprint copied from next.input."
+          }
+        },
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "not": {
+              "required": [
+                "sinceMs",
+                "withinMs"
+              ]
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "after"
+              ]
+            },
+            "then": {
+              "required": [
+                "snapshot"
+              ]
+            }
+          }
+        ]
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "check_paths",
+      "description": "Read live advisory write conflicts without acquiring leases. Follow next.command/input for every conflict, in lease ID order. ok describes the whole query at checkedAt, including conflicts before after; a clear result grants no ownership.",
+      "usage": "check_paths <json> --session <id> --workspace <path>",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "paths": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 128,
+            "items": {
+              "$ref": "#/$defs/pathTarget"
+            },
+            "description": "Path targets to check or lease as one operation."
+          },
+          "after": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Exclusive lease ID cursor from next.input; each page reads current live conflicts."
+          }
+        },
+        "required": [
+          "paths"
+        ],
+        "additionalProperties": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "check_write",
+      "description": "Read-only file preflight: active session needs live leases for edits, creates, deletes and both rename paths. Uses {path,kind?} entries; kind defaults to file and trees are rejected. Advisory only.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "paths": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 32,
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/$defs/pathTarget"
+                },
+                {
+                  "properties": {
+                    "kind": {
+                      "const": "file",
+                      "description": "File or whole directory tree scope."
+                    }
+                  }
+                }
+              ]
+            },
+            "description": "Path targets to check or lease as one operation."
+          },
+          "vendorSession": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Optional host session ID; must match the bound identity."
+          }
+        },
+        "required": [
+          "paths"
+        ],
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "check_write <json> --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "db export",
+      "description": "Verified SQLite/WAL snapshot to a new absolute path; no overwrite or symlinks. Document files are excluded.",
+      "usage": "db export {\"path\":\"/absolute/new.sqlite\"} --database <source>",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Path within the repository; export paths must be absolute."
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database"
+      ]
+    },
+    {
+      "name": "db retention",
+      "description": "Read-only page of retention counts across workspaces: unresolved and settled messages expired before a cutoff (default 30 days). Deletes nothing.",
+      "usage": "db retention [json] [--database <file>]",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "before": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Inclusive expiry cutoff, epoch ms ≤ now; keep across pages."
+          },
+          "afterId": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "From next.input."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000,
+            "default": 100,
+            "description": "Maximum items or bytes per page; follow next for remaining evidence."
+          }
+        },
+        "additionalProperties": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database"
+      ]
+    },
+    {
+      "name": "db compact",
+      "description": "SQLite VACUUM; keeps every record. Needs disk space and may fail on a busy writer; never run in a hook.",
+      "usage": "db compact [json] [--database <file>]",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database"
+      ]
+    },
+    {
+      "name": "schema tools",
+      "description": "Tool descriptors in canonical order, optionally narrowed with --tools.",
+      "usage": "schema tools [--tools messaging|review|editing|<names>]",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "tools"
+      ]
+    },
+    {
+      "name": "health",
+      "description": "Read-only delivery diagnostics; no retries/completion. Clear means no observed issue. Operator use; follow next.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "staleAfterMs": {
+            "type": "integer",
+            "minimum": 1000,
+            "maximum": 86400000,
+            "description": "Age in milliseconds after which delivery is stale."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "Maximum items or bytes per page; follow next for remaining evidence."
+          },
+          "after": {
+            "type": "object",
+            "properties": {
+              "message": {
+                "type": "integer",
+                "minimum": 1,
+                "description": "Exact message ID."
+              },
+              "recipient": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256,
+                "description": "Exact recipient identity."
+              }
+            },
+            "required": [
+              "message",
+              "recipient"
+            ],
+            "additionalProperties": false,
+            "description": "Exclusive continuation cursor copied from next.input; keep the same filters."
+          }
+        },
+        "additionalProperties": false
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "usage": "health [json] --workspace <path> [--database <file>]",
+      "cliFlags": [
+        "workspace",
+        "database"
+      ]
+    },
+    {
+      "name": "completion-check",
+      "description": "Opt-in Claude/Pi completion check: read-only check of submitted, unacknowledged IDs; one recovery turn. Pass --session/--workspace/--database explicitly; stdin is hook JSON.",
+      "usage": "completion-check - --session <id> --workspace <repo> --database <db>",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "hook_event_name": {
+            "type": "string",
+            "description": "Host hook event name."
+          },
+          "stop_hook_active": {
+            "type": "boolean",
+            "description": "Whether completion recovery is already active."
+          },
+          "session_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Host session ID from the hook event."
+          },
+          "cwd": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Host working directory from the hook event."
+          }
+        },
+        "required": [
+          "hook_event_name",
+          "session_id",
+          "cwd"
+        ],
+        "additionalProperties": true
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "locks",
+      "description": "List leases by presence/owner/path overlap. Follow next.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": "string",
+            "description": "Exclusive continuation cursor copied from next.input; keep the same filters."
+          },
+          "presence": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expired",
+              "all"
+            ],
+            "description": "Presence filter for leases."
+          },
+          "owner": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Exact owner ID or unambiguous name."
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Path within the repository; export paths must be absolute."
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "file",
+              "tree"
+            ],
+            "description": "File or whole directory tree scope."
+          }
+        },
+        "additionalProperties": false
+      },
+      "usage": "locks [json] --session <id>",
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "view",
+      "usage": "view [json]",
+      "description": "Read-only dashboard; no session. Use --workspace/--database. Stop: Ctrl+C.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "port": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 65535,
+            "description": "Loopback port; 0 (default) selects a free port."
+          },
+          "open": {
+            "type": "boolean",
+            "description": "Open browser (default true); false prints URL."
+          }
+        },
+        "additionalProperties": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database"
+      ]
+    },
+    {
+      "name": "fetch",
+      "description": "Fetch typed repository history with filters/search and origins. Mail is participant-only; incoming reads pending mail. Follow next.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "recordId": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "Exact record ID to read."
+          },
+          "type": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "description": "Record type to read or append."
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "minItems": 1,
+            "maxItems": 32,
+            "uniqueItems": true,
+            "description": "Record types to include; excludes type."
+          },
+          "from": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Exact sender identity filter."
+          },
+          "to": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Exact peer ID or unambiguous name; mutually exclusive with topic."
+          },
+          "branch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Git branch associated with this entry."
+          },
+          "since": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Inclusive lower timestamp in epoch milliseconds."
+          },
+          "until": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Inclusive upper timestamp in epoch milliseconds."
+          },
+          "after": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Exclusive continuation cursor copied from next.input; keep the same filters."
+          },
+          "through": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Inclusive snapshot upper bound copied from next.input."
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 100,
+            "description": "Maximum items or bytes per page; follow next for remaining evidence."
+          },
+          "incoming": {
+            "type": "boolean",
+            "description": "Read pending incoming participant mail."
+          },
+          "search": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Literal text to find in record data."
+          },
+          "where": {
+            "type": "object",
+            "maxProperties": 8,
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "null"
+              ]
+            },
+            "description": "Exact scalar data-field filters combined with AND."
+          },
+          "current": {
+            "type": "boolean",
+            "description": "Latest dispatch state/token per recipient/message."
+          }
+        },
+        "additionalProperties": false,
+        "not": {
+          "required": [
+            "type",
+            "types"
+          ]
+        }
+      },
+      "usage": "fetch [json] --session <id>",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "record",
+      "description": "Append memory/event JSON with bound identity/time. Other types use dedicated writers.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "memory",
+              "event"
+            ],
+            "description": "Record type to read or append."
+          },
+          "to": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "description": "Peer name or exact ID"
+          },
+          "branch": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 256,
+            "description": "Git branch associated with this entry."
+          },
+          "data": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Typed record data; inspect schema type for the selected type."
+          },
+          "key": {
+            "$ref": "#/$defs/key"
+          }
+        },
+        "required": [
+          "type",
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "usage": "record [json] --session <id>",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "db migrate",
+      "description": "Explicitly migrate a recognized v1/v2/v3/v4 store to v5 after stopping old clients. Requires an absolute new backup path; verifies a no-clobber snapshot before any schema change, preserves all history and rolls back errors.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "backup": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "description": "Absolute new backup path; existing files are never overwritten."
+          }
+        },
+        "required": [
+          "backup"
+        ],
+        "additionalProperties": false
+      },
+      "usage": "db migrate [json]",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    },
+    {
+      "name": "binding",
+      "description": "Inspect the bound host identity and current presence/branch without renewal; adapter preflight only, not a history query.",
+      "usage": "binding --session <id>",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "cliFlags": [
+        "workspace",
+        "database",
+        "session"
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "peers",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "set_status",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "send_message",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "notify_all",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "inbox",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "complete",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "subscribe",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "lock",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "renew",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "unlock",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "lock_many",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "share_document",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "read_document",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "activity",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "context",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "locks",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "fetch",
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "record",
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "openWorldHint": false
+      }
+    }
+  ],
+  "$defs": {
+    "body": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 16384,
+      "description": "Complete message text delivered durably."
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "description": "Stable idempotency key; reuse only for unchanged input."
+    },
+    "ttlMs": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 86400000,
+      "description": "Lifetime in milliseconds; renew before expiry."
+    },
+    "reasoning": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "\\S",
+      "description": "Intent; at most 512 UTF-8 bytes."
+    },
+    "wake": {
+      "enum": [
+        "action",
+        "passive"
+      ],
+      "description": "action wakes a worker; passive supplies context without a new turn."
+    },
+    "conversationId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^[A-Za-z0-9._:-]+$",
+      "description": "Shared conversation identifier for related messages."
+    },
+    "topics": {
+      "maxItems": 32,
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "description": "Subscribed topics."
+    },
+    "leaseId": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991,
+      "description": "Exact owned lease ID."
+    },
+    "presence": {
+      "default": "active",
+      "type": "string",
+      "enum": [
+        "active",
+        "expired",
+        "all"
+      ],
+      "description": "Filter active, expired, or all presence."
+    },
+    "pathTarget": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Workspace-relative file/tree; default workspace root."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "file",
+            "tree"
+          ],
+          "default": "file",
+          "description": "File or whole directory tree scope."
+        }
+      },
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false,
+      "description": "Repository path and file/tree scope."
+    },
+    "coordinateData": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Stable agent or document name."
+        },
+        "vendor": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Host vendor owning this identity."
+        },
+        "vendorSession": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "description": "Optional host session ID; must match the bound identity."
+        },
+        "task": {
+          "type": "string",
+          "maxLength": 256,
+          "description": "Current task visible to peers."
+        },
+        "status": {
+          "enum": [
+            "available",
+            "busy",
+            "blocked",
+            "unknown"
+          ],
+          "description": "Current presence status visible to peers."
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Presence deadline at this event; current liveness comes from peers."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "vendor",
+        "task",
+        "status",
+        "expiresAt"
+      ]
+    },
+    "leaseData": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "description": "Workspace-relative file/tree; default workspace root."
+        },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "file",
+            "tree"
+          ],
+          "description": "File or whole directory tree scope."
+        },
+        "reasoning": {
+          "$ref": "#/$defs/reasoning",
+          "description": "Why, briefly; ≤512 UTF-8 bytes."
+        },
+        "leaseId": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Exact owned lease ID."
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Expiry timestamp in epoch milliseconds."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "leaseId",
+        "path",
+        "kind",
+        "expiresAt",
+        "reasoning"
+      ]
+    },
+    "attachmentData": {
+      "type": "object",
+      "properties": {
+        "transport": {
+          "type": "string",
+          "description": "Attached host transport."
+        },
+        "endpoint": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Host endpoint used for attached delivery."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "transport",
+        "endpoint"
+      ]
+    },
+    "dispatchData": {
+      "type": "object",
+      "properties": {
+        "messageId": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Exact durable message ID."
+        },
+        "token": {
+          "type": "string",
+          "description": "Exact delivery attempt token."
+        },
+        "transport": {
+          "type": "string",
+          "description": "Attached host transport."
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Delivery failure diagnostic."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "messageId",
+        "token",
+        "transport"
+      ]
+    },
+    "deliveryData": {
+      "type": "object",
+      "properties": {
+        "messageId": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Exact durable message ID."
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "messageId"
+      ]
+    }
+  },
+  "recordTypes": [
+    {
+      "type": "coordinate.in",
+      "writer": "join",
+      "description": "A new agent registers in this workspace; data is its complete identity/presence snapshot.",
+      "dataSchema": {
+        "$ref": "#/$defs/coordinateData"
+      },
+      "example": {
+        "name": "reviewer",
+        "vendor": "codex",
+        "vendorSession": "host-session-1",
+        "task": "Review storage",
+        "status": "busy",
+        "expiresAt": 1791187260000
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "coordinate.in"
+      }
+    },
+    {
+      "type": "coordinate.update",
+      "writer": "heartbeat/attach",
+      "description": "Identity or branch changes, presence shortens while still live, or expired presence resumes; full snapshot. Ordinary unchanged heartbeats create no event.",
+      "dataSchema": {
+        "$ref": "#/$defs/coordinateData"
+      },
+      "example": {
+        "name": "reviewer",
+        "vendor": "codex",
+        "vendorSession": "host-session-1",
+        "task": "Review storage",
+        "status": "busy",
+        "expiresAt": 1791187260000
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "coordinate.update"
+      }
+    },
+    {
+      "type": "coordinate.out",
+      "writer": "leave",
+      "description": "Explicit leave ends presence; same from/path and full agent snapshot as in. Clock expiry or a crash creates no synthetic out event.",
+      "dataSchema": {
+        "$ref": "#/$defs/coordinateData"
+      },
+      "example": {
+        "name": "reviewer",
+        "vendor": "codex",
+        "vendorSession": "host-session-1",
+        "task": "Review storage",
+        "status": "busy",
+        "expiresAt": 1791187200000
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "coordinate.out"
+      }
+    },
+    {
+      "type": "coordinate.profile",
+      "writer": "set_status/heartbeat",
+      "description": "Task or status changes; full identity/presence snapshot at that moment.",
+      "dataSchema": {
+        "$ref": "#/$defs/coordinateData"
+      },
+      "example": {
+        "name": "reviewer",
+        "vendor": "codex",
+        "vendorSession": "host-session-1",
+        "task": "Review storage",
+        "status": "busy",
+        "expiresAt": 1791187260000
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "coordinate.profile"
+      }
+    },
+    {
+      "type": "message",
+      "writer": "send_message/notify_all/complete",
+      "description": "Immutable mail committed for fixed recipients. from is author; to is agent ID, topic:<topic>, or *. Complete uses data.messageId, never recordId.",
+      "dataSchema": {
+        "type": "object",
+        "properties": {
+          "body": {
+            "$ref": "#/$defs/body"
+          },
+          "key": {
+            "$ref": "#/$defs/key",
+            "description": "Optional retry key; complete: prefix is reserved."
+          },
+          "ttlMs": {
+            "$ref": "#/$defs/ttlMs"
+          },
+          "reasoning": {
+            "$ref": "#/$defs/reasoning"
+          },
+          "wake": {
+            "$ref": "#/$defs/wake"
+          },
+          "conversationId": {
+            "$ref": "#/$defs/conversationId"
+          },
+          "replyRequired": {
+            "type": "boolean",
+            "description": "Answer required; direct default true, fanout false."
+          },
+          "messageId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "topic": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "replyTo": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "bodyOmitted": {
+            "type": "boolean",
+            "description": "Hook budget reference only; fetch data.messageId for the full payload."
+          },
+          "next": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "const": "fetch"
+              },
+              "input": {
+                "type": "object",
+                "properties": {
+                  "recordId": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "recordId"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "command",
+              "input"
+            ],
+            "additionalProperties": false,
+            "description": "Lossless continuation from an oversized hook reference; run unchanged with the current binding."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "messageId"
+        ],
+        "oneOf": [
+          {
+            "required": [
+              "body",
+              "ttlMs",
+              "expiresAt",
+              "reasoning",
+              "wake",
+              "replyRequired"
+            ],
+            "properties": {
+              "bodyOmitted": {
+                "const": false
+              }
+            }
+          },
+          {
+            "required": [
+              "bodyOmitted",
+              "next"
+            ],
+            "properties": {
+              "bodyOmitted": {
+                "const": true
+              }
+            }
+          }
+        ]
+      },
+      "example": {
+        "messageId": 17,
+        "body": "Review storage",
+        "ttlMs": 60000,
+        "expiresAt": 1791187260000,
+        "reasoning": "Review before handoff",
+        "wake": "action",
+        "replyRequired": true,
+        "conversationId": "review:1"
+      },
+      "routing": "author → fixed recipients; visible to message participants",
+      "fetch": {
+        "type": "message"
+      }
+    },
+    {
+      "type": "lease.acquired",
+      "writer": "lock/lock_many",
+      "description": "A successful reservation commits. Full path/kind/deadline snapshot; from is lease owner.",
+      "dataSchema": {
+        "$ref": "#/$defs/leaseData"
+      },
+      "example": {
+        "leaseId": 7,
+        "path": "/absolute/workspace/src",
+        "kind": "tree",
+        "expiresAt": 1791187260000,
+        "reasoning": "Refactor storage"
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "lease.acquired"
+      }
+    },
+    {
+      "type": "lease.renewed",
+      "writer": "renew/heartbeat",
+      "description": "A lease deadline changes. Full lease snapshot, including path/kind, without another lookup.",
+      "dataSchema": {
+        "$ref": "#/$defs/leaseData"
+      },
+      "example": {
+        "leaseId": 7,
+        "path": "/absolute/workspace/src",
+        "kind": "tree",
+        "expiresAt": 1791187260000,
+        "reasoning": "Refactor storage"
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "lease.renewed"
+      }
+    },
+    {
+      "type": "lease.removed",
+      "writer": "unlock/leave/prune",
+      "description": "Unlock, leave or prune removes a lease. Full final snapshot; expiresAt is its former deadline, not removal time.",
+      "dataSchema": {
+        "$ref": "#/$defs/leaseData"
+      },
+      "example": {
+        "leaseId": 7,
+        "path": "/absolute/workspace/src",
+        "kind": "tree",
+        "expiresAt": 1791187260000,
+        "reasoning": "Refactor storage"
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "lease.removed"
+      }
+    },
+    {
+      "type": "subscription.added",
+      "writer": "subscribe",
+      "description": "An agent starts receiving a topic; subscribe replaces its topic set.",
+      "dataSchema": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "topic"
+        ]
+      },
+      "example": {
+        "topic": "reviews"
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "subscription.added"
+      }
+    },
+    {
+      "type": "subscription.removed",
+      "writer": "subscribe/leave",
+      "description": "An agent unsubscribes or leaves. Already-sent message recipients remain unchanged.",
+      "dataSchema": {
+        "type": "object",
+        "properties": {
+          "topic": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "topic"
+        ]
+      },
+      "example": {
+        "topic": "reviews"
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "subscription.removed"
+      }
+    },
+    {
+      "type": "attachment.created",
+      "writer": "attach",
+      "description": "A host transport is registered for an agent. Endpoint may be null; registration does not prove delivery.",
+      "dataSchema": {
+        "$ref": "#/$defs/attachmentData"
+      },
+      "example": {
+        "transport": "raw",
+        "endpoint": null
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "attachment.created"
+      }
+    },
+    {
+      "type": "attachment.updated",
+      "writer": "attach",
+      "description": "Host transport or its attachment metadata is refreshed; reattaching can emit this even without a transport change.",
+      "dataSchema": {
+        "$ref": "#/$defs/attachmentData"
+      },
+      "example": {
+        "transport": "raw",
+        "endpoint": null
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "attachment.updated"
+      }
+    },
+    {
+      "type": "delivery.created",
+      "writer": "send_message/notify_all/complete",
+      "description": "One fixed recipient is added to a message. from is recipient; to is original sender. This is storage, not submission or handling.",
+      "dataSchema": {
+        "$ref": "#/$defs/deliveryData"
+      },
+      "example": {
+        "messageId": 17
+      },
+      "routing": "recipient → original sender; visible to fixed message participants",
+      "fetch": {
+        "type": "delivery.created"
+      }
+    },
+    {
+      "type": "delivery.claimed",
+      "writer": "delivery owner",
+      "description": "A delivery owner claims one recipient/message for external delivery. owner is a dispatcher claim token, not an agent ID.",
+      "dataSchema": {
+        "type": "object",
+        "properties": {
+          "messageId": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "owner": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "messageId",
+          "owner"
+        ]
+      },
+      "example": {
+        "messageId": 17,
+        "owner": "dispatcher-claim-1"
+      },
+      "routing": "recipient → original sender; visible to fixed message participants",
+      "fetch": {
+        "type": "delivery.claimed"
+      }
+    },
+    {
+      "type": "delivery.acknowledged",
+      "writer": "complete",
+      "description": "Recipient completes handling; from is recipient, to original sender. This receipt is not proof of correctness or approval.",
+      "dataSchema": {
+        "$ref": "#/$defs/deliveryData"
+      },
+      "example": {
+        "messageId": 17
+      },
+      "routing": "recipient → original sender; visible to fixed message participants",
+      "fetch": {
+        "type": "delivery.acknowledged"
+      }
+    },
+    {
+      "type": "dispatch.staged",
+      "writer": "delivery owner",
+      "description": "A recipient/message attempt is reserved with token before external I/O. from is recipient, to original sender.",
+      "dataSchema": {
+        "$ref": "#/$defs/dispatchData"
+      },
+      "example": {
+        "messageId": 17,
+        "token": "attempt-1",
+        "transport": "raw:host"
+      },
+      "routing": "recipient → original sender; visible to fixed message participants",
+      "fetch": {
+        "type": "dispatch.staged"
+      }
+    },
+    {
+      "type": "dispatch.submitted",
+      "writer": "delivery owner",
+      "description": "The host transport accepted an attempt. Submission is not acknowledgement or guaranteed model consumption.",
+      "dataSchema": {
+        "$ref": "#/$defs/dispatchData"
+      },
+      "example": {
+        "messageId": 17,
+        "token": "attempt-1",
+        "transport": "raw:host",
+        "error": null
+      },
+      "routing": "recipient → original sender; visible to fixed message participants",
+      "fetch": {
+        "type": "dispatch.submitted"
+      }
+    },
+    {
+      "type": "dispatch.uncertain",
+      "writer": "delivery owner",
+      "description": "Transport failed or its receipt is unknown; the message may have arrived. Inspect before explicit retry.",
+      "dataSchema": {
+        "$ref": "#/$defs/dispatchData"
+      },
+      "example": {
+        "messageId": 17,
+        "token": "attempt-1",
+        "transport": "raw:host",
+        "error": "Host receipt unknown"
+      },
+      "routing": "recipient → original sender; visible to fixed message participants",
+      "fetch": {
+        "type": "dispatch.uncertain"
+      }
+    },
+    {
+      "type": "dispatch.ready",
+      "writer": "delivery owner",
+      "description": "Explicit retry reopens an unacknowledged delivery. token identifies the old attempt until the next stage replaces it.",
+      "dataSchema": {
+        "$ref": "#/$defs/dispatchData"
+      },
+      "example": {
+        "messageId": 17,
+        "token": "attempt-1",
+        "transport": "raw:host",
+        "error": null
+      },
+      "routing": "recipient → original sender; visible to fixed message participants",
+      "fetch": {
+        "type": "dispatch.ready"
+      }
+    },
+    {
+      "type": "document",
+      "writer": "share_document",
+      "description": "Immutable document publication metadata; content stays in data.path on disk. Optional context annotates indexed discovery.",
+      "dataSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "reasoning": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "context": {
+            "type": "object",
+            "properties": {
+              "summary": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 320,
+                "description": "One useful fact and why it matters."
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096,
+                "default": ".",
+                "description": "Workspace-relative file/tree; default workspace root."
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "file",
+                  "tree"
+                ],
+                "default": "tree"
+              },
+              "branch": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 255,
+                "description": "Exact branch; omit for branch-independent facts."
+              },
+              "ttlMs": {
+                "type": "integer",
+                "minimum": 1000,
+                "maximum": 604800000,
+                "default": 86400000,
+                "description": "Discovery lifetime; default 1 day, max 7. Retries do not extend it."
+              },
+              "expiresAt": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "summary"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "path",
+          "author",
+          "bytes",
+          "sha256",
+          "reasoning"
+        ]
+      },
+      "example": {
+        "name": "review.md",
+        "path": ".octocode/communication/review.md",
+        "author": "agent-uuid",
+        "bytes": 8,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reasoning": "Share review evidence",
+        "context": {
+          "summary": "Storage evidence",
+          "path": "src",
+          "kind": "tree",
+          "expiresAt": 1791273600000
+        }
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "document"
+      }
+    },
+    {
+      "type": "usage",
+      "writer": "record_usage",
+      "description": "Original host counters, once per key. scope is request, turn or cumulative; absent counters are unknown and cumulative values must not be summed.",
+      "dataSchema": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "scope": {
+            "enum": [
+              "request",
+              "turn",
+              "cumulative"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "inputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "outputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cachedInputTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "contextTokens": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cacheWriteTokens": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "key",
+          "scope"
+        ]
+      },
+      "example": {
+        "key": "turn:1",
+        "scope": "turn",
+        "model": "host-model",
+        "inputTokens": 100,
+        "outputTokens": 20
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "usage"
+      }
+    },
+    {
+      "type": "host.context",
+      "writer": "host hook",
+      "description": "Hook records offering this binding/context generation once. This is a receipt, not the injected text or proof it was read.",
+      "dataSchema": {
+        "type": "object",
+        "properties": {
+          "generation": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "vendor": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        },
+        "required": [
+          "generation",
+          "vendor"
+        ],
+        "additionalProperties": false
+      },
+      "example": {
+        "generation": "session",
+        "vendor": "claude"
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "host.context"
+      }
+    },
+    {
+      "type": "host.inbound",
+      "writer": "host hook",
+      "description": "Claude hook report of the receiver's permission mode and visible crossSessionInbound setting, appended when either changes. Dispatch predicts whether Claude Code would hold or refuse peer socket messages from the latest report.",
+      "dataSchema": {
+        "type": "object",
+        "properties": {
+          "vendor": {
+            "const": "claude"
+          },
+          "permissionMode": {
+            "enum": [
+              "default",
+              "plan",
+              "acceptEdits",
+              "auto",
+              "dontAsk",
+              "bypassPermissions"
+            ]
+          },
+          "crossSessionInbound": {
+            "enum": [
+              "accept",
+              "hold",
+              "refuse",
+              "unrecognized"
+            ]
+          }
+        },
+        "required": [
+          "vendor",
+          "permissionMode"
+        ],
+        "additionalProperties": false
+      },
+      "example": {
+        "vendor": "claude",
+        "permissionMode": "bypassPermissions"
+      },
+      "routing": "owner → null; repository-shared",
+      "fetch": {
+        "type": "host.inbound"
+      }
+    },
+    {
+      "type": "memory",
+      "writer": "record",
+      "description": "A retained fact: required content, optional tags/scopePath/expiry, plus arbitrary JSON. expiresAt is metadata; it does not auto-hide or delete records.",
+      "dataSchema": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16384
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 128
+            },
+            "maxItems": 32
+          },
+          "expiresAt": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "scopePath": {
+            "type": "string",
+            "maxLength": 4096
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "additionalProperties": true
+      },
+      "example": {
+        "content": "Case aliases conflict on all filesystems",
+        "tags": [
+          "paths"
+        ],
+        "scopePath": "src",
+        "source": {
+          "document": "review.md"
+        }
+      },
+      "routing": "author → optional agent/*; default repository-shared",
+      "fetch": {
+        "type": "memory"
+      }
+    },
+    {
+      "type": "event",
+      "writer": "record",
+      "description": "A custom occurrence identified by name, plus arbitrary JSON; recording does not send notifications.",
+      "dataSchema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": true
+      },
+      "example": {
+        "name": "checkpoint",
+        "phase": "storage",
+        "checks": {
+          "passed": true
+        }
+      },
+      "routing": "author → optional agent/*; default repository-shared",
+      "fetch": {
+        "type": "event"
+      }
+    }
+  ],
+  "recordEnvelope": {
+    "type": "object",
+    "properties": {
+      "recordId": {
+        "type": "integer",
+        "minimum": 1
+      },
+      "path": {
+        "type": "string",
+        "minLength": 1
+      },
+      "from": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "to": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "type": {
+        "type": "string",
+        "minLength": 1
+      },
+      "timestamp": {
+        "type": "integer",
+        "minimum": 0
+      },
+      "branch": {
+        "type": "string"
+      },
+      "data": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "required": [
+      "recordId",
+      "path",
+      "from",
+      "to",
+      "type",
+      "timestamp",
+      "data"
+    ],
+    "additionalProperties": false
+  },
+  "recordHistory": "dataSchema describes current v5 output. Migrated v1/v2/v3/v4 events retain their original partial payloads; absent historical fields are unknown, not filled from current state."
+}

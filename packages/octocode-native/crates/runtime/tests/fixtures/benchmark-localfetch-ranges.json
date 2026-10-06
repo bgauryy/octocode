@@ -1,7 +1,7 @@
 [
  {
   "input": {
-   "goal": "read",
+   "mainGoal": "read",
    "reasoning": "wrapper",
    "path": "python/django/db/transaction.py",
    "ranges": [
@@ -12,7 +12,7 @@
  },
  {
   "input": {
-   "goal": "read",
+   "mainGoal": "read",
    "reasoning": "core",
    "path": "langchain/libs/core/langchain_core/tools/base.py",
    "ranges": [
@@ -24,7 +24,7 @@
  },
  {
   "input": {
-   "goal": "read",
+   "mainGoal": "read",
    "reasoning": "core",
    "path": "langchain/libs/core/langchain_core/tools/structured.py",
    "ranges": [
@@ -35,7 +35,7 @@
  },
  {
   "input": {
-   "goal": "read",
+   "mainGoal": "read",
    "reasoning": "core",
    "path": "langchain/libs/core/langchain_core/tools/convert.py",
    "ranges": [
@@ -46,7 +46,7 @@
  },
  {
   "input": {
-   "goal": "read limit appender and handling",
+   "mainGoal": "read limit appender and handling",
    "reasoning": "confirm",
    "path": "go/scrape/target.go",
    "ranges": [
@@ -57,7 +57,7 @@
  },
  {
   "input": {
-   "goal": "read wrappers",
+   "mainGoal": "read wrappers",
    "reasoning": "confirm",
    "path": "go/scrape/scrape.go",
    "ranges": [
@@ -70,7 +70,7 @@
  },
  {
   "input": {
-   "goal": "read key sections",
+   "mainGoal": "read key sections",
    "reasoning": "understand flow",
    "path": "go/scrape/scrape.go",
    "ranges": [
@@ -84,7 +84,7 @@
  },
  {
   "input": {
-   "goal": "read",
+   "mainGoal": "read",
    "reasoning": "core",
    "path": "rust/tokio/src/runtime/task/core.rs",
    "ranges": [
@@ -96,7 +96,7 @@
  },
  {
   "input": {
-   "goal": "read mechanism",
+   "mainGoal": "read mechanism",
    "reasoning": "details",
    "path": "java/guava/src/com/google/common/collect/ImmutableSet.java",
    "ranges": [
@@ -109,7 +109,7 @@
  },
  {
   "input": {
-   "goal": "read constructor",
+   "mainGoal": "read constructor",
    "reasoning": "details",
    "path": "java/guava/src/com/google/common/cache/LocalCache.java",
    "ranges": [
@@ -123,7 +123,7 @@
  },
  {
   "input": {
-   "goal": "segment ctor",
+   "mainGoal": "segment ctor",
    "reasoning": "details",
    "path": "java/guava/src/com/google/common/cache/LocalCache.java",
    "ranges": [

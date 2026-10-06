@@ -1,12 +1,14 @@
 //! Classification provider HTTP transport, deadline, cancellation, and error
-//! handling. Vendor-agnostic: the caller supplies the endpoint URL, key, and
-//! JSON body; this module only handles the HTTP lifecycle.
-use crate::providers::RequestBudget;
-use crate::providers::classification::gate::{GateDenied, GateLease};
+//! handling, plus the provider question and answer shape: the one place the
+//! public `type`/`ask`/`labels`/`known` question maps onto the provider's
+//! `type`/`instructions`/`criteria`, and its answers map back to public
+//! verdicts. The vendor (`providers::classification`) frames the request body.
+use crate::providers::classification::gate::{GateDenied, GateLease, GatePermit};
+use crate::providers::{BudgetStop, RequestBudget};
 use bytes::BytesMut;
 use futures_util::StreamExt;
 use secrecy::{ExposeSecret, SecretString};
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 use std::future::Future;
 use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
@@ -108,7 +110,7 @@ pub struct ClassificationError {
     pub provider_body: Option<Box<Value>>,
     /// Failure kind of the delegated read behind a context error, so a call
     /// whose every read failed alike reports it like the read tool would.
-    pub failure: Option<crate::runtime::FailureKind>,
+    pub failure: Option<crate::tools::result::FailureKind>,
     /// HTTP requests actually attempted, including retries; never rendered as an error field.
     pub provider_calls: u64,
 }
@@ -122,6 +124,156 @@ impl ClassificationError {
             ..Self::default()
         }
     }
+}
+
+/// The contract question template of a research `type`.
+fn research_template(kind: &str) -> Option<&'static str> {
+    let key = match kind {
+        "sufficient" => "sufficient",
+        "relevant" => "contribution",
+        "supports" => "supportsClaim",
+        "adds" => "addsEvidence",
+        _ => return None,
+    };
+    crate::contracts::tool_contract(crate::tools::id::ToolId::Clasify)
+        .ok()?
+        .get("questionTemplates")?["questions"][key]
+        .as_str()
+}
+
+/// The provider question for one public judge or research question
+/// (`type` + `ask`, with `labels` or `known`). `locate` questions are built
+/// per page by [`locate_questions`].
+pub(crate) fn provider_question(question: &Value) -> Result<Value, ClassificationError> {
+    let kind = question["type"].as_str().unwrap_or_default();
+    let ask = question.get("ask").cloned().unwrap_or(Value::Null);
+    let wire = match kind {
+        "yesno" => "noul",
+        "choice" => "choice",
+        "score" => "score",
+        _ => {
+            let prompt = research_template(kind).ok_or_else(|| {
+                ClassificationError::new(
+                    "invalidClassificationRequest",
+                    format!("Unknown question type {kind:?}."),
+                    "Inspect the current clasify query schema.",
+                )
+            })?;
+            let mut instructions = json!({"question":prompt,"target":ask});
+            if let Some(known) = question.get("known") {
+                instructions["knownEvidence"] = known.clone();
+            }
+            return Ok(json!({"type":"noul","instructions":instructions}));
+        }
+    };
+    let mut provider = json!({"type":wire,"instructions":ask});
+    if let Some(labels) = question.get("labels").filter(|labels| !labels.is_null()) {
+        provider["criteria"] = labels.clone();
+    }
+    Ok(provider)
+}
+
+/// The two provider questions one `locate` asks of a page's passages: which
+/// passage answers `target`, and whether any does.
+pub(crate) fn locate_questions<'a>(
+    target: &str,
+    passages: impl Iterator<Item = &'a str>,
+) -> [Value; 2] {
+    let mut criteria = Map::new();
+    for passage in passages {
+        criteria.insert(passage.to_owned(), Value::Null);
+    }
+    if criteria.len() == 1 {
+        criteria.insert(
+            "NONE".into(),
+            json!("No passage in the supplied source answers the target."),
+        );
+    }
+    [
+        json!({
+            "type":"choice",
+            "instructions":{
+                "question":"Which passage ID best answers the target?",
+                "target":target
+            },
+            "criteria":criteria
+        }),
+        json!({
+            "type":"noul",
+            "instructions":{
+                "question":"Does any passage directly address or answer the target?",
+                "target":target
+            },
+            "criteria":{
+                "true":"At least one passage states or directly implies an answer.",
+                "false":"No passage addresses the target."
+            }
+        }),
+    ]
+}
+
+/// Attach the caller's search goal to one provider question. Public questions
+/// and continuations keep the original text on the query, not inside each question.
+pub(crate) fn with_goal(mut question: Value, goal: &str) -> Value {
+    let goal = goal.trim();
+    if goal.is_empty() {
+        return question;
+    }
+    let Some(instructions) = question.get_mut("instructions") else {
+        return question;
+    };
+    if let Some(map) = instructions.as_object_mut() {
+        map.entry("goal")
+            .or_insert_with(|| Value::String(goal.to_owned()));
+    } else {
+        let prior = instructions.take();
+        *instructions = json!({"question": prior, "goal": goal});
+    }
+    question
+}
+
+/// One provider answer as a public verdict (`yesno`, `choice`, `score`) with
+/// the models and usage that produced it.
+pub(crate) fn project(
+    question: &Value,
+    answer: &Value,
+    requested_model: &str,
+    resolved_model: &str,
+    usage: &Value,
+) -> Result<Value, ClassificationError> {
+    let answer = match question["type"].as_str() {
+        Some("noul") => json!({"type":"yesno","yesno":answer["noul"]}),
+        Some("choice") => {
+            json!({"type":"choice","choice":answer["choice"],"confidence":answer["confidence"],"probabilities":answer["probabilities"]})
+        }
+        Some("score") => {
+            let levels = question["criteria"].as_array().ok_or_else(|| {
+                ClassificationError::new(
+                    "invalidClassificationRequest",
+                    "Score labels must be an array.",
+                    "Inspect the current clasify query schema.",
+                )
+            })?;
+            let legend: Map<String, Value> = levels
+                .iter()
+                .enumerate()
+                .map(|(index, level)| (index.to_string(), level.clone()))
+                .collect();
+            json!({"type":"score","score":answer["score"],"confidence":answer["confidence"],"probabilities":answer["probabilities"],"legend":legend})
+        }
+        _ => {
+            return Err(ClassificationError::new(
+                "invalidClassificationRequest",
+                "Invalid question type.",
+                "Inspect the current clasify query schema.",
+            ));
+        }
+    };
+    Ok(
+        json!({"requestedModel":requested_model,"resolvedModel":resolved_model,"answer":answer,"usage":{
+            "input_tokens":usage["input_tokens"],"output_tokens":usage["output_tokens"]
+        }}),
+    )
 }
 
 pub(crate) fn endpoint(base_url: &str, path: &str) -> Result<Url, ClassificationError> {
@@ -164,53 +316,43 @@ pub(crate) fn endpoint(base_url: &str, path: &str) -> Result<Url, Classification
     })
 }
 
-pub(super) fn check_budget(budget: &RequestBudget) -> Result<(), ClassificationError> {
-    if budget.cancellation.is_cancelled() {
+/// A configured key with control characters cannot be sent as a header.
+pub(super) fn check_key(key: &SecretString) -> Result<(), ClassificationError> {
+    if key.expose_secret().chars().any(char::is_control) {
         return Err(ClassificationError::new(
-            "cancelled",
-            "Classification request was cancelled.",
-            "Retry only if this evaluation is still needed.",
-        ));
-    }
-    if Instant::now() >= budget.deadline {
-        return Err(ClassificationError::new(
-            "timeout",
-            "Classification request exceeded its total deadline.",
-            "Retry later or increase the shared request timeout.",
+            "invalidClassificationConfiguration",
+            "OCTOCODE_CLASSIFICATION_API contains invalid control characters.",
+            "Replace the configured key.",
         ));
     }
     Ok(())
+}
+
+/// The classification error for a request whose budget stopped it.
+fn budget_error(stop: BudgetStop) -> ClassificationError {
+    match stop {
+        BudgetStop::Cancelled => ClassificationError::new(
+            "cancelled",
+            "Classification request was cancelled.",
+            "Retry only if this evaluation is still needed.",
+        ),
+        BudgetStop::Deadline => ClassificationError::new(
+            "timeout",
+            "Classification request exceeded its total deadline.",
+            "Retry later or increase the shared request timeout.",
+        ),
+    }
+}
+
+pub(super) fn check_budget(budget: &RequestBudget) -> Result<(), ClassificationError> {
+    budget.check().map_err(budget_error)
 }
 
 async fn wait<T>(
     budget: &RequestBudget,
     future: impl Future<Output = T>,
 ) -> Result<T, ClassificationError> {
-    check_budget(budget)?;
-    let remaining = budget.deadline.saturating_duration_since(Instant::now());
-    tokio::select! {
-        _ = budget.cancellation.cancelled() => Err(ClassificationError::new(
-            "cancelled",
-            "Classification request was cancelled.",
-            "Retry only if this evaluation is still needed.",
-        )),
-        value = tokio::time::timeout(remaining, future) => value.map_err(|_| ClassificationError::new(
-            "timeout",
-            "Classification request exceeded its total deadline.",
-            "Retry later or increase the shared request timeout.",
-        )),
-    }
-}
-
-fn header_seconds(headers: &reqwest::header::HeaderMap, name: &str) -> Option<f64> {
-    headers
-        .get(name)?
-        .to_str()
-        .ok()?
-        .trim()
-        .parse::<f64>()
-        .ok()
-        .filter(|value| value.is_finite() && *value >= 0.0)
+    budget.wait(future).await.map_err(budget_error)
 }
 
 /// Parse an RFC 9110 IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`).
@@ -260,15 +402,8 @@ fn parse_http_date(value: &str) -> Option<SystemTime> {
 /// Provider-requested retry delay: `retry-after-ms`, then `Retry-After` as
 /// delta-seconds or an HTTP-date (relative to `now`).
 fn retry_after(headers: &reqwest::header::HeaderMap, now: SystemTime) -> Option<Duration> {
-    if let Some(milliseconds) = header_seconds(headers, "retry-after-ms") {
-        return Some(Duration::from_secs_f64(
-            (milliseconds / 1000.0).min(MAX_RETRY_AFTER.as_secs_f64()),
-        ));
-    }
-    if let Some(seconds) = header_seconds(headers, reqwest::header::RETRY_AFTER.as_str()) {
-        return Some(Duration::from_secs_f64(
-            seconds.min(MAX_RETRY_AFTER.as_secs_f64()),
-        ));
+    if let Some(delay) = octocode_github::retry_after_delay(headers, MAX_RETRY_AFTER) {
+        return Some(delay);
     }
     let date = headers
         .get(reqwest::header::RETRY_AFTER)?
@@ -282,21 +417,9 @@ fn retry_after(headers: &reqwest::header::HeaderMap, now: SystemTime) -> Option<
     )
 }
 
-fn random_unit() -> f64 {
-    let mut bytes = [0_u8; 8];
-    if getrandom::fill(&mut bytes).is_err() {
-        return 0.5;
-    }
-    (u64::from_le_bytes(bytes) >> 11) as f64 / (1_u64 << 53) as f64
-}
-
-/// Full-jitter exponential backoff: uniform in `[0, min(cap, base * 2^n)]`,
-/// floored at [`MIN_RETRY_DELAY`].
+/// Full-jitter exponential backoff, floored at [`MIN_RETRY_DELAY`].
 fn backoff(attempt: u32) -> Duration {
-    let ceiling = BACKOFF_BASE
-        .saturating_mul(1_u32 << attempt.min(10))
-        .min(BACKOFF_CAP);
-    ceiling.mul_f64(random_unit()).max(MIN_RETRY_DELAY)
+    octocode_github::full_jitter(BACKOFF_BASE, attempt, BACKOFF_CAP).max(MIN_RETRY_DELAY)
 }
 
 /// Delay before the next attempt: the provider's request (floored so `0`
@@ -359,6 +482,7 @@ fn denied(reason: GateDenied) -> ClassificationError {
             "Retry later, reduce concurrent clasify calls, or increase the shared request timeout.",
         ),
         GateDenied::RateLimited { retry_after } => rate_limited(None, Some(retry_after), true),
+        GateDenied::QuotaExhausted => quota_exhausted(),
         GateDenied::CircuitOpen { retry_after } => ClassificationError {
             retry_after: Some(retry_after),
             ..ClassificationError::new(
@@ -373,10 +497,24 @@ fn denied(reason: GateDenied) -> ClassificationError {
     }
 }
 
+pub(crate) fn quota_exhausted() -> ClassificationError {
+    ClassificationError::new(
+        "classificationQuotaExhausted",
+        "Classification provider billing or quota is exhausted (HTTP 402); retrying will not help.",
+        "Add credit or quota to the OCTOCODE_CLASSIFICATION_API account, then rerun.",
+    )
+}
+
 fn status_error(
     status: reqwest::StatusCode,
     provider_body: Option<Box<Value>>,
 ) -> ClassificationError {
+    if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+        return ClassificationError {
+            provider_body,
+            ..quota_exhausted()
+        };
+    }
     let hint = match status.as_u16() {
         401 | 403 => "Check OCTOCODE_CLASSIFICATION_API and account access.",
         400 | 422 => "Check the supplied state, questions, configured model, and request size.",
@@ -387,7 +525,7 @@ fn status_error(
         ClassificationError::new(
             "classificationStateTooLarge",
             "One page exceeded the classification provider's context window.",
-            "Lower maxChars, target a startLine/endLine window, or shorten the questions.",
+            "Lower maxChars, read a narrower ranges window, or shorten the questions.",
         )
     } else {
         ClassificationError::new(
@@ -498,6 +636,21 @@ async fn attempt(
         }
         Ok(Ok(response)) => response,
     };
+    if response.status().is_success() {
+        read_body(response, permit, budget, attempt).await
+    } else {
+        failed_status(response, permit, budget, attempt).await
+    }
+}
+
+/// A non-success response: a firewall block, a throttle or transient
+/// failure to retry, or a final error (402 also stops later calls).
+async fn failed_status(
+    response: reqwest::Response,
+    permit: GatePermit,
+    budget: &RequestBudget,
+    attempt: u32,
+) -> Attempt {
     let status = response.status();
     let code = status.as_u16();
     // An HTML 403 is the edge firewall rejecting the content, not the API.
@@ -511,37 +664,48 @@ async fn attempt(
         drop(permit);
         return Attempt::Done(Err(content_blocked()));
     }
-    if !status.is_success() {
-        let requested = retry_after(response.headers(), SystemTime::now());
-        let body = error_body(response, budget).await;
-        if is_throttle(code) || is_overloaded(body.as_deref()) {
-            permit.throttled(requested);
-            return Attempt::Retry {
-                delay: retry_delay(requested, attempt),
-                error: ClassificationError {
-                    provider_body: body,
-                    ..rate_limited(Some(code), requested, false)
-                },
-                throttle: Some(code),
-            };
-        }
-        if is_transient_failure(code) {
-            permit.failed();
-            return Attempt::Retry {
-                delay: retry_delay(requested, attempt),
-                error: ClassificationError {
-                    retry_after: requested,
-                    ..status_error(status, body)
-                },
-                throttle: None,
-            };
-        }
-        // Not a provider-health signal (4xx/3xx, e.g. 400
-        // `max_tokens_exceeded`): release neutrally, never retry, and keep
-        // the parsed body for vendor error mapping.
-        drop(permit);
-        return Attempt::Done(Err(status_error(status, body)));
+    let requested = retry_after(response.headers(), SystemTime::now());
+    let body = error_body(response, budget).await;
+    if is_throttle(code) || is_overloaded(body.as_deref()) {
+        permit.throttled(requested);
+        return Attempt::Retry {
+            delay: retry_delay(requested, attempt),
+            error: ClassificationError {
+                provider_body: body,
+                ..rate_limited(Some(code), requested, false)
+            },
+            throttle: Some(code),
+        };
     }
+    if is_transient_failure(code) {
+        permit.failed();
+        return Attempt::Retry {
+            delay: retry_delay(requested, attempt),
+            error: ClassificationError {
+                retry_after: requested,
+                ..status_error(status, body)
+            },
+            throttle: None,
+        };
+    }
+    // Not a provider-health signal (4xx/3xx, e.g. 400
+    // `max_tokens_exceeded`): release neutrally, never retry, and keep the
+    // parsed body for vendor error mapping.
+    if status == reqwest::StatusCode::PAYMENT_REQUIRED {
+        permit.quota_exhausted();
+    } else {
+        drop(permit);
+    }
+    Attempt::Done(Err(status_error(status, body)))
+}
+
+/// A success response's JSON body, within the body budget.
+async fn read_body(
+    response: reqwest::Response,
+    permit: GatePermit,
+    budget: &RequestBudget,
+    attempt: u32,
+) -> Attempt {
     let mut body = BytesMut::new();
     let mut stream = response.bytes_stream();
     loop {
@@ -812,6 +976,15 @@ mod tests {
         assert_eq!(error.code, "timeout");
     }
 
+    /// One successful provider answer, expected exactly once.
+    async fn mount_ok_once(server: &MockServer) {
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_string(OK_BODY))
+            .expect(1)
+            .mount(server)
+            .await;
+    }
+
     #[tokio::test]
     async fn transient_statuses_are_retried_then_succeed() {
         for status in [408, 500, 502, 504, 503, 529, 429] {
@@ -822,11 +995,7 @@ mod tests {
                 .expect(1)
                 .mount(&server)
                 .await;
-            Mock::given(method("POST"))
-                .respond_with(ResponseTemplate::new(200).set_body_string(OK_BODY))
-                .expect(1)
-                .mount(&server)
-                .await;
+            mount_ok_once(&server).await;
             let started = Instant::now();
             let value = send(&server.uri(), Duration::from_secs(10), 1, &fresh_gate(4))
                 .await
@@ -862,6 +1031,54 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn payment_required_is_remembered_for_every_call_until_the_memo_expires() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(402).set_body_json(json!({"detail":"no credit"})))
+            .expect(2)
+            .mount(&server)
+            .await;
+        let call = fresh_gate(4);
+        let error = send(&server.uri(), Duration::from_secs(10), 3, &call)
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, "classificationQuotaExhausted");
+        assert!(error.message.contains("quota"), "{}", error.message);
+        assert_eq!(error.provider_calls, 1);
+        // Later requests of the same call fail fast with the same error.
+        let again = send(&server.uri(), Duration::from_secs(10), 3, &call)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            (
+                again.code.as_str(),
+                again.message.as_str(),
+                again.provider_calls
+            ),
+            (error.code.as_str(), error.message.as_str(), 0)
+        );
+        // Another call within the memo fails fast too: no request is sent.
+        let other = send(&server.uri(), Duration::from_secs(10), 3, &call.fork())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            (other.code.as_str(), other.provider_calls),
+            (error.code.as_str(), 0)
+        );
+        assert!(call.quota_exhausted());
+        // After the memo, one call probes again: credit may have been added.
+        call.gate().expire_quota_memo();
+        assert!(!call.quota_exhausted());
+        let probe = send(&server.uri(), Duration::from_secs(10), 3, &call.fork())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            (probe.code.as_str(), probe.provider_calls),
+            (error.code.as_str(), 1)
+        );
+    }
+
+    #[tokio::test]
     async fn system_overloaded_body_is_retried_and_shrinks_the_gate() {
         for status in [500, 400] {
             let server = MockServer::start().await;
@@ -875,11 +1092,7 @@ mod tests {
                 .expect(1)
                 .mount(&server)
                 .await;
-            Mock::given(method("POST"))
-                .respond_with(ResponseTemplate::new(200).set_body_string(OK_BODY))
-                .expect(1)
-                .mount(&server)
-                .await;
+            mount_ok_once(&server).await;
             let lease = fresh_gate(8);
             let value = send(&server.uri(), Duration::from_secs(10), 1, &lease)
                 .await

@@ -7,10 +7,18 @@
 use criterion::{Criterion, criterion_group, criterion_main};
 use std::fs;
 use std::hint::black_box;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use octocode_engine::portable::search_ripgrep;
+use octocode_engine::portable::{RipgrepPathFilter, search_ripgrep_cancellable};
 use octocode_engine::types::RipgrepSearchOptions;
+
+struct AllowAll;
+impl RipgrepPathFilter for AllowAll {
+    fn allows(&self, _: &Path, _: bool) -> bool {
+        true
+    }
+}
 
 const FILES: usize = 3_000;
 const MATCHING_LINES: usize = 20;
@@ -43,12 +51,16 @@ fn high_hit_search(criterion: &mut Criterion) {
     let path = root.display().to_string();
     criterion.bench_function("ripgrep_high_hit_collect", |bencher| {
         bencher.iter(|| {
-            let result = search_ripgrep(RipgrepSearchOptions {
-                path: path.clone(),
-                pattern: "needle".to_owned(),
-                fixed_string: Some(true),
-                ..Default::default()
-            })
+            let result = search_ripgrep_cancellable(
+                RipgrepSearchOptions {
+                    path: path.clone(),
+                    pattern: "needle".to_owned(),
+                    fixed_string: Some(true),
+                    ..Default::default()
+                },
+                Arc::new(AllowAll),
+                &|| false,
+            )
             .expect("bench search");
             black_box(result)
         });

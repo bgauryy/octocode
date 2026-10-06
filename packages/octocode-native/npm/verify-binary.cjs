@@ -21,18 +21,20 @@ const {
 const { join } = require('path');
 const { tmpdir } = require('os');
 const { spawnSync } = require('child_process');
-const { getPlatformSuffix } = require('../bin/platform.cjs');
+const { BINARIES, PLATFORMS, executableName, getPlatformSuffix } = require('../bin/platform.cjs');
+const { SMOKE_TIMEOUT_MS } = require('../scripts/native-addon-utils.cjs');
 
 const cwd = process.cwd();
 const pkg = require(join(cwd, 'package.json'));
-const isWindows = pkg.os && pkg.os.includes('win32');
-const ext = isWindows ? '.exe' : '';
 const packageSuffix = pkg.name.slice('@octocodeai/octocode-native-'.length);
+const target = PLATFORMS[packageSuffix];
+if (!target) {
+  console.error(`prepublishOnly: ${pkg.name} is not a known platform package`);
+  process.exit(1);
+}
 const binaries = [
-  `octocode${ext}`,
-  `octocode-regex-worker${ext}`,
+  ...BINARIES.map(name => executableName(name, target.os)),
   `octocode-native.${packageSuffix}.node`,
-  `octocode-engine.${packageSuffix}.node`,
 ];
 
 for (const name of binaries) {
@@ -70,22 +72,12 @@ if (typeof addon.NativeRuntime !== 'function') {
   );
   process.exit(1);
 }
-const engine = require(join(cwd, `octocode-engine.${packageSuffix}.node`));
-if (
-  typeof engine.minifyContent !== 'function' ||
-  typeof engine.getSupportedStructuralExtensions !== 'function'
-) {
-  console.error(
-    `prepublishOnly: ${pkg.name} engine addon does not expose the primitive API`
-  );
-  process.exit(1);
-}
 
-const octocode = join(cwd, `octocode${ext}`);
+const octocode = join(cwd, executableName('octocode', target.os));
 const run = (args, options = {}) =>
   spawnSync(octocode, args, {
     encoding: 'utf8',
-    timeout: 20_000,
+    timeout: SMOKE_TIMEOUT_MS,
     ...options,
   });
 const parseOutput = result => {
@@ -134,7 +126,7 @@ if (
 }
 
 // Sandbox lives in the OS temp dir, never the package dir: a killed prepublish
-// (20s timeout / SIGKILL'd signed binary) must not leak a fixture that a later
+// (smoke timeout / SIGKILL'd signed binary) must not leak a fixture that a later
 // `git add` could sweep into the committed tree.
 const fixture = realpathSync(
   mkdtempSync(join(tmpdir(), 'octocode-native-smoke-'))
@@ -160,11 +152,16 @@ try {
     [
       'localSearch',
       JSON.stringify({
-        path: fixture,
-        searchText: 'packaged_binary_needle',
-        regex: 'literal',
-        goal: 'Smoke-test the staged native CLI.',
-        reasoning: 'Verify the staged native CLI can search a retained-language fixture',
+        queries: [
+          {
+            path: fixture,
+            matchString: 'packaged_binary_needle',
+            regex: 'literal',
+            mainGoal: 'Smoke-test the staged native CLI.',
+            reasoning:
+              'Verify the staged native CLI can search a retained-language fixture',
+          },
+        ],
       }),
     ],
     { env }
@@ -177,10 +174,15 @@ try {
     [
       'structureSearch',
       JSON.stringify({
-        operation: 'files',
-        path: fixture,
-        goal: 'Smoke-test the staged native CLI.',
-        reasoning: 'Verify the staged native CLI can list mixed-language fixture files',
+        queries: [
+          {
+            operation: 'files',
+            path: fixture,
+            mainGoal: 'Smoke-test the staged native CLI.',
+            reasoning:
+              'Verify the staged native CLI can list mixed-language fixture files',
+          },
+        ],
       }),
     ],
     { env }
@@ -193,11 +195,16 @@ try {
     [
       'lspSearch',
       JSON.stringify({
-        operation: 'documentSymbols',
-        uri: notes,
-        workspaceRoot: fixture,
-        goal: 'Smoke-test the staged native CLI.',
-        reasoning: 'Verify unavailable semantic routing remains a typed staged-CLI error',
+        queries: [
+          {
+            operation: 'documentSymbols',
+            path: notes,
+            workspaceRoot: fixture,
+            mainGoal: 'Smoke-test the staged native CLI.',
+            reasoning:
+              'Verify unavailable semantic routing remains a typed staged-CLI error',
+          },
+        ],
       }),
     ],
     { env }

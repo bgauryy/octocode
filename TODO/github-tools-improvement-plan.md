@@ -149,7 +149,7 @@ Acceptance checks:
 - Later pages retain unresolved provider limits.
 - CLI and an MCP server restarted after rebuilding expose equivalent coverage semantics.
 
-Owners: [code-search coverage](../packages/octocode-native/crates/runtime/src/tools/gh_search/mod.rs), [response metadata](../packages/octocode-native/crates/runtime/src/runtime/response.rs), and [closing-PR lookup](../packages/octocode-native/crates/runtime/src/tools/gh_get_history_item/issue.rs). Public contract changes belong in authored core.
+Owners: [code-search coverage](../packages/octocode-native/crates/runtime/src/tools/gh_search/mod.rs), [response metadata](../packages/octocode-native/crates/runtime/src/response/rows.rs), and [closing-PR lookup](../packages/octocode-native/crates/runtime/src/tools/gh_get_history_item/issue.rs). Public contract changes belong in authored core.
 
 ### Results (2026-10-02)
 

@@ -3,19 +3,13 @@
 
 import {
   projectSchemeSelection,
-  projectSchemeView,
   schemeUsageForms,
   type SchemeJsonObject,
-  type SchemeJsonValue,
   type SchemeView,
 } from '@octocodeai/config/schema';
 
-export type JsonValue = SchemeJsonValue;
-export type JsonObject = SchemeJsonObject;
-export type { SchemeView };
-
 /** The CLI invocation, then one gh-CLI-style form per query branch. */
-export function usageLines(tool: JsonObject): string[] {
+export function usageLines(tool: SchemeJsonObject): string[] {
   const name = typeof tool.name === 'string' ? tool.name : 'tool';
   const forms = schemeUsageForms(tool.querySchema);
   return [
@@ -24,15 +18,12 @@ export function usageLines(tool: JsonObject): string[] {
   ];
 }
 
-export function project(tool: JsonObject, view: SchemeView): JsonObject {
-  return projectSchemeView(tool, view, { usage: usageLines(tool) });
-}
-
-export function projectSelected(
-  tool: JsonObject,
+/** One tool's `scheme` view, narrowed by `--select FIELD=VALUE` when given. */
+export function project(
+  tool: SchemeJsonObject,
   view: SchemeView,
-  selection: string | undefined
-): JsonObject {
+  selection?: string
+): SchemeJsonObject {
   return projectSchemeSelection(tool, view, selection, {
     usage: usageLines(tool),
   });

@@ -16,25 +16,11 @@ fn configured_github_host(runtime: &ToolRuntime) -> String {
         .api_url
         .parse::<url::Url>()
         .ok()
-        .and_then(|url| url.host_str().map(str::to_owned))
-        .map(|host| {
-            if host == "api.github.com" {
-                "github.com".to_owned()
-            } else {
-                host
-            }
+        .and_then(|url| {
+            url.host_str()
+                .map(|host| octocode_native::providers::github::credential_host(host).to_owned())
         })
         .unwrap_or_else(|| "github.com".into())
-}
-
-fn oauth_client_id<'a>(runtime: &'a ToolRuntime, host: &str) -> Option<&'a str> {
-    runtime
-        .config()
-        .env_value("OCTOCODE_GITHUB_CLIENT_ID")
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or((host == "github.com")
-            .then_some(octocode_native::providers::github::login::GITHUB_APP_CLIENT_ID))
 }
 
 async fn resolve_auth(
@@ -139,8 +125,11 @@ pub async fn login(
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
         .unwrap_or_else(|| configured_github_host(runtime));
-    let client_id = oauth_client_id(runtime, &host);
-    if host != "github.com" && client_id.is_none() {
+    let client_id = octocode_native::providers::github::login::client_id_for_host(
+        &host,
+        runtime.config().env_value("OCTOCODE_GITHUB_CLIENT_ID"),
+    );
+    if client_id.is_empty() {
         let message =
             "OCTOCODE_GITHUB_CLIENT_ID is required for GitHub Enterprise device login and refresh.";
         if json_out {
@@ -157,7 +146,7 @@ pub async fn login(
     if refresh {
         let result = octocode_native::providers::github::login::refresh_auth_token_result_in_store(
             &host,
-            client_id.unwrap_or(octocode_native::providers::github::login::GITHUB_APP_CLIENT_ID),
+            client_id,
             &credential_store,
         )
         .await;
@@ -249,9 +238,6 @@ pub async fn login(
 
     // Preserve the old login until the replacement has been authenticated and saved.
     let endpoints = octocode_native::providers::github::login::LoginEndpoints::from_host(&host);
-    // The guard above returns before this point unless a client ID was resolved.
-    #[allow(clippy::expect_used)]
-    let client_id = client_id.expect("public GitHub or validated enterprise client ID");
     match octocode_native::providers::github::login::login_device_flow_in_store(
         &endpoints,
         client_id,

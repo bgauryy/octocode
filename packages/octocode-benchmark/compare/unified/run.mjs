@@ -115,6 +115,15 @@ function readBuildFingerprint() {
   return null;
 }
 
+/** `next` with `prev`'s question/worker selection merged in: a resume may
+ * select a subset, so only a changed input (or a new question/worker) differs. */
+function withSelection(next, prev) {
+  next.createdAt = prev.createdAt;
+  next.questionIds = [...new Set([...prev.questionIds, ...next.questionIds])];
+  next.workers = [...new Set([...prev.workers, ...next.workers])];
+  for (const key of ['prompts', 'references', 'workers']) next.hashes[key] = { ...prev.hashes[key], ...next.hashes[key] };
+  return next;
+}
 const FROZEN = m => JSON.stringify({ hashes: m.hashes, build: m.build, model: m.model, maxTurns: m.maxTurns, timeoutMs: m.timeoutMs, claudeVersion: m.claudeVersion, executables: m.executables, corpus: m.corpus, isolation: m.isolation, workers: m.workers, questionIds: m.questionIds });
 
 function workerMcpConfig(worker) {
@@ -165,7 +174,7 @@ async function session({ dir, prompt, worker, label, turns = maxTurns, timeout =
   return completed;
 }
 
-function summarize({ q, worker, res, m, started, prompt }) {
+function summarize({ q, worker, res, m, started, prompt, dir }) {
   const tokens = tokenAccounting(m);
   return {
     qid: q?.id ?? null, worker: worker.id, started,
@@ -190,7 +199,7 @@ function summarize({ q, worker, res, m, started, prompt }) {
     providerUsageStatus: m.toolCalls.some(c => /clasify$/.test(c.name)) ? 'unknown; classifier provider telemetry required' : 'no classifier calls',
     toolErrors: m.toolErrors.slice(0, 20),
     permission_denials: m.permission_denials.map((d) => ({ tool: d.tool_name, input: JSON.stringify(d.tool_input).slice(0, 300) })),
-    isolation: isolationCheck(worker.profile, m),
+    isolation: isolationCheck(worker.profile, m, { ownDirs: [path.join(dir, 'native-home')] }),
   };
 }
 
@@ -201,7 +210,7 @@ async function runOne(q, worker, mcpPath) {
   const prompt = buildPrompt(q);
   const serverEnv = sessionServerEnv(worker.profile, q);
   const { res, m, started, reflection, classificationProvider, nativeCalls, gatewayTraffic, nativeGithubUsage } = await session({ dir, prompt, worker, mcpPath, label: `${q.id}-${worker.id}`, reflect: true, serverEnv });
-  const record = summarize({ q, worker, res, m, started, prompt });
+  const record = summarize({ q, worker, res, m, started, prompt, dir });
   record.reflection = reflection;
   if (Object.keys(serverEnv).length) record.serverEnv = serverEnv;
   record.classificationProvider = classificationProvider;
@@ -259,7 +268,7 @@ async function runProbe(worker, name, mcpPath) {
     if (fs.existsSync(recordPath)) return readJson(recordPath);
     const { prompt, turns } = PROBES[name];
     const { res, m, started, nativeCalls, classificationProvider, gatewayTraffic, nativeGithubUsage } = await session({ dir, prompt, worker, mcpPath, label: `probe-${name}-${worker.id}`, turns, timeout: 5 * 60_000 });
-    const record = summarize({ q: null, worker, res, m, started, prompt });
+    const record = summarize({ q: null, worker, res, m, started, prompt, dir });
     record.nativeCalls = nativeCalls; record.classificationProvider = classificationProvider;
     record.gatewayTraffic = gatewayTraffic; record.nativeGithubUsage = nativeGithubUsage;
     record.nativeRowErrorCount = nativeCalls.reduce((sum, c) => sum + c.rowErrors.length, 0);
@@ -300,11 +309,8 @@ async function workerPhase() {
   if (!fs.existsSync(MCP_DIST)) throw new Error(`MCP build missing: ${MCP_DIST}`);
   if (fs.existsSync(manifestPath)) {
     const prev = readJson(manifestPath);
+    withSelection(manifest, prev);
     if (FROZEN(prev) !== FROZEN(manifest)) throw new Error('harness, questions, worker docs/profiles or MCP build changed since this run started; use a new --run-id');
-    manifest.createdAt = prev.createdAt;
-    manifest.questionIds = [...new Set([...prev.questionIds, ...manifest.questionIds])];
-    manifest.workers = [...new Set([...prev.workers, ...manifest.workers])];
-    manifest.hashes.prompts = { ...prev.hashes.prompts, ...manifest.hashes.prompts };
   }
   writeJson(manifestPath, manifest);
   const mcpPaths = Object.fromEntries(workers.map((w) => [w.id, workerMcpConfig(w)]));
@@ -335,7 +341,7 @@ async function workerPhase() {
     const dirty = execFileSync('git', ['-C', p, 'status', '--porcelain']).toString().trim();
     if (dirty) throw new Error(`checkout modified during run: ${p}`);
   }
-  if (FROZEN(manifest) !== FROZEN(buildManifest())) throw new Error('frozen inputs changed during run');
+  if (FROZEN(manifest) !== FROZEN(withSelection(buildManifest(), manifest))) throw new Error('frozen inputs changed during run');
   if (failed.length || records.length !== jobs.length) throw new Error(`${failed.length} invalid/incomplete worker records`);
 }
 

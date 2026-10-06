@@ -121,21 +121,14 @@ pub(super) fn attach_provider_context(
     let Some(envelope) = value.as_object_mut() else {
         return;
     };
-    // `type` echoes the operation; drop it when `payload.kind` already says so.
-    if envelope.get("type").is_some()
-        && envelope.get("type")
-            == envelope
-                .get("payload")
-                .and_then(|payload| payload.get("kind"))
-    {
-        envelope.shift_remove("type");
-    }
-    envelope.insert("uri".into(), json!(canonical_uri));
+    envelope.insert(
+        "path".into(),
+        json!(super::render::uri_to_path(canonical_uri)),
+    );
     let anchored = is_anchored(&query.operation());
-    // The row's `uri` names the anchor file once; the anchor receipt and a
+    // The row's `path` names the anchor file once; the anchor receipt and a
     // single-file payload restate it only when they point elsewhere.
-    if let Some(mut resolved_symbol) = resolved_symbol {
-        drop_same_uri(&mut resolved_symbol, canonical_uri);
+    if let Some(resolved_symbol) = public_resolved_symbol(query, resolved_symbol, canonical_uri) {
         envelope.insert("resolvedSymbol".into(), resolved_symbol);
     }
     if let Some(payload) = envelope.get_mut("payload") {
@@ -175,7 +168,7 @@ pub(super) fn attach_provider_context(
     }
     if anchored {
         let mut ordered = serde_json::Map::new();
-        for key in ["type", "uri", "resolvedSymbol", "lsp"] {
+        for key in ["path", "resolvedSymbol", "lsp"] {
             if let Some(value) = envelope.shift_remove(key) {
                 ordered.insert(key.into(), value);
             }
@@ -186,24 +179,48 @@ pub(super) fn attach_provider_context(
     }
 }
 
-/// Remove `value.uri` when it names the same file as `canonical_uri`.
+/// The anchor receipt a row shows: what the request did not say, the line a
+/// symbol moved to off its `lineHint`. A `position` anchor, or a symbol found
+/// on its `lineHint` (only its column is new), restates the request: no
+/// receipt.
+pub(super) fn public_resolved_symbol(
+    query: &LspSearchQuery,
+    resolved_symbol: Option<Value>,
+    canonical_uri: &str,
+) -> Option<Value> {
+    let mut resolved_symbol = resolved_symbol?;
+    drop_same_uri(&mut resolved_symbol, canonical_uri);
+    let moved = query.symbol_name().is_some()
+        && resolved_symbol.as_object().is_some_and(|fields| {
+            fields
+                .keys()
+                .any(|key| !matches!(key.as_str(), "foundAtCharacter" | "orderHint"))
+        });
+    moved.then_some(resolved_symbol)
+}
+
+/// Remove `value.path` (or an internal `uri`) when it names the same file
+/// as `canonical_uri`.
 pub(super) fn drop_same_uri(value: &mut Value, canonical_uri: &str) {
     let file = |uri: &str| {
         url::Url::parse(uri)
             .ok()
             .and_then(|url| url.to_file_path().ok())
+            .or_else(|| {
+                let path = std::path::PathBuf::from(uri);
+                path.is_absolute().then_some(path)
+            })
     };
     let Some(object) = value.as_object_mut() else {
         return;
     };
-    let same = object
-        .get("uri")
-        .and_then(Value::as_str)
-        .is_some_and(|uri| {
+    for key in ["uri", "path"] {
+        let same = object.get(key).and_then(Value::as_str).is_some_and(|uri| {
             uri == canonical_uri || file(uri).is_some_and(|path| Some(path) == file(canonical_uri))
         });
-    if same {
-        object.shift_remove("uri");
+        if same {
+            object.shift_remove(key);
+        }
     }
 }
 

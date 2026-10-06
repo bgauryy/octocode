@@ -24,10 +24,10 @@ A new label or paraphrase is not a new crossroad.
 
 ## Frozen packet shape
 
-- `review: {id, rfcRevision, mainGoal: "one-line decision goal", questions: [{id:"Q1", type, instructions, criteria?}], criteria: ["decision criterion"], subject: {kind: "proposal", text: "exact proposed action"}}`. Use `kind: "claim"` for a bounded factual or causal claim.
+- `review: {id, rfcRevision, mainGoal: "one-line decision goal", questions: [{id:"Q1", type, ask, labels?}], criteria: ["decision criterion"], subject: {kind: "proposal", text: "exact proposed action"}}`. Use `kind: "claim"` for a bounded factual or causal claim.
 - `evidence`: an object keyed `E1`, `E2`, …; each value has `source` and `observation`. Keep optional fields. Never consolidate or renumber after dispatch.
 - `admission: {workersDisagree:true, remainingDisagreement, evidenceDoesNotSettleBecause, directCheckUnavailableBecause, currentAction, ifJudgeSupports, ifJudgeRejects, workerPositions:{A,B}, willChangeAction:true, directCheck:{available:false}, evidenceFresh:true, clasifyCallsAtCrossroad:0}`. Positions and result-dependent actions must differ. Admission is host policy, never provider evidence.
-- `context.value.arguments.A` and `.B`: objects with non-empty `opening` and `rebuttal` strings.
+- `resources[0].value.arguments.A` and `.B`: objects with non-empty `opening` and `rebuttal` strings.
 
 This preflight accepts exactly one source-free resource, so content the workers did not inspect cannot enter the judgment. Use separate SemanticQueries when evidence snapshots differ. For a subset or changed subject, freeze a new scoped contract for both workers; never select it silently after debate. The projection into the SemanticQuery is owned by `references/jev-api.md`.
 

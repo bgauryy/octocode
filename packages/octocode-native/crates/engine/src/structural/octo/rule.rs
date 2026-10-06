@@ -196,26 +196,23 @@ impl CompiledRule {
     }
 
     fn is_empty(&self) -> bool {
-        self.kind.is_none()
-            && self.pattern.is_none()
+        self.kind.is_none() && self.only_kind()
+    }
+
+    pub(super) fn simple_kind(&self) -> Option<&str> {
+        let kind = self.kind.as_deref()?;
+        self.only_kind().then_some(kind)
+    }
+
+    /// No matcher besides `kind` is set.
+    fn only_kind(&self) -> bool {
+        self.pattern.is_none()
             && self.regex.is_none()
             && self.has.is_none()
             && self.inside.is_none()
             && self.all.is_empty()
             && self.any.is_empty()
             && self.not.is_none()
-    }
-
-    pub(super) fn simple_kind(&self) -> Option<&str> {
-        let kind = self.kind.as_deref()?;
-        (self.pattern.is_none()
-            && self.regex.is_none()
-            && self.has.is_none()
-            && self.inside.is_none()
-            && self.all.is_empty()
-            && self.any.is_empty()
-            && self.not.is_none())
-        .then_some(kind)
     }
 
     fn compute_candidate_plan(&self) -> CandidatePlan {

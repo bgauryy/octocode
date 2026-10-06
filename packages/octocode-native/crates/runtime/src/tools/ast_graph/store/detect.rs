@@ -360,59 +360,25 @@ impl<'a> View<'a> {
 
 /// Iterative Tarjan over `nodes` using `adj`; components of size ≥ 2.
 fn strongly_connected(nodes: &[u32], adj: &dyn Fn(u32) -> Vec<u32>, n: usize) -> Vec<Vec<u32>> {
-    let mut index = vec![u32::MAX; n];
-    let mut low = vec![0u32; n];
-    let mut on_stack = vec![false; n];
-    let mut stack = Vec::new();
-    let mut components = Vec::new();
-    let mut counter = 0u32;
-    for &start in nodes {
-        if index[start as usize] != u32::MAX {
-            continue;
-        }
-        let mut frames = vec![(start, adj(start), 0usize)];
-        index[start as usize] = counter;
-        low[start as usize] = counter;
-        counter += 1;
-        stack.push(start);
-        on_stack[start as usize] = true;
-        while let Some((id, next, at)) = frames.last_mut() {
-            let id = *id;
-            if let Some(&w) = next.get(*at) {
-                *at += 1;
-                if index[w as usize] == u32::MAX {
-                    index[w as usize] = counter;
-                    low[w as usize] = counter;
-                    counter += 1;
-                    stack.push(w);
-                    on_stack[w as usize] = true;
-                    frames.push((w, adj(w), 0));
-                } else if on_stack[w as usize] {
-                    low[id as usize] = low[id as usize].min(index[w as usize]);
-                }
-                continue;
-            }
-            frames.pop();
-            if let Some((parent, _, _)) = frames.last() {
-                low[*parent as usize] = low[*parent as usize].min(low[id as usize]);
-            }
-            if low[id as usize] == index[id as usize] {
-                let mut component = Vec::new();
-                while let Some(w) = stack.pop() {
-                    on_stack[w as usize] = false;
-                    component.push(w);
-                    if w == id {
-                        break;
-                    }
-                }
-                if component.len() > 1 {
-                    component.sort_unstable();
-                    components.push(component);
-                }
-            }
-        }
-    }
-    components
+    tarjan(nodes, adj, n, &|component| component.len() > 1)
+}
+
+/// Tarjan (the engine's one implementation) over `nodes` using `adj`: the
+/// components `keep` admits, each sorted by id.
+pub(super) fn tarjan(
+    nodes: &[u32],
+    adj: &dyn Fn(u32) -> Vec<u32>,
+    n: usize,
+    keep: &dyn Fn(&[u32]) -> bool,
+) -> Vec<Vec<u32>> {
+    octocode_engine::graph::strongly_connected_components(nodes.iter().copied(), n, adj)
+        .into_iter()
+        .filter(|component| keep(component))
+        .map(|mut component| {
+            component.sort_unstable();
+            component
+        })
+        .collect()
 }
 
 /// Eades–Lin–Smyth greedy feedback-arc set inside one SCC: the returned
@@ -628,6 +594,38 @@ struct Ctx<'a> {
     notes: Vec<Value>,
 }
 
+/// A finding prepared while the view was borrowed: detector, subject, title,
+/// severity, confidence, evidence, controls.
+type Pending = (
+    &'static str,
+    String,
+    String,
+    f64,
+    f64,
+    Value,
+    Vec<&'static str>,
+);
+
+/// Push prepared findings at the default impact, with no extra id parts or
+/// verify steps.
+fn push_pending(out: &mut Vec<Finding>, pending: Vec<Pending>) {
+    for (detector, subject, title, severity, confidence, evidence, controls) in pending {
+        push(
+            out,
+            detector,
+            subject,
+            &[],
+            title,
+            severity,
+            confidence,
+            0.5,
+            evidence,
+            controls,
+            Vec::new(),
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn push(
     out: &mut Vec<Finding>,
@@ -826,23 +824,10 @@ fn detect_dir_cycles(c: &mut Ctx) {
     }
 }
 
-fn detect_reachability(c: &mut Ctx) {
-    let v = &c.v;
-    let entries = v.entries.keys().copied().collect::<Vec<_>>();
-    if entries.is_empty() {
-        note(
-            &mut c.notes,
-            "unreachable-file",
-            "no entrypoints could be inferred",
-        );
-        note(
-            &mut c.notes,
-            "test-only",
-            "no entrypoints could be inferred",
-        );
-        return;
-    }
-    let prod = v.reach(&entries);
+/// Production files no entrypoint reaches: `(file, orphan)` rows, files
+/// only tests reach, and the count of skipped Python library files.
+fn unreached_files(v: &View, entries: &[u32]) -> (Vec<(u32, bool)>, Vec<u32>, usize) {
+    let prod = v.reach(entries);
     // Test seeds: test/config files plus test functions living inside
     // production files (Rust `mod tests`, pytest functions).
     let tests = v
@@ -882,6 +867,26 @@ fn detect_reachability(c: &mut Ctx) {
             unreachable.push((*file, orphan));
         }
     }
+    (unreachable, test_only, skipped_library)
+}
+
+fn detect_reachability(c: &mut Ctx) {
+    let v = &c.v;
+    let entries = v.entries.keys().copied().collect::<Vec<_>>();
+    if entries.is_empty() {
+        note(
+            &mut c.notes,
+            "unreachable-file",
+            "no entrypoints could be inferred",
+        );
+        note(
+            &mut c.notes,
+            "test-only",
+            "no entrypoints could be inferred",
+        );
+        return;
+    }
+    let (unreachable, test_only, skipped_library) = unreached_files(v, &entries);
     let entry_quality = if entries.len() >= 2 { 0.7 } else { 0.5 };
     let rules = v.entries.values().copied().collect::<BTreeSet<_>>();
     let scoped = v
@@ -1073,7 +1078,7 @@ fn detect_unused_exports(c: &mut Ctx) {
                 "only languages with named-import linking (JS/TS/Python)",
             ],
             vec![format!(
-                "octocode lspSearch '{{\"queries\":[{{\"operation\":\"references\",\"uri\":\"{key}\",\"symbolName\":\"{}\"}}]}}'",
+                "octocode lspSearch '{{\"queries\":[{{\"operation\":\"references\",\"path\":\"{key}\",\"symbolName\":\"{}\"}}]}}'",
                 names[0]
             )],
         );
@@ -1166,21 +1171,7 @@ fn detect_dependencies(c: &mut Ctx) {
             vec!["hoisted by the package manager; breaks when published or installed alone"],
         ));
     }
-    for (detector, subject, title, severity, confidence, evidence, controls) in pending {
-        push(
-            &mut c.findings,
-            detector,
-            subject,
-            &[],
-            title,
-            severity,
-            confidence,
-            0.5,
-            evidence,
-            controls,
-            Vec::new(),
-        );
-    }
+    push_pending(&mut c.findings, pending);
 }
 
 fn detect_boundaries(c: &mut Ctx) {
@@ -1437,9 +1428,60 @@ fn detect_spof(c: &mut Ctx) {
 }
 
 /// Component-level Martin metrics: `unstable-dependency`, `main-sequence`.
+/// Unit → units it imports (efferent) and units importing it (afferent),
+/// over production files.
+fn unit_dependencies(
+    v: &View,
+    unit: &dyn Fn(u32) -> String,
+) -> (
+    BTreeMap<String, BTreeSet<String>>,
+    BTreeMap<String, BTreeSet<String>>,
+) {
+    let mut efferent = BTreeMap::<String, BTreeSet<String>>::new();
+    let mut afferent = BTreeMap::<String, BTreeSet<String>>::new();
+    for file in &v.files {
+        if !v.production(*file) {
+            continue;
+        }
+        let from = unit(*file);
+        efferent.entry(from.clone()).or_default();
+        for target in &v.out[*file as usize] {
+            if !v.production(*target) {
+                continue;
+            }
+            let to = unit(*target);
+            if to != from {
+                efferent.entry(from.clone()).or_default().insert(to.clone());
+                afferent.entry(to).or_default().insert(from.clone());
+            }
+        }
+    }
+    (efferent, afferent)
+}
+
+/// Unit → `(abstract, total)` exported top-level declarations: abstractness
+/// from exported symbol kinds.
+fn unit_exports(v: &View, unit: &dyn Fn(u32) -> String) -> BTreeMap<String, (usize, usize)> {
+    let t = v.t;
+    let mut exported = BTreeMap::<String, (usize, usize)>::new();
+    for node in &t.nodes {
+        if node.kind == NodeKind::Symbol
+            && node.flags & FLAG_EXPORTED != 0
+            && node.parent == NONE
+            && v.production(node.file)
+        {
+            let entry = exported.entry(unit(node.file)).or_default();
+            entry.1 += 1;
+            if ABSTRACT_KINDS.contains(&t.str(node.detail)) {
+                entry.0 += 1;
+            }
+        }
+    }
+    exported
+}
+
 fn detect_components(c: &mut Ctx) {
     let v = &c.v;
-    let t = v.t;
     let use_components = v
         .component
         .values()
@@ -1461,45 +1503,13 @@ fn detect_components(c: &mut Ctx) {
     } else {
         "directory"
     };
-    let mut efferent = BTreeMap::<String, BTreeSet<String>>::new();
-    let mut afferent = BTreeMap::<String, BTreeSet<String>>::new();
-    for file in &v.files {
-        if !v.production(*file) {
-            continue;
-        }
-        let from = unit(*file);
-        efferent.entry(from.clone()).or_default();
-        for target in &v.out[*file as usize] {
-            if !v.production(*target) {
-                continue;
-            }
-            let to = unit(*target);
-            if to != from {
-                efferent.entry(from.clone()).or_default().insert(to.clone());
-                afferent.entry(to).or_default().insert(from.clone());
-            }
-        }
-    }
+    let (efferent, afferent) = unit_dependencies(v, &unit);
     let instability = |name: &str| {
         let ce = efferent.get(name).map_or(0, BTreeSet::len) as f64;
         let ca = afferent.get(name).map_or(0, BTreeSet::len) as f64;
         if ca + ce == 0.0 { 0.0 } else { ce / (ca + ce) }
     };
-    // Abstractness from exported symbol kinds.
-    let mut exported = BTreeMap::<String, (usize, usize)>::new();
-    for node in &t.nodes {
-        if node.kind == NodeKind::Symbol
-            && node.flags & FLAG_EXPORTED != 0
-            && node.parent == NONE
-            && v.production(node.file)
-        {
-            let entry = exported.entry(unit(node.file)).or_default();
-            entry.1 += 1;
-            if ABSTRACT_KINDS.contains(&t.str(node.detail)) {
-                entry.0 += 1;
-            }
-        }
-    }
+    let exported = unit_exports(v, &unit);
     let mut pending = Vec::new();
     for (name, deps) in &efferent {
         let ca = afferent.get(name).map_or(0, BTreeSet::len);
@@ -1547,21 +1557,7 @@ fn detect_components(c: &mut Ctx) {
             }
         }
     }
-    for (detector, subject, title, severity, confidence, evidence, controls) in pending {
-        push(
-            &mut c.findings,
-            detector,
-            subject,
-            &[],
-            title,
-            severity,
-            confidence,
-            0.5,
-            evidence,
-            controls,
-            Vec::new(),
-        );
-    }
+    push_pending(&mut c.findings, pending);
 }
 
 fn detect_misplaced(c: &mut Ctx) {
@@ -1946,6 +1942,32 @@ fn tier_dead_code(findings: &mut [Finding], root: &std::path::Path, notes: &mut 
 
 /// Runs the selected detectors (all when `only` is empty) and ranks them.
 /// With `root`, dead-code findings are re-tiered by a repo-wide mention scan.
+/// Dedupe by subject: the strongest finding leads, others corroborate it.
+fn corroborate(mut findings: Vec<Finding>) -> Vec<Finding> {
+    findings.sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
+    let mut merged: Vec<Finding> = Vec::new();
+    let mut lead = BTreeMap::<String, usize>::new();
+    for finding in findings {
+        match lead.get(&finding.subject) {
+            Some(&at) => {
+                let leader = &mut merged[at];
+                if leader.detector != finding.detector
+                    && !leader.corroborated_by.contains(&finding.detector)
+                {
+                    leader.corroborated_by.push(finding.detector);
+                    leader.score = (leader.score * 1.1).min(1.0);
+                }
+            }
+            None => {
+                lead.insert(finding.subject.clone(), merged.len());
+            }
+        }
+        merged.push(finding);
+    }
+    merged.sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
+    merged
+}
+
 pub(crate) fn run(
     t: &GraphTables,
     only: &[String],
@@ -2018,33 +2040,11 @@ pub(crate) fn run(
         timings.insert("mention-scan", started.elapsed().as_millis() as u64);
     }
 
-    // Dedupe by subject: the strongest finding leads, others corroborate.
     let mut by_detector = BTreeMap::<&str, usize>::new();
     for finding in &c.findings {
         *by_detector.entry(finding.detector).or_default() += 1;
     }
-    c.findings
-        .sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
-    let mut merged: Vec<Finding> = Vec::new();
-    let mut lead = BTreeMap::<String, usize>::new();
-    for finding in c.findings {
-        match lead.get(&finding.subject) {
-            Some(&at) => {
-                let leader = &mut merged[at];
-                if leader.detector != finding.detector
-                    && !leader.corroborated_by.contains(&finding.detector)
-                {
-                    leader.corroborated_by.push(finding.detector);
-                    leader.score = (leader.score * 1.1).min(1.0);
-                }
-            }
-            None => {
-                lead.insert(finding.subject.clone(), merged.len());
-            }
-        }
-        merged.push(finding);
-    }
-    merged.sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
+    let merged = corroborate(c.findings);
     let entries =
         c.v.entries
             .values()

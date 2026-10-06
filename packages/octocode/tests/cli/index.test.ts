@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   delegate: vi.fn(() => 0),
+  configView: vi.fn(async () => 0),
   resolve: vi.fn((): string | null => '/native/octocode'),
   skillHandler: vi.fn(),
   schemeHandler: vi.fn(),
@@ -20,6 +21,9 @@ vi.mock('../../src/cli/native-delegate.js', async importOriginal => ({
   >()),
   resolveNativeBin: mocks.resolve,
   delegateToNative: mocks.delegate,
+}));
+vi.mock('../../src/cli/commands/config-view.js', () => ({
+  configViewCommand: mocks.configView,
 }));
 vi.mock('../../src/cli/commands/skill.js', () => ({
   skillCommand: { name: 'skill', options: [], handler: mocks.skillHandler },
@@ -44,6 +48,23 @@ describe('runCLI native boundary', () => {
 
   afterEach(() => {
     process.exitCode = originalExitCode;
+  });
+
+  it('starts the browser session only for config view and forwards its help to native', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+    await runCLI(['config', 'view', '--no-open']);
+    expect(mocks.configView).toHaveBeenCalledWith('/native/octocode', [
+      'config',
+      'view',
+      '--no-open',
+    ]);
+    expect(mocks.delegate).not.toHaveBeenCalled();
+    await runCLI(['config', 'view', '--help']);
+    expect(mocks.delegate).toHaveBeenLastCalledWith('/native/octocode', [
+      'config',
+      'view',
+      '--help',
+    ]);
   });
 
   it('delegates public tool commands without interpreting their arguments', async () => {
@@ -193,7 +214,7 @@ describe('runCLI native boundary', () => {
     }
   });
 
-  it('prints launcher and native versions without delegating', async () => {
+  it('prints the version line without delegating', async () => {
     vi.doMock('../../src/cli/version.js', () => ({
       versionLine: () => 'octocode 1.2.3 (native 4.5.6)',
     }));

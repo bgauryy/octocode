@@ -4,7 +4,7 @@ mod flow_tests;
 
 use super::{
     CredentialSource, CredentialStore, OAuthToken, ProviderError, ProviderErrorKind,
-    ResolvedCredential, StoredCredentials,
+    StoredCredentials,
 };
 
 use reqwest::header::{ACCEPT, USER_AGENT};
@@ -41,7 +41,7 @@ pub struct LoginEndpoints {
 impl LoginEndpoints {
     pub fn from_host(host: &str) -> Self {
         let host = host.trim().trim_end_matches('/');
-        if host == "github.com" || host == "api.github.com" {
+        if octocode_github::credential_host(host) == "github.com" {
             Self::from_api_url("https://api.github.com")
         } else {
             Self::from_api_url(&format!("https://{host}/api/v3"))
@@ -136,13 +136,6 @@ impl std::fmt::Debug for TokenWithRefreshResult {
     }
 }
 
-pub async fn login_device_flow_with_client_id(
-    endpoints: &LoginEndpoints,
-    client_id: &str,
-) -> Result<StoredCredentials, ProviderError> {
-    login_device_flow_cancellable(endpoints, client_id, &CancellationToken::new()).await
-}
-
 const LOGIN_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// One pooled client for OAuth web-origin calls (device code, polling,
@@ -166,6 +159,30 @@ fn login_client() -> Result<&'static reqwest::Client, ProviderError> {
                 "failed to initialize login HTTP client",
             )
         })
+}
+
+/// POST an OAuth form to the web origin; a transport failure or redirect
+/// fails as `what`.
+async fn post_form(
+    client: &reqwest::Client,
+    endpoints: &LoginEndpoints,
+    path: &str,
+    form: String,
+    what: &str,
+) -> Result<reqwest::Response, ProviderError> {
+    client
+        .post(format!("{}{path}", endpoints.web_origin))
+        .header(ACCEPT, "application/json")
+        .header(USER_AGENT, "octocode-native")
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            "application/x-www-form-urlencoded",
+        )
+        .body(form)
+        .send()
+        .await
+        .map_err(|_| ProviderError::new(ProviderErrorKind::Transport, format!("{what} failed")))
+        .and_then(|response| reject_redirect(response, what))
 }
 
 /// OAuth endpoints answer directly; any 3xx is refused instead of followed.
@@ -218,21 +235,6 @@ async fn auth_call<T>(
     }
 }
 
-/// Device flow whose polling sleep ends on `cancellation` or Ctrl-C.
-pub async fn login_device_flow_cancellable(
-    endpoints: &LoginEndpoints,
-    client_id: &str,
-    cancellation: &CancellationToken,
-) -> Result<StoredCredentials, ProviderError> {
-    login_device_flow_in_store(
-        endpoints,
-        client_id,
-        cancellation,
-        &CredentialStore::from_process()?,
-    )
-    .await
-}
-
 pub async fn login_device_flow_in_store(
     endpoints: &LoginEndpoints,
     client_id: &str,
@@ -259,26 +261,17 @@ async fn login_device_flow_with_store(
     }
     let client = login_client()?;
     let device: DeviceCode = auth_call(endpoints, cancellation, async {
-        client
-            .post(format!("{}/login/device/code", endpoints.web_origin))
-            .header(ACCEPT, "application/json")
-            .header(USER_AGENT, "octocode-native")
-            .header(
-                reqwest::header::CONTENT_TYPE,
-                "application/x-www-form-urlencoded",
-            )
-            .body(device_code_form(client_id))
-            .send()
-            .await
-            .map_err(|_| {
-                ProviderError::new(ProviderErrorKind::Transport, "device code request failed")
-            })
-            .and_then(|response| reject_redirect(response, "device code request"))?
-            .json()
-            .await
-            .map_err(|_| {
-                ProviderError::new(ProviderErrorKind::Decode, "invalid device code response")
-            })
+        post_form(
+            client,
+            endpoints,
+            "/login/device/code",
+            device_code_form(client_id),
+            "device code request",
+        )
+        .await?
+        .json()
+        .await
+        .map_err(|_| ProviderError::new(ProviderErrorKind::Decode, "invalid device code response"))
     })
     .await?;
     eprintln!(
@@ -294,24 +287,19 @@ async fn login_device_flow_with_store(
             _ = tokio::time::sleep(interval) => {}
         }
         let token: TokenResponse = auth_call(endpoints, cancellation, async {
-            client
-                .post(format!("{}/login/oauth/access_token", endpoints.web_origin))
-                .header(ACCEPT, "application/json")
-                .header(USER_AGENT, "octocode-native")
-                .header(
-                    reqwest::header::CONTENT_TYPE,
-                    "application/x-www-form-urlencoded",
-                )
-                .body(token_poll_form(client_id, &device.device_code))
-                .send()
-                .await
-                .map_err(|_| ProviderError::new(ProviderErrorKind::Transport, "token poll failed"))
-                .and_then(|response| reject_redirect(response, "token poll"))?
-                .json()
-                .await
-                .map_err(|_| {
-                    ProviderError::new(ProviderErrorKind::Decode, "invalid token poll response")
-                })
+            post_form(
+                client,
+                endpoints,
+                "/login/oauth/access_token",
+                token_poll_form(client_id, &device.device_code),
+                "token poll",
+            )
+            .await?
+            .json()
+            .await
+            .map_err(|_| {
+                ProviderError::new(ProviderErrorKind::Decode, "invalid token poll response")
+            })
         })
         .await?;
         if token.error.as_deref() == Some("authorization_pending") {
@@ -716,13 +704,6 @@ async fn refresh_selected(
     .await
 }
 
-pub async fn refresh_auth_token(
-    host: &str,
-    client_id: &str,
-) -> Result<StoredCredentials, ProviderError> {
-    refresh_auth_token_in_store(host, client_id, &CredentialStore::from_process()?).await
-}
-
 pub async fn refresh_auth_token_in_store(
     host: &str,
     client_id: &str,
@@ -811,36 +792,29 @@ async fn exchange_refresh_token(
 ) -> Result<RefreshedToken, ProviderError> {
     let client = login_client()?;
     let token: TokenResponse = auth_call(endpoints, &CancellationToken::new(), async {
-        client
-            .post(format!("{}/login/oauth/access_token", endpoints.web_origin))
-            .header(ACCEPT, "application/json")
-            .header(USER_AGENT, "octocode-native")
-            .header(
-                reqwest::header::CONTENT_TYPE,
-                "application/x-www-form-urlencoded",
-            )
-            .body(refresh_token_form(client_id, refresh_token))
-            .send()
-            .await
-            .map_err(|_| {
-                ProviderError::new(ProviderErrorKind::Transport, "token refresh request failed")
-            })
-            .and_then(|response| reject_redirect(response, "token refresh request"))?
-            .error_for_status()
-            .map_err(|error| {
-                let status = error.status().map(|value| value.as_u16());
-                let mut failed = ProviderError::new(
-                    ProviderErrorKind::Authentication,
-                    "credential.refreshFailed",
-                );
-                failed.status = status;
-                failed
-            })?
-            .json()
-            .await
-            .map_err(|_| {
-                ProviderError::new(ProviderErrorKind::Decode, "invalid token refresh response")
-            })
+        post_form(
+            client,
+            endpoints,
+            "/login/oauth/access_token",
+            refresh_token_form(client_id, refresh_token),
+            "token refresh request",
+        )
+        .await?
+        .error_for_status()
+        .map_err(|error| {
+            let status = error.status().map(|value| value.as_u16());
+            let mut failed = ProviderError::new(
+                ProviderErrorKind::Authentication,
+                "credential.refreshFailed",
+            );
+            failed.status = status;
+            failed
+        })?
+        .json()
+        .await
+        .map_err(|_| {
+            ProviderError::new(ProviderErrorKind::Decode, "invalid token refresh response")
+        })
     })
     .await?;
     if let Some(error) = token.error.filter(|value| !value.is_empty()) {
@@ -865,17 +839,6 @@ async fn exchange_refresh_token(
         expires_in: token.expires_in,
         refresh_token_expires_in: token.refresh_token_expires_in,
     })
-}
-
-pub async fn refresh_auth_token_result(
-    host: Option<&str>,
-    client_id: Option<&str>,
-) -> RefreshResult {
-    let host = host.unwrap_or("github.com");
-    refresh_result(
-        host,
-        refresh_auth_token(host, client_id_for_host(host, client_id)).await,
-    )
 }
 
 pub async fn refresh_auth_token_result_in_store(
@@ -903,16 +866,6 @@ fn refresh_result(host: &str, result: Result<StoredCredentials, ProviderError>) 
             hostname: Some(LoginEndpoints::from_host(host).host),
             error: Some(mask_token_text(&error.message)),
         },
-    }
-}
-
-pub async fn get_token_with_refresh(
-    host: Option<&str>,
-    client_id: Option<&str>,
-) -> TokenWithRefreshResult {
-    match CredentialStore::from_process() {
-        Ok(store) => get_token_with_refresh_in_store(host, client_id, &store).await,
-        Err(error) => token_refresh_error(error),
     }
 }
 
@@ -977,28 +930,6 @@ pub async fn get_token_with_refresh_in_store(
     }
 }
 
-pub async fn resolve_stored_with_refresh(
-    host: &str,
-    client_id: &str,
-) -> Result<Option<ResolvedCredential>, ProviderError> {
-    let store = CredentialStore::from_process()?;
-    let Some((stored, source)) = store.load(host)? else {
-        return Ok(None);
-    };
-    if !is_token_expired(&stored) {
-        return Ok(Some(ResolvedCredential::new(stored.token.token, source)));
-    }
-    if client_id.trim().is_empty() {
-        return Err(ProviderError::new(
-            ProviderErrorKind::Configuration,
-            "OCTOCODE_GITHUB_CLIENT_ID is required to refresh GitHub Enterprise credentials",
-        ));
-    }
-    Ok(refresh_stored_in_store(host, client_id, &store, source)
-        .await?
-        .map(|stored| ResolvedCredential::new(stored.token.token, source)))
-}
-
 pub(crate) async fn refresh_stored_in_store(
     host: &str,
     client_id: &str,
@@ -1020,7 +951,7 @@ mod tests {
     use super::{
         LoginEndpoints, RefreshMode, RefreshStore, StoredCredentials, device_code_form,
         exchange_refresh_token, is_refresh_token_expired, is_token_expired,
-        login_device_flow_cancellable, parse_granted_scopes, refresh_locked, refresh_token_form,
+        login_device_flow_in_store, parse_granted_scopes, refresh_locked, refresh_token_form,
         token_poll_form, unix_to_rfc3339,
     };
     use crate::providers::github::OAuthToken;
@@ -1031,6 +962,15 @@ mod tests {
     use tokio_util::sync::CancellationToken;
     use wiremock::matchers::{body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Fail the test if anything POSTs to `server`.
+    pub(super) async fn forbid_posts(server: &MockServer) {
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(500))
+            .expect(0)
+            .mount(server)
+            .await;
+    }
 
     pub(super) fn stored(expires_at: Option<&str>, refresh: Option<&str>) -> StoredCredentials {
         StoredCredentials {
@@ -1253,11 +1193,7 @@ mod tests {
     #[tokio::test]
     async fn forced_refresh_reuses_a_rotation_made_while_waiting() {
         let server = MockServer::start().await;
-        Mock::given(method("POST"))
-            .respond_with(ResponseTemplate::new(500))
-            .expect(0)
-            .mount(&server)
-            .await;
+        forbid_posts(&server).await;
         let dir = tempfile::tempdir().expect("tempdir");
         let mut rotated = expired_stored("r2");
         rotated.token.token = "gho_rotated".into();
@@ -1319,10 +1255,15 @@ mod tests {
             .expect("redirect refused");
         assert_eq!(refresh.kind, ProviderErrorKind::RedirectDenied);
         assert_eq!(refresh.status, Some(307));
-        let device =
-            login_device_flow_cancellable(&endpoints(&server), "cid", &CancellationToken::new())
-                .await
-                .expect_err("redirect refused");
+        let home = tempfile::tempdir().expect("tempdir");
+        let device = login_device_flow_in_store(
+            &endpoints(&server),
+            "cid",
+            &CancellationToken::new(),
+            &super::CredentialStore::new(home.path()),
+        )
+        .await
+        .expect_err("redirect refused");
         assert_eq!(device.kind, ProviderErrorKind::RedirectDenied);
         assert_eq!(device.status, Some(308));
         other.verify().await;

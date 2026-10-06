@@ -2,9 +2,11 @@
 mod acquire;
 mod dotenv;
 mod edit;
+mod json_edit;
 #[cfg(test)]
 mod layering_tests;
 mod loader;
+mod manage;
 pub(crate) mod resolver;
 mod types;
 mod validation;
@@ -12,12 +14,16 @@ pub use acquire::{acquire_config_input, octocode_home};
 pub use dotenv::{
     apply_env, merged_env, parse_boolean_env, parse_env, parse_int_env, parse_string_array_env,
 };
-pub use edit::edit_global_env;
+pub use edit::{
+    backup_path, config_revision, edit_scoped_env, read_private_config, replace_private_config,
+    validate_env_edit,
+};
+pub use json_edit::{edit_config_json, parse_config_json};
 pub use loader::load_config;
+pub use manage::{edit_setting, inspect_management, validate_env_value};
 pub use resolver::{
-    get_config_value, inspector_data, is_persistent_storage_enabled,
-    is_persistent_storage_enabled_for_extension, is_stats_enabled, resolve_config,
-    resolve_env_token, resolve_sections,
+    get_config_value, inspector_data, is_persistent_storage_enabled, is_stats_enabled,
+    resolve_config, resolve_env_token, resolve_sections,
 };
 pub use types::*;
 pub use validation::validate_config;
@@ -28,27 +34,6 @@ mod tests {
     use serde_json::json;
     use std::collections::BTreeMap;
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    struct TempDir(std::path::PathBuf);
-    impl TempDir {
-        fn new() -> Self {
-            let p = std::env::temp_dir().join(format!(
-                "octocode-native-config-{}-{}",
-                std::process::id(),
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .expect("test fixture operation should succeed")
-                    .as_nanos()
-            ));
-            fs::create_dir_all(&p).expect("test fixture operation should succeed");
-            Self(p)
-        }
-    }
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.0);
-        }
-    }
     fn input(env: BTreeMap<String, String>, file: Option<&str>) -> ConfigInput {
         let home = std::path::PathBuf::from("/synthetic/home");
         ConfigInput {
@@ -75,7 +60,6 @@ mod tests {
                 path: "/synthetic/cwd/.octocode/.octocoderc".into(),
             },
             runtime_surface: RuntimeSurface::Mcp,
-            revision: 1,
         }
     }
     #[test]
@@ -142,17 +126,11 @@ mod tests {
         let env = BTreeMap::from([
             ("OCTOCODE_BETA".into(), "true".into()),
             ("REQUEST_TIMEOUT".into(), "12ms".into()),
-            ("OCTOCODE_EXTENSION_STORAGE_MODE".into(), "memory".into()),
         ]);
         let out = resolve_config(&input(env, None));
         assert!(out.resolved.local.beta);
         assert_eq!(out.resolved.network.timeout, 5000.);
-        assert_eq!(out.resolved.extension.storage.mode, "memory");
-        assert_eq!(
-            out.source,
-            ConfigSource::Env,
-            "extension storage is in the frozen source key list"
-        );
+        assert_eq!(out.source, ConfigSource::Env);
         let only = BTreeMap::from([("OCTOCODE_BETA".into(), "true".into())]);
         assert_eq!(
             resolve_config(&input(only, None)).source,
@@ -240,19 +218,17 @@ mod tests {
         assert_eq!(token.token(), "synthetic");
         assert!(!format!("{token:?}").contains("synthetic"));
         let cfg = resolve_sections(
-            &[&json!({"storage":{"mode":"memory"},"extension":{"storage":{"mode":"persistent"}}})],
+            &[&json!({"storage":{"mode":"memory"}})],
             &BTreeMap::from([("OCTOCODE_ENABLE_STATS".into(), "true".into())]),
         );
         assert!(cfg.is_ok());
-        let cfg = cfg.unwrap_or_default();
-        assert!(!is_stats_enabled(&cfg));
-        assert!(is_persistent_storage_enabled_for_extension(&cfg))
+        assert!(!is_stats_enabled(&cfg.unwrap_or_default()))
     }
     #[test]
     fn fresh_acquisition_observes_file_changes_and_cleans_up() {
-        let root = TempDir::new();
-        let home = root.0.join("home");
-        let cwd = root.0.join("cwd");
+        let root = tempfile::tempdir().expect("test fixture operation should succeed");
+        let home = root.path().join("home");
+        let cwd = root.path().join("cwd");
         fs::create_dir_all(&home).expect("test fixture operation should succeed");
         fs::create_dir_all(cwd.join(".octocode")).expect("test fixture operation should succeed");
         let env = BTreeMap::from([("OCTOCODE_HOME".into(), home.to_string_lossy().into_owned())]);
@@ -261,30 +237,33 @@ mod tests {
         let a = resolve_config(&acquire_config_input(
             env.clone(),
             cwd.clone(),
-            root.0.clone(),
+            root.path().to_path_buf(),
             false,
             RuntimeSurface::Cli,
-            1,
         ));
         fs::write(home.join(".octocoderc"), "{\"network\":{\"timeout\":6000}}")
             .expect("test fixture operation should succeed");
         let b = resolve_config(&acquire_config_input(
             env,
             cwd,
-            root.0.clone(),
+            root.path().to_path_buf(),
             false,
             RuntimeSurface::Cli,
-            2,
         ));
         assert_eq!(
-            (
-                a.resolved.network.timeout,
-                b.resolved.network.timeout,
-                a.revision,
-                b.revision
-            ),
-            (5000., 6000., 1, 2)
+            (a.resolved.network.timeout, b.resolved.network.timeout),
+            (5000., 6000.)
         )
+    }
+    #[test]
+    fn oversized_config_layer_is_unreadable_not_truncated() {
+        let root = tempfile::tempdir().expect("test fixture operation should succeed");
+        let path = root.path().join(".octocoderc");
+        fs::write(&path, " ".repeat(4 * 1024 * 1024 + 1)).expect("fixture");
+        assert!(matches!(
+            acquire::read_file(path),
+            FileInput::Unreadable { .. }
+        ));
     }
     #[test]
     fn home_resolution_and_file_states_are_portable() {

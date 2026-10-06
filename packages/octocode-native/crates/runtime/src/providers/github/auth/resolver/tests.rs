@@ -19,7 +19,6 @@ fn authentication(token: Option<&str>) -> Authentication {
         config_file: missing(),
         project_config_file: missing(),
         runtime_surface: RuntimeSurface::Mcp,
-        revision: 1,
     });
     Authentication::new(Arc::new(config))
 }
@@ -108,13 +107,58 @@ async fn absent_credentials_allow_anonymous_access_but_storage_errors_remain_vis
         ProviderErrorKind::CredentialStoreUnavailable,
         "store unavailable",
     ));
+    // Requests run anonymously when there is no token and no usable store.
+    let auth = authentication(None);
+    assert!(
+        auth.resolve_with("github.com", AuthMode::Request, &budget(), &backend)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(backend.calls(), ["load", "gh"]);
+    // Inspection still reports the store failure.
     let error = auth
-        .resolve_with("github.com", AuthMode::Request, &budget(), &backend)
+        .resolve_with("github.com", AuthMode::Inspect, &budget(), &backend)
         .await
         .err()
         .unwrap();
     assert_eq!(error.kind, ProviderErrorKind::CredentialStoreUnavailable);
-    assert_eq!(backend.calls(), ["load", "gh"]);
+}
+
+#[tokio::test]
+async fn request_credentials_resolve_once_per_host_until_forgotten() {
+    let backend = Backend::new(None);
+    let auth = authentication(None);
+    for _ in 0..3 {
+        let selection = auth
+            .resolve_with("github.com", AuthMode::Request, &budget(), &backend)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(selection.token(), "gh-token");
+    }
+    assert_eq!(
+        backend.calls(),
+        ["load", "gh"],
+        "one resolution per process"
+    );
+    auth.resolve_with("ghe.example", AuthMode::Request, &budget(), &backend)
+        .await
+        .unwrap();
+    assert_eq!(backend.calls().len(), 4, "hosts resolve separately");
+    auth.forget("github.com");
+    auth.resolve_with("github.com", AuthMode::Request, &budget(), &backend)
+        .await
+        .unwrap();
+    assert_eq!(
+        backend.calls().len(),
+        6,
+        "a rejected credential re-resolves"
+    );
+    auth.resolve_with("github.com", AuthMode::Inspect, &budget(), &backend)
+        .await
+        .unwrap();
+    assert_eq!(backend.calls().len(), 8, "inspection never reads the memo");
 }
 
 #[tokio::test]

@@ -104,6 +104,54 @@ fn looks_like_iso(value: &str) -> bool {
     (1..=max_day).contains(&day)
 }
 
+/// A GitHub timestamp (`…Z`, `….000Z`, `…+02:00`) as UTC `YYYY-MM-DDTHH:MM:SSZ`;
+/// `None` when the value is not a full timestamp.
+pub fn utc_timestamp(value: &str) -> Option<String> {
+    let bytes = value.as_bytes();
+    let number = |range: std::ops::Range<usize>| -> Option<i64> {
+        let part = bytes.get(range)?;
+        part.iter()
+            .all(u8::is_ascii_digit)
+            .then(|| part.iter().fold(0, |acc, d| acc * 10 + i64::from(d - b'0')))
+    };
+    if !looks_like_iso(value.get(..10)?)
+        || bytes.get(10) != Some(&b'T')
+        || bytes.get(13) != Some(&b':')
+        || bytes.get(16) != Some(&b':')
+    {
+        return None;
+    }
+    let (hour, minute, second) = (number(11..13)?, number(14..16)?, number(17..19)?);
+    if hour > 23 || minute > 59 || second > 60 {
+        return None;
+    }
+    let mut rest = value.get(19..)?;
+    if let Some(fraction) = rest.strip_prefix('.') {
+        let digits = fraction.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 {
+            return None;
+        }
+        rest = &fraction[digits..];
+    }
+    let offset = match rest.as_bytes() {
+        [b'Z' | b'z'] => 0,
+        [sign @ (b'+' | b'-'), h1, h2, b':', m1, m2] => {
+            let digits = [*h1, *h2, *m1, *m2];
+            if !digits.iter().all(u8::is_ascii_digit) {
+                return None;
+            }
+            let [h1, h2, m1, m2] = digits.map(|d| i64::from(d - b'0'));
+            let minutes = (h1 * 10 + h2) * 60 + m1 * 10 + m2;
+            if *sign == b'-' { -minutes } else { minutes }
+        }
+        _ => return None,
+    };
+    let days = crate::civil_date::days_from_civil(number(0..4)?, number(5..7)?, number(8..10)?);
+    Some(iso8601(
+        days * 86_400 + hour * 3_600 + minute * 60 + second - offset * 60,
+    ))
+}
+
 fn iso8601(epoch: i64) -> String {
     let epoch = epoch.max(0) as u64;
     let days = epoch / 86400;
@@ -150,6 +198,26 @@ mod tests {
         }
         for good in ["2024-02-29", "2030-12-31", "2030-01-01T10:00:00Z"] {
             assert_eq!(resolve_date_window(good).value.as_deref(), Some(good));
+        }
+    }
+
+    #[test]
+    fn github_timestamps_normalize_to_utc() {
+        for (raw, utc) in [
+            ("2024-03-01T01:30:00+02:00", "2024-02-29T23:30:00Z"),
+            ("2024-01-01T12:00:00.000-05:30", "2024-01-01T17:30:00Z"),
+            ("2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+            ("2026-01-01T00:00:00.123Z", "2026-01-01T00:00:00Z"),
+        ] {
+            assert_eq!(utc_timestamp(raw).as_deref(), Some(utc), "{raw}");
+        }
+        for bad in [
+            "2026-01-01",
+            "2026-13-01T00:00:00Z",
+            "soon",
+            "2026-01-01T00:00:00+2",
+        ] {
+            assert_eq!(utc_timestamp(bad), None, "{bad}");
         }
     }
 

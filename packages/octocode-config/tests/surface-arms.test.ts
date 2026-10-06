@@ -4,14 +4,10 @@ import { describe, expect, it } from 'vitest';
 import { resolveConfigFields } from '../src/index.js';
 
 describe('catalog-shape switches', () => {
-  it('default to the full catalog, the queries view, no deferral and default instructions', () => {
+  it('default to the full catalog and no deferral', () => {
     const resolved = resolveConfigFields({}, {});
     expect(resolved.tools.family).toBe('all');
-    expect(resolved.mcp).toEqual({
-      publishedView: 'queries',
-      deferred: null,
-      instructions: 'default',
-    });
+    expect(resolved.mcp).toEqual({ deferred: null });
   });
 
   it('resolve from the environment', () => {
@@ -19,23 +15,17 @@ describe('catalog-shape switches', () => {
       {},
       {
         OCTOCODE_TOOL_FAMILY: 'GitHub',
-        OCTOCODE_PUBLISHED_VIEW: 'flat',
         OCTOCODE_DEFER_TOOLS: 'clasify,ghSearchRepo',
-        OCTOCODE_INSTRUCTIONS: 'guide',
       }
     );
     expect(resolved.tools.family).toBe('github');
-    expect(resolved.mcp).toEqual({
-      publishedView: 'flat',
-      deferred: ['clasify', 'ghSearchRepo'],
-      instructions: 'guide',
-    });
+    expect(resolved.mcp).toEqual({ deferred: ['clasify', 'ghSearchRepo'] });
   });
 
   it('resolve from .octocoderc and ignore an unknown family', () => {
     expect(
       resolveConfigFields(
-        { tools: { family: 'local' }, mcp: { publishedView: 'flat' } },
+        { tools: { family: 'local' }, mcp: { deferred: ['clasify'] } },
         {}
       ).tools.family
     ).toBe('local');

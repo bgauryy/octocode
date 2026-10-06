@@ -20,6 +20,18 @@ mod js_oxc_shared;
 
 pub(crate) const GRAPH_FACTS_SCHEMA_VERSION: u32 = 1;
 
+/// An empty native syntax facts document for `file`, parsed as `language`.
+fn native_graph_facts(language: String, file: &str) -> crate::graph::GraphFactsDocument {
+    crate::graph::GraphFactsDocument {
+        kind: "graphFacts".to_owned(),
+        schema_version: GRAPH_FACTS_SCHEMA_VERSION,
+        source: "native-ast".to_owned(),
+        language,
+        file: file.to_owned(),
+        ..Default::default()
+    }
+}
+
 pub(crate) struct GraphFactsExtraction {
     pub facts: crate::graph::GraphFactsDocument,
     /// One syntax-aware value-reference count per declaration id, so the
@@ -44,8 +56,6 @@ fn tree_sitter_graph_facts(content: &str, file_path: &str) -> Option<GraphFactsE
     graph_facts::extract_graph_facts_with_metadata_with_extension(content, file_path, grammar)
 }
 
-/// Declarations-only facts for outlines: the light oxc path for JS/TS; other
-/// languages' single tree-sitter walk already costs about the same.
 /// 0-based line where the comment block directly above a declaration
 /// starting at `start` (0-based) begins, if any. Blank lines end the block;
 /// Rust `#[...]` attributes between the comment and the item are skipped. `#`
@@ -74,19 +84,23 @@ pub(crate) fn leading_doc_line(lines: &[&str], start: usize, ext: &str) -> Optio
     u32::try_from(doc).ok()
 }
 
-pub(crate) fn extract_declarations_inner(content: &str, file_path: &str) -> Option<String> {
-    js_oxc::extract_declarations(content, file_path).or_else(|| {
-        tree_sitter_graph_facts(content, file_path)
-            .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
-    })
+/// Declarations-only facts for outlines: the light oxc path for JS/TS; other
+/// languages' single tree-sitter walk already costs about the same.
+#[must_use]
+pub fn extract_declarations(content: &str, file_path: &str) -> Option<String> {
+    js_oxc::extract_declarations(content, file_path)
+        .or_else(|| tree_sitter_graph_facts(content, file_path).map(|extraction| extraction.facts))
+        .and_then(|facts| serde_json::to_string(&facts).ok())
 }
 
-pub(crate) fn extract_graph_facts_inner(content: &str, file_path: &str) -> Option<String> {
+#[must_use]
+pub fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
     extract_graph_facts_with_metadata_inner(content, file_path)
         .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
 }
 
-pub(crate) fn extract_graph_facts_with_extension_inner(
+#[must_use]
+pub fn extract_graph_facts_with_extension(
     content: &str,
     file_path: &str,
     extension: &str,
@@ -98,190 +112,7 @@ pub mod languages;
 pub mod renderer;
 
 use crate::text::file_extension::get_extension_internal;
-use extractor::{LangExtractConfig, extract};
-
-pub const SIGNATURES_ONLY_HINT: &str = concat!(
-    "Signatures/outline only — bodies and comments omitted; ",
-    "the whole skeleton is returned in one response (never paginated). ",
-    "Left gutter shows original line numbers; use startLine/endLine to read a body."
-);
-
-/// Returns `(1-based line number, text)` pairs for every line that starts a
-/// top-level semantic block. Tree-sitter only — same dispatch as
-/// `extract_signatures_inner` but skips the renderer, so callers can map line
-/// numbers to char offsets without string parsing.
-///
-/// Returns an empty Vec for files above the 1 MB guard or without a first-class
-/// grammar (there is no regex/heuristic fallback).
-pub fn extract_boundary_lines_inner(content: &str, file_path: &str) -> Vec<(usize, String)> {
-    if content.len() > MAX_PARSE_SIZE {
-        return Vec::new();
-    }
-    // Wrap the tree-sitter parser path in `catch_unwind` so a parser panic on
-    // adversarial input is converted into a clean empty fallback rather than
-    // unwinding across the napi FFI boundary and aborting Node. Mirrors the
-    // guard on the sibling `extract_signatures_inner`.
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let ext = get_extension_internal(file_path, true, "txt");
-        let ext = crate::text::file_extension::grammar_extension(content, &ext);
-        // Tree-sitter is the only signature path. Languages outside the
-        // canonical first-class registry produce no boundaries.
-        let Some(entry) = languages::find_entry(ext) else {
-            return Vec::new();
-        };
-        let cfg = LangExtractConfig {
-            language: entry.language.clone(),
-            body_query: entry.body_query,
-        };
-        extract(content, &cfg).unwrap_or_default()
-    }))
-    .unwrap_or_default()
-}
-
-/// True when `trimmed` is a lone closing delimiter — it closes a block rather
-/// than starting one, so it must not be used as a chunk boundary.
-/// Examples: `}`, `};`, `]);`, `)`, `})`, `})`
-fn is_lone_delimiter(trimmed: &str) -> bool {
-    let stripped = trimmed.trim_end_matches([';', ',']);
-    matches!(stripped, "}" | "]" | ")" | "})" | "])" | "}]")
-}
-
-fn leading_indent_width(text: &str) -> usize {
-    text.chars()
-        .take_while(|ch| matches!(ch, ' ' | '\t'))
-        .map(|ch| if ch == '\t' { 4 } else { 1 })
-        .sum()
-}
-
-fn strip_leading_modifiers(mut text: &str) -> &str {
-    const MODIFIERS: &[&str] = &[
-        "public",
-        "private",
-        "protected",
-        "internal",
-        "static",
-        "abstract",
-        "final",
-        "sealed",
-        "open",
-        "override",
-        "async",
-        "export",
-        "pub",
-        "mut",
-        "readonly",
-    ];
-
-    loop {
-        let before = text;
-        for modifier in MODIFIERS {
-            if let Some(rest) = text.strip_prefix(modifier)
-                && rest
-                    .chars()
-                    .next()
-                    .is_some_and(|ch| ch.is_ascii_whitespace())
-            {
-                text = rest.trim_start();
-                break;
-            }
-        }
-        if text == before {
-            return text;
-        }
-    }
-}
-
-fn starts_with_boundary_keyword(text: &str) -> bool {
-    let stripped = strip_leading_modifiers(text);
-    [
-        "case class ",
-        "case object ",
-        "data class ",
-        "enum class ",
-        "sealed class ",
-        "abstract class ",
-        "companion object",
-        "class ",
-        "interface ",
-        "enum ",
-        "record ",
-        "struct ",
-        "impl ",
-        "trait ",
-        "object ",
-        "namespace ",
-        "type ",
-        "typealias ",
-        "func ",
-        "fn ",
-        "fun ",
-        "def ",
-        "init ",
-        "constructor ",
-    ]
-    .iter()
-    .any(|prefix| stripped.starts_with(prefix))
-}
-
-fn is_nested_member_noise(text: &str, ext: &str) -> bool {
-    let indent = leading_indent_width(text);
-    if indent == 0 {
-        return false;
-    }
-
-    let trimmed = text.trim();
-    if matches!(ext, "html" | "htm" | "vue" | "svelte") {
-        return false;
-    }
-    if matches!(ext, "css" | "less") {
-        return !trimmed.starts_with('@');
-    }
-    if ext == "scala" {
-        let stripped = strip_leading_modifiers(trimmed);
-        if stripped.starts_with("val ") || stripped.starts_with("var ") {
-            return false;
-        }
-    }
-    if trimmed.contains('(') || starts_with_boundary_keyword(trimmed) {
-        return false;
-    }
-
-    matches!(
-        ext,
-        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "go" | "rs" | "java" | "cs" | "scala"
-    )
-}
-
-/// Convert `(line_number, text)` pairs to sorted, deduplicated JS char offsets.
-///
-/// Blank lines and lone closing delimiters are skipped — they are preserved by
-/// the tree-sitter extractor (because they are outside function bodies) but
-/// are not meaningful chunk boundaries for pagination.
-///
-/// The offsets align with JavaScript `string.substring()` — pass directly to
-/// the TypeScript pagination layer.
-pub fn get_semantic_boundary_offsets_inner(content: &str, file_path: &str) -> Vec<u32> {
-    let lines = extract_boundary_lines_inner(content, file_path);
-    if lines.is_empty() {
-        return Vec::new();
-    }
-    let ext = get_extension_internal(file_path, true, "txt");
-    let offset_table = crate::text::utf8_offsets::LineIndex::new(content);
-    let offset_table = offset_table.line_starts_utf16();
-    let mut offsets: Vec<u32> = lines
-        .iter()
-        .filter(|(_, text)| {
-            let t = text.trim();
-            !t.is_empty() && !is_lone_delimiter(t) && !is_nested_member_noise(text, &ext)
-        })
-        .filter_map(|(line_no, _)| {
-            // line_no is 1-based; table[i] is 0-based index
-            offset_table.get(line_no.saturating_sub(1)).copied()
-        })
-        .collect();
-    offsets.dedup(); // keep first of any run of identical values (rare)
-    offsets
-}
+use extractor::LangExtractConfig;
 
 /// Extract a structural skeleton from `content`.
 /// Returns `NNN| text` rendered string or `None`.
@@ -462,7 +293,7 @@ export function useEffect(
 
     #[test]
     fn flow_js_declarations_list_the_exported_hooks_not_keywords() {
-        let raw = extract_declarations_inner(FLOW_HOOKS, "ReactHooks.js").expect("declarations");
+        let raw = extract_declarations(FLOW_HOOKS, "ReactHooks.js").expect("declarations");
         let names = declaration_names(&raw);
         for hook in [
             "useState",
@@ -480,8 +311,8 @@ export function useEffect(
     fn js_grammar_recovery_never_names_a_declaration_after_a_keyword() {
         // The plain JS grammar cannot read Flow; whatever it recovers, a
         // statement keyword must never surface as a declaration name.
-        let raw = extract_graph_facts_with_extension_inner(FLOW_HOOKS, "ReactHooks.js", "js")
-            .expect("facts");
+        let raw =
+            extract_graph_facts_with_extension(FLOW_HOOKS, "ReactHooks.js", "js").expect("facts");
         let names = declaration_names(&raw);
         assert!(
             !names
@@ -536,36 +367,11 @@ export function useEffect(
             let facts_json = serde_json::to_string(&extraction.facts).expect("facts JSON");
             assert_eq!(
                 facts_json,
-                extract_graph_facts_inner(source, path).expect("legacy JSON facts")
+                extract_graph_facts(source, path).expect("legacy JSON facts")
             );
             let json: serde_json::Value =
                 serde_json::from_str(&facts_json).expect("valid facts JSON");
             assert!(json.get(producer_field).is_some());
-        }
-    }
-
-    /// Regression: the tree-sitter boundary extractor must never abort the
-    /// process on adversarial input — a parser panic must be caught and turned
-    /// into an empty fallback by the `catch_unwind` guard on
-    /// `extract_boundary_lines_inner`. We feed a barrage of malformed sources
-    /// and assert only that each call returns without aborting.
-    #[test]
-    fn boundary_extractor_never_aborts_on_malformed_input() {
-        let adversarial = [
-            "",
-            "\u{0}\u{0}\u{0}\u{0}",
-            "function broken( { [ unterminated",
-            "}}}};;;;export export export",
-            "\u{feff}\u{202e}const x =;",
-            "class { { { {",
-            "import type type from from from",
-        ];
-        for src in adversarial {
-            let lines = extract_boundary_lines_inner(src, "x.ts");
-            // Reachable only if no abort occurred.
-            let _ = lines.len();
-            let offsets = get_semantic_boundary_offsets_inner(src, "x.tsx");
-            let _ = offsets.len();
         }
     }
 
@@ -658,8 +464,6 @@ export function useEffect(
                 extract(content, path).is_none(),
                 "{path} has no code signatures — must return None"
             );
-            assert!(extract_boundary_lines_inner(content, path).is_empty());
-            assert!(get_semantic_boundary_offsets_inner(content, path).is_empty());
         }
     }
 
@@ -727,188 +531,76 @@ export function useEffect(
         assert!(extract(&src, "big.ts").is_none());
     }
 
-    // ── get_semantic_boundary_offsets_inner ───────────────────────────────────
-
-    struct BoundaryFixture {
-        name: &'static str,
-        path: &'static str,
-        source: &'static str,
-        markers: &'static [&'static str],
-        excluded_markers: &'static [&'static str],
-    }
-
-    fn js_offset_for_marker(source: &str, marker: &str) -> u32 {
-        let byte_offset = source
-            .find(marker)
-            .unwrap_or_else(|| panic!("marker '{marker}' must exist in fixture"));
-        source[..byte_offset]
-            .chars()
-            .map(char::len_utf16)
-            .sum::<usize>() as u32
-    }
-
-    fn assert_boundary_fixture(fixture: &BoundaryFixture) {
-        let offsets = get_semantic_boundary_offsets_inner(fixture.source, fixture.path);
+    /// Rust declaration extents (0-based lines) that block reads and
+    /// readBlock leads widen to: whole fns, impl blocks, and their methods.
+    #[test]
+    fn rust_declaration_ranges_cover_whole_items() {
+        let source = "pub fn first(value: usize) -> usize {\n    let mut total = 0;\n    for step in 0..value {\n        total += step;\n    }\n    total\n}\n\npub struct Point;\n\nimpl Point {\n    pub fn origin() -> Self {\n        Point\n    }\n}\n";
+        let raw = extract_declarations(source, "src/lib.rs").expect("declarations");
+        let facts: serde_json::Value = serde_json::from_str(&raw).expect("json");
+        let spans: Vec<(String, u64, u64)> = facts["declarations"]
+            .as_array()
+            .expect("declarations")
+            .iter()
+            .map(|declaration| {
+                (
+                    declaration["name"].as_str().unwrap_or_default().to_owned(),
+                    declaration["range"]["start"]["line"]
+                        .as_u64()
+                        .unwrap_or(u64::MAX),
+                    declaration["range"]["end"]["line"]
+                        .as_u64()
+                        .unwrap_or(u64::MAX),
+                )
+            })
+            .collect();
+        for expected in [("first", 0, 6), ("origin", 11, 13)] {
+            assert!(
+                spans
+                    .iter()
+                    .any(|(name, start, end)| (name.as_str(), *start, *end) == expected),
+                "{expected:?} in {spans:?}"
+            );
+        }
         assert!(
-            !offsets.is_empty(),
-            "{} fixture must produce semantic boundaries",
-            fixture.name
+            spans
+                .iter()
+                .any(|(_, start, end)| (*start, *end) == (10, 14)),
+            "impl block 10-14 in {spans:?}"
         );
-
-        for marker in fixture.markers {
-            let expected = js_offset_for_marker(fixture.source, marker);
-            assert!(
-                offsets.contains(&expected),
-                "{} marker '{marker}' offset {expected} must be in {offsets:?}",
-                fixture.name
-            );
-        }
-
-        for marker in fixture.excluded_markers {
-            let excluded = js_offset_for_marker(fixture.source, marker);
-            assert!(
-                !offsets.contains(&excluded),
-                "{} marker '{marker}' offset {excluded} must not be in {offsets:?}",
-                fixture.name
-            );
-        }
-    }
-
-    #[test]
-    fn boundary_offsets_are_sorted_and_deduped() {
-        let src =
-            "export function foo() {\n  return 1;\n}\n\nexport function bar() {\n  return 2;\n}\n";
-        let offsets = get_semantic_boundary_offsets_inner(src, "mod.ts");
-        assert!(!offsets.is_empty(), "must find boundaries in TS");
-        for w in offsets.windows(2) {
-            assert!(w[0] < w[1], "offsets must be strictly increasing");
-        }
-    }
-
-    #[test]
-    fn boundary_offsets_first_entry_is_zero_for_top_of_file_definition() {
-        let src = "export function first() {\n  return 0;\n}\n\nexport function second() {\n  return 1;\n}\n";
-        let offsets = get_semantic_boundary_offsets_inner(src, "a.ts");
-        assert_eq!(offsets[0], 0, "first definition should start at offset 0");
-    }
-
-    #[test]
-    fn semantic_boundary_fixture_suite_per_language() {
-        let fixtures = [
-            BoundaryFixture {
-                name: "TypeScript",
-                path: "fixture.ts",
-                source: "export interface User {\n  id: string;\n}\n\nexport function loadUser(id: string) {\n  return id;\n}\n\nexport class UserStore {\n  get(id: string) {\n    return loadUser(id);\n  }\n}\n",
-                markers: &[
-                    "export interface User",
-                    "export function loadUser",
-                    "export class UserStore",
-                ],
-                excluded_markers: &["  id: string;"],
-            },
-            BoundaryFixture {
-                name: "JavaScript",
-                path: "fixture.js",
-                source: "import fs from 'node:fs';\n\nexport function parseConfig(raw) {\n  return JSON.parse(raw);\n}\n\nclass Runner {\n  start() {\n    return fs.existsSync('.');\n  }\n}\n",
-                markers: &["export function parseConfig", "class Runner"],
-                excluded_markers: &[],
-            },
-            BoundaryFixture {
-                name: "Python",
-                path: "fixture.py",
-                source: "class Service:\n    def run(self):\n        return 1\n\ndef top_level():\n    return Service()\n",
-                markers: &["class Service", "    def run", "def top_level"],
-                excluded_markers: &[],
-            },
-            BoundaryFixture {
-                name: "Go",
-                path: "fixture.go",
-                source: "package main\n\ntype Server struct {\n    Port int\n}\n\nfunc NewServer() *Server {\n    return &Server{}\n}\n\nfunc (s *Server) Start() error {\n    return nil\n}\n",
-                markers: &[
-                    "type Server struct",
-                    "func NewServer",
-                    "func (s *Server) Start",
-                ],
-                excluded_markers: &["    Port int"],
-            },
-            BoundaryFixture {
-                name: "Rust",
-                path: "fixture.rs",
-                source: "pub struct Config {\n    pub port: u16,\n}\n\nimpl Config {\n    pub fn new(port: u16) -> Self {\n        Self { port }\n    }\n}\n\npub fn run(config: Config) {\n    let _ = config;\n}\n",
-                markers: &[
-                    "pub struct Config",
-                    "impl Config",
-                    "    pub fn new",
-                    "pub fn run",
-                ],
-                excluded_markers: &["    pub port"],
-            },
-            BoundaryFixture {
-                name: "Java",
-                path: "Fixture.java",
-                source: "public class Fixture {\n    public Fixture() {\n    }\n\n    public void handle() {\n        System.out.println(\"ok\");\n    }\n}\n",
-                markers: &[
-                    "public class Fixture",
-                    "    public Fixture",
-                    "    public void handle",
-                ],
-                excluded_markers: &[],
-            },
-            #[cfg(feature = "tree-sitter-c-sharp")]
-            BoundaryFixture {
-                name: "C#",
-                path: "Fixture.cs",
-                source: "using System;\n\nnamespace App {\n    public class Worker {\n        public Worker() {\n        }\n\n        public void Run() {\n            Console.WriteLine(\"ok\");\n        }\n    }\n}\n",
-                markers: &[
-                    "using System",
-                    "    public class Worker",
-                    "        public Worker",
-                    "        public void Run",
-                ],
-                excluded_markers: &[],
-            },
-        ];
-
-        for fixture in fixtures {
-            assert_boundary_fixture(&fixture);
-        }
-    }
-
-    #[test]
-    fn boundary_offsets_empty_for_data_files() {
-        for (content, path) in &[
-            ("{\"key\":1}", "data.json"),
-            ("key: value", "cfg.yaml"),
-            ("[section]\nkey=val", "app.ini"),
-        ] {
-            let offsets = get_semantic_boundary_offsets_inner(content, path);
-            assert!(
-                offsets.is_empty(),
-                "{path} must yield empty offsets (data file)"
-            );
-        }
-    }
-
-    #[test]
-    fn boundary_offsets_empty_for_oversized_input() {
-        let src = "function f() {}\n".repeat(MAX_PARSE_SIZE / 16 + 1);
-        let offsets = get_semantic_boundary_offsets_inner(&src, "big.ts");
-        assert!(
-            offsets.is_empty(),
-            "oversized input must yield empty offsets"
+        let mut body = String::from(
+            "pub fn first(value: usize) -> usize {
+",
         );
-    }
+        for line in 1..=18 {
+            body.push_str(&format!(
+                "    let step{line} = value;
+"
+            ));
+        }
+        body.push_str(
+            "    value
+}
 
-    #[test]
-    fn js_char_offset_table_counts_utf16_units() {
-        // ASCII-only: each char = 1 JS unit. Covered directly (and more
-        // thoroughly, incl. surrogate pairs) by
-        // text::utf8_offsets::tests::line_index_utf16_line_starts_*; this
-        // test pins that `get_semantic_boundary_offsets_inner`'s call site
-        // still gets the same table shape from the shared LineIndex.
-        let src = "ab\ncd\n";
-        let index = crate::text::utf8_offsets::LineIndex::new(src);
-        // line 1: offset 0, line 2: offset 3 (a=1,b=1,\n=1), line 3: offset 6
-        assert_eq!(index.line_starts_utf16(), &[0, 3, 6]);
+pub fn second() -> usize {
+    let short = 1;
+    short
+}
+",
+        );
+        let raw = extract_declarations(&body, "src/lib.rs").expect("declarations");
+        let facts: serde_json::Value = serde_json::from_str(&raw).expect("json");
+        let ranges: Vec<(u64, u64)> = facts["declarations"]
+            .as_array()
+            .expect("declarations")
+            .iter()
+            .map(|d| {
+                (
+                    d["range"]["start"]["line"].as_u64().unwrap_or(u64::MAX),
+                    d["range"]["end"]["line"].as_u64().unwrap_or(u64::MAX),
+                )
+            })
+            .collect();
+        assert_eq!(ranges, vec![(0, 20), (22, 25)], "{raw}");
     }
 }

@@ -1,13 +1,11 @@
 mod algorithms;
 mod diff;
 mod model;
-mod policy;
 
 pub use algorithms::{
-    Condensed as CondensedFileGraph, CycleWitnesses, Node as FileGraphNode,
-    condense as condense_file_graph, reachable as reachable_files, reverse as reverse_file_graph,
-    scc as strongly_connected_components, scc_unsorted as strongly_connected_components_unsorted,
-    shortest_path as shortest_file_path, transitive_edges, traverse as traverse_file_graph,
+    Condensed, CycleWitnesses, FileEdge, FileGraphNode, FilePath, TraversalStep, condense,
+    reachable, reverse, scc, scc_unsorted, shortest_path, strongly_connected_components,
+    transitive_edges, traverse,
 };
 pub use diff::{
     BoolChange, CompletenessDelta, CycleDelta, DiffIncompatibility, EvidenceDelta, FileDelta,
@@ -19,12 +17,8 @@ pub use model::{
     GraphFactCall, GraphFactCommonJs, GraphFactDeclaration, GraphFactEdge, GraphFactExport,
     GraphFactImport, GraphFactRustModule, GraphFactsDocument, GraphFactsTypedEntry,
     GraphFactsTypedScanResult, GraphPosition, GraphRange, IMPORT_USE_MODULE, NodeId, NodeKind,
-    SemanticObservation, SemanticObservationInput, SemanticOperation, SemanticOutcome,
-    SemanticRelationInput, ServerReceipt, SnapshotMetadata, SymbolAnchor,
-};
-pub use policy::{
-    BaselineReport, BoundaryRule, BoundaryViolation, ComponentRule, Severity,
-    classify as classify_component, compare_to_baseline, evaluate as evaluate_boundary_rules,
+    SemanticObservation, SemanticOperation, SemanticOutcome, ServerReceipt, SnapshotMetadata,
+    SymbolAnchor,
 };
 
 use std::{fs, io::Read, path::Path, sync::Arc};
@@ -32,10 +26,7 @@ use std::{fs, io::Read, path::Path, sync::Arc};
 use globset::Glob;
 use rayon::prelude::*;
 
-use crate::types::{
-    FileSystemQueryOptions, GraphFactsScanDiagnostic, GraphFactsScanEntry, GraphFactsScanOptions,
-    GraphFactsScanResult,
-};
+use crate::types::{FileSystemQueryOptions, GraphFactsScanDiagnostic, GraphFactsScanOptions};
 
 const DEFAULT_MAX_FILES: u32 = 20_000;
 const DEFAULT_MAX_FILE_BYTES: u32 = 1_000_000;
@@ -82,40 +73,6 @@ fn skipped(relative_path: String, code: &str, message: &str) -> GraphFactsScanOu
     })
 }
 
-pub(crate) fn scan_graph_facts(
-    options: GraphFactsScanOptions,
-) -> Result<GraphFactsScanResult, String> {
-    scan_graph_facts_filtered(options, &|_| Ok(true))
-}
-
-pub(crate) fn scan_graph_facts_filtered(
-    options: GraphFactsScanOptions,
-    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
-) -> Result<GraphFactsScanResult, String> {
-    let typed = scan_graph_facts_typed_filtered(options, allow_path)?;
-    let entries = typed
-        .entries
-        .into_iter()
-        .map(|entry| {
-            let facts_json = serde_json::to_string(&entry.facts)
-                .map_err(|error| format!("graph facts could not be encoded: {error}"))?;
-            Ok(GraphFactsScanEntry {
-                relative_path: entry.relative_path,
-                facts_json,
-                reference_counts: entry.reference_counts,
-            })
-        })
-        .collect::<Result<Vec<_>, String>>()?;
-    Ok(GraphFactsScanResult {
-        schema_version: typed.schema_version,
-        entries,
-        skipped: typed.skipped,
-        candidate_paths: typed.candidate_paths,
-        files_skipped: typed.files_skipped,
-        truncated: typed.truncated,
-    })
-}
-
 /// Graph facts of one parsed file.
 struct ParsedFacts {
     facts: GraphFactsDocument,
@@ -140,6 +97,17 @@ pub(crate) fn scan_graph_facts_typed_filtered(
     options: GraphFactsScanOptions,
     allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
 ) -> Result<GraphFactsTypedScanResult, String> {
+    scan_graph_facts_typed_selected(options, allow_path, &|_| true)
+}
+
+/// [`scan_graph_facts_typed_filtered`] that parses only files whose source
+/// `keep` accepts (a byte prefilter, e.g. a name the caller looks for); a
+/// rejected file is read once and yields neither an entry nor a diagnostic.
+pub fn scan_graph_facts_typed_selected(
+    options: GraphFactsScanOptions,
+    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
+    keep: &(dyn Fn(&str) -> bool + Sync),
+) -> Result<GraphFactsTypedScanResult, String> {
     let overrides = parser_overrides(options.language_globs.as_deref())?;
     let max_files = options.max_files.unwrap_or(DEFAULT_MAX_FILES);
     let max_file_bytes = options.max_file_bytes.unwrap_or(DEFAULT_MAX_FILE_BYTES) as i64;
@@ -151,6 +119,7 @@ pub(crate) fn scan_graph_facts_typed_filtered(
             entry_type: Some("f".to_owned()),
             extensions: Some(crate::signatures::graph_facts::graph_fact_extensions()),
             exclude_dir: options.exclude_dir,
+            exclude: options.exclude,
             stop_at_limit: Some(true),
             limit: Some(max_files),
             ..Default::default()
@@ -183,10 +152,7 @@ pub(crate) fn scan_graph_facts_typed_filtered(
                 );
             }
             let Ok(file) = fs::File::open(path) else {
-                return outcome(
-                    "graph.scan.readFailed",
-                    "file could not be read as UTF-8 text",
-                );
+                return outcome("graph.scan.readFailed", "file could not be opened");
             };
             // Metadata is advisory: a file can grow between discovery and open.
             // The read itself has a strict bound, including one overflow byte.
@@ -207,6 +173,9 @@ pub(crate) fn scan_graph_facts_typed_filtered(
                     "file exceeds the graph scan byte limit",
                 );
             }
+            if !keep(&content) {
+                return Ok(None);
+            }
             if !allow_path(path)? {
                 return Ok(None);
             }
@@ -221,7 +190,7 @@ pub(crate) fn scan_graph_facts_typed_filtered(
                     "languageGlobs matched this path with more than one parser",
                 );
             }
-            let content_digest = crate::index::content_digest(content.as_bytes());
+            let content_digest = crate::digest::sha256(content.as_bytes());
             let parser = selected.iter().next().copied();
             let memo_key = format!("{content_digest}\u{0}{relative_path}\u{0}{}", parser.unwrap_or(""));
             let parsed = if let Some(hit) = FACTS_MEMO.get(&memo_key) {
@@ -290,6 +259,12 @@ mod tests {
     use super::*;
 
     use std::path::Path;
+
+    fn scan_graph_facts(
+        options: GraphFactsScanOptions,
+    ) -> Result<GraphFactsTypedScanResult, String> {
+        scan_graph_facts_typed_filtered(options, &|_| Ok(true))
+    }
 
     fn create_supported_files(root: &Path, count: usize) {
         fs::create_dir_all(root).expect("create fixture");
@@ -365,34 +340,15 @@ mod tests {
         })
         .expect("scan with parser map");
         assert_eq!(result.entries.len(), 2);
-        let cpp: serde_json::Value = serde_json::from_str(
-            &result
+        let declares = |path: &str, name: &str| {
+            result
                 .entries
                 .iter()
-                .find(|entry| entry.relative_path == "include/widget.h")
-                .expect("cpp header")
-                .facts_json,
-        )
-        .expect("cpp facts");
-        let c: serde_json::Value = serde_json::from_str(
-            &result
-                .entries
-                .iter()
-                .find(|entry| entry.relative_path == "legacy/plain.h")
-                .expect("c header")
-                .facts_json,
-        )
-        .expect("c facts");
-        assert!(
-            cpp["declarations"]
-                .as_array()
-                .is_some_and(|rows| rows.iter().any(|row| row["name"] == "Widget"))
-        );
-        assert!(
-            c["declarations"]
-                .as_array()
-                .is_some_and(|rows| rows.iter().any(|row| row["name"] == "Plain"))
-        );
+                .find(|entry| entry.relative_path == path)
+                .is_some_and(|entry| entry.facts.declarations.iter().any(|row| row.name == name))
+        };
+        assert!(declares("include/widget.h", "Widget"));
+        assert!(declares("legacy/plain.h", "Plain"));
     }
 
     #[test]
@@ -646,7 +602,7 @@ mod tests {
         fs::create_dir_all(root.join("private")).expect("fixture");
         fs::write(root.join("private/hidden.rs"), "pub fn hidden() {}").expect("hidden");
         fs::write(root.join("visible.rs"), "pub fn visible() {}").expect("visible");
-        let result = scan_graph_facts_filtered(
+        let result = scan_graph_facts_typed_filtered(
             GraphFactsScanOptions {
                 path: path_string(&root),
                 max_files: Some(1),
@@ -671,7 +627,7 @@ mod tests {
         let file = root.join("growing.rs");
         fs::write(&file, "pub fn initial() {}").expect("initial");
         let visits = AtomicUsize::new(0);
-        let result = scan_graph_facts_filtered(
+        let result = scan_graph_facts_typed_filtered(
             GraphFactsScanOptions {
                 path: path_string(&root),
                 max_file_bytes: Some(32),

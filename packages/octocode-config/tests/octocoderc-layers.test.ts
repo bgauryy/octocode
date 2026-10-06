@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   getProjectConfigFilePath,
   isPersistentStorageEnabled,
-  isPersistentStorageEnabledForExtension,
   loadOctocodercLayers,
   loadProjectConfigSync,
   resolveConfigFields,
@@ -46,7 +45,6 @@ beforeEach(() => {
   mkdirSync(home, { recursive: true });
   mkdirSync(join(cwd, '.octocode'), { recursive: true });
   delete process.env['OCTOCODE_STORAGE_MODE'];
-  delete process.env['OCTOCODE_EXTENSION_STORAGE_MODE'];
   process.env['OCTOCODE_HOME'] = home;
 });
 
@@ -172,12 +170,14 @@ describe('workspace trust boundary', () => {
 });
 
 describe('storage helpers honor the workspace layer', () => {
-  it('storage.mode is home-trusted: a workspace cannot change it', () => {
+  it('storage.mode is home-trusted: a workspace may only opt out', () => {
     vi.spyOn(process.stderr, 'write').mockReturnValue(true);
     writeGlobal({ storage: { mode: 'persistent' } });
     writeWorkspace({ storage: { mode: 'memory' } });
-    expect(isPersistentStorageEnabled(process.env, cwd)).toBe(true);
-    expect(isPersistentStorageEnabledForExtension(cwd)).toBe(true);
+    expect(isPersistentStorageEnabled(process.env, cwd)).toBe(false);
+    writeGlobal({ storage: { mode: 'memory' } });
+    writeWorkspace({ storage: { mode: 'persistent' } });
+    expect(isPersistentStorageEnabled(process.env, cwd)).toBe(false);
   });
 
   it('global applies when the workspace file is silent or invalid', () => {
@@ -189,16 +189,9 @@ describe('storage helpers honor the workspace layer', () => {
     expect(isPersistentStorageEnabled(process.env, cwd)).toBe(false);
   });
 
-  it('extension mode: global extension.storage beats global storage', () => {
-    writeGlobal({ storage: { mode: 'memory' }, extension: { storage: { mode: 'persistent' } } });
-    expect(isPersistentStorageEnabledForExtension(cwd)).toBe(true);
-    expect(isPersistentStorageEnabled(process.env, cwd)).toBe(false);
-  });
-
   it('env beats every layer', () => {
     writeWorkspace({ storage: { mode: 'memory' } });
     process.env['OCTOCODE_STORAGE_MODE'] = 'persistent';
     expect(isPersistentStorageEnabled(process.env, cwd)).toBe(true);
-    expect(isPersistentStorageEnabledForExtension(cwd)).toBe(true);
   });
 });

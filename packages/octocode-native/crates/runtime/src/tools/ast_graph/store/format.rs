@@ -343,166 +343,208 @@ fn varints(values: &[u32]) -> Vec<u8> {
 /// Serializes the snapshot. Returns `(bytes, body SHA-256 hex)`; identical
 /// tables always produce identical bytes.
 pub(crate) fn encode(tables: &GraphTables) -> (Vec<u8>, String) {
-    // Symbol keys shrink to their suffix after `path#`.
-    let key_text = |index: usize| -> (&str, bool) {
-        let node = &tables.nodes[index];
-        let key = tables.str(node.key);
-        if node.kind == NodeKind::Symbol && node.file != NONE {
-            let file = tables.str(tables.nodes[node.file as usize].key);
-            if let Some(suffix) = key
-                .strip_prefix(file)
-                .and_then(|rest| rest.strip_prefix('#'))
-            {
-                return (suffix, true);
-            }
-        }
-        (key, false)
-    };
-    let mut texts = Vec::<&str>::new();
-    for (index, node) in tables.nodes.iter().enumerate() {
-        texts.push(key_text(index).0);
-        texts.push(tables.str(node.name));
-        texts.push(tables.str(node.detail));
-    }
-    texts.extend(tables.edges.iter().map(|edge| tables.str(edge.detail)));
-    for diag in &tables.diagnostics {
-        texts.extend([
-            tables.str(diag.file),
-            tables.str(diag.code),
-            tables.str(diag.message),
-        ]);
-    }
-    texts.extend(tables.digests.iter().map(|(_, digest)| tables.str(*digest)));
-    for (_, dir, name, meta) in &tables.components {
-        texts.extend([tables.str(*dir), tables.str(*name), tables.str(*meta)]);
-    }
-    texts.extend(tables.entries.iter().map(|(_, rule)| tables.str(*rule)));
-    texts.sort_unstable();
-    texts.dedup();
-    let ids = texts
-        .iter()
-        .enumerate()
-        .map(|(index, text)| (*text, index as u32))
-        .collect::<HashMap<_, _>>();
-    let id = |text: &str| ids.get(text).copied().unwrap_or(0);
-    let sid = |old: u32| id(tables.str(old));
-
-    let mut sections = Vec::new();
-
-    let mut strs = Vec::new();
-    put(&mut strs, texts.len() as u64);
-    let mut previous: &[u8] = &[];
-    for text in &texts {
-        let bytes = text.as_bytes();
-        let shared = previous
-            .iter()
-            .zip(bytes)
-            .take_while(|(a, b)| a == b)
-            .count();
-        put(&mut strs, shared as u64);
-        put(&mut strs, (bytes.len() - shared) as u64);
-        strs.extend(&bytes[shared..]);
-        previous = bytes;
-    }
-    sections.push(Section {
-        tag: *b"STRS",
-        bytes: strs,
-    });
-
-    let mut nodes = Vec::new();
-    put(&mut nodes, tables.nodes.len() as u64);
-    for (index, node) in tables.nodes.iter().enumerate() {
-        let (key, suffix) = key_text(index);
-        nodes.push(node.kind as u8 | if suffix { KEY_SUFFIX } else { 0 });
-        nodes.push(node.flags);
-        put(&mut nodes, u64::from(id(key)));
-        put(&mut nodes, u64::from(sid(node.name)));
-        put(&mut nodes, u64::from(sid(node.detail)));
-        put_opt(&mut nodes, node.file);
-        put_opt(&mut nodes, node.parent);
-        put_opt(&mut nodes, node.line);
-        if node.line == NONE || node.end_line == NONE {
-            put_opt(&mut nodes, node.end_line);
-        } else {
-            put(
-                &mut nodes,
-                zigzag(i64::from(node.end_line) - i64::from(node.line)) + 1,
-            );
-        }
-    }
-    sections.push(Section {
-        tag: *b"NODE",
-        bytes: nodes,
-    });
-
-    let mut edges = Vec::new();
-    put(&mut edges, tables.edges.len() as u64);
-    let mut last_src = 0u32;
-    for edge in &tables.edges {
-        put(&mut edges, u64::from(edge.src.saturating_sub(last_src)));
-        last_src = edge.src;
-        put(
-            &mut edges,
-            zigzag(i64::from(edge.dst) - i64::from(edge.src)),
-        );
-        edges.push(((edge.kind as u8) << 2) | edge.confidence as u8);
-        put(&mut edges, u64::from(sid(edge.detail)));
-        put_opt(&mut edges, edge.line);
-    }
-    sections.push(Section {
-        tag: *b"EDGE",
-        bytes: edges,
-    });
-
-    sections.push(Section {
-        tag: *b"KEYX",
-        bytes: varints(&tables.key_index),
-    });
-    sections.push(Section {
-        tag: *b"NAMX",
-        bytes: varints(&tables.name_index),
-    });
-
-    let mut diags = Vec::new();
-    put(&mut diags, tables.diagnostics.len() as u64);
-    for diag in &tables.diagnostics {
-        put(&mut diags, u64::from(sid(diag.file)));
-        put_opt(&mut diags, diag.line);
-        put(&mut diags, u64::from(sid(diag.code)));
-        put(&mut diags, u64::from(sid(diag.message)));
-    }
-    sections.push(Section {
-        tag: *b"DIAG",
-        bytes: diags,
-    });
-    let digests = tables
+    let encoder = Encoder::new(tables);
+    let (t, sid) = (tables, |old: u32| encoder.sid(old));
+    let mut sections = vec![
+        Section {
+            tag: *b"STRS",
+            bytes: encoder.strings(),
+        },
+        Section {
+            tag: *b"NODE",
+            bytes: encoder.nodes(),
+        },
+        Section {
+            tag: *b"EDGE",
+            bytes: encoder.edges(),
+        },
+        Section {
+            tag: *b"KEYX",
+            bytes: varints(&t.key_index),
+        },
+        Section {
+            tag: *b"NAMX",
+            bytes: varints(&t.name_index),
+        },
+        Section {
+            tag: *b"DIAG",
+            bytes: encoder.diagnostics(),
+        },
+    ];
+    let digests = t
         .digests
         .iter()
         .flat_map(|(node, digest)| [*node, sid(*digest)])
         .collect::<Vec<_>>();
-    sections.push(Section {
-        tag: *b"FDIG",
-        bytes: varints(&digests),
-    });
-    let components = tables
+    let components = t
         .components
         .iter()
         .flat_map(|(node, dir, name, meta)| [*node, sid(*dir), sid(*name), sid(*meta)])
         .collect::<Vec<_>>();
-    sections.push(Section {
-        tag: *b"FCMP",
-        bytes: varints(&components),
-    });
-    let entries = tables
+    let entries = t
         .entries
         .iter()
         .flat_map(|(node, rule)| [*node, sid(*rule)])
         .collect::<Vec<_>>();
-    sections.push(Section {
-        tag: *b"ENTR",
-        bytes: varints(&entries),
-    });
+    sections.extend([
+        Section {
+            tag: *b"FDIG",
+            bytes: varints(&digests),
+        },
+        Section {
+            tag: *b"FCMP",
+            bytes: varints(&components),
+        },
+        Section {
+            tag: *b"ENTR",
+            bytes: varints(&entries),
+        },
+    ]);
+    assemble(sections)
+}
 
+/// The string table every section references by id.
+struct Encoder<'t> {
+    tables: &'t GraphTables,
+    texts: Vec<&'t str>,
+    ids: HashMap<&'t str, u32>,
+}
+
+impl<'t> Encoder<'t> {
+    fn new(tables: &'t GraphTables) -> Self {
+        let mut texts = Vec::<&str>::new();
+        for (index, node) in tables.nodes.iter().enumerate() {
+            texts.push(key_text(tables, index).0);
+            texts.push(tables.str(node.name));
+            texts.push(tables.str(node.detail));
+        }
+        texts.extend(tables.edges.iter().map(|edge| tables.str(edge.detail)));
+        for diag in &tables.diagnostics {
+            texts.extend([
+                tables.str(diag.file),
+                tables.str(diag.code),
+                tables.str(diag.message),
+            ]);
+        }
+        texts.extend(tables.digests.iter().map(|(_, digest)| tables.str(*digest)));
+        for (_, dir, name, meta) in &tables.components {
+            texts.extend([tables.str(*dir), tables.str(*name), tables.str(*meta)]);
+        }
+        texts.extend(tables.entries.iter().map(|(_, rule)| tables.str(*rule)));
+        texts.sort_unstable();
+        texts.dedup();
+        let ids = texts
+            .iter()
+            .enumerate()
+            .map(|(index, text)| (*text, index as u32))
+            .collect();
+        Self { tables, texts, ids }
+    }
+
+    fn id(&self, text: &str) -> u32 {
+        self.ids.get(text).copied().unwrap_or(0)
+    }
+
+    fn sid(&self, old: u32) -> u32 {
+        self.id(self.tables.str(old))
+    }
+
+    /// Front-coded strings: shared prefix length, suffix length, suffix.
+    fn strings(&self) -> Vec<u8> {
+        let mut strs = Vec::new();
+        put(&mut strs, self.texts.len() as u64);
+        let mut previous: &[u8] = &[];
+        for text in &self.texts {
+            let bytes = text.as_bytes();
+            let shared = previous
+                .iter()
+                .zip(bytes)
+                .take_while(|(a, b)| a == b)
+                .count();
+            put(&mut strs, shared as u64);
+            put(&mut strs, (bytes.len() - shared) as u64);
+            strs.extend(&bytes[shared..]);
+            previous = bytes;
+        }
+        strs
+    }
+
+    fn nodes(&self) -> Vec<u8> {
+        let tables = self.tables;
+        let mut nodes = Vec::new();
+        put(&mut nodes, tables.nodes.len() as u64);
+        for (index, node) in tables.nodes.iter().enumerate() {
+            let (key, suffix) = key_text(tables, index);
+            nodes.push(node.kind as u8 | if suffix { KEY_SUFFIX } else { 0 });
+            nodes.push(node.flags);
+            put(&mut nodes, u64::from(self.id(key)));
+            put(&mut nodes, u64::from(self.sid(node.name)));
+            put(&mut nodes, u64::from(self.sid(node.detail)));
+            put_opt(&mut nodes, node.file);
+            put_opt(&mut nodes, node.parent);
+            put_opt(&mut nodes, node.line);
+            if node.line == NONE || node.end_line == NONE {
+                put_opt(&mut nodes, node.end_line);
+            } else {
+                put(
+                    &mut nodes,
+                    zigzag(i64::from(node.end_line) - i64::from(node.line)) + 1,
+                );
+            }
+        }
+        nodes
+    }
+
+    fn edges(&self) -> Vec<u8> {
+        let mut edges = Vec::new();
+        put(&mut edges, self.tables.edges.len() as u64);
+        let mut last_src = 0u32;
+        for edge in &self.tables.edges {
+            put(&mut edges, u64::from(edge.src.saturating_sub(last_src)));
+            last_src = edge.src;
+            put(
+                &mut edges,
+                zigzag(i64::from(edge.dst) - i64::from(edge.src)),
+            );
+            edges.push(((edge.kind as u8) << 2) | edge.confidence as u8);
+            put(&mut edges, u64::from(self.sid(edge.detail)));
+            put_opt(&mut edges, edge.line);
+        }
+        edges
+    }
+
+    fn diagnostics(&self) -> Vec<u8> {
+        let mut diags = Vec::new();
+        put(&mut diags, self.tables.diagnostics.len() as u64);
+        for diag in &self.tables.diagnostics {
+            put(&mut diags, u64::from(self.sid(diag.file)));
+            put_opt(&mut diags, diag.line);
+            put(&mut diags, u64::from(self.sid(diag.code)));
+            put(&mut diags, u64::from(self.sid(diag.message)));
+        }
+        diags
+    }
+}
+
+/// A node's key text: symbol keys shrink to their suffix after `path#`.
+fn key_text(tables: &GraphTables, index: usize) -> (&str, bool) {
+    let node = &tables.nodes[index];
+    let key = tables.str(node.key);
+    if node.kind == NodeKind::Symbol && node.file != NONE {
+        let file = tables.str(tables.nodes[node.file as usize].key);
+        if let Some(suffix) = key
+            .strip_prefix(file)
+            .and_then(|rest| rest.strip_prefix('#'))
+        {
+            return (suffix, true);
+        }
+    }
+    (key, false)
+}
+
+/// Header, section table and 8-byte-aligned section bodies; returns the
+/// file bytes and the hex body digest.
+fn assemble(sections: Vec<Section>) -> (Vec<u8>, String) {
     let section_count = sections.len() as u32;
     let table_len = sections.len() * TABLE_ENTRY_LEN;
     let mut body = Vec::new();
@@ -626,6 +668,47 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
     if digest.as_slice() != stored {
         return Err("graph checksum mismatch (file is corrupt or truncated); re-run `octocode graph ingest`".into());
     }
+    let sections = Sections(read_section_table(body, section_count)?);
+    let mut tables = GraphTables::default();
+    read_strings(&mut sections.get(b"STRS", "STRS")?, &mut tables)?;
+    // String ids stored in the file; symbol keys expanded below come after.
+    let strings = tables.strings.len() as u32;
+    read_nodes(&mut sections.get(b"NODE", "NODE")?, &mut tables)?;
+    read_edges(&mut sections.get(b"EDGE", "EDGE")?, &mut tables, strings)?;
+    tables.index_adjacency();
+    let node_count = tables.nodes.len();
+    tables.key_index = sections.get(b"KEYX", "KEYX")?.var_vec()?;
+    tables.name_index = sections.get(b"NAMX", "NAMX")?.var_vec()?;
+    if tables.key_index.len() != node_count
+        || tables.name_index.len() != node_count
+        || !tables
+            .key_index
+            .iter()
+            .chain(&tables.name_index)
+            .all(|id| (*id as usize) < node_count)
+    {
+        return Err("graph index sections are inconsistent".into());
+    }
+    read_file_tables(&sections, &mut tables, strings)?;
+    Ok((tables, hex::encode(digest)))
+}
+
+/// Section tag → its bytes in the body.
+struct Sections<'b>(std::collections::BTreeMap<[u8; 4], &'b [u8]>);
+
+impl<'b> Sections<'b> {
+    fn get(&self, tag: &[u8; 4], what: &'static str) -> Result<Reader<'b>, String> {
+        self.0
+            .get(tag)
+            .map(|bytes| Reader::new(bytes, what))
+            .ok_or_else(|| format!("graph section {what} is missing"))
+    }
+}
+
+fn read_section_table(
+    body: &[u8],
+    section_count: usize,
+) -> Result<std::collections::BTreeMap<[u8; 4], &[u8]>, String> {
     let mut table = Reader::new(body, "table");
     let mut sections = std::collections::BTreeMap::new();
     for _ in 0..section_count {
@@ -643,15 +726,10 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
         key.copy_from_slice(tag);
         sections.insert(key, &body[start..end]);
     }
-    let section = |tag: &[u8; 4], what: &'static str| -> Result<Reader<'_>, String> {
-        sections
-            .get(tag)
-            .map(|bytes| Reader::new(bytes, what))
-            .ok_or_else(|| format!("graph section {what} is missing"))
-    };
+    Ok(sections)
+}
 
-    let mut tables = GraphTables::default();
-    let mut strs = section(b"STRS", "STRS")?;
+fn read_strings(strs: &mut Reader, tables: &mut GraphTables) -> Result<(), String> {
     let count = strs.count()?;
     tables.strings.reserve(count);
     let mut previous = Vec::<u8>::new();
@@ -669,10 +747,10 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
                 .to_owned(),
         );
     }
-    let strings = tables.strings.len() as u32;
-    let string_ok = |id: u32| id < strings;
+    Ok(())
+}
 
-    let mut nodes = section(b"NODE", "NODE")?;
+fn read_nodes(nodes: &mut Reader, tables: &mut GraphTables) -> Result<(), String> {
     let count = nodes.count()?;
     tables.nodes.reserve(count);
     let mut suffixed = Vec::new();
@@ -711,13 +789,13 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
             end_line,
         });
     }
+    let strings = tables.strings.len() as u32;
     let node_count = tables.nodes.len() as u32;
-    let node_ok = |id: u32| id < node_count;
     let optional_node_ok = |id: u32| id == NONE || id < node_count;
     if !tables.nodes.iter().all(|node| {
-        string_ok(node.key)
-            && string_ok(node.name)
-            && string_ok(node.detail)
+        node.key < strings
+            && node.name < strings
+            && node.detail < strings
             && optional_node_ok(node.file)
             && optional_node_ok(node.parent)
     }) {
@@ -737,8 +815,11 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
         tables.nodes[index].key = tables.strings.len() as u32;
         tables.strings.push(full);
     }
+    Ok(())
+}
 
-    let mut edges = section(b"EDGE", "EDGE")?;
+fn read_edges(edges: &mut Reader, tables: &mut GraphTables, strings: u32) -> Result<(), String> {
+    let node_count = tables.nodes.len() as u32;
     let count = edges.count()?;
     tables.edges.reserve(count);
     let mut src = 0u32;
@@ -754,7 +835,7 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
             Confidence::from_u8(packed & 0b11).ok_or("graph edge confidence is unknown")?;
         let detail = edges.var_u32()?;
         let line = edges.var_opt()?;
-        if !node_ok(src) || !node_ok(dst) || !string_ok(detail) {
+        if src >= node_count || dst >= node_count || detail >= strings {
             return Err("graph edge references are out of range".into());
         }
         tables.edges.push(EdgeRec {
@@ -766,22 +847,19 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
             line,
         });
     }
-    tables.index_adjacency();
+    Ok(())
+}
 
-    tables.key_index = section(b"KEYX", "KEYX")?.var_vec()?;
-    tables.name_index = section(b"NAMX", "NAMX")?.var_vec()?;
-    if tables.key_index.len() != node_count as usize
-        || tables.name_index.len() != node_count as usize
-        || !tables
-            .key_index
-            .iter()
-            .chain(&tables.name_index)
-            .all(|id| node_ok(*id))
-    {
-        return Err("graph index sections are inconsistent".into());
-    }
-
-    let mut diags = section(b"DIAG", "DIAG")?;
+/// Diagnostics, file digests, components and entries.
+fn read_file_tables(
+    sections: &Sections,
+    tables: &mut GraphTables,
+    strings: u32,
+) -> Result<(), String> {
+    let node_count = tables.nodes.len() as u32;
+    let string_ok = |id: u32| id < strings;
+    let node_ok = |id: u32| id < node_count;
+    let mut diags = sections.get(b"DIAG", "DIAG")?;
     let count = diags.count()?;
     for _ in 0..count {
         let diag = DiagRec {
@@ -795,30 +873,30 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
         }
         tables.diagnostics.push(diag);
     }
-    for pair in section(b"FDIG", "FDIG")?.var_vec()?.chunks_exact(2) {
+    for pair in sections.get(b"FDIG", "FDIG")?.var_vec()?.chunks_exact(2) {
         if !node_ok(pair[0]) || !string_ok(pair[1]) {
             return Err("graph digest references are out of range".into());
         }
         tables.digests.push((pair[0], pair[1]));
     }
     // Optional sections: absent in a snapshot means empty.
-    if sections.contains_key(b"FCMP") {
-        for quad in section(b"FCMP", "FCMP")?.var_vec()?.chunks_exact(4) {
+    if sections.0.contains_key(b"FCMP") {
+        for quad in sections.get(b"FCMP", "FCMP")?.var_vec()?.chunks_exact(4) {
             if !node_ok(quad[0]) || !quad[1..].iter().all(|id| string_ok(*id)) {
                 return Err("graph component references are out of range".into());
             }
             tables.components.push((quad[0], quad[1], quad[2], quad[3]));
         }
     }
-    if sections.contains_key(b"ENTR") {
-        for pair in section(b"ENTR", "ENTR")?.var_vec()?.chunks_exact(2) {
+    if sections.0.contains_key(b"ENTR") {
+        for pair in sections.get(b"ENTR", "ENTR")?.var_vec()?.chunks_exact(2) {
             if !node_ok(pair[0]) || !string_ok(pair[1]) {
                 return Err("graph entry references are out of range".into());
             }
             tables.entries.push((pair[0], pair[1]));
         }
     }
-    Ok((tables, hex::encode(digest)))
+    Ok(())
 }
 
 #[cfg(test)]

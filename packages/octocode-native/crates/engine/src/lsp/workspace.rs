@@ -1,4 +1,4 @@
-use crate::error::{Error, Result, Status};
+use crate::error::{Error, Result};
 use std::path::{Path, PathBuf};
 
 const MARKERS: [&str; 12] = [
@@ -31,7 +31,7 @@ pub fn resolve_workspace_root_for_file(file_path: String) -> Result<String> {
     }
     std::env::current_dir()
         .map(|path| path.to_string_lossy().into_owned())
-        .map_err(|err| Error::new(Status::GenericFailure, err.to_string()))
+        .map_err(|err| Error::new(err.to_string()))
 }
 
 #[cfg(test)]

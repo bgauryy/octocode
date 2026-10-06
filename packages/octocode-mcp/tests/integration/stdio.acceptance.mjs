@@ -1,9 +1,8 @@
 /** Real built-server acceptance. Run after building CLI + MCP; no mocks or installs. */
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { z } from 'zod';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -41,7 +40,7 @@ const acceptanceEnv = {
 const { DIRECT_TOOL_DEFINITIONS, TOOL_NAMES, continuationChannel, getDirectToolDefinitionsWithAddons, isCliOnlyTool } = await import('@octocodeai/config/schema');
 const { publishedInputSchema } = await import('@octocodeai/config/mcp');
 const canonicalTools = DIRECT_TOOL_DEFINITIONS.map(tool => tool.name);
-// Mutating tools run only from the CLI; MCP never lists or executes them.
+// CLI-only tools run only from the CLI; MCP never lists or executes them.
 let expectedTools = [];
 const receipt = {
   server: path.resolve(values.server),
@@ -152,14 +151,22 @@ const call = async (name, query) => {
   assert.equal(row.data.error, undefined, `${name} returned an error payload`);
   return row.data;
 };
-/** structureSearch `files` directory groups as row paths: dir + "/" + name. */
-const listedPaths = files =>
-  files.flatMap(group =>
-    group.files.map(entry => {
-      const name = (/^(.*) \([^()]*\)$/.exec(entry)?.[1] ?? entry).replace(/\/$/, '');
-      return name === '.' ? group.dir : group.dir === '' ? name : `${group.dir}/${name}`;
-    })
+/**
+ * structureSearch `files` rows as paths: bare entries are the row `path`'s
+ * own, group `dir`s are relative to it (root/dir/name).
+ */
+const listedPaths = (files, root) => {
+  const join = (...parts) => parts.filter(Boolean).join('/');
+  const name = entry =>
+    (/^(.*) \([^()]*\)$/.exec(entry)?.[1] ?? entry).replace(/\/$/, '');
+  const at = (dir, entry) =>
+    name(entry) === '.' ? join(root, dir) : join(root, dir, name(entry));
+  return files.flatMap(group =>
+    typeof group === 'string'
+      ? [at('', group)]
+      : group.files.map(entry => at(group.dir, entry))
   );
+};
 
 const nextCall = async continuation => {
   const row = await continuationRow(continuation);
@@ -176,7 +183,9 @@ const continuationRow = async continuation => {
     continuation.query && typeof continuation.query === 'object',
     'continuation has no query'
   );
-  const response = await invoke(continuation.tool, { queries: [continuation.query] });
+  // A continuation is the complete input: run it verbatim.
+  assert.ok(Array.isArray(continuation.query.queries), 'continuation is not a complete input');
+  const response = await invoke(continuation.tool, continuation.query);
   const row = response.structuredContent?.results?.[0];
   assert.ok(row?.data, `${continuation.tool} has no result data`);
   if (response.isError) assert.equal(row.status, 'error');
@@ -208,7 +217,7 @@ const pages = async (first, nextKey, collect) => {
     assert.ok(count++ < 100, 'continuation did not terminate');
     const row = await continuationRow(current.next[nextKey]);
     if (row.status === 'error') {
-      assert.equal(row.data.errorCode, 'lsp.snapshot.changed');
+      assert.equal(row.data.errorCode, 'staleSnapshot');
       assert.ok(row.data.next?.restart, 'changed snapshot has no restart continuation');
       assert.ok(restarts++ < 5, 'snapshot did not stabilize');
       const restarted = await continuationRow(row.data.next.restart);
@@ -268,19 +277,18 @@ try {
   if (expectedTools.includes(TOOL_NAMES.CLASIFY)) {
     await check('clasify rejects caller model selection before provider access', async () => {
       const response = await invoke(TOOL_NAMES.CLASIFY, {
-        id: 'caller-model-rejected',
-        reasoning: 'Verify that provider model selection remains runtime-owned.',
-        resources: [{ id: 'evidence', context: { value: 'Supplied evidence.' } }],
-        questions: [{ id: 'bounded',
-          type: 'noul',
-          instructions: 'Is evidence supplied?',
+        queries: [{
+          id: 'caller-model-rejected',
+          reasoning: 'Verify that provider model selection remains runtime-owned.',
+          resources: [{ id: 'evidence', value: 'Supplied evidence.' }],
+          questions: [{ id: 'bounded', type: 'yesno', ask: 'Is evidence supplied?' }],
+          model: 'caller-model-is-forbidden',
         }],
-        model: 'caller-model-is-forbidden',
       });
       const row = response.structuredContent?.results?.[0];
       assert.ok(response.isError || row?.status === 'error');
       assert.equal(row?.data?.usage, undefined);
-      assert.match(JSON.stringify(response), /unknown field 'model'/i);
+      assert.match(JSON.stringify(response), /unknown field.*model/i);
     });
   }
   await check('CLI canonical contracts and MCP published input schemas agree', () => {
@@ -341,15 +349,13 @@ try {
           reasoning: 'Read the first bulk fixture through native MCP.',
           debug: false,
           path: path.join(fixture, 'math.ts'),
-          startLine: 1,
-          endLine: 1,
+          ranges: ['1-1'],
         },
         {
           reasoning: 'Read the second bulk fixture through native MCP.',
           debug: false,
           path: path.join(fixture, 'entry.ts'),
-          startLine: 1,
-          endLine: 1,
+          ranges: ['1-1'],
         },
       ],
     });
@@ -366,12 +372,12 @@ try {
     const source = 'skip\r\nneedle 🌍\r\n\r\nneedle café\nlast\n';
     try {
       await writeFile(file, source);
-      for (const chunkType of ['lines', 'bytes']) {
+      for (const unit of ['lines', 'bytes']) {
         for (const matched of [false, true]) {
           // Byte accounting (sourceBytes/returnedBytes) is debug-only
           // metadata; continuations carry debug forward.
           let page = await call('localFetch', {
-            path: file, chunkType, chunkSize: chunkType === 'lines' ? 1 : 3, debug: true,
+            path: file, unit, length: unit === 'lines' ? 1 : 3, debug: true,
             ...(matched ? { matchString: 'needle', contextLines: 0, minify: 'standard' } : {}),
           });
           let content = '';
@@ -384,7 +390,7 @@ try {
             // Line views carry a `<line>\t` gutter (TOOL_DATA_CONTRACT numbered
             // content); returnedBytes counts only the source bytes under it.
             // Byte windows stay verbatim.
-            const text = chunkType === 'lines'
+            const text = unit === 'lines'
               ? page.content.replace(/^(\d+)\t/gm, (_, line) => { numbers.push(Number(line)); return ''; })
               : page.content;
             assert.equal(page.returnedBytes, Buffer.byteLength(text));
@@ -394,7 +400,7 @@ try {
             assert.equal(page.next.continue.tool, 'localFetch');
             page = await nextCall(page.next.continue);
           }
-          if (chunkType === 'lines') assert.deepEqual(numbers, matched ? [2, 4] : [1, 2, 3, 4, 5]);
+          if (unit === 'lines') assert.deepEqual(numbers, matched ? [2, 4] : [1, 2, 3, 4, 5]);
           assert.equal(
             content,
             matched
@@ -405,10 +411,10 @@ try {
       }
       const invalid = await invoke('localFetch', {
         queries: [{
-          reasoning: 'Verify retired localFetch charLength input is rejected.',
+          reasoning: 'Verify an unknown localFetch window field is rejected.',
           debug: false,
           path: file,
-          charLength: 3,
+          window: 3,
         }],
       });
       assert.equal(invalid.isError, true);
@@ -416,7 +422,7 @@ try {
       await rm(directory, { recursive: true, force: true });
     }
   });
-  for (const [regex, searchText] of [
+  for (const [regex, matchString] of [
     ['literal', 'add'],
     ['rust', '\\badd\\b'],
     ['pcre2', '(?<!\\w)add(?!\\w)'],
@@ -424,7 +430,7 @@ try {
     await check(`local text search returns the observed anchor (${regex})`, async () => {
       const data = await call('localSearch', {
         path: path.join(fixture, 'math.ts'),
-        searchText,
+        matchString,
         regex,
         wholeWord: true,
         resultView: 'content',
@@ -441,27 +447,23 @@ try {
   await check('empty local search returns one concise recovery hint', async () => {
     const data = await call('localSearch', {
       path: fixture,
-      searchText: 'octocode-definitely-absent-token',
+      matchString: 'octocode-definitely-absent-token',
       regex: 'literal',
       resultView: 'files',
     });
-    assert.equal(data.stats.totalOccurrences, 0);
+    assert.equal(data.stats.totalMatches, 0);
     assert.equal(data.hints?.text?.length, 1);
     assert.match(data.hints.text[0], /try|shorter|case|regex/i);
   });
   await check('a page carries a brief only when the caller sent one', async () => {
-    const search = brief => call('localSearch', { path: fixture, searchText: 'add', pageSize: 1, ...brief });
+    const search = brief => call('localSearch', { path: fixture, matchString: 'add', pageSize: 1, ...brief });
     const bare = await search({});
     assert.ok(bare.next?.nextPage, 'no nextPage on a multi-file search');
-    for (const field of ['mainGoal', 'goal', 'reasoning']) assert.equal(bare.next.nextPage.query[field], undefined, field);
+    for (const field of ['mainGoal', 'reasoning']) assert.equal(bare.next.nextPage.query.queries[0][field], undefined, field);
     const brief = { mainGoal: 'Trace the add helper.', reasoning: 'Find every caller.' };
     const briefed = await search(brief);
-    assert.equal(briefed.next?.nextPage?.query.mainGoal, brief.mainGoal);
-    assert.equal(briefed.next.nextPage.query.reasoning, brief.reasoning);
-    // The legacy `goal` is accepted as an alias of mainGoal.
-    const legacy = await search({ goal: brief.mainGoal });
-    assert.equal(legacy.next?.nextPage?.query.mainGoal, brief.mainGoal);
-    assert.equal(legacy.next.nextPage.query.goal, undefined);
+    assert.equal(briefed.next?.nextPage?.query.queries[0].mainGoal, brief.mainGoal);
+    assert.equal(briefed.next.nextPage.query.queries[0].reasoning, brief.reasoning);
   });
   await check('local file discovery positive', async () => {
     const data = await call('structureSearch', {
@@ -470,34 +472,34 @@ try {
       extensions: ['ts'],
       pageSize: 50,
     });
-    assert.ok(listedPaths(data.files).some(file => file.endsWith('math.ts')));
+    assert.ok(listedPaths(data.files, data.path).some(file => file.endsWith('math.ts')));
   });
   await check('AST symbols identify the exported arithmetic declaration', async () => {
     const data = await call('astSearch', {
       operation: 'symbols',
       path: path.join(fixture, 'math.ts'),
-      name: 'add',
+      symbolName: 'add',
       kinds: ['function'],
     });
     // Minimal output drops the `operation` request echo.
     assert.equal(data.operation, undefined);
-    assert.equal(data.totalDeclarations, 1);
     // Outline row "<line> <kind> <name>" plus suffixes: " +" exported,
     // " doc" for the comment block above.
-    assert.deepEqual(data.declarations, ['2 function add + doc']);
+    assert.deepEqual(data.symbols, ['2 function add + doc']);
+    assert.equal(data.pagination?.totalItems ?? data.symbols.length, 1);
   });
   await check('astRewrite is CLI-only: MCP rejects it, the CLI previews and applies on an isolated fixture', async () => {
     assert.ok(!expectedTools.includes('astRewrite'), 'MCP must not list astRewrite');
     // An unlisted tool is a protocol error (-32602) or an error result, never a rewrite.
     const rejected = await client
-      .callTool({ name: 'astRewrite', arguments: { queries: [{ reasoning: 'Verify MCP never rewrites.', path: fixture, langType: 'typescript', ruleKind: 'pattern', pattern: 'oldCall($A)', rewrite: 'newCall($A)' }] } })
+      .callTool({ name: 'astRewrite', arguments: { queries: [{ reasoning: 'Verify MCP never rewrites.', path: fixture, language: 'typescript', pattern: 'oldCall($A)', rewrite: 'newCall($A)' }] } })
       .then(result => result.isError === true, error => /not found|not available/i.test(String(error?.message)));
     assert.ok(rejected, 'MCP must reject astRewrite');
     const directory = await mkdtemp(path.join(fixture, 'cli-rewrite-'));
     const file = path.join(directory, 'source.ts');
     try {
       await writeFile(file, 'oldCall(1);\noldCall(2);\n');
-      const rule = { reasoning: 'Verify CLI rewrite.', path: directory, langType: 'typescript', ruleKind: 'pattern', pattern: 'oldCall($A)', rewrite: 'newCall($A)', pageSize: 10 };
+      const rule = { reasoning: 'Verify CLI rewrite.', path: directory, language: 'typescript', pattern: 'oldCall($A)', rewrite: 'newCall($A)', pageSize: 10 };
       const preview = executeCliTool('astRewrite', [rule]).results[0].data;
       assert.equal(preview.mode, 'preview');
       assert.equal(preview.totalMatches, 2);
@@ -505,8 +507,8 @@ try {
       // the snapshot (not echoed in minimal output) and the expected hashes.
       assert.equal(preview.next, undefined);
       assert.equal(preview.hints?.apply?.tool, 'astRewrite');
-      assert.equal(preview.hints.apply.query.apply, true);
-      const applied = executeCliTool('astRewrite', [preview.hints.apply.query]).results[0].data;
+      assert.equal(preview.hints.apply.query.queries[0].apply, true);
+      const applied = executeCliTool('astRewrite', preview.hints.apply.query.queries).results[0].data;
       assert.equal(applied.mode, 'apply');
       assert.equal(applied.transaction.committed, true);
       assert.equal(await readFile(file, 'utf8'), 'newCall(1);\nnewCall(2);\n');
@@ -529,7 +531,7 @@ try {
         const full = await invoke('localFetch', args);
         let current = await invoke('localFetch', {
           ...args,
-          responseCharLength: 150,
+          responseLength: 150,
         });
         let text = '';
         let count = 0;
@@ -573,31 +575,34 @@ try {
         const full = await call('structureSearch', { ...query, pageSize: 50 });
         const first = await call('structureSearch', { ...query, pageSize: 1 });
         const paged = await pages(first, 'nextPage', data =>
-          listedPaths(data.files)
+          listedPaths(data.files, data.path)
         );
         assert.ok(paged.count > 1);
-        assert.deepEqual(paged.rows.sort(), listedPaths(full.files).sort());
+        assert.deepEqual(paged.rows.sort(), listedPaths(full.files, full.path).sort());
       }
     );
-    await check('whole-response pages replay captured output; fresh queries observe source edits', async () => {
+    await check('whole-response pages replay an unchanged source; an edit restarts like a fresh runtime', async () => {
       const parent = fixture;
       await mkdir(parent, { recursive: true });
       const directory = await mkdtemp(path.join(parent, 'mcp-snapshot-'));
       const file = path.join(directory, 'source.ts');
       try {
         await writeFile(file, 'export const value = 1;\n');
-        const first = await invoke('localFetch', {
+        // Settled sources: a page over them may replay.
+        const then = new Date(Date.now() - 10_000);
+        for (const entry of [file, directory]) await utimes(entry, then, then);
+        const page1 = () => invoke('localFetch', {
           queries: [{
-            reasoning: 'Exercise stale localFetch response pagination through built stdio acceptance.',
+            reasoning: 'Exercise localFetch response pagination through built stdio acceptance.',
             debug: false,
             path: file,
             minify: 'none',
           }],
-          responseCharLength: 100,
+          responseLength: 100,
         });
+        const first = await page1();
         const before = first.structuredContent.responsePagination;
         assert.ok(before.next);
-        await writeFile(file, 'export const value = 200;\n');
         let current = first;
         let rendered = '';
         let pages = 0;
@@ -616,7 +621,15 @@ try {
         }
         assert.ok(pages > 1);
         assert.match(rendered, /export const value = 1;/);
-        assert.doesNotMatch(rendered, /export const value = 200;/);
+
+        // After an edit the stored pages are stale: the next page restarts on
+        // the current source, never serving the old evidence.
+        const restartFrom = (await page1()).structuredContent.responsePagination.next;
+        await writeFile(file, 'export const value = 200;\n');
+        const restarted = await invoke(restartFrom.tool, restartFrom.query);
+        const pagination = restarted.structuredContent.responsePagination;
+        assert.equal(pagination.restart, true);
+        assert.notEqual(pagination.snapshot, before.snapshot);
         const fresh = await call('localFetch', { path: file, minify: 'none' });
         assert.equal(fresh.content, '1\texport const value = 200;\n');
       } finally {
@@ -628,55 +641,64 @@ try {
         operation: 'match',
         path: fixture,
         pattern: 'add($$$ARGS)',
-        langType: 'typescript',
+        language: 'typescript',
         captureText: true,
       });
       assert.ok(JSON.stringify(data).includes('add(value, value)'));
     });
-    await check('file graph dependency positive', async () => {
-      const data = await call('astTopology', {
-        analysis: 'dependencies',
-        path: fixture,
-        file: 'entry.ts',
-        depth: 2,
-        excludeDir: ['coverage', 'removed', 'rust'],
-      });
+    await check('astTopology is CLI-only: MCP rejects it, the CLI runs the file graph', async () => {
+      assert.ok(!expectedTools.includes('astTopology'), 'MCP must not list astTopology');
+      const query = { operation: 'dependencies', path: fixture, source: 'entry.ts', depth: 2, exclude: ['coverage', 'removed', 'rust'] };
+      const rejected = await client
+        .callTool({ name: 'astTopology', arguments: { queries: [query] } })
+        .then(result => result.isError === true, error => /not found|not available/i.test(String(error?.message)));
+      assert.ok(rejected, 'MCP must reject astTopology');
+      const data = executeCliTool('astTopology', [query]).results[0].data;
       assert.ok(JSON.stringify(data).includes('math.ts'));
     });
     await check(
-      'graph diagnostic continuation union preserves the complete inventory',
+      'graph diagnostic continuation union preserves the complete inventory (CLI)',
       async () => {
         const query = {
-          analysis: 'dependencies',
+          operation: 'dependencies',
           path: `${fixture}-diagnostics`,
-          file: 'entry.ts',
+          source: 'entry.ts',
           depth: 3,
           pageSize: 50,
-          excludeDir: [],
+          exclude: [],
         };
-        // The first page carries diagnostic counts; rows sit behind
-        // next.nextDiagnostics at every page size.
-        const collect = data => data.coverage.diagnostics ?? [];
-        const fullFirst = await call('astTopology', {
-          ...query,
-          diagnosticPageSize: 100,
-        });
-        const full = await pages(fullFirst, 'nextDiagnostics', collect);
-        const first = await call('astTopology', {
-          ...query,
-          diagnosticPageSize: 2,
-        });
-        const paged = await pages(first, 'nextDiagnostics', collect);
-        const counted = Object.values(first.coverage.diagnosticCounts).reduce((sum, n) => sum + n, 0);
-        assert.equal(counted, 5);
-        assert.equal(full.rows.length, counted);
+        // Withheld diagnostic rows are the opt-in hints.readDiagnostics lead;
+        // its pages chain through next.nextDiagnosticPage. Each call is the
+        // complete input, replayed verbatim through the CLI.
+        const follow = ({ tool, query: input }) => {
+          assert.equal(tool, 'astTopology');
+          return executeCliTool(tool, input.queries).results[0].data;
+        };
+        const cliPages = lead => {
+          let current = follow(lead);
+          const rows = [...(current.coverage.diagnostics ?? [])];
+          let count = 1;
+          while (current.next?.nextDiagnosticPage) {
+            assert.ok(count++ < 100, 'continuation did not terminate');
+            current = follow(current.next.nextDiagnosticPage);
+            rows.push(...(current.coverage.diagnostics ?? []));
+          }
+          return { rows, count };
+        };
+        const run = diagnosticPageSize => executeCliTool('astTopology', [{ ...query, diagnosticPageSize }]).results[0].data;
+        const first = run(2);
+        assert.equal(first.coverage.diagnostics, undefined);
+        assert.equal(first.coverage.imports.unresolvedInternal, 5);
+        const full = cliPages(run(100).hints.readDiagnostics);
+        const paged = cliPages(first.hints.readDiagnostics);
+        assert.equal(full.rows.length, first.coverage.imports.unresolvedInternal);
         assert.ok(paged.count > full.count);
         assert.deepEqual(paged.rows, full.rows);
       }
     );
     await check('LSP definition identifies the declaration', async () => {
       const data = await call('lspSearch', {
-        uri: path.join(fixture, 'entry.ts'),
+        path: path.join(fixture, 'entry.ts'),
         workspaceRoot: fixture,
         operation: 'definition',
         symbolName: 'add',
@@ -684,9 +706,9 @@ try {
       });
       assert.equal(data.payload.kind, 'definition');
       assert.ok(
-        data.payload.locations.some(
+        data.payload.matches.some(
           location =>
-            (location.path ?? fileURLToPath(location.uri)).endsWith('math.ts') &&
+            location.path.endsWith('math.ts') &&
             location.displayRange.startLine === 2
         )
       );
@@ -695,20 +717,20 @@ try {
       'LSP references execute snapshot continuations without loss',
       async () => {
         const query = {
-          uri: path.join(fixture, 'math.ts'),
+          path: path.join(fixture, 'math.ts'),
           workspaceRoot: fixture,
           operation: 'references',
           symbolName: 'add',
           lineHint: 2,
         };
-        // References group per file: {path, refs: ["<line>:<col> <text>"]}.
+        // References group per file: {path, matches: ["<line>:<col> <text>"]}.
         const collect = data =>
-          data.payload.byFile.flatMap(file => file.refs.map(ref => `${file.path} ${ref}`));
+          data.payload.files.flatMap(file => file.matches.map(ref => `${file.path} ${ref}`));
         const first = await call('lspSearch', { ...query, pageSize: 1 });
         const paged = await pages(first, 'nextPage', collect);
         const full = await call('lspSearch', { ...query, pageSize: 100 });
         assert.ok(paged.count > 1);
-        assert.equal(paged.rows.length, full.payload.totalReferences);
+        assert.equal(paged.rows.length, full.pagination?.totalItems ?? collect(full).length);
         assert.deepEqual(paged.rows, collect(full));
       }
     );
@@ -748,31 +770,31 @@ try {
   }
   if (values.live && !values.quick) {
     if (expectedTools.includes(TOOL_NAMES.CLASIFY)) {
-      await check('clasify executes Noul, Choice, and Score through the live provider', async () => {
+      await check('clasify executes yesno, choice, and score through the live provider', async () => {
         const response = await invoke(TOOL_NAMES.CLASIFY, { queries: [{
           id: 'live-primitives',
           reasoning: 'Verify every semantic primitive through the built MCP surface.',
           resources: [{
             id: 'fixture',
-            context: { value: 'The fixture explicitly states that alpha is enabled.' },
+            value: 'The fixture explicitly states that alpha is enabled.',
           }],
           questions: [
             {
-              id: 'noul',
-              type: 'noul',
-              instructions: 'Does the fixture state that alpha is enabled?',
+              id: 'yesno',
+              type: 'yesno',
+              ask: 'Does the fixture state that alpha is enabled?',
             },
             {
               id: 'choice',
               type: 'choice',
-              instructions: 'Which state does the fixture assign to alpha?',
-              criteria: { enabled: null, disabled: null },
+              ask: 'Which state does the fixture assign to alpha?',
+              labels: { enabled: null, disabled: null },
             },
             {
               id: 'score',
               type: 'score',
-              instructions: 'How explicit is the fixture about alpha being enabled?',
-              criteria: ['not stated', 'implied', 'explicitly stated'],
+              ask: 'How explicit is the fixture about alpha being enabled?',
+              labels: ['not stated', 'implied', 'explicitly stated'],
             },
           ],
         }] });
@@ -780,7 +802,7 @@ try {
         const resource = response.structuredContent?.queries?.[0]?.resources?.[0];
         assert.equal(resource?.coverage, 'complete');
         const answers = resource?.pages?.[0]?.answers;
-        assert.ok(typeof answers?.noul?.noul === 'number');
+        assert.ok(typeof answers?.yesno?.yesno === 'number');
         assert.ok(typeof answers?.choice?.choice === 'string');
         assert.ok(typeof answers?.score?.score === 'number');
       });
@@ -788,19 +810,21 @@ try {
     const repo = { owner: 'octocat', repo: 'Hello-World' };
     const sha = '7fd1a60b01f91b314f59955a4e4d4e80d8edf11d';
     await check('GitHub tree preserves paths and the requested revision', async () => {
-      const data = await call('ghStructure', { ...repo, branch: sha, pageSize: 1 });
-      assert.equal(data.resolvedBranch, sha);
-      assert.ok(data.structure.some(directory => directory.files.includes('README')));
+      const data = await call('ghStructure', { ...repo, ref: sha, pageSize: 1 });
+      // The resolved ref restates the requested ref, so it is not repeated.
+      assert.equal(data.resolvedRef ?? sha, sha);
+      assert.ok(data.entries.some(directory => directory.files.includes('README')));
     });
     await check('GitHub full file reads return content without a checkout', async () => {
-      const data = await call('ghGetFileContent', { ...repo, branch: sha, path: 'README', fullContent: true });
-      assert.equal(data.files[0].content, '1\tHello World!\n');
-      assert.equal(data.files[0].localPath, undefined);
-      assert.equal(data.files[0].repoRoot, undefined);
+      const data = await call('ghGetFileContent', { ...repo, ref: sha, path: 'README', fullContent: true });
+      assert.equal(data.content, '1\tHello World!\n');
+      assert.equal(data.files, undefined);
+      assert.equal(data.localPath, undefined);
+      assert.equal(data.repoRoot, undefined);
       assert.equal(data.directories, undefined);
     });
     await check('GitHub file fetch rejects directory paths and removed directory mode', async () => {
-      const directory = await invoke('ghGetFileContent', { queries: [{ ...repo, branch: sha, path: '' }] });
+      const directory = await invoke('ghGetFileContent', { queries: [{ ...repo, ref: sha, path: '' }] });
       assert.equal(directory.isError, true);
       assert.match(
         JSON.stringify(directory.structuredContent ?? directory.content ?? directory),
@@ -834,21 +858,21 @@ try {
     await check(
       'GitHub exact file byte continuations preserve all bytes',
       async () => {
-        const query = { ...repo, branch: sha, path: 'README', minify: 'none' };
+        const query = { ...repo, ref: sha, path: 'README', minify: 'none' };
         const full = await call('ghGetFileContent', query);
         let current = await call('ghGetFileContent', {
           ...query,
-          chunkType: 'bytes', chunkSize: 5,
+          unit: 'bytes', length: 5,
         });
-        let content = current.files[0].content;
+        let content = current.content;
         let count = 1;
-        while (current.files[0].next?.continue) {
+        while (current.next?.continue) {
           assert.ok(count++ < 20);
-          current = await nextCall(current.files[0].next.continue);
-          content += current.files[0].content;
+          current = await nextCall(current.next.continue);
+          content += current.content;
         }
         assert.ok(count > 1);
-        assert.equal(content, full.files[0].content);
+        assert.equal(content, full.content);
       }
     );
     await check('GitHub/local search-to-match fetch parity in both chunk units', async () => {
@@ -857,36 +881,36 @@ try {
       assert.ok(found.files?.length > 0);
       const remotePath = found.files[0].path;
       const full = await call('ghGetFileContent', { ...repo, path: remotePath, fullContent: true });
-      const source = full.files[0].content;
+      const source = full.content;
       assert.ok(source.includes('module.exports'));
       const parent = fixture;
       const directory = await mkdtemp(path.join(parent, 'remote-local-fetch-'));
       const file = path.join(directory, 'index.js');
       try {
         await writeFile(file, source);
-        const localFound = await call('localSearch', { path: directory, searchText: 'module.exports', regex: 'literal' });
+        const localFound = await call('localSearch', { path: directory, matchString: 'module.exports', regex: 'literal' });
         assert.ok(localFound.files?.length > 0);
-        for (const chunkType of ['lines', 'bytes']) {
-          const selector = { matchString: 'module.exports', contextLines: 2, minify: 'standard', chunkType, chunkSize: chunkType === 'lines' ? 1 : 7, debug: true };
+        for (const unit of ['lines', 'bytes']) {
+          const selector = { matchString: 'module.exports', contextLines: 2, minify: 'standard', unit, length: unit === 'lines' ? 1 : 7, debug: true };
           const contents = [];
           const anchors = [];
           for (const remote of [false, true]) {
             const tool = remote ? 'ghGetFileContent' : 'localFetch';
-            const query = remote ? { ...repo, path: remotePath, ...(full.files[0].commitSha ? { branch: full.files[0].commitSha } : {}), ...selector } : { path: file, ...selector };
+            const query = remote ? { ...repo, path: remotePath, ...(full.commitSha ? { ref: full.commitSha } : {}), ...selector } : { path: file, ...selector };
             let result = await call(tool, query);
             let joined = '';
             let count = 0;
             const matched = new Set();
             while (true) {
               assert.ok(count++ < 100);
-              const page = remote ? result.files[0] : result;
+              const page = result;
               assert.equal(page.sourceBytes, Buffer.byteLength(source));
               assert.equal(page.returnedBytes, Buffer.byteLength(page.content));
               assert.equal(page.minifyFallback.reason, 'match-evidence');
               joined += page.content;
               for (const line of page.matchedLines ?? []) matched.add(line);
               if (!page.next?.continue) { assert.equal(page.pagination.hasMore, false); break; }
-              assert.equal(page.next.continue.query.matchString, selector.matchString);
+              assert.equal(page.next.continue.query.queries[0].matchString, selector.matchString);
               result = await nextCall(page.next.continue);
             }
             assert.ok(count > 1);
@@ -915,7 +939,7 @@ try {
         ...repo,
         operation: 'commit',
         ref: sha,
-        includeDiff: true,
+        sections: ['patches'],
       });
       assert.ok(JSON.stringify(data).includes(sha));
     });
@@ -933,7 +957,7 @@ try {
       await nextCall(data.next.nextPage);
     });
     await check('CLI clone pinned revision positive', async () => {
-      const data = executeCliTool('ghCloneRepo', [{ ...repo, branch: sha, reasoning: 'Verify CLI-only clone.' }]).results[0].data;
+      const data = executeCliTool('ghCloneRepo', [{ ...repo, ref: sha, reasoning: 'Verify CLI-only clone.' }]).results[0].data;
       assert.ok(data.location.localPath);
       assert.equal(data.location.commitSha, sha);
       assert.equal(
@@ -958,35 +982,37 @@ try {
             && !['empty', 'error'].includes(call.response.structuredContent.results[0].status)
           );
           assert.ok(sample, `${tool}: no successful resource fixture`);
-          return { id: tool, context: { tool, query: sample.arguments.queries[0] } };
+          return { id: tool, tool, query: sample.arguments.queries[0] };
         });
-        let query = {
-          resources,
-          questions: [{ id: 'evidence', type: 'noul', instructions: 'Does this evidence identify a named file, repository, package, or code symbol?' }],
+        let input = {
+          queries: [{
+            resources,
+            questions: [{ id: 'evidence', type: 'yesno', ask: 'Does this evidence identify a named file, repository, package, or code symbol?' }],
+          }],
         };
         const completed = new Set();
         let calls = 0;
-        while (query) {
+        while (input) {
           assert.ok(calls++ < 20, 'clasify continuations did not terminate');
-          const response = await invoke(TOOL_NAMES.CLASIFY, query);
+          const response = await invoke(TOOL_NAMES.CLASIFY, input);
           assert.equal(response.isError, false);
           const matrix = response.structuredContent?.queries?.[0];
           assert.ok(matrix?.resources?.length);
-          assert.deepEqual(matrix.resources.map(resource => resource.resourceId), query.resources.map(resource => resource.id));
+          assert.deepEqual(matrix.resources.map(resource => resource.id), input.queries[0].resources.map(resource => resource.id));
           for (const resource of matrix.resources) {
             assert.ok(['complete', 'partial'].includes(resource.coverage), JSON.stringify(resource));
             assert.ok(resource.pages.length > 0);
             for (const page of resource.pages) {
               assert.equal(page.error, undefined);
-              const answer = page.answers?.evidence?.noul;
+              const answer = page.answers?.evidence?.yesno ?? page.answers?.evidence;
               assert.ok(typeof answer === 'number' && answer >= 0 && answer <= 1, JSON.stringify(page));
               assert.equal(page.content, undefined);
               assert.equal(page.body, undefined);
             }
-            if (resource.coverage === 'complete') completed.add(resource.resourceId);
-            else assert.ok(matrix.next?.clasify?.resources.some(next => next.id === resource.resourceId));
+            if (resource.coverage === 'complete') completed.add(resource.id);
+            else assert.ok(matrix.next?.clasify?.queries?.[0]?.resources.some(next => next.id === resource.id));
           }
-          query = matrix.next?.clasify;
+          input = matrix.next?.clasify;
         }
         assert.deepEqual([...completed].sort(), [...resourceTools].sort());
       });
@@ -1043,8 +1069,8 @@ try {
         const cliResponse = sample?.cliResponse ?? executeCliTool(name, selected.arguments.queries);
         const cliResults = sample?.cliResults ?? cliResponse.results;
         const mcpResults = selected.response.structuredContent.results;
-        const mcpBase = selected.response.structuredContent.base;
-        const cliBase = cliResponse?.base;
+        const mcpBase = selected.response.structuredContent.root;
+        const cliBase = cliResponse?.root;
         const differences = differingFields(mcpResults, cliResults);
         // Provider cache state depends on which cross-process arm reached the
         // provider first. For these provider tools it is receipt metadata,

@@ -5,7 +5,7 @@
 //! explicit window does split a page, no continuation an agent can follow
 //! skips the rows of a later part.
 
-mod support;
+use crate::support;
 
 use octocode_native::runtime::ToolRuntime;
 use serde_json::{Value, json};
@@ -49,7 +49,7 @@ fn search_fixture(workspace: &Workspace, files: usize) -> (String, usize) {
 }
 
 fn search(root: &str, goal: &str) -> Value {
-    json!({"path": root, "searchText": "needle", "mainGoal": goal,
+    json!({"path": root, "matchString": "needle", "mainGoal": goal,
         "reasoning": "Walk every hit through row continuations."})
 }
 
@@ -168,7 +168,7 @@ async fn a_default_local_search_walk_fits_the_window_and_reaches_every_hit_once(
 /// list each entry as its name plus a ` (<size>[, …])` suffix, and every
 /// group names its `dir`, also when it continues one from the last page.
 fn listed_paths(envelope: &Value) -> Vec<String> {
-    let base = envelope["base"].as_str().expect("base");
+    let base = envelope["root"].as_str().expect("root");
     envelope["results"][0]["data"]["files"]
         .as_array()
         .into_iter()
@@ -208,7 +208,7 @@ async fn a_default_structure_listing_walk_fits_the_window_and_lists_every_file_o
     let root = root.unwrap().to_string_lossy().into_owned();
     let runtime = workspace.runtime(&[("OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH", WINDOW.to_string())]);
     for (mcp, detail) in [(false, "basic"), (true, "basic"), (false, "full")] {
-        let first = json!({"operation": "files", "path": root, "pathPattern": "**/*.rs",
+        let first = json!({"operation": "files", "path": root, "include": ["**/*.rs"],
             "detail": detail, "mainGoal": "List every file.", "reasoning": "Walk the listing."});
         let (seen, calls) = walk_row_continuations(
             &runtime,
@@ -237,21 +237,37 @@ async fn a_default_structure_listing_walk_fits_the_window_and_lists_every_file_o
         first,
         "nextPage",
         |envelope| {
+            // A `{dir, entries}` group names its entries under `dir`.
             envelope["results"][0]["data"]["entries"]
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(|entry| entry.as_str().expect("entry").to_owned())
+                // Files only: a directory is its group, or a bare `name/`
+                // entry when no group lists it.
+                .flat_map(|entry| match entry.as_str() {
+                    Some(entry) if entry.ends_with('/') => vec![],
+                    Some(entry) => vec![entry.to_owned()],
+                    None => entry["entries"]
+                        .as_array()
+                        .expect("group entries")
+                        .iter()
+                        .filter_map(|name| {
+                            let name = name.as_str().expect("entry");
+                            (!name.ends_with('/'))
+                                .then(|| format!("{}/{name}", entry["dir"].as_str().expect("dir")))
+                        })
+                        .collect(),
+                })
                 .collect()
         },
     )
     .await;
     assert_eq!(seen.iter().collect::<BTreeSet<_>>().len(), seen.len());
-    assert_eq!(seen.len(), 930, "30 directories and their 900 files");
+    assert_eq!(seen.len(), 900, "every file of the 30 directories once");
     runtime.close().await;
 }
 
-/// An explicit row-scoped `responseCharLength` smaller than a page still
+/// An explicit row-scoped `responseLength` smaller than a page still
 /// splits it into row parts. The row's page continuation then rides its last
 /// part, so an agent that follows a row continuation whenever one is shown,
 /// and the response continuation otherwise, sees every hit exactly once, and
@@ -264,7 +280,7 @@ async fn a_split_page_offers_its_row_continuation_only_after_its_last_part() {
     for window in [4_000, 2_500] {
         for mcp in [false, true] {
             let mut input = json!({"queries": [search(&root, "Walk the hits.")],
-                "responseCharLength": window, "responseScope": "rows"});
+                "responseLength": window, "responseScope": "rows"});
             let mut seen = Vec::new();
             let mut split_parts = 0;
             let mut calls = 0;

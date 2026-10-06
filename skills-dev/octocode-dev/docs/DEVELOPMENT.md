@@ -22,14 +22,15 @@ Versions come from each `package.json`. Workspace packages version independently
 | sibling repo `octocode-mcp-host/packages/octocode-core` | `@octocodeai/octocode-core` | external | Every tool's Zod input schema, description, output schema, limits, and shared MCP/CLI instructions. Never executes tools. Nothing in this repo authors contract content. |
 | `packages/octocode-config` | `@octocodeai/config` | 20.1.0 | The only tool-contract generator (`generate:tool-contract` writes `contract/` and `src/contracts/toolTypes.generated.ts`; re-exports core through `./schema` and `./mcp`). Also the configuration contract (`config-contract.json` → `<repo>/docs/generated/CONFIG_SETTINGS.md`), Octocode home, `.env` / `.octocoderc` loading, and protected keys. See [ADDING_CONFIG.md](ADDING_CONFIG.md). |
 | `packages/octocode-native` | `@octocodeai/octocode-native` | 20.0.0 | Rust implementation of every public tool. One npm package plus six platform packages (`npm/darwin-arm64`, `darwin-x64`, `linux-arm64-gnu`, `linux-x64-gnu`, `linux-x64-musl`, `win32-x64-msvc`) with the native CLI binary and addons. Publishing: `<repo>/packages/octocode-native/docs/PUBLISHING.md`. |
-| `packages/octocode-mcp` | `octocode-mcp` | 19.2.0 | Thin stdio MCP server: loads the addon, checks the core/native fingerprint, registers available tools (never CLI-only `ghCloneRepo` and `astRewrite`), forwards calls. See `<repo>/docs/OCTOCODE_MCP.md`. |
-| `packages/octocode` | `octocode` | 19.2.0 | Public Node launcher: delegates to the native binary; owns `octocode skill` and the install picker. See `<repo>/packages/octocode/docs/OCTOCODE_CLI.md`. |
-| `packages/octocode-vscode` | `octocode-mcp-vscode` | 19.2.0 | VS Code extension: GitHub sign-in, token sync into MCP configs, MCP install across editors. Runs no research tools. |
+| `packages/octocode-mcp` | `octocode-mcp` | 20.0.0 | Thin stdio MCP server: loads the addon, checks the core/native fingerprint, registers available tools (never CLI-only `ghCloneRepo` and `astRewrite`), forwards calls. See `<repo>/docs/OCTOCODE_MCP.md`. |
+| `packages/octocode-mcp-cli` | `octocode-mcp-cli` (private) | 0.1.0 | Library that maps MCP tools and instructions to a Zod CLI spec, help text, generated TypeScript, and MCP tool definitions. Does not execute Octocode tools. |
+| `packages/octocode` | `octocode` | 20.0.0 | Public Node launcher: delegates to the native binary; owns `octocode skill` and the install picker. See `<repo>/packages/octocode/docs/OCTOCODE_CLI.md`. |
+| `packages/octocode-vscode` | `octocode-mcp-vscode` | 20.0.0 | VS Code extension: GitHub sign-in, token sync into MCP configs, MCP install across editors. Runs no research tools. |
 | `packages/octocode-claude-plugin` | `@octocodeai/claude-plugin` | 0.1.0 | Claude Code manifest, local MCP launch config, public skills, GitHub CLI onboarding. The marketplace points to the npm package. See its `ARCHITECTURE.md`. |
 | `packages/octocode-codex-plugin` | `@octocodeai/codex-plugin` | 0.1.0 | Codex plugin metadata, local MCP launch config, public skills, onboarding; reuses native auth and CLI skill staging. See its `ARCHITECTURE.md`. |
 | `packages/octocode-skill-installer` | `@octocodeai/octocode-skill-installer` (private) | 0.1.0 | Library bundled into the CLI: canonical skill copies, per-platform links or copies, upgrades, conflict policy, atomic replacement. |
-| `packages/octocode-benchmark` | `@octocodeai/octocode-benchmark` (private) | 19.2.0 | Unified agent benchmark: 30 pinned questions, Octocode MCP vs `rg` + `gh`, blind Opus judge. Start at `<repo>/packages/octocode-benchmark/compare/unified/README.md`. |
-| `skills/octocode-agents-communication` | `@octocodeai/octocode-agents-communication` (private) | 0.1.0 | Session identity, path leases, messages. |
+| `packages/octocode-benchmark` | `@octocodeai/octocode-benchmark` (private) | 20.0.0 | Unified agent benchmark: 30 pinned questions, Octocode MCP vs `rg` + `gh`, blind Opus judge. Start at `<repo>/packages/octocode-benchmark/compare/unified/README.md`. |
+| `packages/octocode-agents-communication` | `@octocodeai/octocode-agents-communication` | 0.1.0 | Session identity, path leases, messages. |
 
 Native Cargo crates under `crates/`:
 
@@ -92,6 +93,6 @@ These are not user settings and are not read from `.octocoderc`. User settings a
 
 ## Ownership rules
 
-- `crates/engine` and the `./engine` subpath expose primitives, not tool policy.
+- `crates/engine` exposes primitives, not tool policy.
 - Skill filesystem behavior comes from `@octocodeai/octocode-skill-installer`.
 - Each doc topic has one owner; see `<repo>/docs/README.md`. Per-package invariants are in each package `ARCHITECTURE.md`.

@@ -1,17 +1,18 @@
 //! `operation: "issue"`: issue metadata, body window, and one page of
 //! discussion comments.
-use super::continuations::promote_issue_continuations;
+use super::patch::auto_page;
+use super::promotion::promote_issue_continuations;
 use super::util::{
     array, content_flag, history_body_view, map_comments, merge, paginate_text, str_at, string,
     window_body,
 };
-use super::{HistoryItemRequest, default_page_size, fetch, validation};
+use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, MAX_COLLECTION_PAGE, fetch, validation};
 use crate::providers::github::{
     CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason,
     RequestContext,
 };
 use crate::tools::id::ToolId;
-use crate::tools::result::remove_nulls;
+use crate::tools::result::{Continuation, remove_nulls};
 use serde_json::{Map, Value, json};
 
 /// A pull-request read that 404ed: when the number is an issue, say so with
@@ -79,6 +80,9 @@ pub(super) async fn issue<R: CredentialResolver>(
         .and_then(Value::as_object);
     let want_comments = content_flag(comments, "discussion");
     let include_bots = content_flag(comments, "includeBots");
+    // A later comment page continues a read whose first page named the
+    // issue: only the number is restated.
+    let later_page = query.comment_page().unwrap_or(1) > 1;
     let mut row = json!({
         "number":raw["number"],"title":string(raw.get("title")),
         "state":str_at(&raw,"/state").unwrap_or("open"),"author":str_at(&raw,"/user/login").unwrap_or("unknown"),
@@ -88,6 +92,12 @@ pub(super) async fn issue<R: CredentialResolver>(
         "updatedAt":(str_at(&raw,"/state").unwrap_or("open") == "open").then(|| string(raw.get("updated_at"))),
         "closedAt":raw.get("closed_at").filter(|v|!v.is_null())
     });
+    if later_page
+        && !want_body
+        && let Some(fields) = row.as_object_mut()
+    {
+        fields.retain(|key, _| key == "number");
+    }
     let mut pagination = Map::new();
     if want_body {
         let body_view = history_body_view(str_at(&raw, "/body").unwrap_or(""), query);
@@ -98,48 +108,39 @@ pub(super) async fn issue<R: CredentialResolver>(
             pagination.insert("body".into(), page);
         }
     }
+    let mut bots_hidden = 0;
     if want_comments {
-        let page_no = query.comment_page().unwrap_or(1);
-        let per = query.page_size().unwrap_or_else(default_page_size);
-        let (raw_comments, more) = if page_no == 0 {
-            (json!([]), false)
-        } else {
-            fetch(
-                transport,
-                &[issue_path.as_slice(), &["comments"]].concat(),
-                &[("per_page", per.to_string()), ("page", page_no.to_string())],
-                context,
-            )
-            .await?
-        };
-        let mut shaped = Vec::new();
-        let mut body_page = None;
-        for comment in map_comments(array(raw_comments), "discussion", include_bots) {
-            let (body, page) = window_body(
-                str_at(&comment, "/body").unwrap_or(""),
-                query.char_offset(),
-                query,
-                &mut body_page,
-                // Issue text is never minified.
-                &mut false,
-            );
-            let mut c = merge(comment, json!({"body":body,"bodyPagination":page}));
-            if let Some(map) = c.as_object_mut()
-                && let Some(author) = map.remove("author")
-            {
-                map.insert("user".into(), author);
+        // The comments fill what the header and body leave of the response
+        // page (less a reserve for the row's cursors and leads), so one
+        // comment page is one response page.
+        let used = crate::tools::stream_page::json_chars(&row);
+        let budget = auto_page(query.auto_page_chars)
+            .saturating_sub(COMMENT_PAGE_RESERVE)
+            .saturating_sub(used);
+        let page =
+            issue_comments(transport, query, context, &issue_path, include_bots, budget).await?;
+        bots_hidden = page.bots_hidden;
+        if !page.comments.is_empty() {
+            row["comments"] = Value::Array(page.comments);
+        }
+        // `raw.comments` is the issue's real comment count (bots included);
+        // the page count is `returnedComments`, and `remainingItems` counts
+        // the provider comments after this page.
+        let mut comments = page.pagination;
+        let total = raw.get("comments").and_then(Value::as_u64);
+        comments["totalItems"] = json!(total);
+        comments["returnedComments"] = json!(row["comments"].as_array().map_or(0, Vec::len));
+        if comments["hasMore"] == true
+            && let Some(total) = total
+        {
+            let left = total.saturating_sub(u64::try_from(page.consumed).unwrap_or(u64::MAX));
+            if left > 0 {
+                comments["remainingItems"] = json!(left);
             }
-            remove_nulls(&mut c);
-            shaped.push(c);
         }
-        if !shaped.is_empty() {
-            row["comments"] = Value::Array(shaped);
-        }
-        // `raw.comments` is the issue's real comment count; the page count is
-        // `returnedComments` (bots may be hidden from it).
-        pagination.insert("comments".into(),json!({"currentPage":page_no,"itemsPerPage":per,"totalComments":raw.get("comments").and_then(Value::as_u64),"returnedComments":row["comments"].as_array().map_or(0,Vec::len),"hasMore":more,"nextCommentPage":more.then_some(page_no+1)}));
-        if let Some(page) = body_page {
-            pagination.insert("commentBody".into(), page);
+        pagination.insert("comments".into(), comments);
+        if let Some(body) = page.body {
+            pagination.insert("commentBody".into(), body);
         }
     }
     if !pagination.is_empty() {
@@ -149,33 +150,18 @@ pub(super) async fn issue<R: CredentialResolver>(
     if let Some(references) = closed_by.as_ref().filter(|refs| !refs.prs.is_empty()) {
         row["closedBy"] = Value::Array(references.prs.iter().map(|pr| pr.row.clone()).collect());
     }
-    let mut out = json!({"type":"issues","owner":query.owner(),"repo":query.repo(),"issues":[row],"totalCount":1});
+    let mut out = json!({"owner":query.owner(),"repo":query.repo(),"issues":[row]});
     promote_issue_continuations(&mut out, query);
+    if bots_hidden > 0 {
+        attach_bot_read(&mut out, query, bots_hidden);
+    }
     let bounded = closed_by.as_ref().and_then(|references| {
         references
             .bounded_total
             .map(|total| (references.listed, total))
     });
     if let Some((listed, total)) = bounded {
-        // No cursor continues the set: it ends here, and the fix it names
-        // is a candidate among the listed references only.
-        out["isPartial"] = json!(true);
-        out["terminalLimit"] = json!(true);
-        let mut reasons = out["partialReasons"]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        reasons.push(json!("closingReferenceLimit"));
-        out["partialReasons"] = Value::Array(reasons);
-        out["warnings"] = json!([if first_window {
-            format!(
-                "closedBy lists {listed} of {total} linked pull requests; readFixPr is a candidate, not the complete fix set."
-            )
-        } else {
-            format!(
-                "The first window's closedBy lists {listed} of {total} linked pull requests; the rest are not listed."
-            )
-        }]);
+        mark_bounded_closing(&mut out, listed, total, first_window);
     }
     if first_window {
         let prs = closed_by
@@ -184,6 +170,191 @@ pub(super) async fn issue<R: CredentialResolver>(
         attach_fix_pr(&mut out, query, prs, closed, bounded.is_some());
     }
     Ok(out)
+}
+
+/// One page of an issue's discussion comments.
+struct CommentPage {
+    comments: Vec<Value>,
+    /// The page object (`hasMore`, `nextPage`/`nextPageSize`, `botsHidden`).
+    pagination: Value,
+    /// The first comment-body window with more text.
+    body: Option<Value>,
+    /// Provider comments read up to the end of this page (shown and hidden).
+    consumed: usize,
+    /// Bot comments this page skipped (`includeBots` omitted).
+    bots_hidden: usize,
+}
+
+/// One page of an issue's discussion comments, each body windowed, filling
+/// `budget` characters. The page starts at comment
+/// `(commentPage − 1) × pageSize`; a first page shows at most an explicit
+/// `pageSize`, and every page as many comments as fit (up to one provider
+/// batch), read from at most two provider batches. The page resumes at its
+/// first unshown comment through a `commentPage`/`pageSize` pair that starts
+/// there ([`resume_page`]), so the comment cursor is the response's only
+/// cursor.
+async fn issue_comments<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+    issue_path: &[&str],
+    include_bots: bool,
+    budget: usize,
+) -> Result<CommentPage, ProviderError> {
+    let page_no = query.comment_page().unwrap_or(1);
+    let grid = query.page_size().unwrap_or(DEFAULT_PAGE_SIZE).max(1);
+    let start = page_no.saturating_sub(1) * grid;
+    let cap = match query.page_size() {
+        Some(size) if page_no <= 1 => size,
+        _ => MAX_COLLECTION_PAGE,
+    };
+    let mut raw_comments = Vec::new();
+    let mut provider_more = false;
+    if page_no > 0 {
+        let mut skip = start % MAX_COLLECTION_PAGE;
+        for batch in (start / MAX_COLLECTION_PAGE + 1..).take(2) {
+            let (value, more) = fetch(
+                transport,
+                &[issue_path, &["comments"]].concat(),
+                &[
+                    ("per_page", MAX_COLLECTION_PAGE.to_string()),
+                    ("page", batch.to_string()),
+                ],
+                context,
+            )
+            .await?;
+            raw_comments.extend(array(value).into_iter().skip(skip));
+            provider_more = more;
+            if !more || raw_comments.len() >= cap {
+                break;
+            }
+            skip = 0;
+        }
+    }
+    // Each provider comment (a hidden bot's is `None`), shaped, in order.
+    let mut body_page = None;
+    let fetched: Vec<Option<Value>> = raw_comments
+        .into_iter()
+        .map(|raw| {
+            let comment = map_comments(vec![raw], "discussion", include_bots).pop()?;
+            let (body, page) = window_body(
+                str_at(&comment, "/body").unwrap_or(""),
+                query.char_offset(),
+                query,
+                &mut body_page,
+                // Issue text is never minified.
+                &mut false,
+            );
+            let mut c = merge(comment, json!({"body":body}));
+            // A whole body's window restates its length only.
+            if page["offset"] != 0 || page["hasMore"] == true {
+                c["bodyPagination"] = page;
+            }
+            if let Some(map) = c.as_object_mut() {
+                if let Some(author) = map.remove("author") {
+                    map.insert("user".into(), author);
+                }
+                // Every issue comment is a discussion comment, and an
+                // unedited one has one timestamp.
+                map.remove("commentType");
+                if map.get("updatedAt") == map.get("createdAt") {
+                    map.remove("updatedAt");
+                }
+            }
+            remove_nulls(&mut c);
+            Some(c)
+        })
+        .collect();
+    // Comments that fit the budget and the cap; at least the first shown
+    // one. Hidden bots ride free up to the stop.
+    let (mut consumed, mut shown, mut used) = (0, 0, 0usize);
+    for comment in &fetched {
+        if let Some(comment) = comment {
+            let chars = crate::tools::stream_page::json_chars(comment) + 1;
+            if shown > 0 && (used + chars > budget || shown >= cap) {
+                break;
+            }
+            used += chars;
+            shown += 1;
+        }
+        consumed += 1;
+    }
+    let more = consumed < fetched.len() || provider_more;
+    let bots_hidden = fetched[..consumed].iter().filter(|c| c.is_none()).count();
+    let mut pagination = json!({"hasMore": more});
+    if more {
+        let (page, size) = resume_page(start + consumed);
+        pagination["nextPage"] = json!(page);
+        pagination["nextPageSize"] = json!(size);
+    }
+    if bots_hidden > 0 {
+        pagination["botsHidden"] = json!(bots_hidden);
+    }
+    Ok(CommentPage {
+        comments: fetched.into_iter().take(consumed).flatten().collect(),
+        pagination,
+        body: body_page,
+        consumed: start + consumed,
+        bots_hidden,
+    })
+}
+
+/// Response chars an issue comment page leaves to the row's cursors,
+/// leads, and warnings.
+const COMMENT_PAGE_RESERVE: usize = 2_500;
+
+/// Bot comments a page hid are counted, never silently dropped: a warning
+/// names them and `hints.includeBots` re-reads the same page with them.
+fn attach_bot_read(out: &mut Value, query: &HistoryItemRequest, hidden: usize) {
+    let noun = if hidden == 1 { "comment" } else { "comments" };
+    super::patch::push_warning(
+        out,
+        format!("{hidden} bot {noun} hidden on this page; hints.includeBots shows them."),
+    );
+    let mut nq = super::pr_menu::base_public_query(query, super::ItemOperation::Issue);
+    let mut comments = query
+        .content_value()
+        .and_then(|content| content.get("comments").cloned())
+        .unwrap_or(json!({"discussion":true}));
+    comments["includeBots"] = json!(true);
+    nq["content"] = json!({"comments": comments});
+    if !out.get("next").is_some_and(Value::is_object) {
+        out["next"] = json!({});
+    }
+    out["next"]["includeBots"] = super::pr_menu::menu_read(nq);
+}
+
+/// The `(commentPage, pageSize)` pair whose page starts at comment index
+/// `start`: the largest page size (at most one provider batch) dividing it.
+/// The size only places the start; the page fills its budget.
+fn resume_page(start: usize) -> (usize, usize) {
+    let size = (1..=start.clamp(1, MAX_COLLECTION_PAGE))
+        .rev()
+        .find(|size| start.is_multiple_of(*size))
+        .unwrap_or(1);
+    (start / size + 1, size)
+}
+
+/// The closing-reference set ends at a bound: no cursor continues it, and the
+/// fix it names is a candidate among the listed references only.
+fn mark_bounded_closing(out: &mut Value, listed: usize, total: u64, first_window: bool) {
+    out["isPartial"] = json!(true);
+    out["terminalLimit"] = json!(true);
+    let mut reasons = out["partialReasons"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    reasons.push(json!("closingReferenceLimit"));
+    out["partialReasons"] = Value::Array(reasons);
+    out["warnings"] = json!([if first_window {
+        format!(
+            "closedBy lists {listed} of {total} linked pull requests; readFixPullRequest is a candidate, not the complete fix set."
+        )
+    } else {
+        format!(
+            "The first window's closedBy lists {listed} of {total} linked pull requests; the rest are not listed."
+        )
+    }]);
 }
 
 /// Closing references one issue read lists. Past it the set is bounded and
@@ -219,23 +390,14 @@ async fn closing_pull_requests<R: CredentialResolver>(
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Option<ClosingReferences> {
-    if !transport.graphql_enabled || !transport.graphql_available(context).await {
-        return None;
-    }
-    let variables = json!({
-        "owner": query.owner(),
-        "repo": query.repo(),
-        "number": query.number()?,
-        "first": MAX_CLOSING_REFERENCES,
-    });
-    let page = transport
-        .execute_graphql(CLOSING_REFERENCES_DOCUMENT, variables, context)
-        .await
-        .ok()?;
-    let references = page
-        .data
-        .as_ref()?
-        .pointer("/repository/issue/closedByPullRequestsReferences")?;
+    let references = closed_by_references(
+        transport,
+        query,
+        context,
+        CLOSING_REFERENCES_DOCUMENT,
+        Some(MAX_CLOSING_REFERENCES),
+    )
+    .await?;
     let more = references
         .pointer("/pageInfo/hasNextPage")
         .and_then(Value::as_bool)
@@ -254,6 +416,37 @@ async fn closing_pull_requests<R: CredentialResolver>(
     })
 }
 
+/// The issue's `closedByPullRequestsReferences` object that `document`
+/// selects (`first` sets its window size). `None` when GraphQL is
+/// unavailable or failed.
+async fn closed_by_references<R: CredentialResolver>(
+    transport: &GitHubTransport<R>,
+    query: &HistoryItemRequest,
+    context: &RequestContext,
+    document: &str,
+    first: Option<usize>,
+) -> Option<Value> {
+    if !transport.graphql_enabled || !transport.graphql_available(context).await {
+        return None;
+    }
+    let mut variables = json!({
+        "owner": query.owner(),
+        "repo": query.repo(),
+        "number": query.number()?,
+    });
+    if let Some(first) = first {
+        variables["first"] = json!(first);
+    }
+    let mut page = transport
+        .execute_graphql(document, variables, context)
+        .await
+        .ok()?;
+    page.data
+        .as_mut()?
+        .pointer_mut("/repository/issue/closedByPullRequestsReferences")
+        .map(Value::take)
+}
+
 /// The closing-reference total for a window past the first: no rows, only
 /// whether the set the first window lists is bounded.
 async fn closing_reference_count<R: CredentialResolver>(
@@ -261,23 +454,16 @@ async fn closing_reference_count<R: CredentialResolver>(
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Option<ClosingReferences> {
-    if !transport.graphql_enabled || !transport.graphql_available(context).await {
-        return None;
-    }
-    let variables = json!({
-        "owner": query.owner(),
-        "repo": query.repo(),
-        "number": query.number()?,
-    });
-    let page = transport
-        .execute_graphql(CLOSING_REFERENCE_COUNT_DOCUMENT, variables, context)
-        .await
-        .ok()?;
-    let total = page
-        .data
-        .as_ref()?
-        .pointer("/repository/issue/closedByPullRequestsReferences/totalCount")?
-        .as_u64()?;
+    let total = closed_by_references(
+        transport,
+        query,
+        context,
+        CLOSING_REFERENCE_COUNT_DOCUMENT,
+        None,
+    )
+    .await?
+    .get("totalCount")?
+    .as_u64()?;
     let limit = u64::try_from(MAX_CLOSING_REFERENCES).unwrap_or(u64::MAX);
     Some(ClosingReferences {
         prs: Vec::new(),
@@ -298,7 +484,7 @@ fn map_closing_pull_requests(nodes: &[Value]) -> Vec<ClosingPr> {
             });
             remove_nulls(&mut row);
             let count = |key: &str| node.get(key).and_then(Value::as_u64);
-            let small = super::continuations::is_small_pr(
+            let small = super::pr_menu::is_small_pr(
                 count("additions"),
                 count("deletions"),
                 count("changedFiles"),
@@ -311,7 +497,7 @@ fn map_closing_pull_requests(nodes: &[Value]) -> Vec<ClosingPr> {
     prs
 }
 
-/// `next.readFixPr` reads the first linked (merged-first) pull request;
+/// `next.readFixPullRequest` reads the first linked (merged-first) pull request;
 /// with no link information a closed issue offers the keyword search hop.
 fn attach_fix_pr(
     out: &mut Value,
@@ -329,20 +515,29 @@ fn attach_fix_pr(
         // the filter rides the copied query, so the narrowing is visible.
         Some(pr) => {
             let named = goal_file_globs(query);
-            let mut read = json!({"tool":ToolId::GhGetHistoryItem.as_str(),"confidence":confidence,"query":{
+            let mut read = json!({
                 "operation":"pullRequest","owner":query.owner(),"repo":query.repo(),
                 "number":pr.row["number"],
-                "include": if pr.small || !named.is_empty() { json!(["patches"]) } else { json!(["body", "files"]) }}});
+                "sections": if pr.small || !named.is_empty() { json!(["patches"]) } else { json!(["body", "files"]) }});
             if !named.is_empty() {
-                read["query"]["fileFilter"] = json!({"paths": named});
+                read["include"] = json!(named);
             }
-            ("readFixPr", read)
+            (
+                "readFixPullRequest",
+                Continuation::new(ToolId::GhGetHistoryItem, read)
+                    .confidence(confidence)
+                    .build(),
+            )
         }
         None if closed && closed_by.is_none() => (
-            "findFixPr",
-            json!({"tool":ToolId::GhSearchHistory.as_str(),"confidence":"medium","query":{
-                "operation":"pullRequest","owner":query.owner(),"repo":query.repo(),
-                "keywords":[query.number().unwrap_or_default().to_string()]}}),
+            "findFixPullRequest",
+            Continuation::new(
+                ToolId::GhSearchHistory,
+                json!({"operation":"pullRequest","owner":query.owner(),"repo":query.repo(),
+                    "keywords":[query.number().unwrap_or_default().to_string()]}),
+            )
+            .confidence("medium")
+            .build(),
         ),
         None => return,
     };
@@ -355,7 +550,7 @@ fn attach_fix_pr(
 /// Most goal-named files one fix-PR read narrows to.
 const MAX_GOAL_FILES: usize = 5;
 
-/// `fileFilter.paths` globs for file names the query's goal mentions
+/// `include` globs for file names the query's goal mentions
 /// (`merge.go`, `pkg/cmd/merge.go`): a word counts only when its name has a
 /// known code, config, doc, or lock file type, so dotted identifiers
 /// (`res.redirect`) and versions never narrow a read.
@@ -417,9 +612,12 @@ mod tests {
         );
         let mut out = json!({});
         attach_fix_pr(&mut out, &query, Some(&prs), true, false);
-        assert_eq!(out["next"]["readFixPr"]["query"]["number"], 8);
         assert_eq!(
-            out["next"]["readFixPr"]["query"]["include"],
+            out["next"]["readFixPullRequest"]["query"]["queries"][0]["number"],
+            8
+        );
+        assert_eq!(
+            out["next"]["readFixPullRequest"]["query"]["queries"][0]["sections"],
             json!(["patches"])
         );
         for node in [
@@ -435,13 +633,13 @@ mod tests {
                 false,
             );
             assert_eq!(
-                out["next"]["readFixPr"]["query"]["include"],
+                out["next"]["readFixPullRequest"]["query"]["queries"][0]["sections"],
                 json!(["body", "files"])
             );
         }
         assert!(
-            out_for(&query, &prs)["next"]["readFixPr"]["query"]
-                .get("fileFilter")
+            out_for(&query, &prs)["next"]["readFixPullRequest"]["query"]["queries"][0]
+                .get("include")
                 .is_none()
         );
     }
@@ -470,28 +668,46 @@ mod tests {
             &issue("Which PR fixed cli/cli#14404 and what did it change in merge.go?"),
             &large,
         );
-        let read = &out["next"]["readFixPr"]["query"];
-        assert_eq!(
-            read["fileFilter"],
-            json!({"paths":["**/merge.go"]}),
-            "{read}"
-        );
-        assert_eq!(read["include"], json!(["patches"]), "{read}");
+        let read = &out["next"]["readFixPullRequest"]["query"]["queries"][0];
+        assert_eq!(read["include"], json!(["**/merge.go"]), "{read}");
+        assert_eq!(read["sections"], json!(["patches"]), "{read}");
         let out = out_for(
             &issue("Check pkg/cmd/pr/merge/merge.go and README.md (v2.31.0)."),
             &large,
         );
         assert_eq!(
-            out["next"]["readFixPr"]["query"]["fileFilter"]["paths"],
+            out["next"]["readFixPullRequest"]["query"]["queries"][0]["include"],
             json!(["**/pkg/cmd/pr/merge/merge.go", "**/README.md"])
         );
         for goal in [
             "What does res.redirect default to in express@4.21.2?",
             "Which PR fixed this issue?",
         ] {
-            let read = &out_for(&issue(goal), &large)["next"]["readFixPr"]["query"];
-            assert!(read.get("fileFilter").is_none(), "{goal}: {read}");
-            assert_eq!(read["include"], json!(["body", "files"]), "{goal}");
+            let read =
+                &out_for(&issue(goal), &large)["next"]["readFixPullRequest"]["query"]["queries"][0];
+            assert!(read.get("include").is_none(), "{goal}: {read}");
+            assert_eq!(read["sections"], json!(["body", "files"]), "{goal}");
+        }
+    }
+}
+
+#[cfg(test)]
+mod resume_tests {
+    use super::resume_page;
+
+    /// E18: a cut page resumes exactly at its first unshown comment: the
+    /// page size only places the start (the largest one dividing it, at
+    /// most one provider batch); the next page fills its own budget.
+    #[test]
+    fn a_cut_comment_page_resumes_at_its_first_unshown_comment() {
+        assert_eq!(resume_page(12), (2, 12));
+        assert_eq!(resume_page(97), (2, 97));
+        assert_eq!(resume_page(190), (3, 95));
+        assert_eq!(resume_page(200), (3, 100));
+        for start in [1, 17, 97, 101, 250, 1009] {
+            let (page, size) = resume_page(start);
+            assert!(size <= 100);
+            assert_eq!((page - 1) * size, start, "{start}");
         }
     }
 }

@@ -6,8 +6,6 @@
 
 use std::time::Instant;
 
-#[cfg(feature = "napi-addon")]
-use napi_derive::napi;
 use tree_sitter::Node;
 
 use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
@@ -22,7 +20,6 @@ const MAX_SYNTAX_TREE_NODES: usize = 1_000_000;
 const DEFAULT_NODE_LIMIT: usize = 1_000;
 const MAX_NODE_LIMIT: usize = 100_000;
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Clone, Debug, Default)]
 pub struct SyntaxTreeInspectOptions {
     pub named_only: Option<bool>,
@@ -30,7 +27,6 @@ pub struct SyntaxTreeInspectOptions {
     pub node_limit: Option<u32>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Clone, Debug)]
 pub struct SyntaxTreeNode {
     pub id: u32,
@@ -45,7 +41,6 @@ pub struct SyntaxTreeNode {
     pub end_byte: u32,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Clone)]
 pub struct SyntaxTreeInspectResult {
     pub nodes: Vec<SyntaxTreeNode>,

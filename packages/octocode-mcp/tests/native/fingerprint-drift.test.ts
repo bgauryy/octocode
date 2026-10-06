@@ -9,6 +9,10 @@ class FakeRuntime {
 
   constructor(private readonly fingerprint: string) {}
 
+  async probeClassification() {
+    return { probed: false, available: false };
+  }
+
   catalog() {
     return {
       fingerprint: this.fingerprint,
@@ -18,10 +22,6 @@ class FakeRuntime {
 
   cancel() {
     return true;
-  }
-
-  normalizeInput(_tool: string, input: unknown) {
-    return input;
   }
 
   async executeMcp() {
@@ -53,7 +53,7 @@ describe('native/core contract identity', () => {
     const stderr = vi
       .spyOn(process.stderr, 'write')
       .mockImplementation(() => true);
-    const instance = createNativeMcp({
+    const instance = await createNativeMcp({
       binding: binding(getNativeContractFingerprint()),
       env: {},
     });
@@ -62,22 +62,19 @@ describe('native/core contract identity', () => {
     await instance.close();
   });
 
-  it('fails closed when the embedded contracts differ', () => {
+  it('fails closed when the embedded contracts differ', async () => {
     const stderr = vi
       .spyOn(process.stderr, 'write')
       .mockImplementation(() => true);
-    expect(() =>
-      createNativeMcp({ binding: binding('0'.repeat(64)), env: {} })
-    ).toThrow(/fingerprint mismatch/);
     // A rejected start must surface both fingerprints and leak no live runtime.
-    const error = (() => {
-      try {
-        createNativeMcp({ binding: binding('0'.repeat(64)), env: {} });
-        return undefined;
-      } catch (thrown) {
-        return thrown as Error;
-      }
-    })();
+    const error = await createNativeMcp({
+      binding: binding('0'.repeat(64)),
+      env: {},
+    }).then(
+      () => undefined,
+      (thrown: unknown) => thrown as Error
+    );
+    expect(error?.message).toMatch(/fingerprint mismatch/);
     expect(error?.message).toContain('0'.repeat(64));
     expect(error?.message).toContain(getNativeContractFingerprint());
     // The override hint names every condition it needs: the bundled dist
@@ -92,7 +89,7 @@ describe('native/core contract identity', () => {
     const stderr = vi
       .spyOn(process.stderr, 'write')
       .mockImplementation(() => true);
-    const instance = createNativeMcp({
+    const instance = await createNativeMcp({
       binding: binding('0'.repeat(64)),
       env: { OCTOCODE_ALLOW_CONTRACT_DRIFT: '1' },
     });

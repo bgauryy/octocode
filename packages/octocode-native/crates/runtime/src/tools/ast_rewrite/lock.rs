@@ -63,7 +63,7 @@ impl RootLock {
                     remove_stale_lock(&directory);
                     continue;
                 };
-                if !process_is_alive(owner.pid) {
+                if !crate::process_status::is_alive(owner.pid) {
                     remove_stale_lock(&directory);
                     continue;
                 }
@@ -132,8 +132,8 @@ fn acquire_lock_directory(directory: &Path, root: &Path) -> Result<bool, Rewrite
             Ok(true)
         }
         Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            let stale =
-                read_lock_owner(directory).is_some_and(|owner| !process_is_alive(owner.pid));
+            let stale = read_lock_owner(directory)
+                .is_some_and(|owner| !crate::process_status::is_alive(owner.pid));
             let ownerless_old = read_lock_owner(directory).is_none()
                 && fs::metadata(directory)
                     .and_then(|metadata| metadata.modified())
@@ -166,8 +166,4 @@ fn remove_stale_lock(directory: &Path) {
 
 fn paths_overlap(left: &Path, right: &Path) -> bool {
     left.starts_with(right) || right.starts_with(left)
-}
-
-fn process_is_alive(pid: u32) -> bool {
-    crate::process_status::is_alive(pid)
 }

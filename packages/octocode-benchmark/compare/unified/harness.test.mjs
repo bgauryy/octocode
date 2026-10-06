@@ -230,11 +230,12 @@ test('spawn failure rejects and does not hang', async () => {
 });
 test('deadline kills inherited descendants even when the parent closes first', { skip: process.platform === 'win32', timeout: 10000 }, async () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'ocbench-deadline-test-'));
-  const executable = path.join(cwd, 'claude');
   try {
-    fs.writeFileSync(executable, `#!/bin/sh\n${process.execPath} -e 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000)' >/dev/null 2>&1 &\necho $! > descendant.pid\nwait\n`);
-    fs.chmodSync(executable, 0o755);
-    const result = await runClaude({ args: [], cwd, timeoutMs: 1500, streamPath: path.join(cwd, 'stream'), env: { ...process.env, PATH: `${cwd}:${process.env.PATH}` } });
+    // `claude` is the system shell, not a freshly written script: macOS scans
+    // a new executable on its first exec, which can outlast the deadline.
+    fs.symlinkSync('/bin/sh', path.join(cwd, 'claude'));
+    const script = `${process.execPath} -e 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000)' >/dev/null 2>&1 &\necho $! > descendant.pid\nwait\n`;
+    const result = await runClaude({ args: ['-c', script], cwd, timeoutMs: 1500, streamPath: path.join(cwd, 'stream'), env: { ...process.env, PATH: `${cwd}:${process.env.PATH}` } });
     assert.equal(result.timedOut, true);
     const pid = Number(fs.readFileSync(path.join(cwd, 'descendant.pid'), 'utf8'));
     await new Promise(resolve => setTimeout(resolve, 100));
@@ -244,9 +245,9 @@ test('deadline kills inherited descendants even when the parent closes first', {
 
 
 test('profile server env reaches native MCP, but never re-enables a write tool or moves isolation roots', () => {
-  const env = upstreamEnv({ PATH: '/bin', DISABLE_TOOLS: 'x' }, { DISABLE_TOOLS: 'clasify, astRewrite', OCTOCODE_PUBLISHED_VIEW: 'flat', WORKSPACE_ROOT: '/elsewhere', OCTOCODE_HOME: '/elsewhere' }, { corpus: ['/c/a', '/c/b'], repoRoot: '/r', statsHome: '/s', githubToken: 't' });
+  const env = upstreamEnv({ PATH: '/bin', DISABLE_TOOLS: 'x' }, { DISABLE_TOOLS: 'clasify, astRewrite', OCTOCODE_DEFER_TOOLS: 'ghSearchRepo', WORKSPACE_ROOT: '/elsewhere', OCTOCODE_HOME: '/elsewhere' }, { corpus: ['/c/a', '/c/b'], repoRoot: '/r', statsHome: '/s', githubToken: 't' });
   assert.equal(env.DISABLE_TOOLS, 'astRewrite,ghCloneRepo,clasify');
-  assert.equal(env.OCTOCODE_PUBLISHED_VIEW, 'flat');
+  assert.equal(env.OCTOCODE_DEFER_TOOLS, 'ghSearchRepo');
   assert.equal(env.WORKSPACE_ROOT, '/c/a');
   assert.equal(env.ALLOWED_PATHS, '/c/a,/c/b');
   assert.equal(env.OCTOCODE_HOME, '/s');
@@ -266,7 +267,7 @@ test('family selector follows the session checkout, never the question category'
 });
 
 test('S13 arm workers differ from the octocode control only by server switches', () => {
-  const [control, ...arms] = loadWorkers('octocode,octocode-minus-clasify,octocode-flat,octocode-defer,octocode-family,octocode-guide');
+  const [control, ...arms] = loadWorkers('octocode,octocode-minus-clasify,octocode-defer,octocode-family');
   for (const arm of arms) {
     assert.equal(arm.docSha, control.docSha, `${arm.id}: same WORKER.md`);
     const { env: armEnv, ...armServer } = arm.profile.mcpServers.octocode;
@@ -280,6 +281,6 @@ test('S13 arm workers differ from the octocode control only by server switches',
 
 test('an anchored judge plan pairs every other worker with the anchor only', () => {
   assert.deepEqual(judgePairs(['a', 'b', 'c']), [['a', 'b'], ['a', 'c'], ['b', 'c']]);
-  assert.deepEqual(judgePairs(['octocode', 'octocode-flat', 'rg-gh'], 'rg-gh'), [['octocode', 'rg-gh'], ['octocode-flat', 'rg-gh']]);
+  assert.deepEqual(judgePairs(['octocode', 'octocode-defer', 'rg-gh'], 'rg-gh'), [['octocode', 'rg-gh'], ['octocode-defer', 'rg-gh']]);
   assert.throws(() => judgePairs(['a'], 'rg-gh'), /not a run worker/);
 });

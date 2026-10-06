@@ -1,6 +1,6 @@
 # Parsing & code transformation — tree-sitter, offsets, safe rewrites
 
-Load when parsing source (tree-sitter, oxc, syn), running structural queries, or rewriting code by byte range.
+Load when parsing source (tree-sitter, oxc, syn), running structural queries, or rewriting code by byte range. Why: byte offsets, encodings, and grammar versions break rewrites silently.
 
 ## Parser lifecycle
 - **Reuse the parser** per worker (`thread_local! { RefCell<Parser> }`), `reset()` + `set_language()` per file — never `Parser::new()` in a hot loop (see `references/performance-and-memory.md`).

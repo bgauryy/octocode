@@ -9,20 +9,16 @@
 mod files;
 mod kinds;
 mod language;
+mod macro_bodies;
 mod metavars;
 mod octo;
 mod query;
-#[cfg(feature = "embedded-ast-grep-rewrite")]
 mod rewrite;
 mod syntax_tree;
 mod types;
 
-#[cfg(feature = "embedded-ast-grep-rewrite")]
 pub use files::{StructuralRewriteFileResult, StructuralRewriteFilesResult, rewrite_files};
-pub use files::{
-    search_files, search_files_detailed, search_files_detailed_filtered_with_extension,
-};
-#[cfg(feature = "embedded-ast-grep-rewrite")]
+pub use files::{search_files_detailed, search_files_detailed_filtered_with_extension};
 pub use rewrite::{
     CompiledRewrite, MAX_REWRITE_CONTENT_BYTES, RewriteScan, StructuralRewriteCapture,
     StructuralRewriteMatch, StructuralRewritePosition, StructuralRewriteRange, compile_rewrite,
@@ -32,11 +28,10 @@ pub use syntax_tree::{
     SyntaxTreeInspectOptions, SyntaxTreeInspectResult, inspect as inspect_syntax_tree,
     inspect_with_extension as inspect_syntax_tree_with_extension,
 };
-#[cfg(feature = "embedded-ast-grep-rewrite")]
 pub use types::StructuralRewriteFilesOptions;
 pub use types::{
     StructuralDetailedMatch, StructuralDiagnostic, StructuralMatch, StructuralSearchDetailedResult,
-    StructuralSearchFilesDetailedResult, StructuralSearchFilesOptions, StructuralSearchFilesResult,
+    StructuralSearchFilesDetailedResult, StructuralSearchFilesOptions,
 };
 
 use crate::signatures::languages;
@@ -47,9 +42,8 @@ use types::{STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION, structural_query_f
 
 /// Defense-in-depth cap on content handed to the single-content structural
 /// entry points (`search`, `search_detailed`). The file walker already bounds
-/// per-file bytes via `max_file_bytes`; this mirrors that backstop on the path
-/// the public napi export hands off to, so a multi-MB blob
-/// can't hang tree-sitter parsing or `match_multi_capture` backtracking with no
+/// per-file bytes via `max_file_bytes`; this mirrors that backstop on the
+/// single-content path, so a multi-MB blob can't hang tree-sitter parsing or `match_multi_capture` backtracking with no
 /// timeoutMs escape. At-or-below passes; over returns an error / `truncated`.
 const MAX_STRUCTURAL_CONTENT_BYTES: usize = crate::signatures::MAX_PARSE_SIZE;
 
@@ -57,9 +51,10 @@ const MAX_STRUCTURAL_CONTENT_BYTES: usize = crate::signatures::MAX_PARSE_SIZE;
 /// from `ext`. Exactly one of `pattern` / `rule` must be `Some`.
 ///
 /// Returns `Err` for: an unsupported extension, an invalid pattern, invalid
-/// rule YAML, or both/neither query supplied — the napi layer maps these to a
-/// JS error so the caller can surface guidance instead of a silent empty set.
-pub fn supported_extensions() -> Vec<String> {
+/// rule YAML, or both/neither query supplied, so the caller can surface
+/// guidance instead of a silent empty set.
+#[must_use]
+pub fn supported_structural_extensions() -> Vec<String> {
     languages::supported_extensions()
         .into_iter()
         .map(str::to_owned)
@@ -93,6 +88,27 @@ pub fn search(
         .collect())
 }
 
+/// A single-content result that ends before any match: `status` with one
+/// `diagnostic` saying why.
+fn no_matches(
+    file_path: &str,
+    status: &str,
+    language_id: Option<String>,
+    query: types::StructuralQueryExplanation,
+    diagnostic: StructuralDiagnostic,
+) -> StructuralSearchDetailedResult {
+    StructuralSearchDetailedResult {
+        path: file_path.to_owned(),
+        analyzer: STRUCTURAL_ANALYZER.to_owned(),
+        analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
+        status: status.to_owned(),
+        language_id,
+        query,
+        matches: Vec::new(),
+        diagnostics: vec![diagnostic],
+    }
+}
+
 pub fn search_detailed(
     content: &str,
     file_path: &str,
@@ -113,20 +129,13 @@ pub fn search_detailed(
         )
         .with_path(file_path)
         .with_recovery("Target a smaller file; for this one, read bounded ranges with localFetch or search text with localSearch.");
-        return StructuralSearchDetailedResult {
-            path: file_path.to_owned(),
-            analyzer: STRUCTURAL_ANALYZER.to_owned(),
-            analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
-            status: "truncated".to_owned(),
-            language_id: None,
-            query: invalid_query_explanation(
-                pattern,
-                rule,
-                "content exceeds single-content byte limit",
-            ),
-            matches: Vec::new(),
-            diagnostics: vec![diagnostic],
-        };
+        return no_matches(
+            file_path,
+            "truncated",
+            None,
+            invalid_query_explanation(pattern, rule, "content exceeds single-content byte limit"),
+            diagnostic,
+        );
     }
     let query = match StructuralQuery::new(pattern, rule) {
         Ok(query) => query,
@@ -139,16 +148,13 @@ pub fn search_detailed(
             )
             .with_path(file_path)
             .with_recovery("Provide exactly one non-empty structural pattern or YAML rule.");
-            return StructuralSearchDetailedResult {
-                path: file_path.to_owned(),
-                analyzer: STRUCTURAL_ANALYZER.to_owned(),
-                analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
-                status: "parserFailed".to_owned(),
-                language_id: None,
-                query: invalid_query_explanation(pattern, rule, &message),
-                matches: Vec::new(),
-                diagnostics: vec![diagnostic],
-            };
+            return no_matches(
+                file_path,
+                "parserFailed",
+                None,
+                invalid_query_explanation(pattern, rule, &message),
+                diagnostic,
+            );
         }
     };
 
@@ -162,16 +168,13 @@ pub fn search_detailed(
         )
         .with_path(file_path)
         .with_recovery("Use text search for this extension or add a tree-sitter grammar mapping.");
-        return StructuralSearchDetailedResult {
-            path: file_path.to_owned(),
-            analyzer: STRUCTURAL_ANALYZER.to_owned(),
-            analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
-            status: "unsupported".to_owned(),
-            language_id: None,
-            query: query_explanation,
-            matches: Vec::new(),
-            diagnostics: vec![diagnostic],
-        };
+        return no_matches(
+            file_path,
+            "unsupported",
+            None,
+            query_explanation,
+            diagnostic,
+        );
     };
 
     let lang = AgLanguage::new(ext, entry);
@@ -179,16 +182,13 @@ pub fn search_detailed(
         Ok(run) => run,
         Err(message) => {
             if let Some(error) = ExecutionError::from_compile_message(&message) {
-                return StructuralSearchDetailedResult {
-                    path: file_path.to_owned(),
-                    analyzer: STRUCTURAL_ANALYZER.to_owned(),
-                    analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
-                    status: "truncated".to_owned(),
-                    language_id: entry.language_id.map(str::to_owned),
-                    query: query_explanation,
-                    matches: Vec::new(),
-                    diagnostics: vec![error.diagnostic(file_path)],
-                };
+                return no_matches(
+                    file_path,
+                    "truncated",
+                    entry.language_id.map(str::to_owned),
+                    query_explanation,
+                    error.diagnostic(file_path),
+                );
             }
             let diagnostic = StructuralDiagnostic::new(
                 "structural.query.compileFailed",
@@ -200,32 +200,26 @@ pub fn search_detailed(
             .with_recovery(
                 "Check the structural pattern or YAML rule against this file's language grammar.",
             );
-            return StructuralSearchDetailedResult {
-                path: file_path.to_owned(),
-                analyzer: STRUCTURAL_ANALYZER.to_owned(),
-                analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
-                status: "parserFailed".to_owned(),
-                language_id: entry.language_id.map(str::to_owned),
-                query: query_explanation,
-                matches: Vec::new(),
-                diagnostics: vec![diagnostic],
-            };
+            return no_matches(
+                file_path,
+                "parserFailed",
+                entry.language_id.map(str::to_owned),
+                query_explanation,
+                diagnostic,
+            );
         }
     };
 
     let matches = match run(content) {
         Ok(matches) => matches,
         Err(error) => {
-            return StructuralSearchDetailedResult {
-                path: file_path.to_owned(),
-                analyzer: STRUCTURAL_ANALYZER.to_owned(),
-                analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
-                status: "truncated".to_owned(),
-                language_id: entry.language_id.map(str::to_owned),
-                query: query_explanation,
-                matches: Vec::new(),
-                diagnostics: vec![error.diagnostic(file_path)],
-            };
+            return no_matches(
+                file_path,
+                "truncated",
+                entry.language_id.map(str::to_owned),
+                query_explanation,
+                error.diagnostic(file_path),
+            );
         }
     }
     .into_iter()
@@ -250,6 +244,6 @@ pub fn search_detailed(
 #[path = "mod_tests.rs"]
 mod tests;
 
-#[cfg(all(test, feature = "embedded-ast-grep-rewrite"))]
+#[cfg(test)]
 #[path = "parity_tests.rs"]
 mod parity_tests;

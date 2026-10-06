@@ -47,7 +47,6 @@ pub struct ConfigFieldSpec {
     pub credential: bool,
     pub env: &'static [ConfigEnvBinding],
     pub default_json: &'static str,
-    pub default_from: Option<&'static str>,
     pub minimum: Option<f64>,
     pub maximum: Option<f64>,
     pub values: &'static [&'static str],
@@ -87,7 +86,6 @@ pub struct ConfigInput {
     /// global file, and both rank below every environment source.
     pub project_config_file: FileInput,
     pub runtime_surface: RuntimeSurface,
-    pub revision: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -135,23 +133,6 @@ pub struct EnvApplyReport {
     pub sources: BTreeMap<String, String>,
     pub keys: Vec<String>,
 }
-#[derive(Clone, Default, Eq, PartialEq)]
-pub struct ChildEnvPlan {
-    pub(crate) set: BTreeMap<String, String>,
-}
-impl ChildEnvPlan {
-    pub fn iter(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.set.iter().map(|(k, v)| (k.as_str(), v.as_str()))
-    }
-}
-impl fmt::Debug for ChildEnvPlan {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ChildEnvPlan")
-            .field("keys", &self.set.keys().collect::<Vec<_>>())
-            .finish()
-    }
-}
-
 #[derive(Clone, Eq, PartialEq)]
 pub struct PrivateTokenSelection {
     token: String,
@@ -185,13 +166,11 @@ pub struct ConfigOutput {
     pub dotenv: EnvApplyReport,
     pub diagnostics: Vec<ConfigDiagnostic>,
     pub token: Option<PrivateTokenSelection>,
-    pub child_env: ChildEnvPlan,
     pub source: ConfigSource,
     /// Global `.octocoderc` path when that file exists (valid or not).
     pub config_path: Option<PathBuf>,
     /// Workspace `.octocoderc` path when that file exists (valid or not).
     pub project_config_path: Option<PathBuf>,
-    pub revision: u64,
 }
 impl ConfigOutput {
     pub fn effective_env(&self) -> impl Iterator<Item = (&str, &str)> {
@@ -201,6 +180,20 @@ impl ConfigOutput {
     }
     pub fn env_value(&self, key: &str) -> Option<&str> {
         self.effective_env.get(key).map(String::as_str)
+    }
+    /// The effective environment without the values a workspace `.env`
+    /// supplied: a repository-controlled file never steers credential
+    /// discovery (which credential file is read, or what it expands to).
+    pub(crate) fn credential_env(&self) -> BTreeMap<String, String> {
+        let from_workspace = |key: &str| {
+            self.dotenv.applied.iter().any(|applied| applied == key)
+                && self.dotenv.sources.get(key).map(String::as_str) == Some("project")
+        };
+        self.effective_env
+            .iter()
+            .filter(|(key, _)| !from_workspace(key))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect()
     }
 }
 impl fmt::Debug for ConfigOutput {
@@ -214,11 +207,9 @@ impl fmt::Debug for ConfigOutput {
             .field("dotenv", &self.dotenv)
             .field("diagnostics", &self.diagnostics)
             .field("token", &self.token)
-            .field("child_env", &self.child_env)
             .field("source", &self.source)
             .field("config_path", &self.config_path)
             .field("project_config_path", &self.project_config_path)
-            .field("revision", &self.revision)
             .finish()
     }
 }
@@ -250,7 +241,6 @@ pub struct ConfigInspectorData {
     pub project_config_path: Option<PathBuf>,
     pub project_config_keys: Vec<String>,
     pub diagnostics: Vec<ConfigDiagnostic>,
-    pub revision: u64,
 }
 impl ConfigInspectorData {
     pub fn is_set(&self, key: &str, effective_env: &BTreeMap<String, String>) -> bool {

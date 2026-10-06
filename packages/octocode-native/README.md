@@ -3,32 +3,32 @@
 > **Package name:** `@octocodeai/octocode-native`  
 > **Directory:** `packages/octocode-native/`
 
-Consolidated distribution for the Octocode native CLI, the `NativeRuntime`
-Node addon, and reusable engine primitives. The CLI runs without Node; Node
-consumers load the runtime from `.` or `./runtime` and primitives from
-`./engine`.
+Consolidated distribution for the Octocode native CLI and the `NativeRuntime`
+Node addon. The CLI runs without Node; Node consumers load the runtime from `.`
+or `./runtime`.
 
 ```sh
 $ octocode --version
 octocode 20.0.0
 
 $ octocode scheme
-{"kind":"octocode.toolCatalog","instructions":"…","tools":[…]}  # availability + canonical agent workflow
+{"kind":"octocode.toolCatalog","toolCount":16,"tools":[…]}      # availability + compact fields per tool
 
 $ octocode scheme localSearch
-{"name":"localSearch","instructions":"…","querySchema":{…}}     # workflow + complete tool contract
+{"name":"localSearch","shortDescription":"…","querySchema":{…},"run":"…"}  # complete tool contract
 
-$ octocode localSearch '{"searchText":"ToolRuntime","path":"src/","resultView":"matchOnly","reasoning":"Locate the runtime entry."}'
+$ octocode localSearch '{"queries":[{"matchString":"ToolRuntime","path":"src/","resultView":"matchOnly","reasoning":"Locate the runtime entry."}]}'
 {"results":[{"data":{"searchEngine":"rg","files":[…]}}]}
 ```
 
 Every tool is a first-class command under its canonical name — the same name
 and the same JSON query contract as the MCP server. There are no per-tool flag
-wrappers and no aliases. Every `scheme` catalog or tool projection includes the
-same availability-scoped canonical agent instructions used by the MCP server.
-The compact catalog renders each core-owned `shortDescription` as
-`tools[].description`; a tool-specific scheme retains both the short and full
-descriptions.
+wrappers and no aliases. `scheme` is a machine catalog: it carries
+availability, contract fields, and schemas, but no agent workflow instructions,
+full descriptions, or examples — those ship with the `octocode` npm launcher and
+the MCP server. The catalog renders each core-owned `shortDescription` as
+`tools[].description`; a tool-specific scheme returns the `shortDescription`,
+the complete contract, and the concrete `run` invocation.
 
 ## Install
 
@@ -52,8 +52,9 @@ npm auto-selects the right platform binary via `optionalDependencies`
 | `@octocodeai/octocode-native-linux-arm64-gnu` | Linux ARM64 (glibc) |
 | `@octocodeai/octocode-native-win32-x64-msvc` | Windows x64 |
 
-On Alpine / musl Linux the shim detects `/etc/alpine-release` and resolves
-`linux-x64-musl` automatically.
+On Linux x64 the shim selects `linux-x64-musl` when `/usr/bin/ldd` names musl,
+or when Node's `process.report` has no glibc runtime version and `ldd --version`
+names musl. musl on ARM64 is unsupported.
 
 ### From source (requires Rust)
 
@@ -61,15 +62,14 @@ On Alpine / musl Linux the shim detects `/etc/alpine-release` and resolves
 # dev build
 yarn workspace @octocodeai/octocode-native build:dev
 # or
-cargo build --manifest-path packages/octocode-native/Cargo.toml -p octocode-cli --bins --no-default-features
+cargo build --manifest-path packages/octocode-native/Cargo.toml -p octocode-cli --bins
 
 # release build (LTO + strip)
-cargo build --manifest-path packages/octocode-native/Cargo.toml -p octocode-cli --bins --release --no-default-features
+cargo build --manifest-path packages/octocode-native/Cargo.toml -p octocode-cli --bins --release
 ```
 
-`scripts/build-native.cjs` builds the CLI + runtime addon (one Cargo invocation)
-and the engine addon concurrently in separate target dirs, then stages them
-atomically. Use `build:hosts:dev` or `build:engine:dev` for one half.
+`scripts/build-native.cjs` builds the CLI + runtime addon in one Cargo
+invocation, then stages them atomically.
 
 Binary locations:
 ```sh
@@ -84,16 +84,16 @@ crates/cli ──────────┐
                     ├──▶ crates/runtime ───▶ crates/github
 crates/runtime-napi ┘          │
        │                       └───────────▶ crates/engine
-       └─ NativeRuntime addon                └─ primitive N-API addon
+       └─ NativeRuntime addon
 ```
 
 The runtime library owns policy, credentials, contracts, cancellation, tool
 orchestration, and response shaping. The CLI crate owns both executables; the
 runtime N-API crate owns Node conversion and lifecycle. The GitHub crate owns
 protocol and transport services with explicit inputs, without runtime configuration
-or credential discovery. The engine retains reusable algorithms and its existing
-primitive addon. All five Rust crates are internal (`publish = false`); one npm
-distribution still ships four artifacts per platform.
+or credential discovery. The engine retains reusable algorithms as a plain Rust
+library. All five Rust crates are internal (`publish = false`); one npm
+distribution ships three artifacts per platform.
 
 ### Language boundary
 
@@ -120,10 +120,10 @@ packages/octocode-native/
 ├─ crates/cli/                   ← CLI and regex worker binaries
 ├─ crates/runtime-napi/          ← runtime Node adapter
 ├─ crates/github/                ← GitHub protocol services
-├─ crates/engine/                ← reusable primitives + engine N-API
-├─ js/                           ← independent runtime and engine loaders
+├─ crates/engine/                ← reusable primitives (Rust library)
+├─ js/                           ← runtime loader
 ├─ bin/                          ← platform-selecting CLI launchers
-├─ npm/                          ← six packages, each with four artifacts
+├─ npm/                          ← six packages, each with three artifacts
 │   ├─ darwin-arm64/
 │   ├─ darwin-x64/
 │   ├─ linux-arm64-gnu/
@@ -131,15 +131,15 @@ packages/octocode-native/
 │   ├─ linux-x64-musl/
 │   └─ win32-x64-msvc/
 └─ scripts/
-    ├─ build-native.cjs          ← concurrent hosts + engine builds → atomic staging
+    ├─ build-native.cjs          ← hosts build → atomic staging
     └─ check-platform-binaries.cjs
 ```
 
 Build a single platform and copy binaries:
 ```sh
 yarn workspace @octocodeai/octocode-native build:target darwin-arm64
-# → hosts + engine build concurrently in target/platforms/darwin-arm64/
-# → stages all four artifacts into npm/darwin-arm64/
+# → builds in target/platforms/darwin-arm64/
+# → stages all three artifacts into npm/darwin-arm64/
 ```
 
 Build all platforms concurrently (cross targets need cargo-zigbuild + zig and
@@ -162,35 +162,35 @@ octocode scheme localFetch
 octocode scheme ghSearchHistory --view query --select operation=commit   # workflow + one union branch
 
 # local file read (paginated; exit 6 + a re-runnable next.* continuation in the JSON)
-octocode localFetch '{"path":"src/cli/mod.rs","startLine":1,"endLine":50,"reasoning":"Read the dispatch entry."}'
+octocode localFetch '{"queries":[{"path":"src/cli/mod.rs","ranges":["1-50"],"reasoning":"Read the dispatch entry."}]}'
 
 # continue a paginated read: re-run results[].data.next.continue.query verbatim
-octocode localFetch '{"path":"src/cli/mod.rs","chunkType":"lines","offset":50,"reasoning":"Continue the read."}'
+octocode localFetch '{"queries":[{"path":"src/cli/mod.rs","unit":"lines","offset":50,"reasoning":"Continue the read."}]}'
 
 # lexical / regex search
-octocode localSearch '{"searchText":"ToolRuntime","path":"src/","resultView":"matchOnly","reasoning":"Locate the runtime entry."}'
+octocode localSearch '{"queries":[{"matchString":"ToolRuntime","path":"src/","resultView":"matchOnly","reasoning":"Locate the runtime entry."}]}'
 
 # structural AST match
-octocode astSearch '{"operation":"match","path":"src/","pattern":"pub async fn $NAME","langType":"rust","reasoning":"List async entry points."}'
+octocode astSearch '{"queries":[{"operation":"match","path":"src/","pattern":"pub async fn $NAME","language":"rust","reasoning":"List async entry points."}]}'
 
 # structural rewrite (preview first; apply requires snapshot + expectedHashes from the preview)
-octocode astRewrite '{"path":"src/","langType":"rust","ruleKind":"pattern","pattern":"dbg!($X)","rewrite":"$X","reasoning":"Strip debug macros."}'
+octocode astRewrite '{"queries":[{"path":"src/","language":"rust","ruleKind":"pattern","pattern":"dbg!($X)","rewrite":"$X","reasoning":"Strip debug macros."}]}'
 
 # LSP — go to definition
-octocode lspSearch '{"operation":"definition","uri":"src/cli/mod.rs","symbolName":"dispatch","lineHint":244,"reasoning":"Jump to dispatch."}'
+octocode lspSearch '{"queries":[{"operation":"definition","path":"src/cli/mod.rs","symbolName":"dispatch","lineHint":244,"reasoning":"Jump to dispatch."}]}'
 
 # read a remote GitHub file (no clone required)
-octocode ghGetFileContent '{"owner":"cli","repo":"cli","path":"README.md","reasoning":"Read upstream docs."}'
+octocode ghGetFileContent '{"queries":[{"owner":"cli","repo":"cli","path":"README.md","reasoning":"Read upstream docs."}]}'
 
 # GitHub repository / code search
-octocode ghSearchRepo '{"keywords":["ast-grep"],"reasoning":"Find pattern-matching repos."}'
+octocode ghSearchRepo '{"queries":[{"keywords":["ast-grep"],"reasoning":"Find pattern-matching repos."}]}'
 
 # PR / issue / commit history
-octocode ghSearchHistory '{"operation":"pullRequest","owner":"octocodeai","repo":"octocode","keywords":["fix"],"reasoning":"Find fix PRs."}'
-octocode ghGetHistoryItem '{"operation":"pullRequest","owner":"octocodeai","repo":"octocode","number":42,"reasoning":"Read PR 42."}'
+octocode ghSearchHistory '{"queries":[{"operation":"pullRequest","owner":"octocodeai","repo":"octocode","keywords":["fix"],"reasoning":"Find fix PRs."}]}'
+octocode ghGetHistoryItem '{"queries":[{"operation":"pullRequest","owner":"octocodeai","repo":"octocode","number":42,"reasoning":"Read PR 42."}]}'
 
 # package lookup
-octocode artifactSearch '{"type":"crates","packageName":"clap","reasoning":"Confirm the clap crate."}'
+octocode artifactSearch '{"queries":[{"type":"crates","packageName":"clap","reasoning":"Confirm the clap crate."}]}'
 
 # large queries from a file instead of shell-quoted JSON
 octocode clasify --input query.json
@@ -282,7 +282,7 @@ every other command delegates to this binary.
 yarn workspace @octocodeai/octocode-native test:rust
 
 # CLI integration tests only
-cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-cli --test cli
+cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-cli --test integration cli::
 
 # via yarn
 yarn workspace @octocodeai/octocode-native test
@@ -290,7 +290,7 @@ yarn workspace @octocodeai/octocode-native test
 
 ## Key constraints
 
-- **No NAPI in the CLI binary or runtime library.** Runtime N-API is isolated in `crates/runtime-napi`; engine bindings remain feature-gated.
+- **No NAPI in the CLI binary or runtime library.** Runtime N-API is isolated in `crates/runtime-napi`; the engine has no N-API.
 - **No Node fallback for research or auth.** The binary terminates with an error rather than shelling out to Node. The `skill` command delegates to the Node CLI by design.
 - **Strict clippy.** `unwrap_used = deny`, `dbg_macro = deny`.
 - **clap v4 derive.** All argument parsing uses `#[derive(Parser)]` / `#[derive(Args)]` — no builder API.

@@ -19,6 +19,15 @@ import {
   HOME_TRUSTED_ENV_KEYS,
   PROTECTED_KEY_NAMES,
   DEFAULT_STORAGE_MODE,
+  WORKSPACE_NARROW_ONLY_ENV,
+} from './config/contract.generated.js';
+
+// Read-only editor metadata comes from the same contract as both resolvers.
+export { CONFIG_FIELDS };
+export type {
+  ConfigFieldSpec,
+  ConfigEnvBinding,
+  ConfigFieldKind,
 } from './config/contract.generated.js';
 
 // ─── Re-export getOctocodeHome (defined in home.ts to break circular deps) ───
@@ -31,7 +40,6 @@ export type {
   ResolvedConfig,
   ValidationResult,
   LoadConfigResult,
-  ExtensionConfigOptions,
   GitHubConfigOptions,
   LocalConfigOptions,
   ToolsConfigOptions,
@@ -42,7 +50,6 @@ export type {
   OutputPaginationConfigOptions,
   StorageConfigOptions,
   StorageMode,
-  RequiredExtensionConfig,
   RequiredGitHubConfig,
   RequiredLocalConfig,
   RequiredToolsConfig,
@@ -57,7 +64,6 @@ export type {
 export { CONFIG_SCHEMA_VERSION, CONFIG_FILE_NAME } from './config/types.js';
 export {
   DEFAULT_CONFIG,
-  DEFAULT_EXTENSION_CONFIG,
   DEFAULT_GITHUB_CONFIG,
   DEFAULT_LOCAL_CONFIG,
   DEFAULT_TOOLS_CONFIG,
@@ -96,7 +102,6 @@ export {
   loadConfigFileSync,
   loadConfigSync,
   loadProjectConfigSync,
-  loadConfig,
 } from './config/loader.js';
 export {
   CONFIG_SOURCE_ENV_KEYS,
@@ -105,7 +110,6 @@ export {
   parseIntEnv,
   parseStringArrayEnv,
   resolveConfigFields,
-  resolveExtensionStorage,
   resolveGitHub,
   resolveLocal,
   resolveTools,
@@ -257,15 +261,10 @@ export interface ApplyOctocodeEnvOptions {
 export const CLASSIFICATION_KILL_SWITCH = 'OCTOCODE_CLASSIFICATION_API';
 
 /**
- * Persistence switches a workspace `.env` may only turn off. They are
- * home-trusted (a checked-out repository must not widen where octocode
- * writes), but `memory` narrows what the trusted layers allow, so a project
- * that opts out of disk persistence keeps working. Mirrors the native resolver.
+ * Home-trusted switches a workspace `.env` may set only to their narrowing
+ * value (generated from the config contract, shared with the native resolver).
  */
-export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {
-  OCTOCODE_STORAGE_MODE: 'memory',
-  OCTOCODE_EXTENSION_STORAGE_MODE: 'memory',
-};
+export { WORKSPACE_NARROW_ONLY_ENV };
 
 export function workspaceMayNarrow(key: string, value: string): boolean {
   return WORKSPACE_NARROW_ONLY_ENV[key] === value.trim().toLowerCase();
@@ -369,71 +368,62 @@ export function propagateOctocodeEnv({
  * Keeping it off (the default) eliminates one write per 60-second flush cycle.
  */
 export function isStatsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  // Stats persistence requires persistent storage. Route through the same
-  // storage-mode resolver for ANY env (it reads the given env then .octocoderc),
-  // so `storage.mode=memory` in .octocoderc disables disk stats even when called
-  // with a custom env object — previously that gate only applied to process.env.
+  // Stats persistence requires persistent storage (same layers as native).
   if (!isPersistentStorageEnabled(env)) return false;
-  return parseBooleanEnv(env['OCTOCODE_ENABLE_STATS']) ?? false;
+  return (
+    parseBooleanEnv(
+      effectiveEnv(env, process.cwd())['OCTOCODE_ENABLE_STATS']
+    ) ?? false
+  );
+}
+
+/** `env` with the workspace and home `.env` layers applied (native rules). */
+function effectiveEnv(
+  env: NodeJS.ProcessEnv,
+  cwd: string
+): Record<string, string | undefined> {
+  const effective: Record<string, string | undefined> = { ...env };
+  const { map, sources } = loadOctocodeEnv({ home: getOctocodeHome(env), cwd });
+  applyOctocodeEnv(map, { env: effective, sources });
+  return effective;
+}
+
+/** `persistent` or `memory`, else undefined. */
+function storageModeOf(value: unknown): 'persistent' | 'memory' | undefined {
+  const mode = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  return mode === 'persistent' || mode === 'memory' ? mode : undefined;
 }
 
 /**
- * Read storage.mode directly from env then raw .octocoderc layers — no
- * validator, no resolver pipeline. Only the two valid enum values are accepted.
- * Precedence: OCTOCODE_STORAGE_MODE env > workspace .octocoderc
- * > global .octocoderc > default.
+ * Whether runtime state may be written to disk, with the native resolver's
+ * layers and trust rules: process env > workspace `.env` > home `.env` >
+ * workspace `.octocoderc` > home `.octocoderc` > default. A workspace layer
+ * may only narrow to `memory`.
  */
 export function isPersistentStorageEnabled(
   env: NodeJS.ProcessEnv = process.env,
   cwd: string = process.cwd()
 ): boolean {
-  const v = env['OCTOCODE_STORAGE_MODE']?.trim().toLowerCase();
-  if (v === 'persistent' || v === 'memory') return v === 'persistent';
-  for (const rc of loadOctocodercLayers({ env, cwd }) as {
-    storage?: { mode?: unknown };
-  }[]) {
-    const m = rc.storage?.mode;
-    if (m === 'persistent' || m === 'memory') return m === 'persistent';
-  }
-  return DEFAULT_STORAGE_MODE === 'persistent';
-}
-
-/**
- * True when the Pi extension may persist SQLite extension state and session
- * continuity on this machine.
- *
- * Precedence: OCTOCODE_EXTENSION_STORAGE_MODE env > OCTOCODE_STORAGE_MODE env
- * > extension.storage.mode in .octocoderc (workspace, then global)
- * > storage.mode in .octocoderc (workspace, then global) > default.
- * This allows the CLI to run with storage.mode=memory while the Pi extension
- * uses extension.storage.mode=persistent.
- */
-export function isPersistentStorageEnabledForExtension(
-  cwd: string = process.cwd()
-): boolean {
-  const env = process.env;
-  const extVar = env['OCTOCODE_EXTENSION_STORAGE_MODE']?.trim().toLowerCase();
-  if (extVar === 'persistent' || extVar === 'memory')
-    return extVar === 'persistent';
-  const storageVar = env['OCTOCODE_STORAGE_MODE']?.trim().toLowerCase();
-  if (storageVar === 'persistent' || storageVar === 'memory')
-    return storageVar === 'persistent';
-  // Read the layers once for both extension and storage fallback.
-  const layers = loadOctocodercLayers({ env, cwd }) as {
-    storage?: { mode?: unknown };
-    extension?: { storage?: { mode?: unknown } };
-  }[];
-  for (const rc of layers) {
-    const extMode = rc.extension?.storage?.mode;
-    if (extMode === 'persistent' || extMode === 'memory')
-      return extMode === 'persistent';
-  }
-  for (const rc of layers) {
-    const storageMode = rc.storage?.mode;
-    if (storageMode === 'persistent' || storageMode === 'memory')
-      return storageMode === 'persistent';
-  }
-  return DEFAULT_STORAGE_MODE === 'persistent';
+  const home = getOctocodeHome(env);
+  const fromEnv = storageModeOf(
+    effectiveEnv(env, cwd)['OCTOCODE_STORAGE_MODE']
+  );
+  if (fromEnv) return fromEnv === 'persistent';
+  const globalPath = getConfigFilePath(home);
+  const projectPath = getProjectConfigFilePath(cwd);
+  if (
+    !sameFile(projectPath, globalPath) &&
+    storageModeOf(
+      (readOctocodercFile(projectPath) as { storage?: { mode?: unknown } })
+        .storage?.mode
+    ) === 'memory'
+  )
+    return false;
+  const fromHome = storageModeOf(
+    (readOctocodercFile(globalPath) as { storage?: { mode?: unknown } }).storage
+      ?.mode
+  );
+  return (fromHome ?? DEFAULT_STORAGE_MODE) === 'persistent';
 }
 
 /** Parse one `.octocoderc` file; {} when absent. Never throws: any other
@@ -482,7 +472,9 @@ export function loadOctocodercLayers({
   const projectPath = getProjectConfigFilePath(cwd);
   const layers = [readOctocodercFile(globalPath)];
   if (!sameFile(projectPath, globalPath))
-    layers.unshift(stripWorkspaceProtected(readOctocodercFile(projectPath), projectPath));
+    layers.unshift(
+      stripWorkspaceProtected(readOctocodercFile(projectPath), projectPath)
+    );
   return layers;
 }
 
@@ -495,7 +487,10 @@ function stripWorkspaceProtected(
   filePath: string
 ): Record<string, unknown> {
   for (const field of CONFIG_FIELDS) {
-    if (!field.file || !field.env.some(binding => PROTECTED_KEYS.has(binding.name)))
+    if (
+      !field.file ||
+      !field.env.some(binding => PROTECTED_KEYS.has(binding.name))
+    )
       continue;
     const parts = field.path.split('.');
     let parent: unknown = layer;

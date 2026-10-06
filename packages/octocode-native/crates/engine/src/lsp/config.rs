@@ -1,9 +1,10 @@
 use crate::lsp::commands::{command_resolves_to_executable, is_executable_path, is_rejected_shell};
 use crate::lsp::grammar::grammar_for_file;
+use crate::lsp::managed::{platform_id, resolve_cached_server};
 use crate::lsp::types::JsLanguageServerConfig;
 use serde::Deserialize;
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -33,78 +34,105 @@ struct UserServerSpec {
     initialization_options: Option<Value>,
 }
 
-pub fn detect_language_id(file_path: String) -> Option<String> {
+pub fn detect_language_id(file_path: &str) -> Option<String> {
     // The protocol ID can differ from the parser grammar: JSX uses the
     // JavaScript grammar but must be opened as javascriptreact by the server.
-    spec_for_file(&file_path)
+    spec_for_file(file_path)
         .map(|spec| spec.language_id.to_owned())
-        .or_else(|| grammar_for_file(&file_path).map(|spec| spec.language_id.to_owned()))
+        .or_else(|| grammar_for_file(file_path).map(|spec| spec.language_id.to_owned()))
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct LspDiscoveryOptions {
     pub config_path: Option<PathBuf>,
     pub trust_project_config: bool,
+    /// The host's resolved settings (process env plus the trusted `.env`
+    /// layers): the `*_SERVER_PATH` overrides and
+    /// `OCTOCODE_TRUST_PROJECT_LSP_CONFIG` are read here, never from the
+    /// process env directly.
+    pub env: BTreeMap<String, String>,
+    /// The octocode home: the user `lsp-servers.json`, managed server
+    /// installs, and jdtls workspaces.
+    pub octocode_home: Option<PathBuf>,
 }
 
-pub fn default_server_for_file(
-    file_path: String,
-    workspace_root: String,
-) -> Option<JsLanguageServerConfig> {
-    let options = LspDiscoveryOptions {
-        config_path: std::env::var("OCTOCODE_LSP_CONFIG")
-            .ok()
+impl LspDiscoveryOptions {
+    fn setting(&self, key: &str) -> Option<&str> {
+        self.env
+            .get(key)
+            .map(String::as_str)
             .filter(|value| !value.trim().is_empty())
-            .map(PathBuf::from),
-        trust_project_config: project_lsp_config_trusted(),
-    };
-    default_server_for_file_with_options(file_path, workspace_root, &options)
+    }
+
+    /// Root of the managed server installs: `OCTOCODE_LSP_CACHE_DIR`, else
+    /// `<octocode home>/lsp`.
+    pub fn managed_root(&self) -> Option<PathBuf> {
+        self.setting("OCTOCODE_LSP_CACHE_DIR")
+            .map(|dir| PathBuf::from(dir.trim()))
+            .or_else(|| self.octocode_home.as_ref().map(|home| home.join("lsp")))
+    }
+
+    /// The verified managed install of `command`, when one exists.
+    fn managed_server(&self, command: &str) -> Option<PathBuf> {
+        resolve_cached_server(&self.managed_root()?, command, &platform_id())
+    }
+
+    fn trusts_project(&self) -> bool {
+        self.trust_project_config
+            || self
+                .setting("OCTOCODE_TRUST_PROJECT_LSP_CONFIG")
+                .is_some_and(|value| {
+                    matches!(
+                        value.trim().to_ascii_lowercase().as_str(),
+                        "1" | "true" | "yes" | "on"
+                    )
+                })
+    }
 }
 
-pub fn default_server_for_file_with_options(
-    file_path: String,
-    workspace_root: String,
+/// The language server for `file_path`: an explicit `*_SERVER_PATH`
+/// override, then a user `lsp-servers.json` entry, then the built-in server
+/// (a managed install before `PATH`).
+pub fn default_server_for_file(
+    file_path: &str,
+    workspace_root: &str,
     options: &LspDiscoveryOptions,
 ) -> Option<JsLanguageServerConfig> {
-    let extension = extension_key(&file_path)?;
+    let extension = extension_key(file_path)?;
 
     // Assembly has no built-in default server (ARCHITECTURE: it requires trusted
     // custom configuration). An explicit `OCTOCODE_ASM_SERVER_PATH` is that
     // configuration expressed via env and wins over a config file; without it,
     // only a user `lsp-servers.json` entry can launch a server — never a default.
     if matches!(extension.as_str(), ".asm" | ".assembly" | ".s") {
-        if let Some(command) = std::env::var("OCTOCODE_ASM_SERVER_PATH")
-            .ok()
-            .filter(|value| !value.trim().is_empty())
-        {
+        if let Some(command) = options.setting("OCTOCODE_ASM_SERVER_PATH") {
             return Some(JsLanguageServerConfig {
-                command,
+                command: command.to_owned(),
                 args: Some(Vec::new()),
-                workspace_root,
+                workspace_root: workspace_root.to_owned(),
                 language_id: Some("asm".to_owned()),
                 initialization_options: None,
                 env: None,
                 max_memory_mb: None,
             });
         }
-        return user_server_for_extension(&extension, &workspace_root, options);
+        return user_server_for_extension(&extension, workspace_root, options);
     }
 
     let spec = spec_for_extension(&extension);
 
     // Explicit env overrides are the top of the resolution ladder for known
     // languages. They must win even when .octocode/lsp-servers.json exists.
-    let trust_workspace = options.trust_project_config || project_lsp_config_trusted();
-    if let Some(spec) = spec.filter(spec_has_env_override) {
-        return Some(config_from_spec(spec, workspace_root, trust_workspace));
+    if let Some(spec) = spec.filter(|spec| spec_override(spec, options).is_some()) {
+        return Some(config_from_spec(spec, workspace_root, options));
     }
 
-    if let Some(mut config) = user_server_for_extension(&extension, &workspace_root, options) {
-        apply_server_default_options(&mut config);
+    if let Some(mut config) = user_server_for_extension(&extension, workspace_root, options) {
+        apply_server_default_options(&mut config, options.octocode_home.as_deref());
         return Some(config);
     }
 
-    spec.map(|spec| config_from_spec(spec, workspace_root, trust_workspace))
+    spec.map(|spec| config_from_spec(spec, workspace_root, options))
 }
 
 /// rust-analyzer settings that keep it from running repository code: no
@@ -160,25 +188,14 @@ pub fn metals_headless_options() -> Value {
 }
 
 /// The per-workspace jdtls data directory, outside the repository:
-/// `<octocode home>/lsp-workspaces/jdtls/<sha256(workspace root)[..16]>`,
-/// where the octocode home is `OCTOCODE_HOME` (when absolute) or
-/// `~/.octocode`. `None` when no home directory is known.
-pub fn jdtls_data_dir(workspace_root: &str) -> Option<PathBuf> {
+/// `<octocode home>/lsp-workspaces/jdtls/<sha256(workspace root)[..16]>`.
+pub fn jdtls_data_dir(octocode_home: &Path, workspace_root: &str) -> PathBuf {
     use sha2::{Digest, Sha256};
-    let home = std::env::var_os("OCTOCODE_HOME")
-        .map(PathBuf::from)
-        .filter(|path| path.is_absolute())
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .or_else(|| std::env::var_os("USERPROFILE"))
-                .map(|home| PathBuf::from(home).join(".octocode"))
-        })?;
+    let home = octocode_home;
     let digest = hex::encode(Sha256::digest(workspace_root.as_bytes()));
-    Some(
-        home.join("lsp-workspaces")
-            .join("jdtls")
-            .join(&digest[..16]),
-    )
+    home.join("lsp-workspaces")
+        .join("jdtls")
+        .join(&digest[..16])
 }
 
 /// Apply per-server safe defaults to a resolved launch configuration, on
@@ -189,8 +206,12 @@ pub fn jdtls_data_dir(workspace_root: &str) -> Option<PathBuf> {
 /// *underneath* the configuration: an `initializationOptions` key the user
 /// (or `rustContext`) set wins, and a flag the user already passed (by name,
 /// before any `=`) is not added again. A non-object user value is left
-/// untouched. Idempotent.
-pub fn apply_server_default_options(config: &mut JsLanguageServerConfig) {
+/// untouched. Idempotent. Without `octocode_home` (a launch outside
+/// discovery) jdtls gets no `-data` directory.
+pub fn apply_server_default_options(
+    config: &mut JsLanguageServerConfig,
+    octocode_home: Option<&Path>,
+) {
     match server_stem(&config.command).as_deref() {
         Some("rust-analyzer") => apply_rust_analyzer_defaults(config),
         Some("clangd") => add_default_args(config, CLANGD_HEADLESS_ARGS),
@@ -199,7 +220,8 @@ pub fn apply_server_default_options(config: &mut JsLanguageServerConfig) {
                 .args
                 .as_deref()
                 .is_some_and(|args| args.iter().any(|arg| arg == "-data"));
-            if !has_data && let Some(dir) = jdtls_data_dir(&config.workspace_root) {
+            if !has_data && let Some(home) = octocode_home {
+                let dir = jdtls_data_dir(home, &config.workspace_root);
                 let args = config.args.get_or_insert_with(Vec::new);
                 args.push("-data".to_owned());
                 args.push(dir.to_string_lossy().into_owned());
@@ -295,11 +317,11 @@ const WORKSPACE_ROOT_MARKERS: &[(&str, &str)] = &[
 /// `workspaceRoot`-only query shape), inferring the language from project
 /// markers since a directory has no file extension. Returns `None` when no
 /// marker is present.
-pub fn default_server_for_workspace_root_with_options(
-    workspace_root: String,
+pub fn default_server_for_workspace_root(
+    workspace_root: &str,
     options: &LspDiscoveryOptions,
 ) -> Option<JsLanguageServerConfig> {
-    let root = Path::new(&workspace_root);
+    let root = Path::new(workspace_root);
     let extension = WORKSPACE_ROOT_MARKERS
         .iter()
         .find(|(marker, _)| root.join(marker).is_file())
@@ -310,7 +332,7 @@ pub fn default_server_for_workspace_root_with_options(
         .join(format!("workspace{extension}"))
         .to_string_lossy()
         .into_owned();
-    default_server_for_file_with_options(representative, workspace_root, options)
+    default_server_for_file(&representative, workspace_root, options)
 }
 
 /// A source file inside `workspace_root` (in the language its project markers
@@ -458,22 +480,21 @@ fn first_source_under(start: &Path, family: &[&str]) -> Option<String> {
     None
 }
 
-fn spec_has_env_override(spec: &ServerSpec) -> bool {
-    spec.env_var
-        .and_then(|key| std::env::var(key).ok())
-        .is_some_and(|value| !value.trim().is_empty())
+/// The spec's explicit `*_SERVER_PATH` override, if set.
+fn spec_override<'a>(spec: &ServerSpec, options: &'a LspDiscoveryOptions) -> Option<&'a str> {
+    options.setting(spec.env_var?)
 }
 
 fn config_from_spec(
     spec: ServerSpec,
-    workspace_root: String,
-    trust_workspace: bool,
+    workspace_root: &str,
+    options: &LspDiscoveryOptions,
 ) -> JsLanguageServerConfig {
-    let (command, args) = resolve_spec_invocation(&spec, &workspace_root, trust_workspace);
+    let (command, args) = resolve_spec_invocation(&spec, workspace_root, options);
     let mut config = JsLanguageServerConfig {
         command,
         args: Some(args),
-        workspace_root,
+        workspace_root: workspace_root.to_owned(),
         language_id: Some(spec.language_id.to_owned()),
         initialization_options: None,
         env: None,
@@ -484,7 +505,7 @@ fn config_from_spec(
     if spec.env_var == Some("OCTOCODE_RUST_SERVER_PATH") {
         apply_rust_analyzer_defaults(&mut config);
     } else {
-        apply_server_default_options(&mut config);
+        apply_server_default_options(&mut config, options.octocode_home.as_deref());
     }
     config
 }
@@ -513,12 +534,10 @@ fn tsgo_args() -> Vec<String> {
 fn resolve_spec_invocation(
     spec: &ServerSpec,
     workspace_root: &str,
-    trust_workspace: bool,
+    options: &LspDiscoveryOptions,
 ) -> (String, Vec<String>) {
-    let env_override = spec
-        .env_var
-        .and_then(|key| std::env::var(key).ok())
-        .filter(|value| !value.trim().is_empty());
+    let trust_workspace = options.trusts_project();
+    let env_override = spec_override(spec, options).map(str::to_owned);
 
     if is_typescript_spec(spec) {
         // 1) Explicit override — pick args by whether it points at tsgo.
@@ -541,7 +560,13 @@ fn resolve_spec_invocation(
         }
     }
 
-    let command = env_override.unwrap_or_else(|| spec.command.to_owned());
+    let command = env_override
+        .or_else(|| {
+            options
+                .managed_server(spec.command)
+                .map(|path| path.to_string_lossy().into_owned())
+        })
+        .unwrap_or_else(|| spec.command.to_owned());
     resolve_server_invocation(
         &command,
         spec.args.iter().map(|arg| (*arg).to_owned()).collect(),
@@ -642,8 +667,8 @@ fn kill_probe_group(_child: &std::process::Child) {}
 
 /// Whether `command` resolves to a usable language-server executable. Bounded
 /// by [`COMMAND_PROBE_TIMEOUT`] when the check has to execute the command.
-pub fn is_command_available(command: String) -> Result<bool, String> {
-    let command = resolve_known_server_command(&command);
+pub fn is_command_available(command: &str) -> Result<bool, String> {
+    let command = resolve_known_server_command(command);
     if is_rejected_shell(&command) {
         return Ok(false);
     }
@@ -688,31 +713,26 @@ const SERVER_LANGUAGE_LABELS: &[(&str, &str)] = &[
 ];
 
 /// Labels (`ts/js`, `py`, `rust`, `c/c++`, `go`, `c#`, `java`) of languages
-/// whose language server resolves to an executable on this machine, through
-/// the same discovery ladder `lspSearch` uses (env overrides, user config,
-/// pyright family, octocode's TypeScript server). Resolution only: no server
-/// is spawned and no command is executed (a rustup proxy counts only when a
-/// toolchain ships the component). Computed once per process.
+/// whose language server resolves to an executable for `workspace_root`,
+/// through the discovery ladder `lspSearch` uses (env overrides, user config,
+/// managed installs, pyright family, octocode's TypeScript server).
+/// Resolution only: no server is spawned and no command is executed (a
+/// rustup proxy counts only when a toolchain ships the component).
 #[must_use]
-pub fn available_server_languages() -> Vec<&'static str> {
-    static LANGUAGES: std::sync::OnceLock<Vec<&'static str>> = std::sync::OnceLock::new();
-    LANGUAGES
-        .get_or_init(|| {
-            let root = std::env::current_dir()
-                .map(|dir| dir.to_string_lossy().into_owned())
-                .unwrap_or_else(|_| ".".to_owned());
-            server_languages_with(
-                |extension| {
-                    let representative = Path::new(&root)
-                        .join(format!("workspace{extension}"))
-                        .to_string_lossy()
-                        .into_owned();
-                    default_server_for_file(representative, root.clone())
-                },
-                server_command_resolves,
-            )
-        })
-        .clone()
+pub fn available_server_languages(
+    workspace_root: &str,
+    options: &LspDiscoveryOptions,
+) -> Vec<&'static str> {
+    server_languages_with(
+        |extension| {
+            let representative = Path::new(workspace_root)
+                .join(format!("workspace{extension}"))
+                .to_string_lossy()
+                .into_owned();
+            default_server_for_file(&representative, workspace_root, options)
+        },
+        server_command_resolves,
+    )
 }
 
 fn server_languages_with(
@@ -907,7 +927,7 @@ fn user_server_for_extension(
         {
             continue;
         }
-        let trust_workspace = options.trust_project_config || project_lsp_config_trusted();
+        let trust_workspace = options.trusts_project();
         let (command, args) = resolve_server_invocation(
             &server.command,
             server.args.clone(),
@@ -932,25 +952,13 @@ fn user_config_paths(workspace_root: &str, options: &LspDiscoveryOptions) -> Vec
     if let Some(path) = options.config_path.as_ref() {
         paths.push(path.clone());
     }
-    if options.trust_project_config {
+    if options.trusts_project() {
         paths.push(Path::new(workspace_root).join(".octocode/lsp-servers.json"));
     }
-    if let Some(home) = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")) {
-        paths.push(PathBuf::from(home).join(".octocode/lsp-servers.json"));
+    if let Some(home) = &options.octocode_home {
+        paths.push(home.join("lsp-servers.json"));
     }
     paths
-}
-
-fn project_lsp_config_trusted() -> bool {
-    std::env::var("OCTOCODE_TRUST_PROJECT_LSP_CONFIG")
-        .ok()
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
 }
 
 fn is_interpreter_eval_launch(command: &str, args: &[String]) -> bool {
@@ -1202,13 +1210,13 @@ fn find_python_user_script(script_name: &str) -> Option<String> {
 mod tests {
     use super::{
         LspDiscoveryOptions, command_is_tsgo, command_resolves_to_executable, current_node_command,
-        default_server_for_file, default_server_for_file_with_options,
-        default_server_for_workspace_root_with_options, detect_language_id, is_command_available,
-        is_node_executable, is_rust_analyzer_command, resolve_known_server_command,
-        resolve_server_invocation, resolve_server_invocation_with_environment,
-        workspace_root_representative_source,
+        default_server_for_file, default_server_for_workspace_root, detect_language_id,
+        is_command_available, is_node_executable, is_rust_analyzer_command,
+        resolve_known_server_command, resolve_server_invocation,
+        resolve_server_invocation_with_environment, workspace_root_representative_source,
     };
     use serde_json::json;
+    use std::collections::BTreeMap;
     use std::path::PathBuf;
 
     #[test]
@@ -1272,9 +1280,8 @@ mod tests {
     }
 
     #[test]
-    fn available_server_languages_is_cached_and_uses_known_labels() {
-        let first = super::available_server_languages();
-        assert_eq!(first, super::available_server_languages());
+    fn available_server_languages_use_known_labels() {
+        let first = super::available_server_languages(".", &LspDiscoveryOptions::default());
         for label in &first {
             assert!(
                 ["ts/js", "py", "rust", "c/c++", "go", "c#", "java"].contains(label),
@@ -1343,7 +1350,7 @@ mod tests {
 
         for (file_name, expected) in cases {
             assert_eq!(
-                detect_language_id(file_name.to_owned()).as_deref(),
+                detect_language_id(file_name).as_deref(),
                 Some(expected),
                 "{file_name}"
             );
@@ -1380,9 +1387,12 @@ mod tests {
     #[test]
     fn all_cpp_extensions_resolve_to_clangd() {
         for extension in ["cpp", "cc", "cxx", "hpp", "hh", "hxx"] {
-            let config =
-                default_server_for_file(format!("fixture.{extension}"), "/workspace".to_owned())
-                    .expect(extension);
+            let config = default_server_for_file(
+                &format!("fixture.{extension}"),
+                "/workspace",
+                &LspDiscoveryOptions::default(),
+            )
+            .expect(extension);
             assert_eq!(config.command, "clangd");
             assert_eq!(config.language_id.as_deref(), Some("cpp"));
         }
@@ -1414,20 +1424,14 @@ mod tests {
                 std::fs::write(root.join(marker), "").expect("marker");
             }
             let root = root.to_string_lossy().into_owned();
-            let config = default_server_for_workspace_root_with_options(root.clone(), &options)
+            let config = default_server_for_workspace_root(&root, &options)
                 .unwrap_or_else(|| panic!("{name}: no server inferred"));
             assert_eq!(config.language_id.as_deref(), Some(expected), "{name}");
             assert_eq!(config.workspace_root, root, "{name}");
         }
         let empty = base.join("empty");
         std::fs::create_dir_all(&empty).expect("empty root");
-        assert!(
-            default_server_for_workspace_root_with_options(
-                empty.to_string_lossy().into_owned(),
-                &options
-            )
-            .is_none()
-        );
+        assert!(default_server_for_workspace_root(&empty.to_string_lossy(), &options).is_none());
         let _ = std::fs::remove_dir_all(base);
     }
 
@@ -1493,9 +1497,12 @@ mod tests {
     #[test]
     fn all_cuda_extensions_resolve_to_clangd() {
         for extension in ["cu", "cuh"] {
-            let config =
-                default_server_for_file(format!("fixture.{extension}"), "/workspace".to_owned())
-                    .expect(extension);
+            let config = default_server_for_file(
+                &format!("fixture.{extension}"),
+                "/workspace",
+                &LspDiscoveryOptions::default(),
+            )
+            .expect(extension);
             assert_eq!(config.command, "clangd");
             assert_eq!(config.language_id.as_deref(), Some("cuda"));
         }
@@ -1505,16 +1512,26 @@ mod tests {
     fn assembly_server_requires_an_explicit_override_or_config() {
         for extension in ["asm", "assembly", "s", "S"] {
             assert!(
-                default_server_for_file(format!("fixture.{extension}"), "/workspace".to_owned())
-                    .is_none(),
+                default_server_for_file(
+                    &format!("fixture.{extension}"),
+                    "/workspace",
+                    &LspDiscoveryOptions::default(),
+                )
+                .is_none(),
                 ".{extension} must not auto-launch a server"
             );
         }
 
-        let _override = EnvGuard::set("OCTOCODE_ASM_SERVER_PATH", "/opt/asm-lsp");
+        let options = LspDiscoveryOptions {
+            env: BTreeMap::from([(
+                "OCTOCODE_ASM_SERVER_PATH".to_owned(),
+                "/opt/asm-lsp".to_owned(),
+            )]),
+            ..LspDiscoveryOptions::default()
+        };
         for extension in ["asm", "assembly", "s", "S"] {
             let config =
-                default_server_for_file(format!("fixture.{extension}"), "/workspace".to_owned())
+                default_server_for_file(&format!("fixture.{extension}"), "/workspace", &options)
                     .expect("explicit Assembly server override");
             assert_eq!(config.command, "/opt/asm-lsp");
             assert_eq!(config.args.as_deref(), Some(&[][..]));
@@ -1529,8 +1546,12 @@ mod tests {
             "ex",
         ] {
             assert!(
-                default_server_for_file(format!("fixture.{extension}"), "/workspace".to_owned())
-                    .is_none(),
+                default_server_for_file(
+                    &format!("fixture.{extension}"),
+                    "/workspace",
+                    &LspDiscoveryOptions::default(),
+                )
+                .is_none(),
                 ".{extension} must require trusted custom configuration"
             );
         }
@@ -1561,7 +1582,7 @@ mod tests {
         let Some(root_str) = root.to_str() else {
             panic!("temporary root is not utf-8");
         };
-        let config = default_server_for_file("demo.ts".to_owned(), root_str.to_owned())
+        let config = default_server_for_file("demo.ts", root_str, &LspDiscoveryOptions::default())
             .expect("default ts server config");
 
         assert_ne!(config.command, "node");
@@ -1580,12 +1601,18 @@ mod tests {
             &root,
             r#"{"languageServers":{".ts":{"command":"node","args":["-e","process.exit(99)"],"languageId":"typescript"}}}"#,
         );
-        let _guard = EnvGuard::set("OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "true");
+        let options = LspDiscoveryOptions {
+            env: BTreeMap::from([(
+                "OCTOCODE_TRUST_PROJECT_LSP_CONFIG".to_owned(),
+                "true".to_owned(),
+            )]),
+            ..LspDiscoveryOptions::default()
+        };
 
         let Some(root_str) = root.to_str() else {
             panic!("temporary root is not utf-8");
         };
-        let config = default_server_for_file("demo.ts".to_owned(), root_str.to_owned())
+        let config = default_server_for_file("demo.ts", root_str, &options)
             .expect("default ts server config");
 
         assert_ne!(config.command, "node");
@@ -1608,18 +1635,46 @@ mod tests {
         )
         .expect("write explicit lsp config");
         let root_str = root.to_string_lossy().into_owned();
-        let config = default_server_for_file_with_options(
-            "demo.php".to_owned(),
-            root_str,
+        let config = default_server_for_file(
+            "demo.php",
+            &root_str,
             &LspDiscoveryOptions {
                 config_path: Some(config_path),
-                trust_project_config: false,
+                ..LspDiscoveryOptions::default()
             },
         )
         .expect("explicit server config");
         assert_eq!(config.command, "custom-php-server");
         assert_eq!(config.language_id.as_deref(), Some("php"));
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Settings come from the host's resolved configuration (which includes
+    /// the home `.env`), not the process env, and the user server file lives
+    /// in the octocode home.
+    #[test]
+    fn resolved_settings_and_octocode_home_drive_discovery() {
+        let home = temp_test_root("octocode-engine-resolved-settings");
+        std::fs::create_dir_all(&home).expect("create home");
+        std::fs::write(
+            home.join("lsp-servers.json"),
+            r#"{"languageServers":{".php":{"command":"home-php-server","args":[],"languageId":"php"}}}"#,
+        )
+        .expect("write user lsp config");
+        let options = LspDiscoveryOptions {
+            env: BTreeMap::from([(
+                "OCTOCODE_TS_SERVER_PATH".to_owned(),
+                "home-env-ts-server".to_owned(),
+            )]),
+            octocode_home: Some(home.clone()),
+            ..LspDiscoveryOptions::default()
+        };
+        let ts = default_server_for_file("demo.ts", "/workspace", &options).expect("ts server");
+        assert_eq!(ts.command, "home-env-ts-server");
+        let php = default_server_for_file("demo.php", "/workspace", &options)
+            .expect("user server from the octocode home");
+        assert_eq!(php.command, "home-php-server");
+        let _ = std::fs::remove_dir_all(home);
     }
 
     #[test]
@@ -1629,13 +1684,24 @@ mod tests {
             &root,
             r#"{"languageServers":{".ts":{"command":"custom-language-server","args":["--stdio"],"languageId":"typescript"}}}"#,
         );
-        let _trust = EnvGuard::set("OCTOCODE_TRUST_PROJECT_LSP_CONFIG", "true");
-        let _override = EnvGuard::set("OCTOCODE_TS_SERVER_PATH", "env-ts-server");
+        let options = LspDiscoveryOptions {
+            env: BTreeMap::from([
+                (
+                    "OCTOCODE_TRUST_PROJECT_LSP_CONFIG".to_owned(),
+                    "true".to_owned(),
+                ),
+                (
+                    "OCTOCODE_TS_SERVER_PATH".to_owned(),
+                    "env-ts-server".to_owned(),
+                ),
+            ]),
+            ..LspDiscoveryOptions::default()
+        };
 
         let Some(root_str) = root.to_str() else {
             panic!("temporary root is not utf-8");
         };
-        let config = default_server_for_file("demo.ts".to_owned(), root_str.to_owned())
+        let config = default_server_for_file("demo.ts", root_str, &options)
             .expect("default ts server config");
 
         assert_eq!(config.command, "env-ts-server");
@@ -1835,7 +1901,7 @@ mod tests {
             panic!("temporary command path is not utf-8");
         };
         assert!(!command_resolves_to_executable(command_str));
-        assert!(!is_command_available(command_str.to_owned()).expect("check command availability"));
+        assert!(!is_command_available(command_str).expect("check command availability"));
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -1950,12 +2016,9 @@ mod tests {
 
     #[test]
     fn builtin_rust_route_runs_rust_analyzer_headless_by_default() {
-        let config = default_server_for_file_with_options(
-            "src/lib.rs".to_owned(),
-            "/workspace".to_owned(),
-            &LspDiscoveryOptions::default(),
-        )
-        .expect("rust route");
+        let config =
+            default_server_for_file("src/lib.rs", "/workspace", &LspDiscoveryOptions::default())
+                .expect("rust route");
         let options = config
             .initialization_options
             .expect("headless rust-analyzer options");
@@ -1979,12 +2042,12 @@ mod tests {
             r#"{"languageServers":{".rs":{"command":"rust-analyzer","languageId":"rust","initializationOptions":{"procMacro":{"enable":true},"cargo":{"features":"all"}}}}}"#,
         )
         .expect("config");
-        let config = default_server_for_file_with_options(
-            "src/lib.rs".to_owned(),
-            root.to_string_lossy().into_owned(),
+        let config = default_server_for_file(
+            "src/lib.rs",
+            &root.to_string_lossy(),
             &LspDiscoveryOptions {
                 config_path: Some(config_path),
-                trust_project_config: false,
+                ..LspDiscoveryOptions::default()
             },
         )
         .expect("user rust route");
@@ -2012,14 +2075,14 @@ mod tests {
             env: None,
             max_memory_mb: None,
         };
-        super::apply_server_default_options(&mut config);
+        super::apply_server_default_options(&mut config, None);
         assert!(config.initialization_options.is_none());
 
         config.command = "C:/tools/Rust-Analyzer.exe".to_owned();
         config.initialization_options = Some(json!({"checkOnSave": true}));
-        super::apply_server_default_options(&mut config);
+        super::apply_server_default_options(&mut config, None);
         let once = config.initialization_options.clone();
-        super::apply_server_default_options(&mut config);
+        super::apply_server_default_options(&mut config, None);
         assert_eq!(config.initialization_options, once);
         let options = once.expect("options");
         assert_eq!(options.pointer("/checkOnSave"), Some(&json!(true)));
@@ -2031,24 +2094,19 @@ mod tests {
     /// user args and options still win.
     #[test]
     fn clangd_jdtls_and_metals_routes_start_headless() {
-        let options = LspDiscoveryOptions::default();
-        let clangd = default_server_for_file_with_options(
-            "src/main.cpp".to_owned(),
-            "/workspace".to_owned(),
-            &options,
-        )
-        .expect("clangd route");
+        let options = LspDiscoveryOptions {
+            octocode_home: Some(PathBuf::from("/home/fixture/.octocode")),
+            ..LspDiscoveryOptions::default()
+        };
+        let clangd =
+            default_server_for_file("src/main.cpp", "/workspace", &options).expect("clangd route");
         let args = clangd.args.expect("clangd args");
         for flag in super::CLANGD_HEADLESS_ARGS {
             assert!(args.iter().any(|arg| arg == flag), "{flag} in {args:?}");
         }
 
-        let jdtls = default_server_for_file_with_options(
-            "src/Main.java".to_owned(),
-            "/workspace/java".to_owned(),
-            &options,
-        )
-        .expect("jdtls route");
+        let jdtls = default_server_for_file("src/Main.java", "/workspace/java", &options)
+            .expect("jdtls route");
         let args = jdtls.args.expect("jdtls args");
         let data = args
             .iter()
@@ -2059,13 +2117,14 @@ mod tests {
             !std::path::Path::new(data).starts_with("/workspace"),
             "jdtls data stays outside the repository: {data}"
         );
+        let home = options.octocode_home.clone().expect("octocode home");
         assert_eq!(
             PathBuf::from(data),
-            super::jdtls_data_dir("/workspace/java").expect("data dir")
+            super::jdtls_data_dir(&home, "/workspace/java")
         );
         assert_ne!(
-            super::jdtls_data_dir("/workspace/java"),
-            super::jdtls_data_dir("/workspace/other"),
+            super::jdtls_data_dir(&home, "/workspace/java"),
+            super::jdtls_data_dir(&home, "/workspace/other"),
             "one data dir per workspace"
         );
         let jdtls_options = jdtls.initialization_options.expect("jdtls options");
@@ -2074,12 +2133,8 @@ mod tests {
             Some(&json!(false))
         );
 
-        let metals = default_server_for_file_with_options(
-            "build.sbt".to_owned(),
-            "/workspace".to_owned(),
-            &options,
-        )
-        .expect("metals route");
+        let metals =
+            default_server_for_file("build.sbt", "/workspace", &options).expect("metals route");
         let metals_options = metals.initialization_options.expect("metals options");
         assert_eq!(metals_options["isHttpEnabled"], json!(false));
         assert_eq!(metals_options["statusBarProvider"], json!("off"));
@@ -2097,8 +2152,8 @@ mod tests {
             env: None,
             max_memory_mb: None,
         };
-        super::apply_server_default_options(&mut config);
-        super::apply_server_default_options(&mut config);
+        super::apply_server_default_options(&mut config, None);
+        super::apply_server_default_options(&mut config, None);
         assert_eq!(
             config.args.as_deref().unwrap_or_default(),
             [
@@ -2112,7 +2167,7 @@ mod tests {
         config.args = Some(vec!["-data".to_owned(), "/mine".to_owned()]);
         config.initialization_options =
             Some(json!({"settings": {"java": {"autobuild": {"enabled": true}}}}));
-        super::apply_server_default_options(&mut config);
+        super::apply_server_default_options(&mut config, None);
         assert_eq!(
             config.args.as_deref().unwrap_or_default(),
             ["-data", "/mine"]
@@ -2192,33 +2247,48 @@ mod tests {
         std::fs::write(config_dir.join("lsp-servers.json"), json).expect("write lsp config");
     }
 
-    struct EnvGuard {
-        key: &'static str,
-        previous: Option<String>,
-    }
+    #[test]
+    fn managed_install_resolves_ahead_of_path_and_behind_an_override() {
+        let home = temp_test_root("octocode-engine-managed-install");
+        let bin = crate::lsp::managed::cached_server_bin_path(
+            &home.join("lsp"),
+            "rust-analyzer",
+            &crate::lsp::managed::platform_id(),
+        )
+        .expect("rust-analyzer ships for this platform");
+        std::fs::create_dir_all(bin.parent().expect("bin dir")).expect("install dir");
+        std::fs::write(&bin, b"managed").expect("binary");
+        std::fs::write(
+            crate::lsp::managed::marker_path(&bin),
+            json!({"binarySha256": crate::lsp::managed::sha256_hex(b"managed"), "size": 7})
+                .to_string(),
+        )
+        .expect("marker");
+        let mut options = LspDiscoveryOptions {
+            octocode_home: Some(home.clone()),
+            ..LspDiscoveryOptions::default()
+        };
+        let managed =
+            default_server_for_file("src/lib.rs", "/workspace", &options).expect("rust route");
+        assert_eq!(PathBuf::from(&managed.command), bin);
+        assert!(
+            managed.initialization_options.is_some(),
+            "headless defaults"
+        );
 
-    impl EnvGuard {
-        fn set(key: &'static str, value: &str) -> Self {
-            let previous = std::env::var(key).ok();
-            // SAFETY: test-only guard. Process-env mutation is unsafe in a
-            // multithreaded program because it races concurrent env readers;
-            // these LSP-config tests mutate env only through this guard and do
-            // not run alongside other env access, and the guard restores the
-            // prior value on drop.
-            unsafe { std::env::set_var(key, value) };
-            Self { key, previous }
-        }
-    }
+        options.env =
+            BTreeMap::from([("OCTOCODE_RUST_SERVER_PATH".to_owned(), "/opt/ra".to_owned())]);
+        let overridden =
+            default_server_for_file("src/lib.rs", "/workspace", &options).expect("rust route");
+        assert_eq!(overridden.command, "/opt/ra");
 
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            // SAFETY: see `EnvGuard::set` — the same test-only, no-concurrent-env
-            // invariant holds for the restore path.
-            if let Some(previous) = &self.previous {
-                unsafe { std::env::set_var(self.key, previous) };
-            } else {
-                unsafe { std::env::remove_var(self.key) };
-            }
-        }
+        options.env = BTreeMap::from([(
+            "OCTOCODE_LSP_CACHE_DIR".to_owned(),
+            home.join("elsewhere").to_string_lossy().into_owned(),
+        )]);
+        let unmanaged =
+            default_server_for_file("src/lib.rs", "/workspace", &options).expect("rust route");
+        assert_ne!(PathBuf::from(&unmanaged.command), bin);
+        let _ = std::fs::remove_dir_all(home);
     }
 }

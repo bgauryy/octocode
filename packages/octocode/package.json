@@ -1,7 +1,7 @@
 {
   "name": "octocode",
   "description": "Code research CLI for Octocode tools, local workspaces, GitHub repositories, LSP, and MCP setup",
-  "version": "19.2.0",
+  "version": "20.0.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bin": "./out/octocode.js",
   "bugs": "https://github.com/bgauryy/octocode/issues",

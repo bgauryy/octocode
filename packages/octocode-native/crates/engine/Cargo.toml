@@ -3,14 +3,15 @@ name = "octocode-engine"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-build = "build.rs"
 publish = false
 description = "Rust native Octocode engine for context compression, structural search, and LSP semantic navigation"
 license.workspace = true
 repository.workspace = true
-keywords = ["napi", "llm", "context", "lsp", "nodejs"]
+keywords = ["llm", "context", "lsp", "search"]
 categories = ["development-tools", "text-processing"]
 
+# Mirrors the root [workspace.lints] floor, plus the library-only stdout/stderr
+# denials and style lints below.
 [lints.rust]
 dead_code = "deny"
 unused_imports = "deny"
@@ -29,29 +30,23 @@ unimplemented = "deny"
 dbg_macro = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
-needless_pass_by_value = "allow"   # noisy in complex match arms
 # Style / idiomatic
 use_self = "warn"
 cloned_instead_of_copied = "warn"
 redundant_closure_for_method_calls = "warn"
 semicolon_if_nothing_returned = "warn"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
 aho-corasick = "1"
-ast-grep-core = { version = "0.45.3", optional = true }
-ast-grep-config = { version = "0.45.3", optional = true }
+ast-grep-core = "0.45.3"
+ast-grep-config = "0.45.3"
 grep-matcher = "0.1.9"
-grep-pcre2 = { version = "0.1.10", optional = true }
+grep-pcre2 = "0.1.10"
 grep-regex = "0.1.14"
 grep-searcher = "0.1.17"
-globset = "0.4"
+globset = { workspace = true }
 hex = { workspace = true }
-ignore = "0.4"
-napi = { workspace = true, optional = true }
-napi-derive = { workspace = true, optional = true }
+ignore = { workspace = true }
 oxc_allocator = "=0.150.0"
 oxc_ast = "=0.150.0"
 oxc_ast_visit = "=0.150.0"
@@ -107,12 +102,8 @@ name = "minify"
 harness = false
 
 [features]
-default = ["portable-default", "napi-addon"]
-portable-default = ["tree-sitter-asm", "tree-sitter-large-grammars", "tree-sitter-scala", "pcre2"]
-pcre2 = ["dep:grep-pcre2"]
-napi-addon = ["dep:napi", "dep:napi-derive", "dep:napi-build", "embedded-ast-grep-rewrite"]
-napi-test = ["napi-addon", "napi/noop"]
-embedded-ast-grep-rewrite = ["dep:ast-grep-core", "dep:ast-grep-config"]
+default = ["portable-default"]
+portable-default = ["tree-sitter-asm", "tree-sitter-large-grammars", "tree-sitter-scala"]
 tree-sitter-asm = ["dep:tree-sitter-asm"]
 tree-sitter-cpp = ["dep:tree-sitter-cpp"]
 tree-sitter-c-sharp = ["dep:tree-sitter-c-sharp"]
@@ -125,6 +116,3 @@ tree-sitter-cuda = ["dep:tree-sitter-cuda"]
 # "tree-sitter-cuda" here (the optional dep + feature below are retained).
 tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp"]
 tree-sitter-scala = ["dep:tree-sitter-scala"]
-
-[build-dependencies]
-napi-build = { workspace = true, optional = true }

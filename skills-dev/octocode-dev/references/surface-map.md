@@ -17,11 +17,11 @@ Unprefixed paths are relative to the monorepo root.
 | Tool contract (generated, embedded by native build.rs) | `packages/octocode-config/contract/{tool-contract.json,provenance.json,contract-fixtures.json,tool-types.schema.json,tool_types.rs}` | Never hand-edit; `yarn contracts:regen` |
 | Field-effect claims | `packages/octocode-native/crates/runtime/src/contracts/field-effect-coverage.json` + `tests/contract_field_effects.rs` | Hand-maintained labels: verify against code |
 | Prepare / dispatch | `crates/runtime/src/contracts/{prepare,validate}.rs`, `src/runtime/{dispatch,domain_dispatch,engine}.rs` | Defaults, normalization, routing |
-| Tool implementation | `crates/runtime/src/tools/<snake_tool>/` (`astTopology` → `ast_graph/`; `localFetch` also `tools/local_fetch.rs`; `clasify` also `runtime/clasify_*.rs`) | Business logic |
+| Tool implementation | `crates/runtime/src/tools/<snake_tool>/` (`astTopology` → `ast_graph/`; `localFetch` also `tools/local_fetch.rs`; `clasify` runs from `run/`) | Business logic |
 | Providers / API | `crates/runtime/src/providers/{github,artifact,classification}/`, `runtime/github.rs` | Request count, auth, errors |
 | Engine primitives | `packages/octocode-native/crates/engine/` | ripgrep, AST, LSP, minify, secrets |
 | Caching | `runtime/github_cache.rs`, `src/cache/`, `tools/gh_clone_repo/cache.rs`, `tests/tool_cache_contracts.rs` | Keys, TTL, invalidation |
-| Output shaping | `src/response/mod.rs`, `runtime/{response,response_stage,render,continuations,channels,cursor}.rs`, `tools/result.rs` | Rows, evidence, `next.*` pages vs `hints.*` leads (`channels.rs`), compact CLI |
+| Output shaping | `src/response/{pager,rows,stage,render,continuations,channels,pages}.rs`, `tools/result.rs` | Rows, evidence, `next.*` pages vs `hints.*` leads (`channels.rs`), compact CLI |
 | Security | `src/security/{content,walk,registry}.rs`, `src/policy/` | Redaction, path sandbox |
 | MCP registration | `packages/octocode-mcp/src/native/index.ts` (instructions), `src/public.ts` | Thin forward, no logic |
 | CLI | `packages/octocode/src/cli/{native-delegate,parser,options}.ts`, `commands/scheme.ts`; native CLI `crates/cli/src/cli/` | Rendering, flags |

@@ -1,145 +1,6 @@
-#[cfg(feature = "napi-addon")]
-use napi_derive::napi;
-
-// ── persistent index types ───────────────────────────────────────────────────
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct IndexStoreOptions {
-    pub home: String,
-    pub root_id: String,
-    pub root_path: String,
-    pub source_commit: Option<String>,
-    pub source_tree: Option<String>,
-    pub index_schema_version: u32,
-    pub parser_schema_version: u32,
-    pub tool_version: String,
-    pub max_generations: Option<u32>,
-    pub max_bytes: Option<i64>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct IndexBuildRequest {
-    pub store: IndexStoreOptions,
-    pub exclusions: Option<Vec<String>>,
-    pub max_files: Option<u32>,
-    pub max_entries: Option<u32>,
-    pub max_depth: Option<u32>,
-    pub max_file_bytes: Option<i64>,
-    pub max_source_bytes: Option<i64>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct IndexQueryRequest {
-    pub store: IndexStoreOptions,
-    pub text: String,
-    /// `content` or `symbol`.
-    pub kind: String,
-    pub case_sensitive: Option<bool>,
-    pub offset: Option<u32>,
-    pub limit: Option<u32>,
-    /// Bind a continuation to the generation returned by the prior page.
-    pub expected_generation: Option<i64>,
-    pub freshness_max_entries: Option<u32>,
-    pub freshness_max_depth: Option<u32>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct IndexStatusRequest {
-    pub store: IndexStoreOptions,
-    pub freshness_max_entries: Option<u32>,
-    pub freshness_max_depth: Option<u32>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct IndexFreshnessResult {
-    pub checked: i64,
-    pub fresh: i64,
-    pub generation_complete: bool,
-    pub traversal_complete: bool,
-    pub scanned_entries: i64,
-    pub added: Vec<String>,
-    pub dirty: Vec<String>,
-    pub deleted: Vec<String>,
-    pub unverifiable: Vec<String>,
-    pub can_prove_absence: bool,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct IndexBuildResult {
-    pub generation: i64,
-    pub root_id: String,
-    pub canonical_root: String,
-    pub snapshot: String,
-    pub document_count: i64,
-    pub indexed_source_bytes: i64,
-    pub symbol_count: i64,
-    pub complete: bool,
-    pub truncated: bool,
-    pub limit_reason: Option<String>,
-    pub excluded_paths: Vec<String>,
-    pub skipped_binary: Vec<String>,
-    pub skipped_too_large: Vec<String>,
-    pub skipped_symlinks: Vec<String>,
-    pub unverifiable: Vec<String>,
-    pub freshness: IndexFreshnessResult,
-    pub usable: bool,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct IndexQueryMatchResult {
-    pub path: String,
-    pub line: i64,
-    pub column: i64,
-    pub start_byte: i64,
-    pub end_byte: i64,
-    pub value: String,
-    pub symbol_kind: Option<String>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct IndexQueryResult {
-    pub generation: i64,
-    pub root_id: String,
-    pub canonical_root: String,
-    pub snapshot: String,
-    pub matches: Vec<IndexQueryMatchResult>,
-    pub total_matches: i64,
-    pub next_offset: Option<i64>,
-    pub exclusions: Vec<String>,
-    pub freshness: IndexFreshnessResult,
-    pub usable: bool,
-    pub absence_proven: bool,
-    pub diagnostic: Option<String>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct IndexStatusResult {
-    pub indexed: bool,
-    pub usable: bool,
-    pub root_id: String,
-    pub canonical_root: String,
-    pub generation: Option<i64>,
-    pub snapshot: Option<String>,
-    pub document_count: i64,
-    pub indexed_source_bytes: i64,
-    pub exclusions: Vec<String>,
-    pub freshness: Option<IndexFreshnessResult>,
-    pub diagnostic: Option<String>,
-}
-
 /// One parser entry from the canonical grammar registry. Consumers use this
 /// runtime inventory for language selection and agent guidance instead of
 /// maintaining extension/name tables outside the engine.
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GrammarCapability {
@@ -154,16 +15,6 @@ pub struct GrammarCapability {
 
 // ── ripgrep_parser types ──────────────────────────────────────────────────────
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone, Default)]
-pub struct RipgrepParseOptions {
-    /// Number of context lines around each match (default 0).
-    pub context_lines: Option<u32>,
-    /// Max Unicode chars per match snippet (default 500).
-    pub max_snippet_chars: Option<u32>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone)]
 pub struct RipgrepMatch {
     /// 1-based line number.
@@ -193,7 +44,6 @@ pub struct RipgrepMatch {
     pub original_chars: Option<u32>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone)]
 pub struct RipgrepFile {
     pub path: String,
@@ -201,7 +51,6 @@ pub struct RipgrepFile {
     pub matches: Vec<RipgrepMatch>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone, Default)]
 pub struct RipgrepStats {
     pub match_count: Option<u32>,
@@ -227,16 +76,20 @@ pub struct RipgrepStats {
     /// `skipped_binary_count` per lowercased extension ("" for none), most
     /// files first.
     pub skipped_binary_extensions: Option<Vec<BinaryExtensionCount>>,
+    /// Root-relative paths of the directories `exclude_dir` pruned, sorted:
+    /// what the search did not cover.
+    pub pruned_dirs: Option<Vec<String>>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BinaryExtensionCount {
     pub extension: String,
     pub count: u32,
+    /// The extensionless group (`extension` "") names its files, sorted:
+    /// no extension filter can list them without listing text files too.
+    pub names: Vec<String>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone)]
 pub struct RipgrepParseResult {
     pub files: Vec<RipgrepFile>,
@@ -246,7 +99,6 @@ pub struct RipgrepParseResult {
 /// Options for the in-process ripgrep search (`searchRipgrep`). Field semantics
 /// mirror the ripgrep CLI flags the old `RipgrepCommandBuilder` emitted, so the
 /// search behaves identically to shelling out to `rg`.
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone, Default)]
 pub struct RipgrepSearchOptions {
     /// Search root: a directory (recursive) or a single file.
@@ -318,10 +170,6 @@ pub struct RipgrepSearchOptions {
     /// (not the whole line) — ripgrep's `-o`/`--only-matching`. The win on a
     /// minified one-liner: line mode can only count hits, this enumerates them.
     pub only_matching: Option<bool>,
-    /// With `only_matching`, widen each span by this many characters on each
-    /// side (char-boundary safe), marking trimmed sides with `…`. 0/unset =
-    /// the bare matched span.
-    pub match_window: Option<u32>,
     /// With `only_matching`, collapse duplicate values per file, preserving
     /// first-occurrence order and anchor.
     pub unique: Option<bool>,
@@ -348,7 +196,6 @@ pub struct RipgrepSearchOptions {
 
 // ── filesystem query types ───────────────────────────────────────────────────
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone, Default)]
 pub struct FileSystemQueryOptions {
     pub path: String,
@@ -393,7 +240,12 @@ pub struct FileSystemQueryOptions {
     /// Directory names pruned from recursive traversal. The engine has no
     /// default list: omission prunes nothing. The native runtime's prune
     /// policy (`policy::prune`) supplies the names for every tool walk.
+    /// Pruned directories are reported in `pruned_dirs`.
     pub exclude_dir: Option<Vec<String>>,
+    /// The caller's path globs to skip: without `/` a glob matches entry
+    /// names at any depth, with `/` the path below the root. A matching
+    /// directory is skipped with everything under it.
+    pub exclude: Option<Vec<String>>,
     /// Stop walking after `limit` returned entries. Default true for interactive
     /// tools; set false when exact total_discovered is more important than
     /// latency.
@@ -403,7 +255,6 @@ pub struct FileSystemQueryOptions {
     pub limit: Option<u32>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone)]
 pub struct FileSystemEntry {
     /// Absolute or input-root-relative path as returned by the platform.
@@ -422,7 +273,6 @@ pub struct FileSystemEntry {
     pub depth: u32,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone)]
 pub struct FileSystemQueryResult {
     pub entries: Vec<FileSystemEntry>,
@@ -431,28 +281,30 @@ pub struct FileSystemQueryResult {
     pub skipped: u32,
     pub permission_denied: u32,
     pub warnings: Vec<String>,
+    /// Root-relative paths of the directories `exclude_dir` pruned, in walk
+    /// order: what a listing or an empty result did not cover.
+    pub pruned_dirs: Vec<String>,
 }
 
 // ── graph scan types ─────────────────────────────────────────────────────────
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone, Default)]
 pub struct GraphFactsScanOptions {
     pub path: String,
     pub exclude_dir: Option<Vec<String>>,
+    /// The caller's path globs to skip (see [`FileSystemQueryOptions::exclude`]).
+    pub exclude: Option<Vec<String>>,
     pub max_files: Option<u32>,
     pub max_file_bytes: Option<u32>,
     pub language_globs: Option<Vec<GraphLanguageGlob>>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone)]
 pub struct GraphLanguageGlob {
     pub language: String,
     pub glob: String,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone)]
 /// Syntax-aware value references to one declaration, excluding its own name,
 /// export clauses and call-callee positions (those are call edges). Comments
@@ -462,15 +314,6 @@ pub struct GraphReferenceCount {
     pub count: u32,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct GraphFactsScanEntry {
-    pub relative_path: String,
-    pub facts_json: String,
-    pub reference_counts: Vec<GraphReferenceCount>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone)]
 pub struct GraphFactsScanDiagnostic {
     pub relative_path: String,
@@ -478,91 +321,8 @@ pub struct GraphFactsScanDiagnostic {
     pub message: String,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct GraphFactsScanResult {
-    pub schema_version: u32,
-    pub entries: Vec<GraphFactsScanEntry>,
-    pub skipped: Vec<GraphFactsScanDiagnostic>,
-    pub candidate_paths: Vec<String>,
-    pub files_skipped: u32,
-    pub truncated: bool,
-}
-
-// ── utf8_offsets types ────────────────────────────────────────────────────────
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone, Default)]
-pub struct SliceContentOptions {
-    /// When true, snap start to line start and end to line end (default false).
-    pub snap_to_line_boundary: Option<bool>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct SliceContentResult {
-    pub text: String,
-    /// Actual start char offset (may differ from requested when snapping).
-    pub char_offset: u32,
-    pub char_length: u32,
-    pub byte_offset: u32,
-    pub byte_length: u32,
-    pub has_more: bool,
-    pub next_char_offset: Option<u32>,
-}
-
-// ── line_extractor types ──────────────────────────────────────────────────────
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone, Default)]
-pub struct ExtractMatchingLinesOptions {
-    /// Treat `pattern` as a regex (default false — literal match).
-    pub is_regex: Option<bool>,
-    /// Case-sensitive match (default false).
-    pub case_sensitive: Option<bool>,
-    /// Lines of context to include around each match (default 0).
-    pub context_lines: Option<u32>,
-    /// UTF-8 context bytes per side; overrides context_lines when present.
-    pub context_bytes: Option<u32>,
-    /// Cap the number of matched lines returned.
-    pub max_matches: Option<u32>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct MatchRange {
-    /// 1-based inclusive start line.
-    pub start: u32,
-    /// 1-based inclusive end line.
-    pub end: u32,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct ExtractMatchingLinesResult {
-    /// Output lines including context and omission markers.
-    pub lines: Vec<String>,
-    /// 1-based line numbers of actual matches (capped by `max_matches`).
-    pub matching_lines: Vec<u32>,
-    /// Total matches before `max_matches` cap.
-    pub match_count: u32,
-    pub match_ranges: Vec<MatchRange>,
-    /// Zero-based, end-exclusive UTF-8 windows; present only for byte context.
-    pub byte_ranges: Option<Vec<ByteRange>>,
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct ByteRange {
-    /// Zero-based UTF-8 byte offset.
-    pub start: u32,
-    /// Exclusive UTF-8 byte end offset.
-    pub end: u32,
-}
-
 // ── diff_parser types ─────────────────────────────────────────────────────────
 
-#[cfg_attr(feature = "napi-addon", napi(string_enum))]
 #[derive(Debug, Clone, PartialEq)]
 pub enum PatchLineType {
     Addition,
@@ -570,7 +330,6 @@ pub enum PatchLineType {
     Context,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone, Default)]
 pub struct FilterPatchOptions {
     /// Only keep additions at these new-file line numbers.
@@ -583,36 +342,6 @@ pub struct FilterPatchOptions {
     pub context_lines: Option<u32>,
 }
 
-#[cfg_attr(feature = "napi-addon", napi(object))]
-#[derive(Debug, Clone)]
-pub struct MinifyResult {
-    pub content: String,
-    pub failed: bool,
-    /// Strategy name or "failed"
-    pub r#type: String,
-    pub reason: Option<String>,
-}
-
-impl MinifyResult {
-    pub fn ok(content: String, strategy: &str) -> Self {
-        Self {
-            content,
-            failed: false,
-            r#type: strategy.to_owned(),
-            reason: None,
-        }
-    }
-    pub fn fail(content: String, reason: impl Into<String>) -> Self {
-        Self {
-            content,
-            failed: true,
-            r#type: "failed".to_owned(),
-            reason: Some(reason.into()),
-        }
-    }
-}
-
-#[cfg_attr(feature = "napi-addon", napi(object))]
 #[derive(Debug, Clone, Default)]
 pub struct YamlConversionConfig {
     pub sort_keys: Option<bool>,

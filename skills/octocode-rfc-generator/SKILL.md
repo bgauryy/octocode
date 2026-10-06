@@ -1,6 +1,6 @@
 ---
 name: octocode-rfc-generator
-description: "Use when consequential architecture, migration, public-contract, or multi-phase changes need a reviewed decision. Not for open-ended ideation or trivial edits."
+description: "Use when consequential architecture, migration, public-contract, or multi-phase changes need a written, reviewed decision. Not for open-ended ideation → octocode-brainstorming; structural analysis before a decision → octocode-architect; recording a decision already made → octocode-documentation (ADR); trivial edits."
 ---
 
 # Octocode RFC Generator
@@ -62,7 +62,7 @@ To reassess an existing RFC, use the audit route in `references/workflow.md`.
 Use ordinary evidence review by default. The `octocode-research` clasify gate owns classification admission. No RFC debate recipe overrides its benefit gate. A judgment never closes a blocker by itself.
 
 ## Related skills and authority
-- Use `octocode-brainstorming` before RFC when worth-building is unresolved. Use `octocode-eval-benchmark` for KPI rigor. `octocode-research` owns the MCP/CLI workflow for factual questions.
+- Use `octocode-brainstorming` before RFC when worth-building is unresolved. Use `octocode-architect` for the structural evidence an option needs; this skill records and reviews the decision. Once accepted, an ADR summary belongs to `octocode-documentation`. Use `octocode-eval-benchmark` for KPI rigor. `octocode-research` owns the MCP/CLI workflow for factual questions.
 - Use `octocode-skills` when changing this skill folder. Collection-wide review supports structural hygiene claims only. Claim behavioral superiority only against another workflow on the same frozen cases, budget, and independent grader.
 - Reuse existing session authority for scoped saves and edits; do not ask again. Ask only for missing information or authority for a new effect.
 - Saving a Draft, accepting its decision, and authorizing implementation are distinct. A review-only or chat-only request does not authorize source edits.
@@ -71,7 +71,7 @@ Use ordinary evidence review by default. The `octocode-research` clasify gate ow
 - Before delivery, run `node scripts/validate-rfc.mjs <file-or-folder>` for readiness checks.
 - For an investigative Draft, run `node scripts/validate-rfc.mjs --draft <file-or-folder>`. It requires `Status: Draft`, `Recommendation: none`, `Comparison outcome: unresolved`, complete blocker fields, and no common covert commitment language. It reports `reviewReady:false`.
 - `validate-rfc.mjs` also rejects unknown mermaid types and warns when `RFC.md` has no diagram. Its bounded lint cannot prove prose truth, evidence, or authority; inspect those separately. For chat-only output, apply the same checks manually.
-- Before submitting a two-agent assessment packet, run `node scripts/validate-debate.mjs request.json worker-packet.json`. It requires a source-free SemanticQuery, a frozen admission gate, and distinct result-dependent actions. A failed preflight stops submission. A pass does not prove evidence truth or worker coverage.
+- Before submitting a two-agent assessment packet, run `node scripts/validate-debate.mjs request.json worker-packet.json`. It requires a `{queries:[matrix]}` request with one source-free resource, a frozen admission gate, and distinct result-dependent actions. A failed preflight stops submission. A pass does not prove evidence truth or worker coverage.
 - After a multi-agent or provider review, run `node scripts/validate-review-cost.mjs receipt.json`. Do not present provider-only usage as total cost.
 - After a saved RFC set passes validation, run `node scripts/render-rfc.mjs <rfc-folder>`. It builds one HTML page from `assets/rfc-viewer.html` and `assets/rfc-viewer.js` and opens it in the browser. Each file is a page, with search, section TOC, and rendered mermaid. Report the printed path. Use `--no-open` in headless runs; re-run after edits.
 - When changing a validator, the viewer, or the debate protocol, run its `--self-test`.

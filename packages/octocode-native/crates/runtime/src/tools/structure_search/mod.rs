@@ -1,6 +1,9 @@
 //! Filesystem layout: `tree` outlines directories, `files` finds paths by name
 //! or metadata. Walk-only by construction — this module never loads a grammar.
 mod files;
+mod memo;
+mod output;
+pub(crate) use output::Output;
 #[cfg(test)]
 mod tests;
 mod tree;
@@ -8,25 +11,21 @@ mod tree;
 /// Contract maximum of a structureSearch query field (both operations agree);
 /// an undeclared bound stays open (validation enforces it).
 fn structure_max(field: &str) -> u32 {
-    crate::contracts::query_schema_number(
-        crate::tools::id::ToolId::StructureSearch,
-        None,
-        field,
-        "maximum",
-    )
-    .and_then(|maximum| u32::try_from(maximum).ok())
-    .unwrap_or(u32::MAX)
+    let max =
+        crate::contracts::query_schema_max(crate::tools::id::ToolId::StructureSearch, None, field);
+    u32::try_from(max).unwrap_or(u32::MAX)
 }
 
-/// Entries one walk may visit: the contract `limit` maximum.
+/// Entries one walk may visit: the contract `maxEntries` maximum.
 fn max_walk() -> u32 {
-    structure_max("limit")
+    structure_max("maxEntries")
 }
 
+use crate::tools::display_name;
 use serde_json::{Value, json};
 
 /// Continuations a listing row copies its query into: `next.nextPage` and
-/// `next.expandLimit`.
+/// `next.expandScan`.
 const ROW_QUERY_COPIES: usize = 2;
 
 /// Chars one default page's rows may take, so the page with the row around
@@ -88,28 +87,6 @@ fn page_ranges(
     pages
 }
 
-/// A listed directory as the response renders it: the envelope anchors a
-/// row's `dir` (relative to the walked root's parent; `""` is that parent)
-/// on that parent, then names it workspace-relative (`.` for the workspace
-/// itself), or absolute outside it.
-fn rendered_dir(
-    paths: &crate::policy::path::PathPolicy,
-    root: &std::path::Path,
-    dir: &str,
-) -> String {
-    let parent = root.parent().unwrap_or(root);
-    let absolute = if dir.is_empty() {
-        parent.to_path_buf()
-    } else {
-        parent.join(dir)
-    };
-    paths
-        .workspace_relative(&absolute)
-        .unwrap_or_else(|| absolute.to_string_lossy().into_owned())
-}
-
-use sha2::{Digest, Sha256};
-
 pub use crate::contracts::tool_types::StructureSearchQuery;
 use crate::policy::PolicyError;
 
@@ -117,6 +94,8 @@ use crate::policy::PolicyError;
 pub struct StructureError {
     pub code: String,
     pub message: String,
+    /// Leads out of the error, e.g. a missing path's nearest existing parent.
+    pub next: Option<Value>,
 }
 
 impl StructureError {
@@ -124,13 +103,89 @@ impl StructureError {
         Self {
             code: code.into(),
             message: message.into(),
+            next: None,
         }
     }
 }
 
+/// The policy error for `requested`; a missing path also leads to a tree of
+/// its nearest existing parent, so the agent sees what is there instead.
+/// The listed root once the call is live and the policy admits `requested`;
+/// a missing root leads to its nearest admitted parent.
+fn validated_root(
+    requested: &str,
+    paths: &crate::policy::path::PathPolicy,
+    cancel: &dyn crate::tools::cancel::CancellationCheck,
+) -> Result<crate::policy::path::ValidatedPath, StructureError> {
+    cancel.check().map_err(cancelled)?;
+    paths
+        .validate(requested)
+        .map_err(|error| path_error(error, requested, paths))
+}
+
+/// A file named as a tree root (`files` lists a file root as itself): say
+/// so with its workspace-relative name and lead to its outline, the read an
+/// agent wanted from it.
+fn file_root(file: &std::path::Path, paths: &crate::policy::path::PathPolicy) -> StructureError {
+    let name = paths
+        .workspace_relative(file)
+        .unwrap_or_else(|| file.to_string_lossy().into_owned());
+    let mut out = StructureError::new(
+        "notADirectory",
+        format!("{name} is a file, not a directory; read it with localFetch or list its parent."),
+    );
+    let lead = crate::tools::result::Continuation::new(
+        crate::tools::id::ToolId::LocalFetch,
+        json!({"path": name, "minify": "symbols"}),
+    )
+    .build();
+    out.next = Some(json!({ "read": lead }));
+    out
+}
+
+fn path_error(
+    error: PolicyError,
+    requested: &str,
+    paths: &crate::policy::path::PathPolicy,
+) -> StructureError {
+    let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
+    let mut out = StructureError::from(error);
+    if missing && let Some(parent) = nearest_parent(requested, paths) {
+        let lead = crate::tools::result::Continuation::new(
+            crate::tools::id::ToolId::StructureSearch,
+            json!({"operation": "tree", "path": parent}),
+        )
+        .build();
+        out.next = Some(json!({ "viewTree": lead }));
+    }
+    out
+}
+
+/// The closest ancestor of `requested` the policy admits as a directory,
+/// named relative to the workspace when it lies inside it.
+fn nearest_parent(requested: &str, paths: &crate::policy::path::PathPolicy) -> Option<String> {
+    let mut path = paths.expand_and_resolve(std::path::Path::new(requested));
+    while let Some(parent) = path.parent().map(std::path::Path::to_path_buf) {
+        if let Ok(valid) = paths.validate(&parent)
+            && valid.canonical.is_dir()
+        {
+            return Some(
+                paths
+                    .workspace_relative(&valid.canonical)
+                    .unwrap_or_else(|| valid.canonical.to_string_lossy().into_owned()),
+            );
+        }
+        path = parent;
+    }
+    None
+}
+
 impl From<PolicyError> for StructureError {
     fn from(error: PolicyError) -> Self {
-        // PolicyErrorCode serializes camelCase: `structure.policy.notFound`.
+        if let Some(code) = error.shared_code() {
+            return Self::new(code, error.message);
+        }
+        // PolicyErrorCode serializes camelCase: `structure.policy.io`.
         let suffix = serde_json::to_value(error.code)
             .ok()
             .and_then(|code| code.as_str().map(str::to_owned))
@@ -145,17 +200,22 @@ fn cancelled(error: String) -> StructureError {
     StructureError::new("structure.execution.cancelled", error)
 }
 
-fn walk_error(error: impl ToString) -> StructureError {
+/// A failed walk of `requested`: a vanished root reads like any other
+/// missing path.
+fn walk_error(error: impl ToString, requested: &str) -> StructureError {
     let message = error.to_string();
     let lower = message.to_ascii_lowercase();
     let code = if message.starts_with("[structure.execution.cancelled]") {
         "structure.execution.cancelled"
     } else if lower.contains("no such file") || lower.contains("not found") {
-        "structure.policy.notFound"
+        return StructureError::new(
+            crate::policy::PATH_NOT_FOUND,
+            format!("Path does not exist: {requested}"),
+        );
     } else if lower.contains("permission denied") {
-        "structure.policy.permissionDenied"
+        "permissionDenied"
     } else if lower.contains("invalid") && lower.contains("regex") {
-        "structure.query.invalidPattern"
+        "invalidPattern"
     } else if lower.starts_with("invalid ") {
         // The engine rejects a malformed filter value (`size`, `time`, ...)
         // before walking: caller input, like the typed time-filter checks.
@@ -168,72 +228,365 @@ fn walk_error(error: impl ToString) -> StructureError {
 
 fn allow_discovery(
     path: &std::path::Path,
-    paths: &crate::policy::path::PathPolicy,
+    discovery: &crate::policy::path::DiscoveryWalk<'_>,
     cancel: &dyn crate::tools::cancel::CancellationCheck,
 ) -> Result<bool, String> {
     cancel
         .check()
         .map_err(|message| format!("[structure.execution.cancelled] {message}"))?;
-    Ok(paths.permits_discovery(path))
+    Ok(discovery.permits(path))
 }
 
-fn display_name(path: &std::path::Path) -> String {
-    path.file_name()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .into_owned()
-}
-
-fn digest(value: &Value) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(serde_json::to_vec(value).unwrap_or_default());
-    hex::encode(hasher.finalize())
-}
-
-/// Emitted when a page>1 request carries a snapshot that no longer matches the
-/// digest of the query shape and ordered result set.
-fn snapshot_changed(query: &impl serde::Serialize, snapshot: &str) -> Value {
-    let mut restart = continuation(query, json!({"page":1}));
-    if let Some(query) = restart["query"].as_object_mut() {
-        query.remove("snapshot");
+/// A continuation page whose walk no longer hashes to its `snapshot`: the
+/// stale stored walk is dropped and the listing restarts from page 1.
+fn restart_if_stale(
+    query: &impl serde::Serialize,
+    page: usize,
+    snapshot: Option<&str>,
+    current: &str,
+) -> Option<Value> {
+    if page <= 1 || snapshot == Some(current) {
+        return None;
     }
-    json!({
-        "status":"error",
-        "errorCode":"structure.snapshot.changed",
-        "error":"The source or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.",
-        "snapshot":snapshot,
-        "complete":false,
-        "next":{"restart":restart}
-    })
+    if let Some(stale) = snapshot {
+        memo::evict(stale);
+    }
+    Some(crate::tools::result::stale_snapshot(continuation(
+        query,
+        json!({"page":1,"snapshot":null}),
+    )))
 }
 
-/// Copy the query with `changes` applied as a `structureSearch` continuation.
+/// Copy the query with `changes` applied as a `structureSearch` continuation;
+/// a `null` change drops that field.
 fn continuation(query: &impl serde::Serialize, changes: Value) -> Value {
     let mut query = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
     if let (Some(to), Some(from)) = (query.as_object_mut(), changes.as_object()) {
-        to.extend(from.clone())
+        to.extend(from.clone());
+        for (field, _) in from.iter().filter(|(_, value)| value.is_null()) {
+            to.remove(field);
+        }
     }
-    json!({"tool":crate::tools::id::ToolId::StructureSearch.as_str(),"query":query,"confidence":"exact"})
+    crate::tools::result::Continuation::new(crate::tools::id::ToolId::StructureSearch, query)
+        .confidence("exact")
+        .build()
 }
 
-/// An empty listing cannot prove absence in pruned `.gitignore`d entries.
-/// Disclose that coverage gap and offer a retry including those entries.
-fn note_ignored_empty(
-    out: &mut Value,
-    query: &impl serde::Serialize,
+/// One level of the listed directory's tree: the subdirectories a listing
+/// cut at a terminal limit can be re-listed under, each within the limits.
+fn narrow_scope(query: &impl serde::Serialize) -> Value {
+    let path = serde_json::to_value(query)
+        .ok()
+        .and_then(|query| query.get("path").cloned())
+        .unwrap_or(Value::Null);
+    crate::tools::result::Continuation::new(
+        crate::tools::id::ToolId::StructureSearch,
+        json!({"operation": "tree", "path": path, "maxDepth": 1}),
+    )
+    .why("Outline the subdirectories to list separately.")
+    .build()
+}
+
+/// What a walk left out of a listing: `.gitignore`d entries, entries the
+/// path policy withheld, dot entries skipped without `hidden`, and the
+/// directories the default prune skipped (root-relative).
+#[derive(Clone, Debug, Default)]
+struct Uncovered {
     ignored: usize,
-    retry: Value,
-    hint: String,
-) {
-    if ignored == 0 || out["status"] != "empty" {
-        return;
+    withheld: crate::policy::discovery::Withheld,
+    hidden: usize,
+    pruned: Vec<String>,
+}
+
+impl Uncovered {
+    /// The default-pruned directories as one clause: their count and each
+    /// distinct name once.
+    fn pruned_note(&self) -> Option<String> {
+        if self.pruned.is_empty() {
+            return None;
+        }
+        let mut names = self
+            .pruned
+            .iter()
+            .map(|dir| dir.rsplit('/').next().unwrap_or(dir))
+            .collect::<Vec<_>>();
+        names.sort_unstable();
+        names.dedup();
+        let count = self.pruned.len();
+        Some(format!(
+            "{count} default-excluded {} not walked: {}",
+            if count == 1 { "dir" } else { "dirs" },
+            names.join(", ")
+        ))
     }
-    let mut call = continuation(query, retry);
-    if let Some(query) = call["query"].as_object_mut() {
-        query.remove("snapshot");
+
+    /// An empty listing cannot prove absence in what the walk skipped: name
+    /// it, and lead to the same listing with those entries included.
+    fn note_empty(&self, out: &mut Value, query: &impl serde::Serialize) {
+        if out["status"] != "empty" || (self.ignored == 0 && self.pruned.is_empty()) {
+            return;
+        }
+        let mut retry = json!({"page": 1, "snapshot": null});
+        let (mut skipped, mut flags) = (Vec::new(), Vec::new());
+        if self.ignored > 0 {
+            retry["noIgnore"] = json!(true);
+            skipped.push(format!("{} .gitignore'd entries", self.ignored));
+            flags.push("noIgnore:true");
+        }
+        if let Some(note) = self.pruned_note() {
+            retry["defaultExcludes"] = json!(false);
+            skipped.push(note);
+            flags.push("defaultExcludes:false");
+        }
+        out["hints"] = json!([format!(
+            "The walk skipped {}; whether they match these filters is unproven. hints.includeIgnored retries with {}.",
+            skipped.join(" and "),
+            flags.join(", ")
+        )]);
+        out["next"]["includeIgnored"] = continuation(query, retry);
     }
-    out["hints"] = json!([hint]);
-    out["next"]["includeIgnored"] = call;
+}
+
+/// Where a listing's rows were cut, for the continuation tail both
+/// operations share.
+struct Cut {
+    page: usize,
+    total_pages: usize,
+    /// Rows in the listing after `maxEntries`.
+    total: usize,
+    requested: usize,
+    /// Rows the walk returned before `maxEntries` cut them.
+    available: usize,
+    limit_cut: bool,
+    scan_cut: bool,
+    /// The walk stopped at the first match past the limit, so only a lower
+    /// bound of the total is known.
+    early_exit: bool,
+    total_discovered: usize,
+    snapshot: String,
+}
+
+impl Cut {
+    fn has_more(&self) -> bool {
+        self.page < self.total_pages
+    }
+    fn can_expand(&self) -> bool {
+        self.limit_cut && self.requested < max_walk() as usize
+    }
+    /// More pages exist, but the next page number is past the contract's
+    /// `page` maximum.
+    fn page_ceiling(&self) -> bool {
+        self.has_more()
+            && self.page >= crate::tools::id::query_limits::structure_search::PAGE_MAXIMUM
+    }
+    /// The walk stopped at the largest `maxEntries`: entries past it are
+    /// on no page.
+    fn walk_ceiling(&self) -> bool {
+        (self.limit_cut || self.scan_cut) && !self.can_expand()
+    }
+    fn terminal(&self) -> bool {
+        self.page_ceiling() || self.walk_ceiling()
+    }
+    fn out_of_range(&self) -> bool {
+        self.total > 0 && self.page > self.total_pages
+    }
+
+    /// The page, scan-expansion and partial-coverage continuations.
+    fn finish(&self, out: &mut Value, query: &impl serde::Serialize, warnings: &mut Vec<String>) {
+        // Every listed row stays reachable: a walk ceiling ends the listing,
+        // never the pages over the rows it did list.
+        if self.has_more() && !self.page_ceiling() {
+            out["next"]["nextPage"] = continuation(
+                query,
+                json!({"page": self.page + 1, "snapshot": self.snapshot}),
+            );
+        }
+        if self.terminal() {
+            let past = if self.page_ceiling() {
+                format!(
+                    "page {} is the last page a continuation may request; later rows of this listing",
+                    self.page
+                )
+            } else if self.early_exit {
+                format!(
+                    "the walk stopped at maxEntries {}; entries past it",
+                    self.requested
+                )
+            } else {
+                format!(
+                    "{} entries matched, past maxEntries {}; the rest",
+                    self.total_discovered.max(self.available),
+                    self.requested
+                )
+            };
+            warnings.push(format!(
+                "terminalLimit: {past} are on no page. List each subdirectory separately (hints.narrowScope outlines them) to reach them."
+            ));
+            out["next"]["narrowScope"] = narrow_scope(query);
+        }
+        if self.can_expand() {
+            let wider = self
+                .requested
+                .saturating_mul(2)
+                .max(self.requested + 1)
+                .min(max_walk() as usize);
+            out["next"]["expandScan"] =
+                continuation(query, json!({"maxEntries": wider, "page": 1}));
+        }
+        if self.terminal() {
+            out["terminalLimit"] = json!(true);
+        }
+        if self.limit_cut || self.scan_cut {
+            let reasons = [(self.limit_cut, "maxEntries"), (self.scan_cut, "walkLimit")]
+                .into_iter()
+                .filter_map(|(cut, reason)| cut.then_some(reason))
+                .collect::<Vec<_>>();
+            out["truncated"] = json!(true);
+            out["partialReasons"] = json!(reasons);
+            if self.early_exit {
+                out["atLeast"] = json!(self.total + 1);
+            } else {
+                out["totalAvailable"] = json!(self.total_discovered.max(self.available));
+            }
+        }
+        if self.out_of_range() {
+            warnings.push(format!(
+                "page:{} is out of range (only {} page(s), {} entries). Use page:1..{}.",
+                self.page, self.total_pages, self.total, self.total_pages
+            ));
+        }
+    }
+}
+
+/// The directories that head a `{dir, …}` group.
+fn group_dirs<'a>(dirs: impl Iterator<Item = &'a String>) -> std::collections::HashSet<String> {
+    dirs.filter(|dir| !dir.is_empty()).cloned().collect()
+}
+
+/// `path`'s own entries stay bare strings; consecutive entries of one
+/// subdirectory share a `{dir, <key>}` group (`dir` relative to `path`), so
+/// no prefix repeats. A page that continues a group repeats its `dir`.
+fn dir_groups<R>(
+    rows: &[R],
+    dir_entry: impl Fn(&R) -> (&String, &String),
+    key: &str,
+) -> Vec<Value> {
+    let mut out: Vec<Value> = Vec::new();
+    for row in rows {
+        let (dir, entry) = dir_entry(row);
+        if dir.is_empty() {
+            out.push(json!(entry));
+            continue;
+        }
+        match out.last_mut() {
+            Some(group) if group.get("dir").and_then(Value::as_str) == Some(dir) => {
+                if let Some(items) = group[key].as_array_mut() {
+                    items.push(json!(entry));
+                }
+            }
+            _ => {
+                let mut group = serde_json::Map::new();
+                group.insert("dir".into(), json!(dir));
+                group.insert(key.into(), json!([entry]));
+                out.push(Value::Object(group));
+            }
+        }
+    }
+    out
+}
+
+/// The walk for this page: a continuation reuses the walk its first page
+/// stored when the listed entries are unchanged; otherwise walk now.
+fn walked<T: std::any::Any + Send + Sync>(
+    page: usize,
+    snapshot: Option<&str>,
+    policy: &str,
+    walk: impl FnOnce() -> Result<T, StructureError>,
+) -> Result<(std::sync::Arc<T>, bool), StructureError> {
+    if page > 1
+        && let Some(snapshot) = snapshot
+        && let Some(stored) = memo::get::<T>(snapshot, policy)
+    {
+        return Ok((stored, true));
+    }
+    walk().map(|walk| (std::sync::Arc::new(walk), false))
+}
+
+/// Whether a filtered listing could have listed `path` had the policy
+/// admitted it: a directory may hold matches; a file must pass the name
+/// filters (include globs, extensions, basename regex).
+struct FilterProbe {
+    root: std::path::PathBuf,
+    names: Option<globset::GlobSet>,
+    paths: Option<globset::GlobSet>,
+    extensions: Vec<String>,
+    regex: Option<regex::Regex>,
+}
+
+impl FilterProbe {
+    fn new(
+        root: &std::path::Path,
+        include: &[String],
+        extensions: &[String],
+        name_regex: Option<&str>,
+    ) -> Self {
+        let set = |globs: Vec<&String>| {
+            if globs.is_empty() {
+                return None;
+            }
+            let mut builder = globset::GlobSetBuilder::new();
+            for glob in globs {
+                // An uncompilable glob matches nothing in the walk either.
+                if let Ok(glob) = globset::Glob::new(glob) {
+                    builder.add(glob);
+                }
+            }
+            builder.build().ok()
+        };
+        let (with_slash, bare): (Vec<_>, Vec<_>) = include.iter().partition(|g| g.contains('/'));
+        Self {
+            root: root.to_path_buf(),
+            names: set(bare),
+            paths: set(with_slash),
+            extensions: extensions
+                .iter()
+                .map(|ext| ext.trim_start_matches('.').to_ascii_lowercase())
+                .collect(),
+            regex: name_regex.and_then(|pattern| regex::Regex::new(pattern).ok()),
+        }
+    }
+
+    fn could_list(&self, path: &std::path::Path) -> bool {
+        if std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir()) {
+            return true;
+        }
+        let name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let relative = path
+            .strip_prefix(&self.root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/");
+        let included = match (&self.names, &self.paths) {
+            (None, None) => true,
+            (names, paths) => {
+                names.as_ref().is_some_and(|set| set.is_match(&name))
+                    || paths.as_ref().is_some_and(|set| set.is_match(&relative))
+            }
+        };
+        let extension = name
+            .rsplit_once('.')
+            .map(|(_, ext)| ext.to_ascii_lowercase())
+            .unwrap_or_default();
+        included
+            && (self.extensions.is_empty() || self.extensions.contains(&extension))
+            && self
+                .regex
+                .as_ref()
+                .is_none_or(|regex| regex.is_match(&name))
+    }
 }
 
 /// Execute one typed row. The runtime parses the validated row with its

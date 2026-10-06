@@ -29,7 +29,7 @@ Load when the deliverable is unnamed, a human page needs its type, or for an ADR
 
 ## ADR
 
-Expensive-to-reverse choices include stack, schema, auth, API style, and infra. Skip obvious code, prototypes, and restated implementation.
+An ADR records an expensive-to-reverse choice already made: stack, schema, auth, API style, or infra. An open choice that needs review goes to `octocode-rfc-generator`. Skip obvious code, prototypes, and restated implementation.
 
 - Look for conventions in `<workspace>/docs/adr/`, `<workspace>/docs/decisions/`, `.adr-dir`, adr-tools, and MADR; match location, numbering, headings, and markup.
 - IF conventions conflict → THEN surface the conflict; don't invent a second scheme.

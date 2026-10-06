@@ -1,6 +1,6 @@
 # Crate structure: modules, layers, crate boundaries
 
-Load when you decide module boundaries or file placement inside a crate, what goes in which crate, the API between crates, or the extraction of a module into a crate. Workspace layout, add-a-crate commands, and the root manifest: `references/workspace.md`. Test placement: `references/testing-and-tooling.md`.
+Load when you decide module boundaries or file placement inside a crate, what goes in which crate, the API between crates, or the extraction of a module into a crate. Why: boundaries decide rebuild scope, API surface, and what can be tested in isolation. Workspace layout, add-a-crate commands, and the root manifest: `references/workspace.md`. Test placement: `references/testing-and-tooling.md`.
 
 ## Files & modules
 - `src/lib.rs` is the library root and public surface. `src/main.rs` is a thin binary: args → lib → exit code. Logic lives in the library so it is testable.

@@ -1,15 +1,18 @@
 mod commands;
 mod config;
+mod config_view;
 mod graph;
 mod lsp_provision;
+mod mcp_clients;
 mod mcp_install;
+mod mcp_manage;
 mod schema;
 mod skill;
 mod system;
 use clap::{CommandFactory, FromArgMatches, Parser};
-use commands::{AuthCommand, Command, ToolArgs};
+use commands::{AuthCommand, Command, ConfigCommand, ToolArgs};
 use octocode_native::config::RuntimeSurface;
-use octocode_native::runtime::{HostOptions, ToolRuntime};
+use octocode_native::runtime::{ExitClass, FailureKind, HostOptions, ToolRuntime};
 use octocode_native::tools::id::ToolId;
 use serde_json::{Value, json};
 
@@ -26,7 +29,7 @@ use std::io::{self, Write};
 Every tool is called by its canonical name with a raw JSON query:\n\
   octocode <toolName> '<json>'      execute a tool\n\
   octocode scheme <toolName>        print the tool's contract\n\
-  octocode scheme                   list every tool and its availability\n\n\
+  octocode scheme                   list enabled tools\n\n\
 Code graph (persisted; see `octocode graph --help`):\n\
   octocode graph ingest <path>      parse once into <workspace>/.octocode/graph\n\
   octocode graph query <op> [ref]   callers, impact, cycles, issues, ... in milliseconds\n\n\
@@ -90,24 +93,30 @@ where
     T: Into<std::ffi::OsString> + Clone,
 {
     let argv: Vec<std::ffi::OsString> = argv.into_iter().map(Into::into).collect();
-    let command = if argv.iter().any(|arg| arg == "--no-color") {
-        Args::command().color(clap::ColorChoice::Never)
-    } else {
-        Args::command()
+    let command = || {
+        if argv.iter().any(|arg| arg == "--no-color") {
+            Args::command().color(clap::ColorChoice::Never)
+        } else {
+            Args::command()
+        }
     };
-    match command
+    match command()
         .try_get_matches_from(&argv)
         .and_then(|matches| Args::from_arg_matches(&matches))
     {
         Ok(args) => Ok(args),
         Err(error) => {
+            let error = if is_help(&error) {
+                hide_unavailable_tools(command())
+                    .try_get_matches_from(&argv)
+                    .err()
+                    .unwrap_or(error)
+            } else {
+                error
+            };
             let json_errors = argv.iter().any(|arg| arg == "--json-errors");
-            let displays_text = matches!(
-                error.kind(),
-                clap::error::ErrorKind::DisplayHelp
-                    | clap::error::ErrorKind::DisplayVersion
-                    | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
-            );
+            let displays_text =
+                is_help(&error) || error.kind() == clap::error::ErrorKind::DisplayVersion;
             if !json_errors || displays_text {
                 let _ = error.print();
                 return Err(error.exit_code() as u8);
@@ -123,6 +132,31 @@ where
             Err(2)
         }
     }
+}
+
+fn is_help(error: &clap::Error) -> bool {
+    matches!(
+        error.kind(),
+        clap::error::ErrorKind::DisplayHelp
+            | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+    )
+}
+
+/// Help lists only the tools this surface can run, as MCP `tools/list` does;
+/// a hidden tool stays callable by name and keeps its own help.
+fn hide_unavailable_tools(mut command: clap::Command) -> clap::Command {
+    let Ok(runtime) = ToolRuntime::from_host(HostOptions {
+        surface: RuntimeSurface::Cli,
+        ..HostOptions::default()
+    }) else {
+        return command;
+    };
+    for tool in ToolId::ALL {
+        if !runtime.is_available(tool.as_str()) {
+            command = command.mut_subcommand(tool.as_str(), |sub| sub.hide(true));
+        }
+    }
+    command
 }
 
 /// Fields the contract adds to every query of `tool` (the trimmed
@@ -395,6 +429,17 @@ fn compact_tool_catalog(
 
 pub async fn run(args: Args) -> u8 {
     let json_errors = args.json_errors;
+    if let Command::Config {
+        command:
+            Some(ConfigCommand::View {
+                no_open,
+                idle_timeout,
+            }),
+        ..
+    } = &args.command
+    {
+        return config_view::run(*no_open, *idle_timeout);
+    }
     if args.redact_emails {
         // Single-threaded startup; the config resolver reads the process env,
         // so the flag is just the env spelling set before runtime creation.
@@ -483,12 +528,19 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
         }
         Command::ShowConfig { json } => config::show_path(runtime, json),
         Command::Config {
+            // `config view`, the only subcommand, returns from `run` before
+            // the runtime starts.
+            command: _,
+            manage,
             check,
             add,
             value_stdin,
             remove,
             json,
         } => {
+            if manage {
+                return config_management(runtime);
+            }
             if !add.is_empty() || remove.is_some() {
                 return config::edit(
                     runtime,
@@ -632,7 +684,6 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             enable_local,
             pass_env,
             method,
-            backup,
             rollback,
         } => mcp_install::run(mcp_install::InstallArgs {
             ide,
@@ -644,7 +695,6 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             enable_local,
             pass_env,
             method,
-            backup,
             rollback,
         }),
         Command::Cache { action } => system::cache(runtime, &action),
@@ -655,8 +705,67 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             yes,
             force,
             json,
-        } => lsp_provision::run(&action, names, all, yes, force, json).await,
+        } => lsp_provision::run(runtime, &action, names, all, yes, force, json).await,
     }
+}
+
+fn config_management(runtime: &ToolRuntime) -> u8 {
+    use std::io::Read;
+    let mut request = Vec::new();
+    let result = io::stdin()
+        .take(131_073)
+        .read_to_end(&mut request)
+        .map_err(|_| config::ManageError::from("Cannot read management request."))
+        .and_then(|_| config_management_response(runtime, &request));
+    match result {
+        Ok(response) => write_json(&response, true),
+        Err(error) => {
+            write_json(
+                &json!({"success": false, "apiVersion": 1, "error": {"code": error.code(), "message": error.to_string()}}),
+                true,
+            );
+            2
+        }
+    }
+}
+
+fn config_management_response(
+    runtime: &ToolRuntime,
+    bytes: &[u8],
+) -> Result<Value, config::ManageError> {
+    if bytes.len() > 131_072 {
+        return Err("Management request exceeds 128 KiB.".into());
+    }
+    let request: Value =
+        serde_json::from_slice(bytes).map_err(|_| "Management request must be valid JSON.")?;
+    if !request.is_object() {
+        return Err("Management request must be an object.".into());
+    }
+    let catalog = runtime
+        .catalog()
+        .map_err(|_| "Cannot verify native contract.")?;
+    if request.get("expectedFingerprint") != catalog.get("fingerprint") {
+        return Err(
+            "Configuration management contracts do not match. Rebuild or update Octocode.".into(),
+        );
+    }
+    let operation = request
+        .get("operation")
+        .and_then(Value::as_str)
+        .ok_or("Missing management operation.")?;
+    let data = match operation {
+        "inspect" | "setEnv" | "removeEnv" | "setSetting" | "removeSetting" => {
+            config::manage(runtime, &request)?
+        }
+        "agents" | "setAgent" | "removeAgent" => {
+            let cwd = std::env::current_dir().map_err(|_| "Cannot resolve workspace.")?;
+            mcp_manage::manage(&request, &cwd)?
+        }
+        _ => return Err("Unsupported management operation.".into()),
+    };
+    Ok(
+        json!({"success": true, "apiVersion": 1, "fingerprint": catalog["fingerprint"], "data": data}),
+    )
 }
 
 async fn run_tool(runtime: &ToolRuntime, tool: &str, args: ToolArgs, json_errors: bool) -> u8 {
@@ -687,11 +796,8 @@ async fn run_tool(runtime: &ToolRuntime, tool: &str, args: ToolArgs, json_errors
     execute(runtime, tool, input, !args.pretty).await
 }
 
-/// Execute one tool call and print its structured JSON result to stdout.
-///
-/// Exit codes mirror the response: 0 success, 6 when the response carries a
-/// re-runnable `next.*` continuation or a partial source read, and the typed
-/// failure codes otherwise.
+/// Execute one tool call and print its structured JSON result to stdout,
+/// exiting with the code of the runtime's [`ExitClass`].
 pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, compact: bool) -> u8 {
     let execution = runtime.execute("cli-1".into(), tool.into(), input);
     tokio::pin!(execution);
@@ -702,219 +808,54 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
             execution.await
         }
     };
-    match result {
+    let (value, class) = match result {
         Ok(outcome) => {
-            let value = outcome.structured_content;
-            let mut exit = outcome.failure.map_or(0, failure_exit);
-            if outcome.all_failed {
-                // A whole-call failure that carries no runtime FailureKind (e.g. a
-                // config/gate refusal or admission-time validation) must not read
-                // as success — classify it as a usage/input error rather than 0.
-                // Rows that all reject the caller's input are exit 2 as well,
-                // not an execution failure.
-                if let Some(code) = clasify_failure_exit(&value, outcome.failure) {
-                    exit = code;
-                } else if exit == 0 || (exit == 5 && all_rows_invalid_input(&value)) {
-                    exit = 2;
-                }
-            } else {
-                // A bulk result where some rows succeeded is not a total
-                // failure, but a partial source read or an available
-                // continuation is still exit 6. A nested/informational partial
-                // with no continuation and no source content (e.g. a reasoning
-                // tool's coverage `truncated`) stays 0.
-                let rows: Vec<&Value> = value["results"]
-                    .as_array()
-                    .map(|array| array.iter().collect())
-                    .unwrap_or_default();
-                let all_empty = !rows.is_empty()
-                    && rows
-                        .iter()
-                        .all(|row| row.get("status").and_then(Value::as_str) == Some("empty"));
-                let has_continuation = rows.iter().any(|row| has_cli_continuation(row))
-                    || has_clasify_continuation(&value)
-                    || value.pointer("/responsePagination/hasMore") == Some(&Value::Bool(true));
-                // Empty (exit 1) takes precedence over a corrective continuation:
-                // an empty result with a recovery next.* is still "empty", not
-                // "more pages" (exit 6, reserved for results + continuation).
-                // A batch row rejected by input validation is a caller error
-                // even when sibling rows succeeded (row isolation).
-                let rejected_row = rows.iter().any(|row| is_invalid_input_row(row));
-                exit = if rejected_row {
-                    2
-                } else if all_empty {
-                    1
-                } else if has_continuation {
-                    6
-                } else {
-                    0
-                };
-            }
-            let code = write_json(&value, compact);
-            if code != 0 {
-                return code;
-            }
-            exit
+            let class = outcome.exit_class();
+            (outcome.structured_content, class)
         }
         Err(error) => {
-            if let Some(payload) = error.payload {
-                write_json(&payload, compact);
-            } else {
-                // Emit a structured JSON error to stdout so callers can parse it.
-                // Previously this went to stderr only, causing silent empty output
-                // (e.g. lspSearch timeout on cold start when stderr is discarded).
-                let hint = if error.code == "timeout" {
-                    Some(
-                        "Retry -- the first call initialises the language server (~60 s cold start).",
-                    )
-                } else {
-                    None
-                };
-                let mut value = json!({
-                    "error": error.message,
-                    "errorCode": error.code,
-                });
-                if let Some(hint) = hint {
-                    value["hints"] = json!([hint]);
-                }
-                write_json(&value, compact);
+            let class = error.exit_class();
+            (runtime_error_output(error), class)
+        }
+    };
+    match write_json(&value, compact) {
+        0 => exit_code(class),
+        code => code,
+    }
+}
+
+/// The stdout JSON for a runtime error: its structured payload, else an
+/// `{error, errorCode}` envelope (stdout, so a caller discarding stderr still
+/// sees why the call failed). Every string is secret-scrubbed, as at the
+/// N-API boundary.
+fn runtime_error_output(error: octocode_native::runtime::RuntimeError) -> Value {
+    let mut value = match error.payload {
+        Some(payload) => *payload,
+        None => {
+            let mut value = json!({ "error": error.message, "errorCode": error.code });
+            if error.code == "timeout" {
+                value["hints"] = json!([
+                    "Retry -- the first call initialises the language server (~60 s cold start)."
+                ]);
             }
-            if error.code == "invalidInput" { 2 } else { 5 }
+            value
         }
+    };
+    octocode_native::security::scrub_error_payload(&mut value);
+    value
+}
+
+fn exit_code(class: ExitClass) -> u8 {
+    match class {
+        ExitClass::Success => 0,
+        ExitClass::Empty => 1,
+        ExitClass::InvalidInput => 2,
+        ExitClass::Failed(FailureKind::NotFound) => 3,
+        ExitClass::Failed(FailureKind::Authentication | FailureKind::Permission) => 4,
+        ExitClass::Failed(FailureKind::Execution) => 5,
+        ExitClass::Incomplete => 6,
+        ExitClass::Failed(FailureKind::RateLimited) => 7,
     }
-}
-
-fn failure_exit(failure: octocode_native::runtime::FailureKind) -> u8 {
-    use octocode_native::runtime::FailureKind;
-    match failure {
-        FailureKind::NotFound => 3,
-        FailureKind::Authentication | FailureKind::Permission => 4,
-        FailureKind::RateLimited => 7,
-        FailureKind::Execution => 5,
-    }
-}
-
-/// Exit code for a clasify call in which every resource errored (nothing was
-/// judged): the caller's request (2) only when every error rejects it; when
-/// every delegated read failed alike, that read tool's exit (`failure`, e.g. 3
-/// for a missing file); missing sources (3), throttling (7), otherwise an
-/// execution/provider failure (5).
-fn clasify_failure_exit(
-    value: &Value,
-    failure: Option<octocode_native::runtime::FailureKind>,
-) -> Option<u8> {
-    let queries = value["queries"].as_array().filter(|q| !q.is_empty())?;
-    let mut codes = Vec::new();
-    for query in queries {
-        if let Some(code) = query.pointer("/error/code").and_then(Value::as_str) {
-            codes.push(code.to_owned());
-        }
-        for resource in query["resources"].as_array().into_iter().flatten() {
-            // A compact resource with one plain page carries its `error` or
-            // `answers` itself; it then has no `pages`.
-            let own = std::iter::once(resource).filter(|resource| resource.get("pages").is_none());
-            for page in resource["pages"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .chain(own)
-            {
-                if let Some(code) = page.pointer("/error/code").and_then(Value::as_str) {
-                    codes.push(code.to_owned());
-                }
-                for answer in page["answers"]
-                    .as_object()
-                    .into_iter()
-                    .flat_map(|a| a.values())
-                {
-                    if let Some(code) = answer.pointer("/error/code").and_then(Value::as_str) {
-                        codes.push(code.to_owned());
-                    }
-                }
-            }
-        }
-    }
-    if codes.is_empty() {
-        return None;
-    }
-    let all = |test: fn(&str) -> bool| codes.iter().all(|code| test(code));
-    Some(if all(is_clasify_caller_code) {
-        2
-    } else if let Some(failure) = failure {
-        failure_exit(failure)
-    } else if all(octocode_native::runtime::response::is_not_found_code) {
-        3
-    } else if all(|code| matches!(code, "classificationRateLimited" | "rateLimited")) {
-        7
-    } else {
-        5
-    })
-}
-
-/// clasify error codes that reject the caller's request rather than report a
-/// failed read or provider call.
-fn is_clasify_caller_code(code: &str) -> bool {
-    octocode_native::runtime::response::is_invalid_input_code(code)
-        || matches!(
-            code,
-            "invalidClassificationContext"
-                | "invalidClassificationRequest"
-                | "classificationLocateUnsupported"
-                | "classificationExpandedCellsExceeded"
-                | "pathOutsideAllowedRoots"
-                | "pathValidationFailed"
-        )
-}
-
-/// An error row whose `errorCode` rejects the caller's input.
-fn is_invalid_input_row(row: &Value) -> bool {
-    row.get("status").and_then(Value::as_str) == Some("error")
-        && row
-            .pointer("/data/errorCode")
-            .and_then(Value::as_str)
-            .is_some_and(octocode_native::runtime::response::is_invalid_input_code)
-}
-
-fn all_rows_invalid_input(value: &Value) -> bool {
-    value["results"]
-        .as_array()
-        .is_some_and(|rows| !rows.is_empty() && rows.iter().all(is_invalid_input_row))
-}
-
-/// clasify returns `queries[].next.clasify` (a complete query, not a
-/// `{tool,query}` row continuation); remaining coverage is still exit 6.
-fn has_clasify_continuation(value: &Value) -> bool {
-    value["queries"].as_array().is_some_and(|queries| {
-        queries.iter().any(|query| {
-            query
-                .get("next")
-                .and_then(|next| next.get(ToolId::Clasify.as_str()))
-                .is_some_and(Value::is_object)
-        })
-    })
-}
-
-/// A row with more of its result remaining: an open `next.*` page/resume
-/// call (the runtime's continuation-name set) or a partial source read.
-fn has_cli_continuation(row: &Value) -> bool {
-    use octocode_native::runtime::response::{continuation, is_remaining_continuation_name};
-    // A row that declares `complete:true` has nothing left to page; any
-    // `next.*` it carries (e.g. astSearch `expandCaptures`) is a drill-down.
-    let complete = row.pointer("/data/complete") == Some(&Value::Bool(true));
-    (!complete
-        && (row
-            .pointer("/data/next")
-            .and_then(Value::as_object)
-            .is_some_and(|calls| {
-                calls
-                    .keys()
-                    .any(|name| is_remaining_continuation_name(name))
-            })
-            || continuation(&row["data"], &is_remaining_continuation_name)))
-        || (octocode_native::runtime::response::is_partial(&row["data"])
-            && row["data"]["content"]
-                .as_str()
-                .is_some_and(|text| !text.is_empty()))
 }
 
 pub(super) fn write_json(value: &Value, compact: bool) -> u8 {
@@ -936,52 +877,26 @@ pub(super) fn write_json(value: &Value, compact: bool) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        INTERACTIVE_EXECUTION_TIMEOUT_SECS, all_rows_invalid_input, clasify_failure_exit,
-        error_envelope, has_clasify_continuation, has_cli_continuation, parse_args_from,
+        INTERACTIVE_EXECUTION_TIMEOUT_SECS, error_envelope, parse_args_from, runtime_error_output,
     };
-    use octocode_native::runtime::FailureKind;
     use serde_json::json;
 
     #[test]
-    fn clasify_whose_every_read_failed_exits_like_that_read() {
-        let failed = |code: &str| {
-            json!({"queries":[{"queryId":"q","resources":[{"resourceId":"x","coverage":"error",
-                "pages":[{"error":{"code":code,"message":"m"}}]}]}]})
+    fn runtime_errors_are_secret_scrubbed_on_stdout() {
+        let token = format!("ghp_{}", "a".repeat(37));
+        let error = |payload: Option<serde_json::Value>| octocode_native::runtime::RuntimeError {
+            code: "providerError".into(),
+            message: format!("upstream rejected {token}"),
+            payload: payload.map(Box::new),
+            validation_issues: None,
         };
-        // localFetch reports a missing file as fileAccessFailed + NotFound.
-        let missing = failed("fileAccessFailed");
-        assert_eq!(
-            clasify_failure_exit(&missing, Some(FailureKind::NotFound)),
-            Some(3)
+        let envelope = runtime_error_output(error(None)).to_string();
+        assert!(
+            !envelope.contains("ghp_") && envelope.contains("[REDACTED-"),
+            "{envelope}"
         );
-        assert_eq!(clasify_failure_exit(&missing, None), Some(5));
-        // Compact output: a single failed page is stated on the resource.
-        let compact = |code: &str| {
-            json!({"queries":[{"queryId":"q","resources":[{"resourceId":"x","coverage":"error",
-                "answers":{"q":{"error":{"code":code,"message":"m"}}}}]}]})
-        };
-        assert_eq!(
-            clasify_failure_exit(&compact("classificationProviderError"), None),
-            Some(5)
-        );
-        assert_eq!(
-            clasify_failure_exit(&compact("pathNotFound"), None),
-            Some(3)
-        );
-        assert_eq!(clasify_failure_exit(&failed("pathNotFound"), None), Some(3));
-        assert_eq!(
-            clasify_failure_exit(&failed("rateLimited"), Some(FailureKind::RateLimited)),
-            Some(7)
-        );
-        assert_eq!(
-            clasify_failure_exit(
-                &failed("classificationLocateUnsupported"),
-                Some(FailureKind::NotFound)
-            ),
-            Some(2),
-            "a rejected request stays a caller error"
-        );
-        assert_eq!(clasify_failure_exit(&json!({"queries":[]}), None), None);
+        let payload = runtime_error_output(error(Some(json!({"detail": [token.clone()]}))));
+        assert!(!payload.to_string().contains("ghp_"), "{payload}");
     }
 
     #[test]
@@ -1020,86 +935,6 @@ mod tests {
         );
         assert_eq!(parse_args_from(["octocode", "notACommand"]).err(), Some(2));
         assert!(parse_args_from(["octocode", "--json-errors", "scheme"]).is_ok());
-    }
-
-    #[test]
-    fn optional_drill_downs_are_not_remaining_pages() {
-        let call = json!({"tool":"ghGetHistoryItem","query":{"number":1}});
-        let menu = json!({"data":{"next":{"getBody":call,"readPr":call,"verifyReferences":call}}});
-        assert!(!has_cli_continuation(&menu));
-        for name in ["nextPage", "continue", "expandLimit", "retry"] {
-            let row = json!({"data":{"next":{name:call}}});
-            assert!(has_cli_continuation(&row), "{name}");
-        }
-        let nested = json!({"data":{"nestedEvidence":{"next":{"nextPage":call}}}});
-        assert!(has_cli_continuation(&nested));
-    }
-
-    #[test]
-    fn complete_rows_with_only_drill_downs_are_not_partial() {
-        let call = json!({"tool":"astSearch","query":{"captureText":true}});
-        let complete = json!({"data":{"complete":true,"next":{"expandCaptures":call}}});
-        assert!(!has_cli_continuation(&complete));
-        let open = json!({"data":{"complete":false,"next":{"expandCaptures":call}}});
-        assert!(has_cli_continuation(&open));
-    }
-
-    #[test]
-    fn rows_rejecting_caller_input_are_invalid_input() {
-        let rows = json!({"results":[
-            {"status":"error","data":{"errorCode":"invalidRegex"}},
-            {"status":"error","data":{"errorCode":"validation"}}
-        ]});
-        assert!(all_rows_invalid_input(&rows));
-        let mixed = json!({"results":[
-            {"status":"error","data":{"errorCode":"invalidRegex"}},
-            {"status":"error","data":{"errorCode":"fileAccessFailed"}}
-        ]});
-        assert!(!all_rows_invalid_input(&mixed));
-        assert!(!all_rows_invalid_input(&json!({"results":[]})));
-    }
-
-    #[test]
-    fn clasify_remaining_coverage_is_partial_cli_output() {
-        let pending = json!({"queries":[
-            {"queryId":"a","results":[]},
-            {"queryId":"b","results":[],"next":{"clasify":{"id":"b","resources":[]}}}
-        ]});
-        assert!(has_clasify_continuation(&pending));
-        assert!(!has_clasify_continuation(
-            &json!({"queries":[{"queryId":"a","results":[]}]})
-        ));
-    }
-
-    #[test]
-    fn nested_executable_continuation_is_classified_as_partial_cli_output() {
-        let row = json!({
-            "data": {
-                "files": [{
-                    "path": "src/lib.rs",
-                    "isPartial": true,
-                    "next": {
-                        "continue": {
-                            "tool": "ghGetFileContent",
-                            "query": {"owner":"a","repo":"b","path":"src/lib.rs","charOffset":64}
-                        }
-                    }
-                }]
-            }
-        });
-
-        assert!(has_cli_continuation(&row));
-    }
-
-    #[test]
-    fn informational_nested_partial_without_executable_next_stays_success() {
-        let row = json!({
-            "data": {
-                "pages": [{"isPartial": true, "coverage": "partial"}]
-            }
-        });
-
-        assert!(!has_cli_continuation(&row));
     }
 
     #[test]

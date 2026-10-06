@@ -736,3 +736,69 @@ fn inside_nested_under_has_resolves_ancestors_without_a_cursor_path() {
     assert_eq!(matches.len(), 1);
     assert!(matches[0].text.starts_with("function outer"));
 }
+
+const RUST_MACRO_SOURCE: &str = "fn t() {\n    assert!(status.unwrap().success());\n    assert_eq!(&read.unwrap(), b\"x\");\n    let v = vec![a.unwrap(); 2];\n    outer!(inner!(deep.unwrap()));\n    plain.unwrap();\n}\n";
+
+#[test]
+fn rust_patterns_match_inside_macro_token_trees() {
+    let found = run_pattern(RUST_MACRO_SOURCE, "rs", "$X.unwrap()");
+    let texts: Vec<_> = found.iter().map(|m| m.text.as_str()).collect();
+    assert_eq!(
+        texts,
+        [
+            "status.unwrap()",
+            "read.unwrap()",
+            "a.unwrap()",
+            "deep.unwrap()",
+            "plain.unwrap()"
+        ]
+    );
+    // Positions stay in file coordinates.
+    assert_eq!((found[0].start_line, found[0].start_col), (2, 12));
+    assert_eq!(found[0].metavar_ranges["X"][0].line, 2);
+    let rule = run_rule(RUST_MACRO_SOURCE, "rs", "pattern: $X.unwrap()");
+    assert_eq!(rule.len(), 5);
+}
+
+#[test]
+fn rust_macro_bodies_keep_enclosing_ancestors_and_skip_the_delimiter_wrapper() {
+    let inside = run_rule(
+        RUST_MACRO_SOURCE,
+        "rs",
+        "pattern: $X.unwrap()\ninside:\n  kind: function_item\n  stopBy: end",
+    );
+    assert_eq!(inside.len(), 5);
+    let not_inside = run_rule(
+        RUST_MACRO_SOURCE,
+        "rs",
+        "pattern: $X.unwrap()\nnot:\n  inside:\n    kind: function_item\n    stopBy: end",
+    );
+    assert!(not_inside.is_empty());
+    // `assert!(x)`'s own parentheses are delimiters, not a parenthesized expression.
+    let tuples = run_rule(
+        "fn t() { assert_eq!(a, b); f((c, d)); }\n",
+        "rs",
+        "kind: tuple_expression",
+    );
+    assert_eq!(tuples.len(), 1);
+    assert_eq!(tuples[0].text, "(c, d)");
+    // The kind-only fast path expands macro bodies too.
+    assert_eq!(
+        run_rule(RUST_MACRO_SOURCE, "rs", "kind: call_expression").len(),
+        6
+    );
+}
+
+#[test]
+fn rust_macro_bodies_without_the_anchor_keep_flat_tokens() {
+    // Flat token-tree identifiers already match; a re-parsed body replaces
+    // its flat tokens, so nothing is reported twice.
+    let found = run_rule(
+        "fn t() { assert!(ready); log!(ready, other(ready)); }\n",
+        "rs",
+        "kind: identifier\nregex: ^ready$",
+    );
+    assert_eq!(found.len(), 3);
+    // A body without the pattern's anchor keeps its flat tokens.
+    assert!(run_pattern("fn t() { assert!(ok); }\n", "rs", "$X.unwrap()").is_empty());
+}

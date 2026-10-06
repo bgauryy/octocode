@@ -402,164 +402,250 @@ struct FileIndex<'a> {
 }
 
 pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
-    let mut strings = Interner::default();
-    let mut nodes = Vec::<NodeRec>::new();
-    let empty = FileFacts::default();
+    let mut projector = Projector::new(built, workspace);
+    let symbols = projector.symbols();
+    let (externals, package_nodes) = projector.externals();
+    projector.contains_edges();
+    let (unparsed_links, relinked) = projector.unparsed_links();
+    projector.import_edges(&externals, &package_nodes);
+    let star_targets = star_targets(built);
+    let resolver = ExportResolver {
+        built,
+        indexes: &symbols.indexes,
+        star_targets: &star_targets,
+        memo: std::cell::RefCell::new(HashMap::new()),
+    };
+    projector.use_edges(&resolver);
+    let calls = projector.call_edges(&resolver, &symbols);
+    for (src, dst, line) in unparsed_links {
+        projector.push(
+            src,
+            dst,
+            EdgeKind::Imports,
+            Confidence::Medium,
+            "unparsed-target",
+            line,
+        );
+    }
+    projector.finish(&relinked, calls)
+}
 
-    // Files, sorted by path.
-    let mut file_nodes = BTreeMap::<&str, u32>::new();
-    let mut roles = HashMap::<&str, u8>::new();
-    let languages = built
-        .nodes
-        .keys()
-        .map(String::as_str)
-        .chain(
-            built
-                .diagnostics
-                .iter()
-                .filter(|d| d.code == "scan-skip")
-                .map(|d| d.file.as_str()),
-        )
-        .map(|file| {
-            let raw = built.facts.get(file).map_or("", |f| f.language.as_str());
-            (file, canonical_language(file, raw))
-        })
-        .collect::<HashMap<_, _>>();
-    let lang = |file: &str| languages.get(file).map_or("", String::as_str);
-    // Files the scan found but did not parse (over the size bound) stay in
-    // the graph, so imports of them resolve and `find` sees them.
-    let unparsed = built
-        .diagnostics
-        .iter()
-        .filter(|d| d.code == "scan-skip" && !built.nodes.contains_key(&d.file))
-        .map(|d| d.file.as_str())
-        .collect::<BTreeSet<_>>();
-    let mut all_files = built.nodes.keys().map(String::as_str).collect::<Vec<_>>();
-    all_files.extend(unparsed.iter().copied());
-    all_files.sort_unstable();
-    all_files.dedup();
-    for file in all_files {
-        let id = nodes.len() as u32;
+/// Symbol lookups the edge passes share.
+#[derive(Default)]
+struct Symbols<'a> {
+    indexes: BTreeMap<&'a str, FileIndex<'a>>,
+    global_names: HashMap<&'a str, Vec<u32>>,
+    /// Symbol node → declaration kind (for callable/type target filters).
+    symbol_kinds: HashMap<u32, &'a str>,
+    /// Symbol node → name of its containing declaration (`Box` for `Box.open`).
+    container_names: HashMap<u32, &'a str>,
+}
+
+/// `(src, dst, line)` links to unparsed files, and the `(file, line)`
+/// import sites they relink.
+type UnparsedLinks<'a> = (Vec<(u32, u32, u32)>, BTreeSet<(&'a str, u32)>);
+
+/// An unlinked external import, classified against its component manifest.
+struct External<'f> {
+    file: &'f str,
+    name: String,
+    declared: &'static str,
+    line: u32,
+}
+
+/// Projection state: the interned strings, nodes and edges built so far.
+struct Projector<'a> {
+    built: &'a BuiltGraph,
+    workspace: &'a Workspace,
+    strings: Interner,
+    nodes: Vec<NodeRec>,
+    edges: Vec<EdgeRec>,
+    file_nodes: BTreeMap<&'a str, u32>,
+    roles: HashMap<&'a str, u8>,
+    languages: HashMap<&'a str, String>,
+    /// Files the scan found but did not parse (over the size bound): they
+    /// stay in the graph, so imports of them resolve and `find` sees them.
+    unparsed: BTreeSet<&'a str>,
+}
+
+impl<'a> Projector<'a> {
+    /// File nodes, sorted by path.
+    fn new(built: &'a BuiltGraph, workspace: &'a Workspace) -> Self {
+        let languages = built
+            .nodes
+            .keys()
+            .map(String::as_str)
+            .chain(
+                built
+                    .diagnostics
+                    .iter()
+                    .filter(|d| d.code == "scan-skip")
+                    .map(|d| d.file.as_str()),
+            )
+            .map(|file| {
+                let raw = built.facts.get(file).map_or("", |f| f.language.as_str());
+                (file, canonical_language(file, raw))
+            })
+            .collect::<HashMap<_, _>>();
+        let unparsed = built
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == "scan-skip" && !built.nodes.contains_key(&d.file))
+            .map(|d| d.file.as_str())
+            .collect::<BTreeSet<_>>();
+        let mut projector = Self {
+            built,
+            workspace,
+            strings: Interner::default(),
+            nodes: Vec::new(),
+            edges: Vec::new(),
+            file_nodes: BTreeMap::new(),
+            roles: HashMap::new(),
+            languages,
+            unparsed,
+        };
+        let mut all_files = built.nodes.keys().map(String::as_str).collect::<Vec<_>>();
+        all_files.extend(projector.unparsed.iter().copied());
+        all_files.sort_unstable();
+        all_files.dedup();
+        for file in all_files {
+            projector.push_file(file);
+        }
+        projector
+    }
+
+    fn push_file(&mut self, file: &'a str) {
+        let id = self.nodes.len() as u32;
         let name = file.rsplit('/').next().unwrap_or(file);
-        let mut flags = file_roles(&built.root, file);
-        if workspace.entries.contains_key(file) {
+        let mut flags = file_roles(&self.built.root, file);
+        if self.workspace.entries.contains_key(file) {
             flags |= ROLE_ENTRY;
         }
-        if unparsed.contains(file) {
+        if self.unparsed.contains(file) {
             flags |= ROLE_UNPARSED;
         }
-        roles.insert(file, flags);
-        nodes.push(NodeRec {
+        self.roles.insert(file, flags);
+        let language = self.lang(file).to_owned();
+        self.nodes.push(NodeRec {
             kind: NodeKind::File,
             flags,
-            key: strings.id(file),
-            name: strings.id(name),
-            detail: strings.id(lang(file)),
+            key: self.strings.id(file),
+            name: self.strings.id(name),
+            detail: self.strings.id(&language),
             file: id,
             parent: NONE,
             line: NONE,
             end_line: NONE,
         });
-        file_nodes.insert(file, id);
+        self.file_nodes.insert(file, id);
     }
 
-    // Symbols, per file in source order; keys are `path#Qualified.name`
-    // with an `@line` suffix only when the qualified name repeats.
-    let mut indexes = BTreeMap::<&str, FileIndex>::new();
-    let mut global_names = HashMap::<&str, Vec<u32>>::new();
-    // Symbol node → declaration kind (for callable/type target filters).
-    let mut symbol_kinds = HashMap::<u32, &str>::new();
-    // Symbol node → name of its containing declaration (`Box` for `Box.open`).
-    let mut container_names = HashMap::<u32, &str>::new();
-    for (file, facts) in &built.facts {
-        let Some(&file_id) = file_nodes.get(file.as_str()) else {
-            continue;
-        };
-        // Minified bundles declare thousands of mangled names: keep the file
-        // and its imports, drop the symbols.
-        if roles
-            .get(file.as_str())
-            .is_some_and(|r| r & ROLE_BUNDLED != 0)
-        {
-            continue;
+    fn lang(&self, file: &str) -> &str {
+        self.languages.get(file).map_or("", String::as_str)
+    }
+
+    fn has_role(&self, file: &str, mask: u8) -> bool {
+        self.roles.get(file).is_some_and(|r| r & mask != 0)
+    }
+
+    fn push(
+        &mut self,
+        src: u32,
+        dst: u32,
+        kind: EdgeKind,
+        confidence: Confidence,
+        detail: &str,
+        line: u32,
+    ) {
+        let detail = self.strings.id(detail);
+        self.edges.push(EdgeRec {
+            src,
+            dst,
+            kind,
+            confidence,
+            detail,
+            line,
+        });
+    }
+
+    /// Symbols, per file in source order; keys are `path#Qualified.name`
+    /// with an `@line` suffix only when the qualified name repeats.
+    fn symbols(&mut self) -> Symbols<'a> {
+        let mut symbols = Symbols::default();
+        let built = self.built;
+        for (file, facts) in &built.facts {
+            let Some(&file_id) = self.file_nodes.get(file.as_str()) else {
+                continue;
+            };
+            // Minified bundles declare thousands of mangled names: keep the
+            // file and its imports, drop the symbols.
+            if self.has_role(file, ROLE_BUNDLED) {
+                continue;
+            }
+            let index = self.file_symbols(file, facts, file_id, &mut symbols);
+            symbols.indexes.insert(file.as_str(), index);
         }
+        symbols
+    }
+
+    fn file_symbols(
+        &mut self,
+        file: &'a str,
+        facts: &'a FileFacts,
+        file_id: u32,
+        symbols: &mut Symbols<'a>,
+    ) -> FileIndex<'a> {
         let by_id = facts
             .declarations
             .iter()
             .map(|decl| (decl.id.as_str(), decl))
             .collect::<HashMap<_, _>>();
-        let qualified = |decl: &Declaration| {
-            let mut parts = vec![decl.name.as_str()];
-            let mut seen = BTreeSet::from([decl.id.as_str()]);
-            let mut parent = decl.parent.as_deref();
-            while let Some(id) = parent.filter(|id| seen.insert(id)) {
-                let Some(parent_decl) = by_id.get(id) else {
-                    break;
-                };
-                parts.push(parent_decl.name.as_str());
-                parent = parent_decl.parent.as_deref();
-            }
-            parts.reverse();
-            parts.join(".")
-        };
         let mut ordered = facts.declarations.iter().collect::<Vec<_>>();
         ordered.sort_by(|a, b| a.line.cmp(&b.line).then_with(|| a.id.cmp(&b.id)));
-        let names = ordered
-            .iter()
-            .map(|decl| qualified(decl))
-            .collect::<Vec<_>>();
-        let mut repeats = HashMap::<&str, u32>::new();
-        for name in &names {
-            *repeats.entry(name.as_str()).or_default() += 1;
-        }
-        let mut used = BTreeSet::<String>::new();
-        let mut index = FileIndex {
-            decl_nodes: HashMap::new(),
-            by_name: HashMap::new(),
-            exports: HashMap::new(),
-        };
-        let file_is_test = roles.get(file.as_str()).is_some_and(|r| r & ROLE_TEST != 0);
-        let test_scopes = test_module_ranges(facts, lang(file));
+        let keys = symbol_keys(file, &ordered, &by_id);
+        let file_is_test = self.has_role(file, ROLE_TEST);
+        let test_scopes = test_module_ranges(facts, self.lang(file));
+        let python = self.lang(file) == "python";
         let is_test_decl = |decl: &Declaration| {
             file_is_test
                 || test_scopes
                     .iter()
                     .any(|(start, end)| *start <= decl.line && decl.line <= *end)
-                || (lang(file) == "python"
-                    && ((decl.kind == "function" && decl.name.starts_with("test_"))
+                || (python
+                    && ((matches!(decl.kind.as_str(), "function" | "method")
+                        && decl.name.starts_with("test_"))
                         || (decl.kind == "class" && decl.name.starts_with("Test"))))
         };
-        for (decl, qualified_name) in ordered.iter().zip(&names) {
-            let mut key = if repeats[qualified_name.as_str()] > 1 {
-                format!("{file}#{qualified_name}@{}", decl.line)
-            } else {
-                format!("{file}#{qualified_name}")
-            };
-            let mut n = 1;
-            while !used.insert(key.clone()) {
-                n += 1;
-                key = format!("{file}#{qualified_name}@{}.{n}", decl.line);
-            }
-            let id = nodes.len() as u32;
-            nodes.push(NodeRec {
+        // Generated, bundled, vendored and declaration-only code never
+        // serves as a unique-name call target.
+        let unique_target = !self.has_role(file, ROLE_NOT_AUTHORED | ROLE_DECLARATION);
+        let mut index = FileIndex {
+            decl_nodes: HashMap::new(),
+            by_name: HashMap::new(),
+            exports: HashMap::new(),
+        };
+        for (decl, key) in ordered.iter().zip(&keys) {
+            let id = self.nodes.len() as u32;
+            let flags = if decl.exported { FLAG_EXPORTED } else { 0 }
+                | if is_test_decl(decl) { FLAG_TEST } else { 0 }
+                | if facts.reference_counts.get(&decl.id).is_some_and(|n| *n > 0) {
+                    FLAG_LOCAL_USE
+                } else {
+                    0
+                };
+            self.nodes.push(NodeRec {
                 kind: NodeKind::Symbol,
-                flags: if decl.exported { FLAG_EXPORTED } else { 0 }
-                    | if is_test_decl(decl) { FLAG_TEST } else { 0 }
-                    | if facts.reference_counts.get(&decl.id).is_some_and(|n| *n > 0) {
-                        FLAG_LOCAL_USE
-                    } else {
-                        0
-                    },
-                key: strings.id(&key),
-                name: strings.id(&decl.name),
-                detail: strings.id(&decl.kind),
+                flags,
+                key: self.strings.id(key),
+                name: self.strings.id(&decl.name),
+                detail: self.strings.id(&decl.kind),
                 file: file_id,
                 parent: NONE,
                 line: decl.line,
                 end_line: decl.end_line,
             });
             index.decl_nodes.insert(decl.id.as_str(), id);
-            symbol_kinds.insert(id, decl.kind.as_str());
+            symbols.symbol_kinds.insert(id, decl.kind.as_str());
             index
                 .by_name
                 .entry(decl.name.as_str())
@@ -570,13 +656,12 @@ pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
                     index.exports.entry(public.as_str()).or_default().push(id);
                 }
             }
-            // Generated, bundled, vendored and declaration-only code never
-            // serves as a unique-name call target.
-            if roles
-                .get(file.as_str())
-                .is_none_or(|r| r & (ROLE_NOT_AUTHORED | ROLE_DECLARATION) == 0)
-            {
-                global_names.entry(decl.name.as_str()).or_default().push(id);
+            if unique_target {
+                symbols
+                    .global_names
+                    .entry(decl.name.as_str())
+                    .or_default()
+                    .push(id);
             }
         }
         for decl in &facts.declarations {
@@ -585,142 +670,120 @@ pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
                 && let Some(&parent_id) = index.decl_nodes.get(parent.as_str())
                 && parent_id != child
             {
-                nodes[child as usize].parent = parent_id;
+                self.nodes[child as usize].parent = parent_id;
                 if let Some(parent_decl) = by_id.get(parent.as_str()) {
-                    container_names.insert(child, parent_decl.name.as_str());
+                    symbols
+                        .container_names
+                        .insert(child, parent_decl.name.as_str());
                 }
             }
         }
-        indexes.insert(file.as_str(), index);
+        index
     }
 
-    // External packages. Each unlinked external import is classified against
-    // its component manifest once; a Cargo root no manifest declares is a
-    // local module (Cargo would not build it otherwise), so it gets no node.
-    struct External<'f> {
-        file: &'f str,
-        name: String,
-        declared: &'static str,
-        line: u32,
-    }
-    let mut externals = Vec::<External>::new();
-    let mut packages = BTreeMap::<String, &'static str>::new();
-    for (file, facts) in &built.facts {
-        let language = lang(file);
-        let eco = ecosystem(language);
-        let test_scopes = test_module_ranges(facts, language);
-        for import in facts
-            .imports
-            .iter()
-            .filter(|i| i.external && i.target.is_none())
-        {
-            let name = if eco == "go" {
-                workspace
-                    .go_module(&import.specifier)
-                    .map(str::to_owned)
-                    .or_else(|| package_name(&import.specifier, language))
-            } else {
-                package_name(&import.specifier, language)
-            };
-            let Some(name) = name else { continue };
-            let mut declared = workspace.declared(file, &name, eco);
-            if eco == "cargo" && declared == Declared::Unknown {
-                continue;
-            }
-            if declared != Declared::Builtin
-                && test_scopes
-                    .iter()
-                    .any(|(start, end)| (*start..=*end).contains(&import.line))
+    /// External packages. Each unlinked external import is classified
+    /// against its component manifest once; a Cargo root no manifest
+    /// declares is a local module (Cargo would not build it otherwise), so
+    /// it gets no node.
+    fn externals(&mut self) -> (Vec<External<'a>>, BTreeMap<String, u32>) {
+        let mut externals = Vec::<External>::new();
+        let mut packages = BTreeMap::<String, &'static str>::new();
+        let built = self.built;
+        for (file, facts) in &built.facts {
+            let language = self.lang(file);
+            let eco = ecosystem(language);
+            let test_scopes = test_module_ranges(facts, language);
+            for import in facts
+                .imports
+                .iter()
+                .filter(|i| i.external && i.target.is_none())
             {
-                declared = Declared::TestScoped;
+                let name = if eco == "go" {
+                    self.workspace
+                        .go_module(&import.specifier)
+                        .map(str::to_owned)
+                        .or_else(|| package_name(&import.specifier, language))
+                } else {
+                    package_name(&import.specifier, language)
+                };
+                let Some(name) = name else { continue };
+                let mut declared = self.workspace.declared(file, &name, eco);
+                if eco == "cargo" && declared == Declared::Unknown {
+                    continue;
+                }
+                if declared != Declared::Builtin
+                    && test_scopes
+                        .iter()
+                        .any(|(start, end)| (*start..=*end).contains(&import.line))
+                {
+                    declared = Declared::TestScoped;
+                }
+                packages.entry(name.clone()).or_insert(eco);
+                externals.push(External {
+                    file: file.as_str(),
+                    name,
+                    declared: declared.as_str(),
+                    line: import.line,
+                });
             }
-            packages.entry(name.clone()).or_insert(eco);
-            externals.push(External {
-                file: file.as_str(),
-                name,
-                declared: declared.as_str(),
-                line: import.line,
-            });
         }
-    }
-    let mut package_nodes = BTreeMap::<&str, u32>::new();
-    for (name, eco) in &packages {
-        let id = nodes.len() as u32;
-        nodes.push(NodeRec {
-            kind: NodeKind::Package,
-            flags: 0,
-            key: strings.id(&format!("pkg:{name}")),
-            name: strings.id(name),
-            detail: strings.id(eco),
-            file: NONE,
-            parent: NONE,
-            line: NONE,
-            end_line: NONE,
-        });
-        package_nodes.insert(name.as_str(), id);
+        let mut package_nodes = BTreeMap::<String, u32>::new();
+        for (name, eco) in packages {
+            let id = self.nodes.len() as u32;
+            self.nodes.push(NodeRec {
+                kind: NodeKind::Package,
+                flags: 0,
+                key: self.strings.id(&format!("pkg:{name}")),
+                name: self.strings.id(&name),
+                detail: self.strings.id(eco),
+                file: NONE,
+                parent: NONE,
+                line: NONE,
+                end_line: NONE,
+            });
+            package_nodes.insert(name, id);
+        }
+        (externals, package_nodes)
     }
 
-    let mut edges = Vec::<EdgeRec>::new();
-    let push = |edges: &mut Vec<EdgeRec>,
-                strings: &mut Interner,
-                src: u32,
-                dst: u32,
-                kind: EdgeKind,
-                confidence: Confidence,
-                detail: &str,
-                line: u32| {
-        edges.push(EdgeRec {
-            src,
-            dst,
-            kind,
-            confidence,
-            detail: strings.id(detail),
-            line,
-        })
-    };
-
-    // contains: file → top-level symbol, symbol → member.
-    for (id, node) in nodes.iter().enumerate() {
-        if node.kind == NodeKind::Symbol {
-            let owner = if node.parent == NONE {
-                node.file
-            } else {
-                node.parent
-            };
-            push(
-                &mut edges,
-                &mut strings,
+    /// contains: file → top-level symbol, symbol → member.
+    fn contains_edges(&mut self) {
+        let owned = self
+            .nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| node.kind == NodeKind::Symbol)
+            .map(|(id, node)| {
+                let owner = if node.parent == NONE {
+                    node.file
+                } else {
+                    node.parent
+                };
+                (owner, id as u32, node.line)
+            })
+            .collect::<Vec<_>>();
+        for (owner, id, line) in owned {
+            self.push(
                 owner,
-                id as u32,
+                id,
                 EdgeKind::Contains,
                 Confidence::High,
                 "declares",
-                node.line,
+                line,
             );
         }
     }
 
-    let function_ranges = built
-        .facts
-        .iter()
-        .map(|(file, facts)| {
-            let ranges = facts
-                .declarations
-                .iter()
-                .filter(|d| matches!(d.kind.as_str(), "function" | "method"))
-                .map(|d| (d.line, d.end_line))
-                .collect::<Vec<_>>();
-            (file.as_str(), ranges)
-        })
-        .collect::<HashMap<_, _>>();
-
-    // Relative imports that land on an unparsed file: link them instead of
-    // reporting a resolution failure.
-    let mut unparsed_links = Vec::<(u32, u32, u32)>::new();
-    let mut relinked = BTreeSet::<(&str, u32)>::new();
-    if !unparsed.is_empty() {
-        for (file, facts) in &built.facts {
-            let Some(&src) = file_nodes.get(file.as_str()) else {
+    /// Relative imports that land on an unparsed file: linked instead of
+    /// reported as a resolution failure.
+    fn unparsed_links(&self) -> UnparsedLinks<'a> {
+        let mut links = Vec::new();
+        let mut relinked = BTreeSet::new();
+        if self.unparsed.is_empty() {
+            return (links, relinked);
+        }
+        for (file, facts) in &self.built.facts {
+            let Some(&src) = self.file_nodes.get(file.as_str()) else {
                 continue;
             };
             for import in facts
@@ -728,33 +791,88 @@ pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
                 .iter()
                 .filter(|i| i.target.is_none() && !i.external)
             {
-                if let Some(target) = unparsed_target(file, &import.specifier, &unparsed)
-                    && let Some(&dst) = file_nodes.get(target)
+                if let Some(target) = unparsed_target(file, &import.specifier, &self.unparsed)
+                    && let Some(&dst) = self.file_nodes.get(target)
                 {
-                    unparsed_links.push((src, dst, import.line));
+                    links.push((src, dst, import.line));
                     relinked.insert((file.as_str(), import.line));
                 }
             }
         }
-    }
-    let mut externals_by_file = HashMap::<&str, Vec<&External>>::new();
-    for external in &externals {
-        externals_by_file
-            .entry(external.file)
-            .or_default()
-            .push(external);
+        (links, relinked)
     }
 
-    // imports: linked file edges (one per relation) and external packages.
-    for (file, node) in &built.nodes {
-        let Some(&src) = file_nodes.get(file.as_str()) else {
-            continue;
-        };
-        let facts = built.facts.get(file).unwrap_or(&empty);
+    /// imports: linked file edges (one per relation) and external packages.
+    fn import_edges(&mut self, externals: &[External], package_nodes: &BTreeMap<String, u32>) {
+        let function_ranges = self
+            .built
+            .facts
+            .iter()
+            .map(|(file, facts)| {
+                let ranges = facts
+                    .declarations
+                    .iter()
+                    .filter(|d| matches!(d.kind.as_str(), "function" | "method"))
+                    .map(|d| (d.line, d.end_line))
+                    .collect::<Vec<_>>();
+                (file.as_str(), ranges)
+            })
+            .collect::<HashMap<_, _>>();
+        let mut externals_by_file = HashMap::<&str, Vec<&External>>::new();
+        for external in externals {
+            externals_by_file
+                .entry(external.file)
+                .or_default()
+                .push(external);
+        }
+        let built = self.built;
+        for (file, node) in &built.nodes {
+            let Some(&src) = self.file_nodes.get(file.as_str()) else {
+                continue;
+            };
+            let ranges = function_ranges
+                .get(file.as_str())
+                .map_or(&[][..], Vec::as_slice);
+            self.file_import_edges(file, node, src, ranges);
+            let mut seen = BTreeMap::<u32, (u32, &'static str)>::new();
+            for external in externals_by_file.get(file.as_str()).into_iter().flatten() {
+                if let Some(&dst) = package_nodes.get(external.name.as_str()) {
+                    let entry = seen
+                        .entry(dst)
+                        .or_insert((external.line, external.declared));
+                    entry.0 = entry.0.min(external.line);
+                    // A non-test import outranks a test-scoped one.
+                    if entry.1 == "external-test" {
+                        entry.1 = external.declared;
+                    }
+                }
+            }
+            for (dst, (line, declared)) in seen {
+                self.push(
+                    src,
+                    dst,
+                    EdgeKind::Imports,
+                    Confidence::High,
+                    declared,
+                    line,
+                );
+            }
+        }
+    }
+
+    fn file_import_edges(
+        &mut self,
+        file: &str,
+        node: &crate::tools::ast_graph::types::Node,
+        src: u32,
+        function_ranges: &[(u32, u32)],
+    ) {
+        let built = self.built;
+        let facts = built.facts.get(file);
         // Import lines per linked target, in one pass (a Go import links
         // every file of its package, so per-target rescans are quadratic).
         let mut lines_by_target = HashMap::<&str, Vec<u32>>::new();
-        for import in &facts.imports {
+        for import in facts.into_iter().flat_map(|facts| &facts.imports) {
             if let Some(target) = &import.target {
                 lines_by_target
                     .entry(target.as_str())
@@ -762,8 +880,9 @@ pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
                     .push(import.line);
             }
         }
+        let python = self.lang(file) == "python";
         for (target, kinds) in &node.edges {
-            let Some(&dst) = file_nodes.get(target.as_str()) else {
+            let Some(&dst) = self.file_nodes.get(target.as_str()) else {
                 continue;
             };
             let lines = lines_by_target
@@ -772,13 +891,11 @@ pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
             let line = lines.iter().copied().min().unwrap_or(NONE);
             // Python imports inside function bodies run lazily, on call:
             // they cannot form a module-load cycle.
-            let lazy = lang(file) == "python"
+            let lazy = python
                 && !lines.is_empty()
-                && lines.iter().all(|line| {
-                    function_ranges
-                        .get(file.as_str())
-                        .is_some_and(|ranges| ranges.iter().any(|(s, e)| s < line && line <= e))
-                });
+                && lines
+                    .iter()
+                    .all(|line| function_ranges.iter().any(|(s, e)| s < line && line <= e));
             for kind in kinds {
                 // `mod child;` declares a submodule: containment, not a
                 // dependency (it would fold every module tree into a cycle).
@@ -789,47 +906,253 @@ pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
                 } else {
                     (EdgeKind::Imports, kind.as_str())
                 };
-                push(
-                    &mut edges,
-                    &mut strings,
-                    src,
-                    dst,
-                    edge_kind,
-                    Confidence::High,
-                    detail,
-                    line,
-                );
+                self.push(src, dst, edge_kind, Confidence::High, detail, line);
             }
-        }
-        let mut seen = BTreeMap::<u32, (u32, &'static str)>::new();
-        for external in externals_by_file.get(file.as_str()).into_iter().flatten() {
-            if let Some(&dst) = package_nodes.get(external.name.as_str()) {
-                let entry = seen
-                    .entry(dst)
-                    .or_insert((external.line, external.declared));
-                entry.0 = entry.0.min(external.line);
-                // A non-test import outranks a test-scoped one.
-                if entry.1 == "external-test" {
-                    entry.1 = external.declared;
-                }
-            }
-        }
-        for (dst, (line, declared)) in seen {
-            push(
-                &mut edges,
-                &mut strings,
-                src,
-                dst,
-                EdgeKind::Imports,
-                Confidence::High,
-                declared,
-                line,
-            );
         }
     }
 
-    // calls: syntax call sites linked to declarations.
-    let star_targets = built
+    /// uses: named imports resolved (through re-exports) to the exported
+    /// declaration; namespace imports mark the whole target file as used.
+    fn use_edges(&mut self, resolver: &ExportResolver) {
+        let built = self.built;
+        for (file, facts) in &built.facts {
+            let Some(&src) = self.file_nodes.get(file.as_str()) else {
+                continue;
+            };
+            for import in &facts.imports {
+                let Some(target) = &import.target else {
+                    continue;
+                };
+                let name = import.imported_name.as_str();
+                if name.is_empty() {
+                    continue;
+                }
+                if name == "*" {
+                    if let Some(&dst) = self.file_nodes.get(target.as_str()) {
+                        self.push(
+                            src,
+                            dst,
+                            EdgeKind::Uses,
+                            Confidence::High,
+                            "namespace",
+                            import.line,
+                        );
+                    }
+                    continue;
+                }
+                let (found, hopped) = resolver.exported(target, name);
+                let confidence = if hopped {
+                    Confidence::Medium
+                } else {
+                    Confidence::High
+                };
+                for dst in found {
+                    self.push(
+                        src,
+                        dst,
+                        EdgeKind::Uses,
+                        confidence,
+                        if hopped { "reexport" } else { "import" },
+                        import.line,
+                    );
+                }
+            }
+        }
+    }
+
+    /// calls and inherits: syntax call sites and base-type clauses linked to
+    /// declarations.
+    fn call_edges(&mut self, resolver: &ExportResolver, symbols: &Symbols) -> CallStats {
+        let file_paths = self
+            .file_nodes
+            .iter()
+            .map(|(path, id)| (*id, *path))
+            .collect::<HashMap<_, _>>();
+        let scope = link_scope(&file_paths, self.workspace);
+        let linker = Linker {
+            resolver,
+            nodes: &self.nodes,
+            global_names: &symbols.global_names,
+            container_names: &symbols.container_names,
+            scope: &scope,
+        };
+        let callable = |id: u32| {
+            symbols
+                .symbol_kinds
+                .get(&id)
+                .is_some_and(|kind| !NON_CALLABLE.contains(kind))
+        };
+        let is_type = |id: u32| {
+            symbols
+                .symbol_kinds
+                .get(&id)
+                .is_some_and(|kind| TYPE_KINDS.contains(kind))
+        };
+        let mut calls = CallStats::default();
+        let mut linked = Vec::<PendingEdge>::new();
+        for (file, facts) in &self.built.facts {
+            // Minified bundles re-declare everything under short names;
+            // linking their call sites would only add noise.
+            if self.has_role(file, ROLE_BUNDLED) {
+                continue;
+            }
+            let (Some(index), Some(&file_id)) = (
+                symbols.indexes.get(file.as_str()),
+                self.file_nodes.get(file.as_str()),
+            ) else {
+                continue;
+            };
+            let language = self.lang(file);
+            let unit = FileLinks {
+                bindings: FileBindings::new(facts, language),
+                index,
+                file_id,
+                language,
+            };
+            link_calls(&linker, &unit, facts, &callable, &mut calls, &mut linked);
+            link_heritage(&linker, &unit, facts, &is_type, &mut linked);
+        }
+        for (src, dst, kind, confidence, detail, line) in linked {
+            self.push(src, dst, kind, confidence, &detail, line);
+        }
+        calls
+    }
+
+    /// One edge per (src, kind, dst, detail): the earliest line wins, so a
+    /// callee invoked ten times from one caller is one edge.
+    fn finish(mut self, relinked: &BTreeSet<(&str, u32)>, calls: CallStats) -> Projection {
+        self.edges.sort_by(|a, b| {
+            (a.src, a.kind, a.dst, a.detail, a.line, a.confidence).cmp(&(
+                b.src,
+                b.kind,
+                b.dst,
+                b.detail,
+                b.line,
+                b.confidence,
+            ))
+        });
+        self.edges.dedup_by(|b, a| {
+            a.src == b.src && a.kind == b.kind && a.dst == b.dst && a.detail == b.detail
+        });
+        let built = self.built;
+        let mut diagnostics = built
+            .diagnostics
+            .iter()
+            .filter(|diag| {
+                !(diag.code == "unresolved-internal"
+                    && diag
+                        .line
+                        .is_some_and(|line| relinked.contains(&(diag.file.as_str(), line))))
+            })
+            .map(|diag| DiagRec {
+                file: self.strings.id(&diag.file),
+                line: diag.line.unwrap_or(NONE),
+                code: self.strings.id(&diag.code),
+                message: self.strings.id(&diag.message),
+            })
+            .collect::<Vec<_>>();
+        diagnostics.dedup();
+        let digests = self
+            .file_nodes
+            .iter()
+            .filter_map(|(file, id)| {
+                let digest = &built.facts.get(*file)?.digest;
+                (!digest.is_empty()).then(|| (*id, self.strings.id(digest)))
+            })
+            .collect();
+        let components = self
+            .file_nodes
+            .iter()
+            .filter_map(|(file, id)| {
+                let language = self.languages.get(file).map_or("", String::as_str);
+                let component = self.workspace.component_of(file, ecosystem(language))?;
+                let dir = if component.dir.is_empty() {
+                    "."
+                } else {
+                    component.dir.as_str()
+                };
+                Some((
+                    *id,
+                    self.strings.id(dir),
+                    self.strings.id(&component.name),
+                    self.strings.id(&component.meta()),
+                ))
+            })
+            .collect();
+        let entries = self
+            .workspace
+            .entries
+            .iter()
+            .filter_map(|(file, rule)| {
+                Some((*self.file_nodes.get(file.as_str())?, self.strings.id(rule)))
+            })
+            .collect();
+        let mut tables = GraphTables {
+            components,
+            entries,
+            strings: self.strings.strings,
+            nodes: self.nodes,
+            edges: self.edges,
+            diagnostics,
+            digests,
+            ..Default::default()
+        };
+        tables.index();
+        Projection { tables, calls }
+    }
+}
+
+/// Unique qualified-name keys for `ordered` declarations of `file`.
+fn symbol_keys(
+    file: &str,
+    ordered: &[&Declaration],
+    by_id: &HashMap<&str, &Declaration>,
+) -> Vec<String> {
+    let qualified = |decl: &Declaration| {
+        let mut parts = vec![decl.name.as_str()];
+        let mut seen = BTreeSet::from([decl.id.as_str()]);
+        let mut parent = decl.parent.as_deref();
+        while let Some(id) = parent.filter(|id| seen.insert(id)) {
+            let Some(parent_decl) = by_id.get(id) else {
+                break;
+            };
+            parts.push(parent_decl.name.as_str());
+            parent = parent_decl.parent.as_deref();
+        }
+        parts.reverse();
+        parts.join(".")
+    };
+    let names = ordered
+        .iter()
+        .map(|decl| qualified(decl))
+        .collect::<Vec<_>>();
+    let mut repeats = HashMap::<&str, u32>::new();
+    for name in &names {
+        *repeats.entry(name.as_str()).or_default() += 1;
+    }
+    let mut used = BTreeSet::<String>::new();
+    ordered
+        .iter()
+        .zip(&names)
+        .map(|(decl, qualified_name)| {
+            let mut key = if repeats[qualified_name.as_str()] > 1 {
+                format!("{file}#{qualified_name}@{}", decl.line)
+            } else {
+                format!("{file}#{qualified_name}")
+            };
+            let mut n = 1;
+            while !used.insert(key.clone()) {
+                n += 1;
+                key = format!("{file}#{qualified_name}@{}.{n}", decl.line);
+            }
+            key
+        })
+        .collect()
+}
+
+/// Files each file star-re-exports.
+fn star_targets(built: &BuiltGraph) -> HashMap<&str, Vec<&str>> {
+    built
         .nodes
         .iter()
         .map(|(file, node)| {
@@ -841,68 +1164,12 @@ pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
                 .collect::<Vec<_>>();
             (file.as_str(), targets)
         })
-        .collect::<HashMap<_, _>>();
-    let resolver = ExportResolver {
-        built,
-        indexes: &indexes,
-        star_targets: &star_targets,
-        memo: std::cell::RefCell::new(HashMap::new()),
-    };
-    // uses: named imports resolved (through re-exports) to the exported
-    // declaration; namespace imports mark the whole target file as used.
-    for (file, facts) in &built.facts {
-        let Some(&src) = file_nodes.get(file.as_str()) else {
-            continue;
-        };
-        for import in &facts.imports {
-            let Some(target) = &import.target else {
-                continue;
-            };
-            let name = import.imported_name.as_str();
-            if name.is_empty() {
-                continue;
-            }
-            if name == "*" {
-                if let Some(&dst) = file_nodes.get(target.as_str()) {
-                    push(
-                        &mut edges,
-                        &mut strings,
-                        src,
-                        dst,
-                        EdgeKind::Uses,
-                        Confidence::High,
-                        "namespace",
-                        import.line,
-                    );
-                }
-                continue;
-            }
-            let (found, hopped) = resolver.exported(target, name);
-            let confidence = if hopped {
-                Confidence::Medium
-            } else {
-                Confidence::High
-            };
-            for dst in found {
-                push(
-                    &mut edges,
-                    &mut strings,
-                    src,
-                    dst,
-                    EdgeKind::Uses,
-                    confidence,
-                    if hopped { "reexport" } else { "import" },
-                    import.line,
-                );
-            }
-        }
-    }
+        .collect()
+}
 
-    let file_paths = file_nodes
-        .iter()
-        .map(|(path, id)| (*id, *path))
-        .collect::<HashMap<_, _>>();
-    let mut rust_modules = HashMap::<&str, Vec<&str>>::new();
+/// Rust module and workspace-crate lookups for qualified call paths.
+fn link_scope<'a>(file_paths: &'a HashMap<u32, &'a str>, workspace: &Workspace) -> LinkScope<'a> {
+    let mut modules = HashMap::<&str, Vec<&str>>::new();
     for path in file_paths.values() {
         let Some(stem) = path.strip_suffix(".rs") else {
             continue;
@@ -912,7 +1179,7 @@ pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
             Some((_, name)) => name,
             None => stem,
         };
-        rust_modules.entry(module).or_default().push(*path);
+        modules.entry(module).or_default().push(*path);
     }
     let crate_dirs = workspace
         .components
@@ -921,221 +1188,133 @@ pub(crate) fn project(built: &BuiltGraph, workspace: &Workspace) -> Projection {
         .filter(|c| c.ecosystem == "cargo")
         .map(|c| (c.name.replace('-', "_"), c.dir.clone()))
         .collect::<HashMap<_, _>>();
-    let link_scope = LinkScope {
-        file_paths: &file_paths,
-        modules: rust_modules,
+    LinkScope {
+        file_paths,
+        modules,
         crate_dirs,
-    };
-    let callable = |id: u32| {
-        symbol_kinds
-            .get(&id)
-            .is_some_and(|kind| !NON_CALLABLE.contains(kind))
-    };
-    let is_type = |id: u32| {
-        symbol_kinds
-            .get(&id)
-            .is_some_and(|kind| TYPE_KINDS.contains(kind))
-    };
-    let mut calls = CallStats::default();
-    for (file, facts) in &built.facts {
-        // Minified bundles re-declare everything under short names; linking
-        // their call sites would only add noise.
-        if roles
-            .get(file.as_str())
-            .is_some_and(|r| r & ROLE_BUNDLED != 0)
-        {
-            continue;
-        }
-        let (Some(index), Some(&file_id)) =
-            (indexes.get(file.as_str()), file_nodes.get(file.as_str()))
-        else {
+    }
+}
+
+/// An edge found while the node list is borrowed, pushed afterwards.
+type PendingEdge = (u32, u32, EdgeKind, Confidence, String, u32);
+
+/// One file's call-linking context.
+struct FileLinks<'f> {
+    bindings: FileBindings<'f>,
+    index: &'f FileIndex<'f>,
+    file_id: u32,
+    language: &'f str,
+}
+
+/// calls: each call site linked to its target declarations.
+fn link_calls(
+    linker: &Linker,
+    unit: &FileLinks,
+    facts: &FileFacts,
+    callable: &dyn Fn(u32) -> bool,
+    calls: &mut CallStats,
+    out: &mut Vec<PendingEdge>,
+) {
+    for call in &facts.calls {
+        calls.sites += 1;
+        let caller = call
+            .caller_id
+            .as_deref()
+            .and_then(|id| unit.index.decl_nodes.get(id).copied())
+            .unwrap_or(unit.file_id);
+        let (qualifier, name) = split_callee(&call.callee);
+        let site = Site {
+            bindings: &unit.bindings,
+            index: unit.index,
+            caller,
+            qualifier,
+            name,
+            accept: callable,
+            receiver_type: call.receiver_type.as_deref(),
+        };
+        let Some((targets, resolution, confidence)) = linker.link(&site) else {
+            calls.unresolved += 1;
+            let reason = unlinked_reason(
+                &unit.bindings,
+                qualifier,
+                name,
+                linker.global_names,
+                callable,
+            );
+            *calls.unresolved_by_reason.entry(reason).or_default() += 1;
+            if INTERNAL_REASONS.contains(&reason) {
+                calls
+                    .by_language
+                    .entry(unit.language.to_owned())
+                    .or_default()[1] += 1;
+            }
             continue;
         };
-        let bindings = FileBindings::new(facts, lang(file));
-        for call in &facts.calls {
-            calls.sites += 1;
-            let src = call
-                .caller_id
-                .as_deref()
-                .and_then(|id| index.decl_nodes.get(id).copied())
-                .unwrap_or(file_id);
-            let (qualifier, name) = split_callee(&call.callee);
-            let linked = link_call(
-                &resolver,
-                &bindings,
-                index,
-                &nodes,
-                src,
-                qualifier,
-                name,
-                &global_names,
-                &container_names,
-                &callable,
-                &link_scope,
-                call.receiver_type.as_deref(),
-            );
-            match linked {
-                Some((targets, resolution, confidence)) => {
-                    calls.linked += 1;
-                    calls.by_language.entry(lang(file).to_owned()).or_default()[0] += 1;
-                    *calls
-                        .by_resolution
-                        .entry(resolution.to_owned())
-                        .or_default() += 1;
-                    // JSX renders, bare decorators and `new` keep their kind
-                    // visible: `renders:import`, `constructs:local`.
-                    let detail = match call.kind.as_str() {
-                        "" | "calls" | "call" => resolution.to_owned(),
-                        kind => format!("{kind}:{resolution}"),
-                    };
-                    for dst in targets {
-                        push(
-                            &mut edges,
-                            &mut strings,
-                            src,
-                            dst,
-                            EdgeKind::Calls,
-                            confidence,
-                            &detail,
-                            call.line,
-                        );
-                    }
-                }
-                None => {
-                    calls.unresolved += 1;
-                    let reason =
-                        unlinked_reason(&bindings, qualifier, name, &global_names, &callable);
-                    *calls.unresolved_by_reason.entry(reason).or_default() += 1;
-                    if INTERNAL_REASONS.contains(&reason) {
-                        calls.by_language.entry(lang(file).to_owned()).or_default()[1] += 1;
-                    }
-                }
-            }
-        }
-        // inherits: `extends` / `implements` base types, linked like calls.
-        for heritage in &facts.heritage {
-            let Some(&src) = index.decl_nodes.get(heritage.decl_id.as_str()) else {
-                continue;
-            };
-            let (qualifier, name) = split_callee(&heritage.target);
-            if let Some((targets, resolution, confidence)) = link_call(
-                &resolver,
-                &bindings,
-                index,
-                &nodes,
-                src,
-                qualifier,
-                name,
-                &global_names,
-                &container_names,
-                &is_type,
-                &link_scope,
-                None,
-            ) {
-                let detail = format!("{}:{resolution}", heritage.relation);
-                for dst in targets.into_iter().filter(|dst| *dst != src) {
-                    push(
-                        &mut edges,
-                        &mut strings,
-                        src,
-                        dst,
-                        EdgeKind::Inherits,
-                        confidence,
-                        &detail,
-                        heritage.line,
-                    );
-                }
-            }
+        calls.linked += 1;
+        calls
+            .by_language
+            .entry(unit.language.to_owned())
+            .or_default()[0] += 1;
+        *calls
+            .by_resolution
+            .entry(resolution.to_owned())
+            .or_default() += 1;
+        // JSX renders, bare decorators and `new` keep their kind visible:
+        // `renders:import`, `constructs:local`.
+        let detail = match call.kind.as_str() {
+            "" | "calls" | "call" => resolution.to_owned(),
+            kind => format!("{kind}:{resolution}"),
+        };
+        for dst in targets {
+            out.push((
+                caller,
+                dst,
+                EdgeKind::Calls,
+                confidence,
+                detail.clone(),
+                call.line,
+            ));
         }
     }
+}
 
-    for (src, dst, line) in unparsed_links {
-        push(
-            &mut edges,
-            &mut strings,
-            src,
-            dst,
-            EdgeKind::Imports,
-            Confidence::Medium,
-            "unparsed-target",
-            line,
-        );
+/// inherits: `extends` / `implements` base types, linked like calls.
+fn link_heritage(
+    linker: &Linker,
+    unit: &FileLinks,
+    facts: &FileFacts,
+    is_type: &dyn Fn(u32) -> bool,
+    out: &mut Vec<PendingEdge>,
+) {
+    for heritage in &facts.heritage {
+        let Some(&src) = unit.index.decl_nodes.get(heritage.decl_id.as_str()) else {
+            continue;
+        };
+        let (qualifier, name) = split_callee(&heritage.target);
+        let site = Site {
+            bindings: &unit.bindings,
+            index: unit.index,
+            caller: src,
+            qualifier,
+            name,
+            accept: is_type,
+            receiver_type: None,
+        };
+        let Some((targets, resolution, confidence)) = linker.link(&site) else {
+            continue;
+        };
+        let detail = format!("{}:{resolution}", heritage.relation);
+        for dst in targets.into_iter().filter(|dst| *dst != src) {
+            out.push((
+                src,
+                dst,
+                EdgeKind::Inherits,
+                confidence,
+                detail.clone(),
+                heritage.line,
+            ));
+        }
     }
-    // One edge per (src, kind, dst, detail): the earliest line wins, so a
-    // callee invoked ten times from one caller is one edge.
-    edges.sort_by(|a, b| {
-        (a.src, a.kind, a.dst, a.detail, a.line, a.confidence).cmp(&(
-            b.src,
-            b.kind,
-            b.dst,
-            b.detail,
-            b.line,
-            b.confidence,
-        ))
-    });
-    edges.dedup_by(|b, a| {
-        a.src == b.src && a.kind == b.kind && a.dst == b.dst && a.detail == b.detail
-    });
-
-    let mut diagnostics = built
-        .diagnostics
-        .iter()
-        .filter(|diag| {
-            !(diag.code == "unresolved-internal"
-                && diag
-                    .line
-                    .is_some_and(|line| relinked.contains(&(diag.file.as_str(), line))))
-        })
-        .map(|diag| DiagRec {
-            file: strings.id(&diag.file),
-            line: diag.line.unwrap_or(NONE),
-            code: strings.id(&diag.code),
-            message: strings.id(&diag.message),
-        })
-        .collect::<Vec<_>>();
-    diagnostics.dedup();
-    let digests = file_nodes
-        .iter()
-        .filter_map(|(file, id)| {
-            let digest = &built.facts.get(*file)?.digest;
-            (!digest.is_empty()).then(|| (*id, strings.id(digest)))
-        })
-        .collect();
-
-    let components = file_nodes
-        .iter()
-        .filter_map(|(file, id)| {
-            let component = workspace.component_of(file, ecosystem(lang(file)))?;
-            let dir = if component.dir.is_empty() {
-                "."
-            } else {
-                component.dir.as_str()
-            };
-            Some((
-                *id,
-                strings.id(dir),
-                strings.id(&component.name),
-                strings.id(&component.meta()),
-            ))
-        })
-        .collect();
-    let entries = workspace
-        .entries
-        .iter()
-        .filter_map(|(file, rule)| Some((*file_nodes.get(file.as_str())?, strings.id(rule))))
-        .collect();
-    let mut tables = GraphTables {
-        components,
-        entries,
-        strings: strings.strings,
-        nodes,
-        edges,
-        diagnostics,
-        digests,
-        ..Default::default()
-    };
-    tables.index();
-    Projection { tables, calls }
 }
 
 /// Declarations a name resolves to, and whether a re-export hop was taken.
@@ -1302,175 +1481,264 @@ impl<'a> FileBindings<'a> {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn link_call(
-    resolver: &ExportResolver,
-    bindings: &FileBindings,
-    index: &FileIndex,
-    nodes: &[NodeRec],
+/// A linked call: target symbols, how they were found, and the confidence.
+type Linked = (Vec<u32>, &'static str, Confidence);
+
+/// Graph-wide lookups a call or base-type link needs.
+struct Linker<'r> {
+    resolver: &'r ExportResolver<'r>,
+    nodes: &'r [NodeRec],
+    global_names: &'r HashMap<&'r str, Vec<u32>>,
+    container_names: &'r HashMap<u32, &'r str>,
+    scope: &'r LinkScope<'r>,
+}
+
+/// One call site (or base-type clause) to link.
+struct Site<'s> {
+    bindings: &'s FileBindings<'s>,
+    index: &'s FileIndex<'s>,
     caller: u32,
-    qualifier: &str,
-    name: &str,
-    global_names: &HashMap<&str, Vec<u32>>,
-    container_names: &HashMap<u32, &str>,
-    accept: &dyn Fn(u32) -> bool,
-    scope: &LinkScope,
-    receiver_type: Option<&str>,
-) -> Option<(Vec<u32>, &'static str, Confidence)> {
-    if name.is_empty() {
-        return None;
+    qualifier: &'s str,
+    name: &'s str,
+    accept: &'s dyn Fn(u32) -> bool,
+    receiver_type: Option<&'s str>,
+}
+
+impl Site<'_> {
+    /// `this`/`self`/`super` style receiver.
+    fn receiver(&self) -> bool {
+        matches!(self.qualifier, "this" | "self" | "Self" | "cls" | "super")
     }
-    let receiver = matches!(qualifier, "this" | "self" | "Self" | "cls" | "super");
-    let local = index
-        .by_name
-        .get(name)
-        .map(|ids| {
-            ids.iter()
-                .copied()
-                .filter(|id| accept(*id))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    // The parser saw the receiver's type (`this.a.m()` may be recorded as a
-    // bare `m`): such a call is a member call, never a local/import match.
-    let typed = receiver_type.is_some() && !receiver;
-    if !typed && (qualifier.is_empty() || receiver) && !local.is_empty() {
-        // Receiver calls prefer members of the caller's own container.
-        let container = nodes.get(caller as usize).map_or(NONE, |node| node.parent);
+    /// The parser saw the receiver's type (`this.a.m()` may be recorded as a
+    /// bare `m`): such a call is a member call, never a local/import match.
+    fn typed(&self) -> bool {
+        self.receiver_type.is_some() && !self.receiver()
+    }
+    fn accepted(&self, ids: impl IntoIterator<Item = u32>) -> Vec<u32> {
+        ids.into_iter().filter(|id| (self.accept)(*id)).collect()
+    }
+}
+
+impl Linker<'_> {
+    fn link(&self, site: &Site) -> Option<Linked> {
+        if site.name.is_empty() {
+            return None;
+        }
+        if let Some(linked) = self.local(site) {
+            return Some(linked);
+        }
+        let head = first_segment(site.qualifier);
+        if let Some(linked) = self.scoped(site, head) {
+            return Some(linked);
+        }
+        // An external binding (`import pad from 'left-pad'`, `use std::fmt`,
+        // `serde_json::from_value`) is that package's, never ours.
+        let external = &site.bindings.external;
+        if (site.qualifier.is_empty() && external.contains(site.name))
+            || (!site.qualifier.is_empty() && !site.receiver() && external.contains(head))
+        {
+            return None;
+        }
+        self.global(site, head)
+    }
+
+    /// A declaration of the caller's own file; receiver calls prefer members
+    /// of the caller's own container.
+    fn local(&self, site: &Site) -> Option<Linked> {
+        let receiver = site.receiver();
+        if site.typed() || !(site.qualifier.is_empty() || receiver) {
+            return None;
+        }
+        let local = site.accepted(site.index.by_name.get(site.name)?.iter().copied());
+        if local.is_empty() {
+            return None;
+        }
+        let container = self
+            .nodes
+            .get(site.caller as usize)
+            .map_or(NONE, |node| node.parent);
         let siblings = local
             .iter()
             .copied()
-            .filter(|id| receiver && container != NONE && nodes[*id as usize].parent == container)
+            .filter(|id| {
+                receiver && container != NONE && self.nodes[*id as usize].parent == container
+            })
             .collect::<Vec<_>>();
         let targets = if siblings.is_empty() { local } else { siblings };
         let confidence = confidence_for(&targets, Confidence::High);
-        return Some((targets, "local", confidence));
+        Some((targets, "local", confidence))
     }
-    let head = first_segment(qualifier);
-    if qualifier.is_empty() && !typed {
-        if let Some(sources) = bindings.named.get(name) {
-            let mut targets = Vec::new();
-            let mut hopped = false;
-            for (target, exported) in sources {
-                let (found, via) = resolver.exported(target, exported);
-                hopped |= via;
-                targets.extend(found.into_iter().filter(|id| accept(*id)));
-            }
-            targets.sort_unstable();
-            targets.dedup();
-            if !targets.is_empty() {
-                let strong = if hopped {
-                    Confidence::Medium
-                } else {
-                    Confidence::High
-                };
-                let confidence = confidence_for(&targets, strong);
-                return Some((targets, "import", confidence));
-            }
+
+    /// A name the file imports, a Rust module path, or an import binding's
+    /// namespace.
+    fn scoped(&self, site: &Site, head: &str) -> Option<Linked> {
+        let receiver = site.receiver();
+        if site.qualifier.is_empty() && !site.typed() {
+            return self.imported(site);
         }
-    } else if !receiver
-        && qualifier.contains("::")
-        && let Some(module_file) = scope
-            .file_paths
-            .get(&nodes.get(caller as usize).map_or(NONE, |n| n.file))
-            .and_then(|caller_path| scope.rust_module_file(qualifier, caller_path))
-    {
-        // `crate::a::b::f()`, `super::b::f()`, `other_crate::b::f()`.
-        let targets = resolver
-            .declared(module_file, name)
-            .into_iter()
-            .filter(|id| accept(*id))
-            .collect::<Vec<_>>();
-        if !targets.is_empty() {
+        if !receiver
+            && site.qualifier.contains("::")
+            && let Some(module_file) = self
+                .scope
+                .file_paths
+                .get(&self.file_of(site.caller))
+                .and_then(|caller_path| self.scope.rust_module_file(site.qualifier, caller_path))
+        {
+            // `crate::a::b::f()`, `super::b::f()`, `other_crate::b::f()`.
+            let targets = site.accepted(self.resolver.declared(module_file, site.name));
             let confidence = confidence_for(&targets, Confidence::High);
-            return Some((targets, "module-path", confidence));
+            return (!targets.is_empty()).then_some((targets, "module-path", confidence));
         }
-    } else if !receiver && let Some(files) = bindings.modules.get(head) {
-        // `ns.fn()`, `pkg.Func()`, `module::func()`: the qualifier's first
-        // segment names an import binding whose target files declare `name`.
+        if !receiver && let Some(files) = site.bindings.modules.get(head) {
+            return self.namespace(site, files);
+        }
+        None
+    }
+
+    fn imported(&self, site: &Site) -> Option<Linked> {
+        let sources = site.bindings.named.get(site.name)?;
+        let mut targets = Vec::new();
+        let mut hopped = false;
+        for (target, exported) in sources {
+            let (found, via) = self.resolver.exported(target, exported);
+            hopped |= via;
+            targets.extend(site.accepted(found));
+        }
+        targets.sort_unstable();
+        targets.dedup();
+        let strong = if hopped {
+            Confidence::Medium
+        } else {
+            Confidence::High
+        };
+        let confidence = confidence_for(&targets, strong);
+        (!targets.is_empty()).then_some((targets, "import", confidence))
+    }
+
+    /// `ns.fn()`, `pkg.Func()`, `module::func()`: the qualifier's first
+    /// segment names an import binding whose target files declare `name`.
+    fn namespace(&self, site: &Site, files: &[&str]) -> Option<Linked> {
         let mut targets = Vec::new();
         for target in files {
-            let (exported, _) = resolver.exported(target, name);
+            let (exported, _) = self.resolver.exported(target, site.name);
             if exported.is_empty() {
-                targets.extend(
-                    resolver
-                        .declared(target, name)
-                        .into_iter()
-                        .filter(|id| accept(*id)),
-                );
+                targets.extend(site.accepted(self.resolver.declared(target, site.name)));
             } else {
-                targets.extend(exported.into_iter().filter(|id| accept(*id)));
+                targets.extend(site.accepted(exported));
             }
         }
         targets.sort_unstable();
         targets.dedup();
-        if !targets.is_empty() {
-            let confidence = confidence_for(&targets, Confidence::Medium);
-            return Some((targets, "namespace", confidence));
+        let confidence = confidence_for(&targets, Confidence::Medium);
+        (!targets.is_empty()).then_some((targets, "namespace", confidence))
+    }
+
+    /// Last resort: a graph-wide name match, scoped by package and imports.
+    /// A type-qualified call (`Type::new`, `Type.of`, including the last
+    /// segment of a Rust path such as `crate::store::Store::new`) must land
+    /// in that type.
+    fn global(&self, site: &Site, head: &str) -> Option<Linked> {
+        let (qualifier, name) = (site.qualifier, site.name);
+        let receiver = site.receiver();
+        let typed = site.typed();
+        let path_type = qualifier.rsplit("::").next().filter(|last| {
+            qualifier.contains("::") && last.starts_with(|c: char| c.is_ascii_uppercase())
+        });
+        let head = path_type.unwrap_or(head);
+        let type_qualified = !receiver && head.starts_with(|c: char| c.is_ascii_uppercase());
+        // `expr.name()` has an unknown receiver type: a graph-wide name match
+        // is a coincidence (`.all()`, `.replace()`, `.kind()` on std/foreign
+        // types), so a member call links only through a receiver type the
+        // parser saw declared or constructed locally (`let s: Store`,
+        // `s = Store::new()`).
+        let member_call = typed || (!qualifier.is_empty() && !receiver && !type_qualified);
+        let type_head = if member_call {
+            match site
+                .receiver_type
+                .map(|ty| ty.rsplit([':', '.']).next().unwrap_or(ty))
+            {
+                Some(ty) if !ty.is_empty() => ty,
+                _ => return None,
+            }
+        } else {
+            head
+        };
+        // A bare call that only matches a method elsewhere is a method call
+        // whose receiver the extractor dropped; skip names every type
+        // implements.
+        let bare_method_call =
+            |id: u32| self.nodes[id as usize].parent != NONE && COMMON_METHODS.contains(&name);
+        let candidates = self
+            .global_names
+            .get(name)
+            .map(|ids| {
+                ids.iter()
+                    .copied()
+                    .filter(|id| (site.accept)(*id) && (member_call || !bare_method_call(*id)))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if name.len() < MIN_UNIQUE_NAME_LEN || candidates.is_empty() {
+            return None;
         }
-    }
-    // An external binding (`import pad from 'left-pad'`, `use std::fmt`,
-    // `serde_json::from_value`) is that package's, never ours.
-    let external_binding = qualifier.is_empty() && bindings.external.contains(name);
-    if external_binding || (!qualifier.is_empty() && !receiver && bindings.external.contains(head))
-    {
-        return None;
-    }
-    // Last resort: exactly one declaration graph-wide carries this name. A
-    // type-qualified call (`Type::new`, `Type.of`) must land in that type.
-    // `Type::f` / `Type.f`, including the last segment of a Rust path
-    // (`crate::store::Store::new`).
-    let path_type = qualifier.rsplit("::").next().filter(|last| {
-        qualifier.contains("::") && last.starts_with(|c: char| c.is_ascii_uppercase())
-    });
-    let head = path_type.unwrap_or(head);
-    let type_qualified = !receiver && head.starts_with(|c: char| c.is_ascii_uppercase());
-    // `expr.name()`: only a method can be the target, and never a name every
-    // type implements.
-    // `expr.name()` has an unknown receiver type: a graph-wide name match is
-    // a coincidence (`.all()`, `.replace()`, `.kind()` on std/foreign types).
-    let member_call = typed || (!qualifier.is_empty() && !receiver && !type_qualified);
-    // A member call links only through a receiver type the parser saw
-    // declared or constructed locally (`let s: Store`, `s = Store::new()`).
-    let type_head = if member_call {
-        match receiver_type.map(|ty| ty.rsplit([':', '.']).next().unwrap_or(ty)) {
-            Some(ty) if !ty.is_empty() => ty,
-            _ => return None,
+        if type_qualified || member_call {
+            let via = if member_call {
+                "receiver-type"
+            } else {
+                "type-qualified"
+            };
+            return self.member(site, &candidates, type_head, via);
         }
-    } else {
-        head
-    };
-    // A bare call that only matches a method elsewhere is a method call whose
-    // receiver the extractor dropped; skip names every type implements.
-    let bare_method_call =
-        |id: u32| nodes[id as usize].parent != NONE && COMMON_METHODS.contains(&name);
-    let candidates = global_names
-        .get(name)
-        .map(|ids| {
-            ids.iter()
-                .copied()
-                .filter(|id| accept(*id) && (member_call || !bare_method_call(*id)))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    if name.len() < MIN_UNIQUE_NAME_LEN || candidates.is_empty() {
-        return None;
+        let caller_file = self.file_of(site.caller);
+        if let Some((id, via)) = self.pick(site, &candidates)
+            && self.file_of(id) != caller_file
+        {
+            return Some((vec![id], via, Confidence::Medium));
+        }
+        // Exactly one declaration graph-wide carries this name.
+        if let [only] = candidates.as_slice()
+            && self.file_of(*only) != caller_file
+        {
+            return Some((vec![*only], "unique-name", Confidence::Low));
+        }
+        None
     }
-    let caller_file = nodes.get(caller as usize).map_or(NONE, |n| n.file);
-    let dir = |file: u32| {
-        scope
-            .file_paths
-            .get(&file)
-            .map_or("", |path| path.rsplit_once('/').map_or("", |(dir, _)| dir))
-    };
-    let caller_dir = dir(caller_file);
-    // Scope preference: the caller's package (directory), then files the
-    // caller imports; a choice is made only when it is unique.
-    let pick = |pool: &[u32]| -> Option<(u32, &'static str)> {
+
+    /// `Type::method` / `Type.method`, or `x.method()` with `x: Type`: a
+    /// member of a container named `Type`.
+    fn member(
+        &self,
+        site: &Site,
+        candidates: &[u32],
+        type_head: &str,
+        via: &'static str,
+    ) -> Option<Linked> {
+        let members = candidates
+            .iter()
+            .copied()
+            .filter(|id| self.container_names.get(id) == Some(&type_head))
+            .collect::<Vec<_>>();
+        let id = match members.as_slice() {
+            [] => return None,
+            [only] => *only,
+            many => self.pick(site, many)?.0,
+        };
+        let confidence = if self.near(site, id) {
+            Confidence::High
+        } else {
+            Confidence::Medium
+        };
+        Some((vec![id], via, confidence))
+    }
+
+    /// Scope preference: the caller's package (directory), then files the
+    /// caller imports; a choice is made only when it is unique.
+    fn pick(&self, site: &Site, pool: &[u32]) -> Option<(u32, &'static str)> {
+        let caller_dir = self.dir(self.file_of(site.caller));
         let same_package = pool
             .iter()
             .copied()
-            .filter(|id| dir(nodes[*id as usize].file) == caller_dir)
+            .filter(|id| self.dir(self.file_of(*id)) == caller_dir)
             .collect::<Vec<_>>();
         if let [only] = same_package.as_slice() {
             return Some((*only, "same-package"));
@@ -1478,65 +1746,40 @@ fn link_call(
         let imported = pool
             .iter()
             .copied()
-            .filter(|id| {
-                scope
-                    .file_paths
-                    .get(&nodes[*id as usize].file)
-                    .is_some_and(|path| bindings.imported_files.contains(path))
-            })
+            .filter(|id| self.imported_by(site, *id))
             .collect::<Vec<_>>();
         if let [only] = imported.as_slice() {
             return Some((*only, "import-scope"));
         }
         None
-    };
-    if type_qualified || member_call {
-        // `Type::method` / `Type.method`, or `x.method()` with `x: Type`: a
-        // member of a container named `Type`.
-        let members = candidates
-            .iter()
-            .copied()
-            .filter(|id| container_names.get(id) == Some(&type_head))
-            .collect::<Vec<_>>();
-        let chosen = match members.as_slice() {
-            [] => None,
-            [only] => Some(*only),
-            many => pick(many).map(|(id, _)| id),
-        };
-        return chosen.map(|id| {
-            let near = dir(nodes[id as usize].file) == caller_dir
-                || scope
-                    .file_paths
-                    .get(&nodes[id as usize].file)
-                    .is_some_and(|path| bindings.imported_files.contains(path));
-            let confidence = if near {
-                Confidence::High
-            } else {
-                Confidence::Medium
-            };
-            let via = if member_call {
-                "receiver-type"
-            } else {
-                "type-qualified"
-            };
-            (vec![id], via, confidence)
-        });
     }
-    if let Some((id, via)) = pick(&candidates)
-        && nodes[id as usize].file != caller_file
-    {
-        return Some((vec![id], via, Confidence::Medium));
+
+    /// The target sits in the caller's package or in a file it imports.
+    fn near(&self, site: &Site, id: u32) -> bool {
+        self.dir(self.file_of(id)) == self.dir(self.file_of(site.caller))
+            || self.imported_by(site, id)
     }
-    // Last resort: exactly one declaration graph-wide carries this name.
-    if let [only] = candidates.as_slice()
-        && nodes[*only as usize].file != caller_file
-    {
-        return Some((vec![*only], "unique-name", Confidence::Low));
+
+    fn imported_by(&self, site: &Site, id: u32) -> bool {
+        self.scope
+            .file_paths
+            .get(&self.file_of(id))
+            .is_some_and(|path| site.bindings.imported_files.contains(path))
     }
-    None
+
+    fn file_of(&self, id: u32) -> u32 {
+        self.nodes.get(id as usize).map_or(NONE, |n| n.file)
+    }
+
+    fn dir(&self, file: u32) -> &str {
+        self.scope
+            .file_paths
+            .get(&file)
+            .map_or("", |path| path.rsplit_once('/').map_or("", |(dir, _)| dir))
+    }
 }
 
-/// Per-graph lookups `link_call` needs for scope-aware choices.
+/// Per-graph lookups [`Linker`] needs for scope-aware choices.
 struct LinkScope<'a> {
     /// File node → root-relative path.
     file_paths: &'a HashMap<u32, &'a str>,

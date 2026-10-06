@@ -151,6 +151,33 @@ describe('root help instructions', () => {
     }
   );
 
+  it.each([false, true])(
+    'lists only enabled tools (clasify enabled=%s)',
+    async enabled => {
+      machine.fingerprint = getNativeContractFingerprint();
+      machine.tools = ['localSearch', 'localFetch', 'clasify'].map(name => ({
+        name,
+        availability: { enabled: name !== 'clasify' || enabled },
+      }));
+      const output = vi.spyOn(console, 'log').mockImplementation(() => {});
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      await runScheme({
+        command: 'scheme',
+        args: [],
+        options: { compact: true },
+      });
+      const printed = String(output.mock.calls[0]?.[0]);
+      expect(printed.includes('clasify')).toBe(enabled);
+      expect(JSON.parse(printed).toolCount).toBe(enabled ? 3 : 2);
+      output.mockClear();
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      await runScheme({ command: 'scheme', args: ['nope'], options: {} });
+      expect(String(error.mock.calls[0]?.[0]).includes('clasify')).toBe(
+        enabled
+      );
+    }
+  );
+
   it('refuses drifted help instructions in production', async () => {
     machine.fingerprint = 'f'.repeat(64);
     vi.stubEnv('NODE_ENV', 'production');

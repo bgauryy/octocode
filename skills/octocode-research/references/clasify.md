@@ -9,33 +9,33 @@ Load when the SKILL.md `SEMANTIC?` gate admits a call, or for an explicit typed 
 - Also skip when held evidence, direct reasoning, or a cheap bounded read decides; file size, candidate count, or one miss alone is no reason. Unreported provider usage is unknown, not zero.
 
 ## Requests
-- Flat shape: `{mainGoal?, reasoning?, resources, questions}` (or `queries[]` of such matrices). Each resource is `{id?, tool, query}` for an unread read or `{id?, value}` for held state; nested queries inherit `mainGoal`/`reasoning` when set. Without them, each `ask` carries the whole intent. The older nested `context`/`questionType`/`target` form is legacy input only.
+- Shape: `{queries:[{mainGoal?, reasoning?, resources, questions}, ...]}`; a flat matrix is rejected. Each resource is `{id?, tool, query}` for an unread read or `{id?, value}` for held state; nested queries inherit `mainGoal`/`reasoning` when set. Without them, each `ask` carries the whole intent.
 - State the decision each outcome changes; repair scope, spelling, filters, and synonyms first.
-- Unread file (`localFetch` path or `ghGetFileContent` owner/repo/path/branch): one atomic `ask` per question; every target for the same files goes in one matrix. Never paste bodies into `value`.
+- Unread file (`localFetch` path or `ghGetFileContent` owner/repo/path/ref): one atomic `ask` per question; every target for the same files goes in one matrix. Never paste bodies into `value`.
 - `prefilter:["term"]` sits on the read resource (not on a question) and judges windows around the hits. A term found everywhere → search it instead.
 - Unread list results (`localSearch`, `ghSearchCode`, `astSearch`, `lspSearch` references, `ghSearchRepo`, `ghSearchHistory`, `artifactSearch`): send the list request as one resource; each candidate becomes a page with `hints.read`. Ask `relevant` (or a routing `yesno` for bare metadata) plus `sufficient`: sufficient → run that candidate's `hints.read` for the deciding fact and stop screening (the provider saw the evidence, you did not); relevant → run `hints.read` unchanged; low → skip. Path lists (`structureSearch`, `ghStructure`, `astTopology`) stay one page: ask a `choice` over the paths. Snippet scores are flat; prefer a literal or per-file resources.
 - Before a large fetch (file, PR, commit), send that fetch as the resource with `sufficient`: high → run the page's bounded `hints.read` instead of the whole fetch; low → skip it.
 - Judge only ambiguous held evidence whose disposition changes the next read, test, or edit. Dependent questions go in a later call.
 
 ## Handoffs
-A `hints.clasify` lead comes only from a paged `localFetch`/`ghGetFileContent` without `matchString`, ranges, or a view, or a descriptive `localSearch`/`ghSearchCode` page; it is built from `mainGoal`. Name the artifact kind in `mainGoal` so scores separate. Regexes, paths, and narrow pages get no lead.
+A `hints.clasify` lead comes only from a paged `localFetch`/`ghGetFileContent` without `matchString`, ranges, or a view, or a descriptive `localSearch`/`ghSearchCode` page; it asks `mainGoal`, else the search phrase. Name the artifact kind in `mainGoal` so scores separate. Regexes, paths, and narrow pages get no lead.
 
 ## Questions
 `{id, type, ask}`, one atomic fact each. `locate` → ranked source windows (needs an unminified file read or search resource). `yesno` = P(yes), optional `labels:{true,false}`. `choice` = one label (`labels:{label: meaning}`; add `insufficient` when no label is safe). `score` = ordered level (`labels:[low … high]`). Screens: `relevant`, `supports` (claim in `ask`), `adds` (+`known`), `sufficient`. Confidence is concentration, not correctness; no discard threshold. No `jev`/`semanticAssess` aliases.
 
 ```json
-{"mainGoal":"Find where failed requests are retried.","reasoning":"Locate before reading.",
+{"queries":[{"mainGoal":"Find where failed requests are retried.","reasoning":"Locate before reading.",
  "resources":[{"tool":"localFetch","query":{"path":"/abs/client.ts"}}],
  "questions":[{"id":"retry","type":"locate","ask":"The condition that permits retrying a failed request."},
-              {"id":"limit","type":"locate","ask":"The maximum retry count."}]}
+              {"id":"limit","type":"locate","ask":"The maximum retry count."}]}]}
 ```
 Large requests: save under `.octocode/` and run `octocode clasify --input <file>`.
 
 ## Results
 - Compact by default: each resource lists `path`, `totalLines`, and `pages[]` of `{lines, answers}`; answers are bare (`exists`, P(yes), a label or level) unless a choice/score is uncertain, which keeps `probabilities`. No `coverage` = complete. `debug:true` adds the per-page receipt, runner-up windows, and provider `usage`.
-- `best[id]` lists answering windows as `{lines, exists, p}` (`path`/`r` when several resources): `exists` = this window answers, `p` = which window. Rows rank by `exists`, then `p`; never multiply them. `hints.read` is the exact, commit-pinned read of the top row: run it unchanged and read other rows by `lines`.
+- `best[id]` lists answering windows as `{lines, exists, probability}` (`path`/`resourceId` when several resources): `exists` = this window answers, `probability` = which window. Rows rank by `exists`, then `probability`; never multiply them. `hints.read` is the exact, commit-pinned read of the top row: run it unchanged and read other rows by `lines`.
 - While a continuation remains and no window answers, `best` is absent and the ranking travels in `carry`: follow the `next.clasify` page unchanged instead of reading the closest passage.
-- An identifier target adds a `hints.text` tip (and locally `hints.localSearch`): search it instead. An oversized capture fails with `classificationContextTooLarge` and keeps `hints.read`; narrow with `prefilter` or a range.
-- `partial`, `error`, and `insufficient` mean narrow or read, never "no". High `p` + low `exists` is the closest passage, not an answer. Verdicts rank attention only: never infer identity, reachability, or mutation safety; verify the deciding source.
+- An identifier target adds a `hints.text` tip (and locally `hints.textSearch`): search it instead. An oversized capture fails with `classificationContextTooLarge` and keeps `hints.read`; narrow with `prefilter` or a range.
+- `partial`, `error`, and `insufficient` mean narrow or read, never "no". High `probability` + low `exists` is the closest passage, not an answer. Verdicts rank attention only: never infer identity, reachability, or mutation safety; verify the deciding source.
 
 Next: read the deciding windows, then return to the route that sent you.

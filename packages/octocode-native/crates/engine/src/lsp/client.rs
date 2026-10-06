@@ -1,4 +1,4 @@
-use crate::error::{Error, Result, Status};
+use crate::error::{Error, Result};
 use crate::lsp::resolver::LineIndex;
 use crate::lsp::spawn_limits;
 use crate::lsp::transport::{
@@ -6,10 +6,8 @@ use crate::lsp::transport::{
 };
 use crate::lsp::types::{JsCodeSnippet, JsExactPosition, JsLanguageServerConfig, JsRange};
 use crate::lsp::uri::{path_to_uri, uri_to_path};
-#[cfg(feature = "napi-addon")]
-use napi_derive::napi;
 use serde_json::{Value, json};
-use std::collections::{BTreeSet, HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::{
@@ -167,17 +165,9 @@ async fn lsp_spawn_program(validated_command: &str, args: &mut Vec<String>) -> R
     if executable_has_node_shebang(validated_command).await? {
         let node = tokio::task::spawn_blocking(super::config::current_node_command)
             .await
-            .map_err(|err| {
-                Error::new(
-                    Status::GenericFailure,
-                    format!("Failed to resolve Node executable: {err}"),
-                )
-            })?
+            .map_err(|err| Error::new(format!("Failed to resolve Node executable: {err}")))?
             .ok_or_else(|| {
-                Error::new(
-                    Status::GenericFailure,
-                    "Node executable is required to start this language server",
-                )
+                Error::new("Node executable is required to start this language server")
             })?;
         args.insert(0, validated_command.to_owned());
         return Ok(node);
@@ -189,19 +179,17 @@ async fn lsp_spawn_program(validated_command: &str, args: &mut Vec<String>) -> R
 /// `start()` (the only caller) on slow filesystems.
 async fn executable_has_node_shebang(path: &str) -> Result<bool> {
     let mut file = tokio::fs::File::open(path).await.map_err(|err| {
-        Error::new(
-            Status::GenericFailure,
-            format!("Failed to inspect language server executable {path}: {err}"),
-        )
+        Error::new(format!(
+            "Failed to inspect language server executable {path}: {err}"
+        ))
     })?;
     let mut buf = [0_u8; 128];
     let read = tokio::io::AsyncReadExt::read(&mut file, &mut buf)
         .await
         .map_err(|err| {
-            Error::new(
-                Status::GenericFailure,
-                format!("Failed to inspect language server executable {path}: {err}"),
-            )
+            Error::new(format!(
+                "Failed to inspect language server executable {path}: {err}"
+            ))
         })?;
     let first_line = std::str::from_utf8(&buf[..read])
         .ok()
@@ -217,6 +205,8 @@ async fn executable_has_node_shebang(path: &str) -> Result<bool> {
 /// server; the async `didClose` for an evicted URI is issued by the caller.
 struct OpenDocuments {
     versions: HashMap<String, i32>,
+    /// Digest of the content the last successful sync sent, per URI.
+    digests: HashMap<String, u64>,
     /// Recency order, least-recently-synced at the front.
     lru: VecDeque<String>,
     cap: usize,
@@ -226,6 +216,7 @@ impl OpenDocuments {
     fn new(cap: usize) -> Self {
         Self {
             versions: HashMap::new(),
+            digests: HashMap::new(),
             lru: VecDeque::new(),
             cap: cap.max(1),
         }
@@ -233,6 +224,7 @@ impl OpenDocuments {
 
     fn clear(&mut self) {
         self.versions.clear();
+        self.digests.clear();
         self.lru.clear();
     }
 
@@ -250,6 +242,7 @@ impl OpenDocuments {
     /// evicted least-recently-used document (never the document being synced),
     /// which the caller must `didClose`.
     fn reserve(&mut self, uri: &str) -> (i32, Option<String>) {
+        self.digests.remove(uri);
         let version = self.versions.get(uri).copied().unwrap_or(0) + 1;
         self.versions.insert(uri.to_owned(), version);
         self.touch(uri);
@@ -278,6 +271,7 @@ impl OpenDocuments {
                 continue;
             }
             self.versions.remove(&candidate);
+            self.digests.remove(&candidate);
             return Some(candidate);
         }
         None
@@ -286,6 +280,7 @@ impl OpenDocuments {
     /// Undo a `reserve` whose notification failed to send, restoring the prior
     /// version (or removing the URI entirely for a failed first `didOpen`).
     fn rollback(&mut self, uri: &str, applied_version: i32) {
+        self.digests.remove(uri);
         if self.versions.get(uri).copied() != Some(applied_version) {
             return;
         }
@@ -297,13 +292,25 @@ impl OpenDocuments {
         }
     }
 
-    fn remove(&mut self, uri: &str) -> bool {
-        self.lru.retain(|candidate| candidate != uri);
-        self.versions.remove(uri).is_some()
+    /// The open version of `uri` when its last successful sync sent content
+    /// with `digest`: the server already holds it, so no resync is needed.
+    fn unchanged(&mut self, uri: &str, digest: u64) -> Option<i32> {
+        if self.digests.get(uri) != Some(&digest) {
+            return None;
+        }
+        let version = self.version(uri)?;
+        self.touch(uri);
+        Some(version)
+    }
+
+    /// Remember the content digest a sync of `version` sent.
+    fn record(&mut self, uri: &str, version: i32, digest: u64) {
+        if self.version(uri) == Some(version) {
+            self.digests.insert(uri.to_owned(), digest);
+        }
     }
 }
 
-#[cfg_attr(feature = "napi-addon", napi)]
 #[derive(Clone)]
 pub struct NativeLspClient {
     inner: Arc<NativeLspClientInner>,
@@ -392,14 +399,12 @@ fn response_cache() -> moka::sync::Cache<String, Arc<Value>> {
         .build()
 }
 
-#[cfg_attr(feature = "napi-addon", napi)]
 impl NativeLspClient {
-    #[cfg_attr(feature = "napi-addon", napi(constructor))]
     pub fn new(config: JsLanguageServerConfig) -> Self {
         // Every launch path (discovery, runtime, napi) gets the per-server
         // safe defaults; user-supplied options still win key by key.
         let mut config = config;
-        crate::lsp::config::apply_server_default_options(&mut config);
+        crate::lsp::config::apply_server_default_options(&mut config, None);
         Self {
             inner: Arc::new(NativeLspClientInner {
                 config,
@@ -422,18 +427,8 @@ impl NativeLspClient {
         }
     }
 
-    #[cfg_attr(feature = "napi-addon", napi)]
-    pub async fn start(&self) -> Result<()> {
-        let mut child_guard = self.inner.child.lock().await;
-        if child_guard.is_some() {
-            return Err(Error::new(
-                Status::GenericFailure,
-                "LSP client already started",
-            ));
-        }
-        if let Ok(mut stderr_lines) = self.inner.stderr_lines.lock() {
-            stderr_lines.clear();
-        }
+    /// Forget everything learned from the previous server process.
+    fn reset_session_state(&self) {
         if let Ok(mut capabilities) = self.inner.capabilities.lock() {
             *capabilities = None;
         }
@@ -449,6 +444,17 @@ impl NativeLspClient {
         if let Ok(mut open_docs) = self.inner.open_docs.lock() {
             open_docs.clear();
         }
+    }
+
+    pub async fn start(&self) -> Result<()> {
+        let mut child_guard = self.inner.child.lock().await;
+        if child_guard.is_some() {
+            return Err(Error::new("LSP client already started"));
+        }
+        if let Ok(mut stderr_lines) = self.inner.stderr_lines.lock() {
+            stderr_lines.clear();
+        }
+        self.reset_session_state();
 
         let validated_command =
             crate::lsp::validation::validate_lsp_server_path(self.inner.config.command.clone())?;
@@ -490,12 +496,9 @@ impl NativeLspClient {
             }
         }
 
-        let mut child = command.spawn().map_err(|err| {
-            Error::new(
-                Status::GenericFailure,
-                format!("Failed to start language server: {err}"),
-            )
-        })?;
+        let mut child = command
+            .spawn()
+            .map_err(|err| Error::new(format!("Failed to start language server: {err}")))?;
         let memory_cap_guard = match spawn_limits::MemoryCapGuard::attach(&child, memory_cap) {
             Ok(guard) => guard,
             Err(error) => {
@@ -509,17 +512,11 @@ impl NativeLspClient {
             .map(|stderr| spawn_stderr_reader(stderr, Arc::clone(&self.inner.stderr_lines)));
         let Some(stdout) = child.stdout.take() else {
             cleanup_failed_start(&mut child, stderr_task).await;
-            return Err(Error::new(
-                Status::GenericFailure,
-                "Language server stdout pipe missing",
-            ));
+            return Err(Error::new("Language server stdout pipe missing"));
         };
         let Some(stdin) = child.stdin.take() else {
             cleanup_failed_start(&mut child, stderr_task).await;
-            return Err(Error::new(
-                Status::GenericFailure,
-                "Language server stdin pipe missing",
-            ));
+            return Err(Error::new("Language server stdin pipe missing"));
         };
 
         let root_uri = match path_to_uri(&self.inner.config.workspace_root) {
@@ -562,13 +559,10 @@ impl NativeLspClient {
             && encoding != "utf-16"
         {
             cleanup_failed_start(&mut child, stderr_task).await;
-            return Err(Error::new(
-                Status::GenericFailure,
-                format!(
-                    "Unsupported language server positionEncoding '{encoding}': \
+            return Err(Error::new(format!(
+                "Unsupported language server positionEncoding '{encoding}': \
                          octocode advertises utf-16; semantic positions cannot be resolved safely"
-                ),
-            ));
+            )));
         }
         if let Ok(mut capabilities) = self.inner.capabilities.lock() {
             *capabilities = initialize_result.get("capabilities").cloned();
@@ -596,7 +590,6 @@ impl NativeLspClient {
         Ok(())
     }
 
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn stop(&self) -> Result<()> {
         // Same lock order as `start` (child → connection): holding `child`
         // for the whole teardown makes a stop that overlaps a start wait for
@@ -625,21 +618,7 @@ impl NativeLspClient {
         if let Some(task) = self.inner.stderr_task.lock().await.take() {
             task.abort();
         }
-        if let Ok(mut capabilities) = self.inner.capabilities.lock() {
-            *capabilities = None;
-        }
-        if let Ok(mut server_info) = self.inner.server_info.lock() {
-            *server_info = None;
-        }
-        if let Ok(mut encoding) = self.inner.position_encoding.lock() {
-            *encoding = None;
-        }
-        if let Ok(mut readiness) = self.inner.readiness.lock() {
-            *readiness = None;
-        }
-        if let Ok(mut open_docs) = self.inner.open_docs.lock() {
-            open_docs.clear();
-        }
+        self.reset_session_state();
         Ok(())
     }
 
@@ -647,7 +626,6 @@ impl NativeLspClient {
     /// a readiness descriptor so JS can tell a confirmed-idle server apart from
     /// one that never reported progress or is still busy. The returned string
     /// is one of `"progressIdle"`, `"settledWithoutProgress"`, or `"timeout"`.
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<String> {
         let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
         let readiness = self
@@ -668,7 +646,6 @@ impl NativeLspClient {
     /// Lets the JS client pool evict a stale pooled entry at the next
     /// `acquire()` instead of returning a client whose requests will just
     /// fail until the idle timer eventually reaps it.
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn is_alive(&self) -> bool {
         match self.inner.connection.lock().await.as_ref() {
             Some(connection) => connection.is_alive(),
@@ -676,7 +653,6 @@ impl NativeLspClient {
         }
     }
 
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub fn has_capability(&self, capability: String) -> bool {
         let Ok(capabilities) = self.inner.capabilities.lock() else {
             return false;
@@ -687,71 +663,10 @@ impl NativeLspClient {
             .unwrap_or(false)
     }
 
-    /// Return a deterministic receipt for semantic graph evidence. Raw server
-    /// handles and opaque LSP `data` never become durable graph identity.
-    pub fn graph_server_receipt(&self) -> crate::graph::ServerReceipt {
-        let capabilities = self
-            .inner
-            .capabilities
-            .lock()
-            .ok()
-            .and_then(|slot| slot.clone())
-            .and_then(|value| value.as_object().cloned())
-            .map(|object| {
-                object
-                    .into_iter()
-                    .filter(|(_, value)| capability_value_supported(value))
-                    .map(|(name, _)| name)
-                    .collect::<BTreeSet<_>>()
-            })
-            .unwrap_or_default();
-        let server_info = self
-            .inner
-            .server_info
-            .lock()
-            .ok()
-            .and_then(|slot| slot.clone())
-            .unwrap_or(Value::Null);
-        let family = server_info
-            .get("name")
-            .and_then(Value::as_str)
-            .map(str::to_owned)
-            .or_else(|| {
-                std::path::Path::new(&self.inner.config.command)
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .map(str::to_owned)
-            })
-            .unwrap_or_else(|| "language-server".to_owned());
-        let version = server_info
-            .get("version")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
-        let configuration = serde_json::to_vec(&self.inner.config).unwrap_or_default();
-        crate::graph::ServerReceipt {
-            family,
-            version,
-            configuration_digest: crate::index::content_digest(&configuration),
-            capabilities,
-        }
-    }
-
-    /// The synchronized document version attached to semantic evidence.
-    pub fn document_version(&self, file_path: &str) -> Option<i64> {
-        let uri = path_to_uri(file_path).ok()?;
-        self.inner
-            .open_docs
-            .lock()
-            .ok()
-            .and_then(|documents| documents.version(&uri))
-            .map(i64::from)
-    }
-
     /// The `positionEncoding` the server selected at initialize time, if any.
     /// `None` means the server omitted it (implying the spec default, utf-16) or
     /// the client has not started yet. octocode advertises utf-16 only, so a
     /// value other than `Some("utf-16")` indicates a non-conformant server.
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub fn position_encoding(&self) -> Option<String> {
         self.inner
             .position_encoding
@@ -760,7 +675,6 @@ impl NativeLspClient {
             .and_then(|slot| slot.clone())
     }
 
-    #[cfg_attr(feature = "napi-addon", napi(js_name = "getReadiness"))]
     pub fn readiness(&self) -> Option<String> {
         self.inner
             .readiness
@@ -769,22 +683,14 @@ impl NativeLspClient {
             .and_then(|slot| slot.clone())
     }
 
-    #[cfg_attr(feature = "napi-addon", napi(js_name = "getRecentStderr"))]
-    pub fn get_recent_stderr(&self) -> Vec<String> {
-        self.inner
-            .stderr_lines
-            .lock()
-            .map(|lines| lines.iter().cloned().collect())
-            .unwrap_or_default()
-    }
-
     /// Sync a document's in-memory content to the server, honoring the LSP
     /// document lifecycle: the FIRST sync of a URI sends `textDocument/didOpen`
-    /// (version 1); every subsequent sync sends `textDocument/didChange` with an
-    /// incremented version and a full-document content change. Re-sending
+    /// (version 1); a later sync of changed content sends
+    /// `textDocument/didChange` with an incremented version and a
+    /// full-document content change, and a sync of the content the server
+    /// already holds sends nothing. Re-sending
     /// `didOpen` is ignored or rejected by many servers and can make
     /// changed content resolve against the stale original.
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn open_document(&self, file_path: String, content: String) -> Result<()> {
         self.sync_document(&file_path, content).await.map(|_| ())
     }
@@ -801,7 +707,6 @@ impl NativeLspClient {
     /// Returns the readiness string (`progressIdle`, `settledWithoutProgress`, or
     /// `timeout`) for a first open, and `None` for a re-sync of an already open
     /// document, which does not wait.
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn open_document_and_wait(
         &self,
         file_path: String,
@@ -812,7 +717,7 @@ impl NativeLspClient {
         let _activity = self.lease();
         let observed = self.inner.progress.subscribe();
         let version = self.sync_document(&file_path, content).await?;
-        if version != 1 {
+        if version != Some(1) {
             return Ok(None);
         }
         let settle_ms = u64::from(settle_ms.unwrap_or(400));
@@ -825,72 +730,6 @@ impl NativeLspClient {
         Ok(Some(readiness.as_str().to_owned()))
     }
 
-    /// Close a previously opened document (`textDocument/didClose`) and forget
-    /// its version, so a later `open_document` starts a fresh `didOpen`.
-    #[cfg_attr(feature = "napi-addon", napi)]
-    pub async fn close_document(&self, file_path: String) -> Result<()> {
-        let uri = path_to_uri(&file_path)?;
-        let _activity = self.lease();
-        let _ordered = self.inner.sync_lock.lock().await;
-        let was_open = {
-            let mut open_docs = self
-                .inner
-                .open_docs
-                .lock()
-                .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?;
-            open_docs.remove(&uri)
-        };
-        if !was_open {
-            return Ok(());
-        }
-        let connection = self.connection_handle().await?;
-        connection.clear_push_diagnostics(&uri);
-        connection
-            .notify(
-                "textDocument/didClose",
-                json!({ "textDocument": { "uri": uri } }),
-            )
-            .await
-    }
-
-    #[cfg_attr(feature = "napi-addon", napi)]
-    pub async fn get_definition(
-        &self,
-        file_path: String,
-        line: u32,
-        character: u32,
-    ) -> Result<Vec<JsCodeSnippet>> {
-        self.get_locations(
-            LocationRequest::Definition,
-            file_path,
-            line,
-            character,
-            &SnippetReadPolicy::allow_all(),
-        )
-        .await
-    }
-
-    #[cfg_attr(feature = "napi-addon", napi)]
-    pub async fn get_references(
-        &self,
-        file_path: String,
-        line: u32,
-        character: u32,
-        include_declaration: Option<bool>,
-    ) -> Result<Vec<JsCodeSnippet>> {
-        self.get_locations(
-            LocationRequest::References {
-                include_declaration: include_declaration.unwrap_or(true),
-            },
-            file_path,
-            line,
-            character,
-            &SnippetReadPolicy::allow_all(),
-        )
-        .await
-    }
-
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_hover(&self, file_path: String, line: u32, character: u32) -> Result<Value> {
         let uri = path_to_uri(&file_path)?;
         self.request(
@@ -903,41 +742,6 @@ impl NativeLspClient {
         .await
     }
 
-    #[cfg_attr(feature = "napi-addon", napi)]
-    pub async fn get_type_definition(
-        &self,
-        file_path: String,
-        line: u32,
-        character: u32,
-    ) -> Result<Vec<JsCodeSnippet>> {
-        self.get_locations(
-            LocationRequest::TypeDefinition,
-            file_path,
-            line,
-            character,
-            &SnippetReadPolicy::allow_all(),
-        )
-        .await
-    }
-
-    #[cfg_attr(feature = "napi-addon", napi)]
-    pub async fn get_implementation(
-        &self,
-        file_path: String,
-        line: u32,
-        character: u32,
-    ) -> Result<Vec<JsCodeSnippet>> {
-        self.get_locations(
-            LocationRequest::Implementation,
-            file_path,
-            line,
-            character,
-            &SnippetReadPolicy::allow_all(),
-        )
-        .await
-    }
-
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_document_symbols(&self, file_path: String) -> Result<Value> {
         let uri = path_to_uri(&file_path)?;
         self.request(
@@ -947,7 +751,6 @@ impl NativeLspClient {
         .await
     }
 
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn prepare_call_hierarchy(
         &self,
         file_path: String,
@@ -965,13 +768,11 @@ impl NativeLspClient {
         .await
     }
 
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn incoming_calls(&self, item: Value) -> Result<Value> {
         self.request("callHierarchy/incomingCalls", json!({ "item": item }))
             .await
     }
 
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn outgoing_calls(&self, item: Value) -> Result<Value> {
         self.request("callHierarchy/outgoingCalls", json!({ "item": item }))
             .await
@@ -980,7 +781,6 @@ impl NativeLspClient {
     /// Project-wide fuzzy symbol search — `workspace/symbol`.
     /// Returns `WorkspaceSymbol[] | SymbolInformation[]` (raw JSON).
     /// `query` is the fuzzy name string; empty string returns all symbols.
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn workspace_symbol(&self, query: String) -> Result<Value> {
         self.request("workspace/symbol", json!({ "query": query }))
             .await
@@ -988,7 +788,6 @@ impl NativeLspClient {
 
     /// Prepare a type-hierarchy item at a given position — `textDocument/prepareTypeHierarchy`.
     /// Returns `TypeHierarchyItem[] | null` (raw JSON).
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn prepare_type_hierarchy(
         &self,
         file_path: String,
@@ -1008,7 +807,6 @@ impl NativeLspClient {
 
     /// Retrieve supertypes (base classes / implemented interfaces) — `typeHierarchy/supertypes`.
     /// `item` is a `TypeHierarchyItem` previously returned by `prepareTypeHierarchy`.
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn type_hierarchy_supertypes(&self, item: Value) -> Result<Value> {
         self.request("typeHierarchy/supertypes", json!({ "item": item }))
             .await
@@ -1016,7 +814,6 @@ impl NativeLspClient {
 
     /// Retrieve subtypes (subclasses / implementors) — `typeHierarchy/subtypes`.
     /// `item` is a `TypeHierarchyItem` previously returned by `prepareTypeHierarchy`.
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn type_hierarchy_subtypes(&self, item: Value) -> Result<Value> {
         self.request("typeHierarchy/subtypes", json!({ "item": item }))
             .await
@@ -1026,7 +823,6 @@ impl NativeLspClient {
     /// Returns `DocumentDiagnosticReport` with `kind: "full"|"unchanged"` and `items: Diagnostic[]`.
     /// Prefer pull diagnostics over push (`publishDiagnostics`) for agent/CLI use: you control
     /// *when* to request them and avoid a notification firehose.
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_diagnostics(&self, file_path: String) -> Result<Value> {
         let uri = path_to_uri(&file_path)?;
         self.request(
@@ -1038,7 +834,6 @@ impl NativeLspClient {
 
     /// Return the latest bounded `textDocument/publishDiagnostics` payload for
     /// a file, waiting briefly when the server has not published one yet.
-    #[cfg_attr(feature = "napi-addon", napi)]
     pub async fn get_push_diagnostics(
         &self,
         file_path: String,
@@ -1051,7 +846,7 @@ impl NativeLspClient {
             .inner
             .open_docs
             .lock()
-            .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?
+            .map_err(|_| Error::new("open_docs lock poisoned"))?
             .version(&uri)
             .map(i64::from);
         Ok(connection
@@ -1087,8 +882,9 @@ impl Drop for NativeLspClientInner {
 
 impl NativeLspClient {
     /// Sync `content` for `file_path` and return the version that was sent
-    /// (`1` means a fresh `didOpen`).
-    async fn sync_document(&self, file_path: &str, content: String) -> Result<i32> {
+    /// (`1` means a fresh `didOpen`), or `None` when the server already holds
+    /// `content`.
+    async fn sync_document(&self, file_path: &str, content: String) -> Result<Option<i32>> {
         let file_path = file_path.to_owned();
         let uri = path_to_uri(&file_path)?;
         let _activity = self.lease();
@@ -1101,6 +897,25 @@ impl NativeLspClient {
         // without mutating `open_docs`, so a doc is never marked open when its
         // didOpen/didChange was never actually sent.
         let connection = self.connection_handle().await?;
+        // Content the server already holds is not sent again: a resync would
+        // make the server re-analyze an unchanged document (and drop its
+        // diagnostics) on every request.
+        let digest = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            content.hash(&mut hasher);
+            hasher.finish()
+        };
+        if self
+            .inner
+            .open_docs
+            .lock()
+            .map_err(|_| Error::new("open_docs lock poisoned"))?
+            .unchanged(&uri, digest)
+            .is_some()
+        {
+            return Ok(None);
+        }
         // A content sync invalidates any push diagnostics for the prior
         // document version. The next diagnostic read waits for a fresh publish.
         connection.clear_push_diagnostics(&uri);
@@ -1115,12 +930,12 @@ impl NativeLspClient {
                 .inner
                 .open_docs
                 .lock()
-                .map_err(|_| Error::new(Status::GenericFailure, "open_docs lock poisoned"))?;
+                .map_err(|_| Error::new("open_docs lock poisoned"))?;
             open_docs.reserve(&uri)
         };
 
         let notification = if next_version == 1 {
-            let language_id = crate::lsp::config::detect_language_id(file_path.clone())
+            let language_id = crate::lsp::config::detect_language_id(&file_path)
                 .or_else(|| self.inner.config.language_id.clone())
                 .unwrap_or_else(|| "plaintext".to_owned());
             let params = json!({
@@ -1139,10 +954,11 @@ impl NativeLspClient {
             });
             connection.notify("textDocument/didChange", params).await
         };
-        if notification.is_err()
-            && let Ok(mut open_docs) = self.inner.open_docs.lock()
-        {
-            open_docs.rollback(&uri, next_version);
+        if let Ok(mut open_docs) = self.inner.open_docs.lock() {
+            match &notification {
+                Ok(()) => open_docs.record(&uri, next_version, digest),
+                Err(_) => open_docs.rollback(&uri, next_version),
+            }
         }
         // Close the document the cap evicted (if any) so both our bookkeeping
         // and the server's document set stay bounded. Best-effort: a stopped or
@@ -1157,7 +973,7 @@ impl NativeLspClient {
                 )
                 .await;
         }
-        notification.map(|()| next_version)
+        notification.map(|()| Some(next_version))
     }
 
     /// Clones the connection handle out from under the lock, releasing the
@@ -1172,7 +988,7 @@ impl NativeLspClient {
             .await
             .as_ref()
             .map(Arc::clone)
-            .ok_or_else(|| Error::new(Status::GenericFailure, "LSP client not initialized"))
+            .ok_or_else(|| Error::new("LSP client not initialized"))
     }
 
     /// Mark this client busy for as long as the returned guard lives. Hold
@@ -1333,12 +1149,6 @@ pub struct SnippetReadPolicy {
 pub type SnippetPathAuthorizer = dyn Fn(&Path) -> Option<PathBuf> + Send + Sync;
 
 impl SnippetReadPolicy {
-    /// Read any regular file a location names (still bounded and
-    /// regular-file-only).
-    pub fn allow_all() -> Self {
-        Self::default()
-    }
-
     pub fn with_authorizer(
         authorizer: impl Fn(&Path) -> Option<PathBuf> + Send + Sync + 'static,
     ) -> Self {
@@ -1568,70 +1378,23 @@ impl SnippetContentCache {
 async fn read_snippet_source(path: PathBuf) -> Result<String> {
     tokio::task::spawn_blocking(move || read_bounded_regular_file(&path, MAX_SNIPPET_SOURCE_BYTES))
         .await
-        .map_err(|err| {
-            Error::new(
-                Status::GenericFailure,
-                format!("snippet read task failed: {err}"),
-            )
-        })?
+        .map_err(|err| Error::new(format!("snippet read task failed: {err}")))?
 }
 
-/// Read a UTF-8 regular file of at most `max_bytes`, never touching the bytes
-/// of anything else. A path that is not a regular file (a FIFO, a device such
-/// as `/dev/zero`, a directory) is rejected from `stat` alone, before it is
-/// opened, so a FIFO cannot block the open. The opened handle is re-checked
-/// (the path may have been swapped) and read through `take(max_bytes + 1)`,
-/// so a file that grew past the limit is rejected without reading it whole.
+/// A UTF-8 regular file of at most `max_bytes`, read by
+/// [`crate::lsp::read_regular_bounded`].
 pub(crate) fn read_bounded_regular_file(path: &Path, max_bytes: u64) -> Result<String> {
-    use std::io::Read;
-    let io_error = |err: std::io::Error| Error::new(Status::GenericFailure, err.to_string());
-    let not_regular = || {
-        Error::new(
-            Status::InvalidArg,
-            "not a regular file; LSP snippet content is read only from regular files",
-        )
-    };
-    let too_large = |len: u64| {
-        Error::new(
-            Status::InvalidArg,
-            format!("file too large for LSP snippet content ({len} bytes > {max_bytes} bytes)"),
-        )
-    };
-    let metadata = std::fs::metadata(path).map_err(io_error)?;
-    if !metadata.is_file() {
-        return Err(not_regular());
-    }
-    if metadata.len() > max_bytes {
-        return Err(too_large(metadata.len()));
-    }
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    // A FIFO swapped in after the `stat` must not block the open.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NONBLOCK);
-    }
-    let file = options.open(path).map_err(io_error)?;
-    let metadata = file.metadata().map_err(io_error)?;
-    if !metadata.is_file() {
-        return Err(not_regular());
-    }
-    let capacity = usize::try_from(metadata.len().min(max_bytes)).unwrap_or(0);
-    let mut bytes = Vec::with_capacity(capacity);
-    file.take(max_bytes.saturating_add(1))
-        .read_to_end(&mut bytes)
-        .map_err(io_error)?;
-    let read = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    if read > max_bytes {
-        return Err(too_large(read));
-    }
-    String::from_utf8(bytes).map_err(|err| {
-        Error::new(
-            Status::GenericFailure,
-            format!("file is not valid UTF-8: {err}"),
-        )
-    })
+    use crate::lsp::BoundedRead;
+    let bytes = crate::lsp::read_regular_bounded(path, max_bytes).map_err(|error| match error {
+        BoundedRead::Io(err) => Error::new(err.to_string()),
+        BoundedRead::NotRegular => {
+            Error::new("not a regular file; LSP snippet content is read only from regular files")
+        }
+        BoundedRead::TooLarge(len) => Error::new(format!(
+            "file too large for LSP snippet content ({len} bytes > {max_bytes} bytes)"
+        )),
+    })?;
+    String::from_utf8(bytes).map_err(|err| Error::new(format!("file is not valid UTF-8: {err}")))
 }
 
 async fn snippet_from_location_like(
@@ -1686,10 +1449,10 @@ async fn snippet_from_location_like(
 fn parse_range(value: &Value) -> Result<JsRange> {
     let start = value
         .get("start")
-        .ok_or_else(|| Error::new(Status::InvalidArg, "LSP range missing start"))?;
+        .ok_or_else(|| Error::new("LSP range missing start"))?;
     let end = value
         .get("end")
-        .ok_or_else(|| Error::new(Status::InvalidArg, "LSP range missing end"))?;
+        .ok_or_else(|| Error::new("LSP range missing end"))?;
     Ok(JsRange {
         start: parse_position(start)?,
         end: parse_position(end)?,
@@ -1839,22 +1602,12 @@ fn parse_position(value: &Value) -> Result<JsExactPosition> {
     let line = value
         .get("line")
         .and_then(Value::as_u64)
-        .ok_or_else(|| Error::new(Status::InvalidArg, "LSP position missing numeric 'line'"))?;
+        .ok_or_else(|| Error::new("LSP position missing numeric 'line'"))?;
     let character = value
         .get("character")
         .and_then(Value::as_u64)
-        .ok_or_else(|| {
-            Error::new(
-                Status::InvalidArg,
-                "LSP position missing numeric 'character'",
-            )
-        })?;
-    let out_of_range = |field: &str| {
-        Error::new(
-            Status::InvalidArg,
-            format!("LSP position '{field}' exceeds u32"),
-        )
-    };
+        .ok_or_else(|| Error::new("LSP position missing numeric 'character'"))?;
+    let out_of_range = |field: &str| Error::new(format!("LSP position '{field}' exceeds u32"));
     Ok(JsExactPosition {
         line: u32::try_from(line).map_err(|_| out_of_range("line"))?,
         character: u32::try_from(character).map_err(|_| out_of_range("character"))?,

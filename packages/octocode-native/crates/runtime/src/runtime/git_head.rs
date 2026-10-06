@@ -123,7 +123,10 @@ mod tests {
         fs::write(dir.path().join(".git/refs/heads/main"), format!("{SHA}\n")).unwrap();
         assert_eq!(head_sha(dir.path()).as_deref(), Some(SHA));
         assert_eq!(head_sha(&dir.path().join("src/deep")).as_deref(), Some(SHA));
-        assert_eq!(head_sha(&dir.path().join("src/deep/a.rs")).as_deref(), Some(SHA));
+        assert_eq!(
+            head_sha(&dir.path().join("src/deep/a.rs")).as_deref(),
+            Some(SHA)
+        );
     }
 
     #[test]
@@ -164,7 +167,11 @@ mod tests {
         let dir = repo();
         fs::write(dir.path().join(".git/HEAD"), "ref: refs/heads/none\n").unwrap();
         assert_eq!(head_sha(dir.path()), None);
-        fs::write(dir.path().join(".git/HEAD"), "ref: refs/../../../etc/passwd\n").unwrap();
+        fs::write(
+            dir.path().join(".git/HEAD"),
+            "ref: refs/../../../etc/passwd\n",
+        )
+        .unwrap();
         assert_eq!(head_sha(dir.path()), None);
         fs::write(dir.path().join(".git/HEAD"), "not a sha\n").unwrap();
         assert_eq!(head_sha(dir.path()), None);

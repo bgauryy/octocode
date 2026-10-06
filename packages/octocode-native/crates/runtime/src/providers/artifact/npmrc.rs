@@ -1,6 +1,7 @@
 //! Origin- and path-scoped npm registry credentials from the user npmrc.
 //!
-//! Only the user config (`NPM_CONFIG_USERCONFIG`, else `~/.npmrc`) is read.
+//! Only the user config (`NPM_CONFIG_USERCONFIG`, else `~/.npmrc`) is read,
+//! both resolved from the runtime's environment, never the process's.
 //! A project `.npmrc` is never consulted: it is repository-controlled and
 //! must not be able to steer the user's token anywhere. The registry always
 //! comes from the query, and a token is attached only when its
@@ -8,27 +9,38 @@
 //! (npm "nerf-dart" matching, longest path prefix wins).
 use super::types::NpmAuthorization;
 use secrecy::SecretString;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use url::Url;
 
-/// Path of the user npmrc, following npm's `userconfig` resolution.
-pub(crate) fn user_npmrc_path() -> Option<PathBuf> {
-    ["NPM_CONFIG_USERCONFIG", "npm_config_userconfig"]
-        .iter()
-        .find_map(|name| std::env::var_os(name).filter(|value| !value.is_empty()))
+/// Path of the user npmrc in `env`, following npm's `userconfig`
+/// resolution: the userconfig variable, else `.npmrc` in the home directory.
+fn user_npmrc_path(env: &BTreeMap<String, String>) -> Option<PathBuf> {
+    let set = |name: &str| env.get(name).filter(|value| !value.is_empty());
+    set("NPM_CONFIG_USERCONFIG")
+        .or_else(|| set("npm_config_userconfig"))
         .map(PathBuf::from)
-        .or_else(|| std::env::home_dir().map(|home| home.join(".npmrc")))
+        .or_else(|| {
+            set("HOME")
+                .or_else(|| set("USERPROFILE"))
+                .map(|home| Path::new(home).join(".npmrc"))
+        })
 }
 
-/// Authorization header value for `registry` from the npmrc at `path`.
-pub(crate) fn authorization_from_file(registry: &Url, path: &Path) -> Option<NpmAuthorization> {
+/// Authorization header value for `registry` from the user npmrc `env`
+/// names, expanding `${NAME}` from `env`.
+pub(crate) fn npm_authorization(
+    registry: &Url,
+    env: &BTreeMap<String, String>,
+) -> Option<NpmAuthorization> {
+    let path = user_npmrc_path(env)?;
     // npmrc files are tiny; refuse anything implausibly large.
-    let metadata = std::fs::metadata(path).ok()?;
+    let metadata = std::fs::metadata(&path).ok()?;
     if !metadata.is_file() || metadata.len() > 1024 * 1024 {
         return None;
     }
-    let contents = std::fs::read_to_string(path).ok()?;
-    authorization_for(registry, &contents, |name| std::env::var(name).ok())
+    let contents = std::fs::read_to_string(&path).ok()?;
+    authorization_for(registry, &contents, |name| env.get(name).cloned())
 }
 
 /// `//host[:port]/path/` for a registry URL, as npm keys credentials.

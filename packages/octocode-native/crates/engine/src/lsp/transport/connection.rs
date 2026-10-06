@@ -23,7 +23,7 @@ use super::partial::PartialResultStore;
 use super::progress::ProgressTracker;
 use super::push_diagnostics::PushDiagnosticsStore;
 use super::server_requests::{ClientRequestContext, client_response_for};
-use crate::error::{Error, Result, RpcError, Status};
+use crate::error::{Error, Result, RpcError};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -410,10 +410,7 @@ impl JsonRpcConnection {
             self.next_id.fetch_add(1, Ordering::Relaxed)
         );
         let Some(object) = params.as_object_mut() else {
-            return Err(Error::new(
-                Status::InvalidArg,
-                "LSP partial-result params must be an object",
-            ));
+            return Err(Error::new("LSP partial-result params must be an object"));
         };
         object.insert(
             "partialResultToken".to_owned(),

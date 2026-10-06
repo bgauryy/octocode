@@ -1,17 +1,14 @@
 # Supported languages and features
 
-Reference, not a tutorial. Regenerate the extension lists from the engine itself if this ever looks stale:
+Reference, not a tutorial. Regenerate the grammar list from the shipped CLI if this ever looks stale:
 
 ```bash
-node -e "const n=require('@octocodeai/octocode-native/engine');
-console.log('structural', n.getSupportedStructuralExtensions().sort());
-console.log('signatures', n.getSupportedSignatureExtensions().sort());
-console.log('jsts', n.getSupportedJsTsExtensions().sort());"
+octocode scheme --compact | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
+for (const g of JSON.parse(d).grammarCapabilities) console.log(g.language, g.extensions.join(' '), g.signatureOutline ? 'signatures' : '');})"
 ```
 
-Minifier routing is internal. Test `minifyContent()` or
-`applyContentViewMinification()` with representative file paths instead of
-depending on the strategy table.
+Minifier routing is internal. Test `localFetch` views with representative file
+paths instead of depending on the strategy table.
 
 ## Structural (AST) search — `astSearch operation:"match"`
 
@@ -19,7 +16,7 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 
 | Language | Extensions | Native AST match/tree/symbols/rewrite | `astTopology` file links | Built-in LSP route |
 |---|---|---|---|---|
-| C | `c` `h` | Yes; `.h` defaults to C; `langType:"cpp"` selects C++ for match and single-file tree/symbols; `languageGlobs` selects it for directory symbols/topology | Quoted relative includes | `clangd` |
+| C | `c` `h` | Yes; `.h` defaults to C; `language:"cpp"` selects C++ for match and single-file tree/symbols; `languageGlobs` selects it for directory symbols/topology | Quoted relative includes | `clangd` |
 | C++ | `cc` `cpp` `cxx` `hh` `hpp` `hxx` | Yes | Quoted relative includes | `clangd` |
 | CUDA *(optional grammar)* | `cu` `cuh` | Only with `tree-sitter-cuda`; absent in the default build | Quoted relative includes only when grammar enabled | `clangd` even without native grammar |
 | Assembly | `asm` `assembly` `s` | Yes; symbols are labels/directives | No cross-file links | Custom server only |
@@ -39,7 +36,7 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 | Agent needs | Operation | Evidence and limit |
 |---|---|---|
 | Paths or file metadata | `structureSearch files` / `tree` | Filesystem result; no grammar required |
-| Syntax pattern or node kind | `astSearch match` | Native grammar; provide `langType` for a directory, or let a file extension select it |
+| Syntax pattern or node kind | `astSearch match` | Native grammar; provide `language` for a directory, or let a file extension select it |
 | Parsed node tree | `astSearch syntaxTree` | Syntax only; does not resolve symbol identity |
 | Declaration outline | `astSearch symbols` | Native declarations; a row's `name`+`line` is `lspSearch` `symbolName`+`lineHint` as-is; read source for bodies and exact claims |
 | Structural edit | `astRewrite` | Beta-gated preview and hash-guarded apply |
@@ -63,15 +60,15 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 
 A search result never authorizes an apply: only an `astRewrite` preview's selection, snapshot, and hashes do.
 
-The default release build registers exactly **28 extensions across 11 language families**. CUDA (`.cu`/`.cuh`) is an optional grammar (`tree-sitter-cuda`) excluded from the default build to save ~6.8 MiB of binary size; its native capabilities appear only in builds that re-enable the feature, though `.cu`/`.cuh` still route to `clangd` for LSP. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from the single registry in `crates/engine/src/signatures/languages.rs`. Exact expected-set assertions live in `crates/engine/src/signatures/languages_tests.rs` and `tests/engine/ffi.test.ts`; every retained grammar also parses and searches a representative fixture. Built-in semantic-server routing is intentionally narrower because generic Assembly has no truthful default server.
+The default release build registers exactly **28 extensions across 11 language families**. CUDA (`.cu`/`.cuh`) is an optional grammar (`tree-sitter-cuda`) excluded from the default build to save ~6.8 MiB of binary size; its native capabilities appear only in builds that re-enable the feature, though `.cu`/`.cuh` still route to `clangd` for LSP. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from the single registry in `crates/engine/src/signatures/languages.rs`. Exact expected-set assertions live in `crates/engine/src/signatures/languages_tests.rs`; every retained grammar also parses and searches a representative fixture. Built-in semantic-server routing is intentionally narrower because generic Assembly has no truthful default server.
 
 ### CUDA opt-in and cost
 
-`tree-sitter-cuda` is already declared and locked. For a one-off runtime build, enable the dependency feature with `--features octocode-engine/tree-sitter-cuda`; for the engine addon, include `tree-sitter-cuda` alongside `portable-default,napi-addon`. To ship it in every build, add `tree-sitter-cuda` to the engine's `portable-default` feature, which both the CLI/runtime and engine addon consume. Then update the fixed default extension expectation in `tests/engine/ffi.test.ts`, the documented counts, and build/test the six platform packages. No new grammar dependency or LSP route is required.
+`tree-sitter-cuda` is already declared and locked. For a one-off runtime build, enable the dependency feature with `--features octocode-engine/tree-sitter-cuda`. To ship it in every build, add `tree-sitter-cuda` to the engine's `portable-default` feature, which the CLI and runtime consume. Then update the fixed default extension expectation in `crates/engine/src/signatures/languages_tests.rs`, the documented counts, and build/test the six platform packages. No new grammar dependency or LSP route is required.
 
 The [same-source Darwin ARM64 release ablation](DEPENDENCY_AUDIT.md#footprint-interpretation) measured **+7,116,704 bytes (+6.787 MiB, +25.53%)** in the stripped engine addon with CUDA enabled. That measures one addon, not the total platform package, compressed download, CLI binary, or runtime addon; those need separate release measurements before changing the default. The optional engine and runtime grammar tests pass with CUDA enabled. Text search, ordinary reads, conservative minification, and the `clangd` LSP route already work for `.cu`/`.cuh` without this parser feature.
 
-The lockfile contains no other unregistered Tree-sitter language crate. OXC covers JS/TS, while JSON/YAML parsers and the broader minifier table do not supply the source ranges and grammar queries required by AST match, rewrite, symbols, and topology. C++ `.h` files expose a separate ambiguity: `.h` selects C by default. `astSearch match` with `langType:"cpp"` parses matching `.h` files as C++ for either a file or directory; tree and symbols accept that override for a single file. `astRewrite` uses `langType` for its parser and filters directory scans to the selected language's extensions, including `.h` for C++. For directory `symbols` and `astTopology`, pass `languageGlobs:{"cpp":["include/**/*.h"]}`. Globs are relative to the scan root, take precedence over the extension parser, and are included in continuation queries; conflicting parser matches are reported as skipped files. This AST override does not alter clangd's compile-command handling. For C++ header LSP analysis, provide `compile_commands.json` or a path-scoped `.clangd` fragment such as `If: { PathMatch: include/.*\.h }` with `CompileFlags: { Add: [-xc++] }`. `languageGlobs` uses glob syntax; `.clangd` `PathMatch` uses a regular expression.
+The lockfile contains no other unregistered Tree-sitter language crate. OXC covers JS/TS, while JSON/YAML parsers and the broader minifier table do not supply the source ranges and grammar queries required by AST match, rewrite, symbols, and topology. C++ `.h` files expose a separate ambiguity: `.h` selects C by default. `astSearch match` with `language:"cpp"` parses matching `.h` files as C++ for either a file or directory; tree and symbols accept that override for a single file. `astRewrite` uses `language` for its parser and filters directory scans to the selected language's extensions, including `.h` for C++. For directory `symbols` and `astTopology`, pass `languageGlobs:{"cpp":["include/**/*.h"]}`. Globs are relative to the scan root, take precedence over the extension parser, and are included in continuation queries; conflicting parser matches are reported as skipped files. This AST override does not alter clangd's compile-command handling. For C++ header LSP analysis, provide `compile_commands.json` or a path-scoped `.clangd` fragment such as `If: { PathMatch: include/.*\.h }` with `CompileFlags: { Add: [-xc++] }`. `languageGlobs` uses glob syntax; `.clangd` `PathMatch` uses a regular expression.
 
 ## Signature extraction / graph facts — `minify:"symbols"`, `astTopology`
 
@@ -104,14 +101,12 @@ default to `none`; GitHub line ranges and other ordinary reads default to
 and reject outline queries combined with matching or line-range selectors.
 Explicit character windows apply even with `fullContent:true`.
 
-GitHub code-search fragments use the full-content minifier. If compression removes a provider match that
-survived security redaction, the fragment falls back to its sanitized source.
-Treat snippets as discovery evidence and read the source with `minify:"none"`
+GitHub code-search fragments are returned unminified. Treat snippets as discovery evidence and read the source with `minify:"none"`
 before quoting or checking identifier usage.
 
-Native regression coverage exercises all 152 configured extensions in standard
-and full minification, all 15 filename overrides, and embedded script views.
-Public file-read and engine FFI tests exercise retained and removed-language fixtures, transformed views, and continuations. Minification coverage is intentionally broader than the first-class parser set and is representative rather than exhaustive language conformance.
+Native regression coverage exercises all 152 configured extensions in the
+content view, all 15 filename overrides, and embedded script views.
+Public file-read tests exercise retained and removed-language fixtures, transformed views, and continuations. Minification coverage is intentionally broader than the first-class parser set and is representative rather than exhaustive language conformance.
 
 History has a separate contract: PR details accept `none` or `standard` for
 body, comments, reviews, and patches. Diff compaction is language-independent
@@ -170,12 +165,11 @@ public CLI or MCP tool path. Do not infer native grammar support from an LSP
 route.
 
 ```bash
-node -e "const n=require('@octocodeai/octocode-native/engine'); \
-console.log(n.getSupportedStructuralExtensions().sort()); \
-console.log(n.getSupportedSignatureExtensions().sort())"
+octocode scheme --compact | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
+for (const g of JSON.parse(d).grammarCapabilities) console.log(g.language, g.extensions.join(' '));})"
 
 node packages/octocode/out/octocode.js astSearch \
-    '{"operation":"match","path":"/ABS/REPO","pattern":"$$$","langType":"typescript","reasoning":"Probe grammar support."}'
+    '{"queries":[{"operation":"match","path":"/ABS/REPO","pattern":"$$$","language":"typescript","reasoning":"Probe grammar support."}]}'
 
 node packages/octocode/out/octocode.js lspSearch \
     '{"uri":"/ABS/REPO/src/file.ts","operation":"documentSymbols","reasoning":"Probe LSP support."}'
@@ -199,8 +193,8 @@ yarn workspace @octocodeai/octocode-native test:node
 | `resultView` | `paginated` · `detailed` · `content` · `files` · `filesWithout` · `countLines` · `countMatches` · `matchOnly` |
 | `unique` | `off` · `list` · `count` (requires `resultView:"matchOnly"`) |
 | `sort` / `reverse` | `relevance` · `matchCount` · `path` · `modified` · `accessed` · `created`, all reversible |
-| `include` / `exclude` / `excludeDir` | glob arrays |
-| `maxDepth`, `contextLines`, `matchWindow`, `matchPage`, `maxMatchesPerFile` | bounds/pagination |
+| `include` / `exclude` | glob arrays |
+| `maxDepth`, `contextLines`, `matchPage`, `matchPageSize` | bounds/pagination |
 
 Read the live `localSearch` schema before scripting queries. It is lexical only;
 use `structureSearch` for directory outlines and file metadata, `astSearch` for structural, syntax-tree, and symbol operations, and `astTopology` for file-graph analysis.

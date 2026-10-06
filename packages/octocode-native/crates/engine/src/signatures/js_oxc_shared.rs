@@ -1,46 +1,7 @@
 use oxc_ast::ast::{ModuleExportName, PropertyKey};
 use oxc_span::Span;
-use serde::Serialize;
 
-#[derive(Serialize)]
-pub(super) struct Position {
-    pub(super) line: u32,
-    pub(super) character: u32,
-}
-
-#[derive(Serialize)]
-pub(super) struct Range {
-    pub(super) start: Position,
-    pub(super) end: Position,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct GraphCall {
-    pub(super) id: String,
-    pub(super) caller: String,
-    /// Declaration id of the enclosing caller; `None` for module-level code.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) caller_id: Option<String>,
-    pub(super) callee: String,
-    pub(super) line: u32,
-    pub(super) range: Range,
-    pub(super) kind: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) receiver_type: Option<String>,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(super) struct GraphCommonJsLoad {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) specifier: Option<String>,
-    pub(super) line: u32,
-    pub(super) kind: &'static str,
-    pub(super) binding: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) reason: Option<&'static str>,
-}
+use crate::graph::{GraphPosition, GraphRange};
 
 /// Maps byte offsets to LSP `(line, character)` positions, where `character`
 /// counts UTF-16 code units from the line start (the LSP wire convention).
@@ -51,13 +12,13 @@ impl<'a> LineIndex<'a> {
         Self(crate::text::utf8_offsets::LineIndex::new(content))
     }
 
-    pub(super) fn position(&self, byte_offset: u32) -> Position {
+    pub(super) fn position(&self, byte_offset: u32) -> GraphPosition {
         let (line, character) = self.0.byte_to_position(byte_offset);
-        Position { line, character }
+        GraphPosition { line, character }
     }
 
-    pub(super) fn range(&self, span: Span) -> Range {
-        Range {
+    pub(super) fn range(&self, span: Span) -> GraphRange {
+        GraphRange {
             start: self.position(span.start),
             end: self.position(span.end),
         }

@@ -15,18 +15,12 @@ pub use octocode_github::{
     StaticCredentialResolver,
 };
 
-/// Derive the credential host that a configured GitHub API URL authenticates
-/// against, mirroring `GitHubEndpoint::credential_host` (api.github.com maps to
-/// github.com). Returns `None` when the URL cannot be parsed or has no host, in
-/// which case the env token is not attached.
+/// The credential host a configured GitHub API URL authenticates against
+/// ([`octocode_github::credential_host`]). Returns `None` when the URL cannot
+/// be parsed or has no host, in which case the env token is not attached.
 fn configured_credential_host(api_url: &str) -> Option<String> {
     let url = url::Url::parse(api_url).ok()?;
-    let host = url.host_str()?;
-    Some(if host.eq_ignore_ascii_case("api.github.com") {
-        "github.com".to_owned()
-    } else {
-        host.to_ascii_lowercase()
-    })
+    Some(octocode_github::credential_host(url.host_str()?).to_ascii_lowercase())
 }
 
 pub(super) fn normalize_host(host: &str) -> String {

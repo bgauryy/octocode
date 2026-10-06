@@ -14,7 +14,6 @@ use octocode_engine::lsp::client::SnippetReadPolicy;
 use octocode_engine::lsp::resolver::LineIndex;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -23,12 +22,6 @@ use std::sync::Arc;
 /// uncapped and streamed to the server.
 pub(super) const MAX_LSP_DIDOPEN_BYTES: u64 = octocode_engine::lsp::MAX_LSP_SOURCE_BYTES;
 
-/// Whether a source of `len` bytes exceeds the didOpen sync cap. Extracted as a
-/// pure seam so the cap decision is unit-testable without touching the fs.
-pub(super) fn didopen_exceeds_cap(len: u64) -> bool {
-    len > MAX_LSP_DIDOPEN_BYTES
-}
-
 /// Why a bounded source read failed.
 #[derive(Debug)]
 pub(super) enum SourceReadError {
@@ -36,38 +29,19 @@ pub(super) enum SourceReadError {
     Unreadable(String),
 }
 
-/// Read a UTF-8 regular file of at most [`MAX_LSP_DIDOPEN_BYTES`]. The file
-/// is opened `O_NONBLOCK` (so a FIFO or device swapped in for the path cannot
-/// block the open) and the *opened handle* is `fstat`ed: anything that is not
-/// a regular file (a FIFO, a device such as `/dev/zero`, a directory) is
-/// refused before a byte is read. The read goes through `take(cap + 1)`, so a
-/// file that grows after the `fstat` is still bounded. Blocking: async
-/// callers use [`read_bounded_source_async`].
+/// Read a UTF-8 regular file of at most [`MAX_LSP_DIDOPEN_BYTES`] through the
+/// engine's bounded regular-file read (non-blocking open, `fstat` of the
+/// opened handle, capped read). Blocking: async callers use
+/// [`read_bounded_source_async`].
 pub(super) fn read_bounded_source(path: &Path) -> Result<String, SourceReadError> {
-    let unreadable = |error: std::io::Error| SourceReadError::Unreadable(error.to_string());
-    let mut options = std::fs::OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        options.custom_flags(libc::O_NONBLOCK);
-    }
-    let file = options.open(path).map_err(unreadable)?;
-    let metadata = file.metadata().map_err(unreadable)?;
-    if !metadata.is_file() {
-        return Err(SourceReadError::Unreadable("not a regular file".into()));
-    }
-    if didopen_exceeds_cap(metadata.len()) {
-        return Err(SourceReadError::TooLarge(metadata.len()));
-    }
-    let mut bytes = Vec::with_capacity(usize::try_from(metadata.len()).unwrap_or(0));
-    file.take(MAX_LSP_DIDOPEN_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(unreadable)?;
-    let read = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
-    if didopen_exceeds_cap(read) {
-        return Err(SourceReadError::TooLarge(read));
-    }
+    use octocode_engine::lsp::BoundedRead;
+    let bytes = octocode_engine::lsp::read_regular_bounded(path, MAX_LSP_DIDOPEN_BYTES).map_err(
+        |error| match error {
+            BoundedRead::TooLarge(len) => SourceReadError::TooLarge(len),
+            BoundedRead::NotRegular => SourceReadError::Unreadable("not a regular file".into()),
+            BoundedRead::Io(error) => SourceReadError::Unreadable(error.to_string()),
+        },
+    )?;
     String::from_utf8(bytes)
         .map_err(|error| SourceReadError::Unreadable(format!("not valid UTF-8: {error}")))
 }

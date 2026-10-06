@@ -46,10 +46,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { RESULTS, ROOT, checks, expandShared, inventoryRows, nextHints, outlineRows, startServer, structureFiles, writeResults } from './mcp-client.mjs';
+import { RESULTS, ROOT, checks, cli as runCli, inventoryRows, nextHints, outlineRows, startServer, structureFiles, writeResults } from './mcp-client.mjs';
 import {
   ANCHOR_FILE, GATE_FACTOR, ROLLING_FILE, allHintEntries, baselineRecord, bodyHash, bytesUnderKey, callRows, canonical, describeFlag, envelopeContainer,
-  gateTask, hintEntries, isHintContainer, isHintKey, keyBytes, keyShares, leadBytes, loadVerboseRules, maxLeadEntries, mergeCounts, schemaErrors, selfTest, verboseFields,
+  gateTask, hintEntries, isHintContainer, isHintKey, isPageName, keyBytes, keyShares, leadBytes, loadVerboseRules, maxLeadEntries, mergeCounts, schemaErrors, selfTest, verboseFields,
 } from './sensors.mjs';
 
 if (process.argv.includes('--self-test')) process.exit(selfTest() ? 1 : 0);
@@ -57,7 +57,6 @@ if (process.argv.includes('--self-test')) process.exit(selfTest() ? 1 : 0);
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const { tasks: ALL } = JSON.parse(fs.readFileSync(path.join(HERE, 'competitor-tasks.json'), 'utf8'));
 const T = 'octocode-local-testing/repos';
-const CLI = path.join(ROOT, 'packages/octocode/out/octocode.js');
 const CT = fs.mkdtempSync(path.join(os.tmpdir(), 'octocode-competitors-'));
 const BASH_TOOL_DEF_BYTES = Number(process.env.OCTOCODE_COMPETITOR_BASH_TOOL_BYTES ?? 1200);
 const NORMALIZED = process.env.OCTOCODE_COMPETITOR_NORMALIZE !== '0';
@@ -163,23 +162,16 @@ async function restart(ws) {
 
 async function mcp(ctx, tool, args) {
   const client = await clientFor(ctx.ws);
-  const started = performance.now();
-  let response;
-  try { response = await client.rpc('tools/call', { name: tool, arguments: args }); } catch (error) { response = { error: { message: error.message } }; }
-  const ms = Math.round(performance.now() - started);
-  const rawSc = response.result?.structuredContent;
-  const text = response.result?.content?.filter(c => c.type === 'text').map(c => c.text).join('') ?? JSON.stringify(response.error ?? '');
-  return { surface: 'mcp', tool, args, ms, bytes: rawSc ? JSON.stringify(rawSc).length : text.length, raw: rawSc, sc: expandShared(rawSc), text, isError: !!(response.error || response.result?.isError), transport: response.error?.message };
+  // Byte gate measure: the compact structuredContent JSON length (text length without it).
+  const e = await client.raw(tool, args, '', { keepRaw: true, bytes: (rawSc, text) => (rawSc ? JSON.stringify(rawSc).length : text.length) });
+  return { surface: 'mcp', tool, args, ms: Math.round(e.ms), bytes: e.bytes, raw: e.raw, sc: e.sc, text: e.text, isError: e.isError, transport: e.transport };
 }
 
 function cli(ctx, tool, args) {
-  const started = performance.now();
   const root = path.join(ROOT, ctx.ws);
-  const run = spawnSync(process.execPath, [CLI, tool, JSON.stringify(args)], { cwd: root, encoding: 'utf8', maxBuffer: 256 << 20, timeout: 180_000, env: { ...process.env, OCTOCODE_BETA: 'true', ...(ctx.ws ? { WORKSPACE_ROOT: root } : {}) } });
-  const ms = Math.round(performance.now() - started);
-  const stdout = run.stdout ?? '';
-  let sc; try { sc = JSON.parse(stdout); } catch {}
-  return { surface: 'cli', tool, args, ms, bytes: stdout.length + (run.stderr ?? '').length, raw: sc, sc, text: stdout + (run.stderr ?? ''), isError: run.status !== 0, transport: run.error?.message };
+  const run = runCli(tool, args, { cwd: root, maxBuffer: 256 << 20, timeout: 180_000, env: { OCTOCODE_BETA: 'true', ...(ctx.ws ? { WORKSPACE_ROOT: root } : {}) } });
+  let sc; try { sc = JSON.parse(run.stdout); } catch {}
+  return { surface: 'cli', tool, args, ms: Math.round(run.ms), bytes: run.stdout.length + run.stderr.length, raw: sc, sc, text: run.stdout + run.stderr, isError: run.status !== 0, transport: run.error?.message };
 }
 
 const get = (obj, dotted) => dotted.split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -214,8 +206,13 @@ const taskBrief = task => {
   const mainGoal = NORMALIZED ? task.mainGoal : task.question;
   return mainGoal ? { mainGoal, reasoning: REASONING } : {};
 };
-/** A continuation as call arguments: matrices and envelope continuations are whole calls. */
-const asCall = (hint, envelope) => (hint.query.queries || hint.tool === 'clasify' ? hint.query : { ...envelope, queries: [hint.query] });
+/**
+ * A continuation as call arguments: its query is the complete input. A step's
+ * call-level options (e.g. an explicit responseLength) ride along, except on
+ * a response page, whose snapshot binds its own window.
+ */
+const asCall = (hint, options = {}) =>
+  hint.query.responseSnapshot ? hint.query : { ...hint.query, ...options };
 
 async function runOctocode(task, ws) {
   const ctx = { ws };
@@ -229,8 +226,6 @@ async function runOctocode(task, ws) {
     if (step.tool) {
       const queries = step.queries ? step.queries.map(q => brief(resolve(q, entries, ws))) : [brief(resolve(step.args, entries, ws))];
       entries.push(await mcp(ctx, step.tool, { ...step.envelope, queries }));
-    } else if (step.raw) {
-      entries.push(await mcp(ctx, step.raw, brief(resolve(step.args, entries, ws))));
     } else if (step.cli) {
       entries.push(cli(ctx, step.cli, { queries: [brief(resolve(step.args, entries, ws))] }));
     } else if (step.follow) {
@@ -257,9 +252,6 @@ async function runOctocode(task, ws) {
       let calls = 0;
       while (queue.length && calls < (step.max ?? 40)) {
         const { hint, index } = queue.shift();
-        // A row continuation runs in `queries` (with the step's call-level
-        // options, e.g. an explicit responseCharLength); an envelope
-        // continuation (responsePagination.next) is the whole call.
         const e = await mcp(ctx, hint.tool, asCall(hint, step.envelope));
         entries.push(e); calls += 1;
         if (e.isError) break;
@@ -291,16 +283,19 @@ function octocodeEvidence(entry, ev, { unsearched = false } = {}) {
     if (Array.isArray(node.lines) && node.lines.every(l => typeof l === 'string')) for (const l of node.lines) { const m = /^(\d+)\t/.exec(l); if (m) pair(here, +m[1]); }
     // Compact rows: symbols outline rows (grouped and merged, see outlineRows)
     // and lean structural matches "<line>[-<end>]\t<value>".
-    if (Array.isArray(node.declarations)) for (const decl of outlineRows(node.declarations.filter(row => typeof row === 'string'))) if (Number.isInteger(decl.line)) pair(here, decl.line);
-    if (Array.isArray(node.matches)) for (const row of node.matches) { const m = typeof row === 'string' && /^\s*(\d+)/.exec(row); if (m) pair(here, +m[1]); }
-    if (Array.isArray(node.byFile)) for (const f of node.byFile) {
-      for (const ref of f.refs ?? []) { const m = /^(\d+)/.exec(ref); if (m) pair(f.path, +m[1]); }
-      // Direct callers: "<line>:<col>[,<line>:<col>…] in <kind> <name> …" lists call sites.
-      for (const call of f.calls ?? []) for (const site of /^([\d:,]+) in /.exec(call)?.[1].split(',') ?? []) pair(f.path, +site.split(':')[0]);
+    if (Array.isArray(node.symbols)) for (const decl of outlineRows(node.symbols.filter(row => typeof row === 'string'))) if (Number.isInteger(decl.line)) pair(here, decl.line);
+    if (Array.isArray(node.matches)) for (const row of node.matches) {
+      if (typeof row !== 'string') continue;
+      // Grouped lspSearch callers: "<line>:<col>[,<line>:<col>…] in <kind> <name> …" lists call sites.
+      const sites = /^([\d:,]+) in /.exec(row)?.[1].split(',');
+      if (sites) { for (const site of sites) pair(here, +site.split(':')[0]); continue; }
+      const m = /^\s*(\d+)/.exec(row); if (m) pair(here, +m[1]);
     }
-    if (entry.tool === 'structureSearch' && typeof node.dir === 'string' && Array.isArray(node.files)) {
-      // structureSearch groups: dir resolves against base like a row path.
-      for (const f of structureFiles([node])) { ev.files.add(f.path); ev.fileRows.push(f.path); }
+    if (entry.tool === 'structureSearch' && typeof node.path === 'string' && Array.isArray(node.files)) {
+      // structureSearch `files`: bare entries are `path`'s own, group dirs are relative to `path`.
+      for (const f of structureFiles(node.files, node.path)) { ev.files.add(f.path); ev.fileRows.push(f.path); }
+    } else if (entry.tool === 'structureSearch' && typeof node.dir === 'string' && Array.isArray(node.files)) {
+      // Groups were collected with their row above.
     } else if (typeof node.dir === 'string' && Array.isArray(node.files)) {
       // ghStructure dirs are relative to the requested path (the agent's own input).
       const base = entry.tool === 'ghStructure' ? String(entry.args?.queries?.[0]?.path ?? '').replace(/^\.?\/?$/, '') : '';
@@ -312,7 +307,7 @@ function octocodeEvidence(entry, ev, { unsearched = false } = {}) {
     for (const [key, child] of Object.entries(node)) {
       if (isHintKey(key)) continue;
       if (key === 'unsearchedFiles' && Array.isArray(child)) { if (unsearched) for (const s of child) { const m = /^!\w+ (.+)$/.exec(s); if (m) ev.files.add(m[1]); } continue; }
-      if (key === 'changedFiles' && Array.isArray(child) && child.some(c => typeof c === 'string' || (c && !('path' in c)))) { for (const f of inventoryRows(child)) if (f.path) ev.files.add(f.path); continue; }
+      if (key === 'files' && entry.tool === 'ghGetHistoryItem' && Array.isArray(child) && child.some(c => typeof c === 'string' || (c && !('path' in c)))) { for (const f of inventoryRows(child)) if (f.path) ev.files.add(f.path); continue; }
       if (key === 'from' || key === 'displayRange') continue;
       walk(child, here, Array.isArray(child) ? true : false);
     }
@@ -403,13 +398,14 @@ function maxNextEntries(node) {
   return max;
 }
 // A paging continuation (it reaches the rest of the same evidence), as
-// opposed to a lead to a different read (read, readFixPr, viewRepo, …).
+// opposed to a lead to a different read (read, readFixPullRequest, viewRepo, …).
 const PAGING_NAME = /page|continue|more|expand|resume|pagination|clasify|^next$/i;
-const PAGING_KEYS = ['page', 'offset', 'charOffset', 'matchPage', 'filePage', 'patchPage', 'cursor', 'responseCharOffset', 'after', 'resume'];
-const isPaging = ({ name, hint }) => PAGING_NAME.test(name) || PAGING_KEYS.some(k => k in hint.query) || (hint.query.queries ?? []).some(q => PAGING_KEYS.some(k => k in q));
+const PAGING_KEYS = ['page', 'offset', 'matchPage', 'filePage', 'patchPage', 'responseOffset', 'after', 'resume'];
+// A core `pages` name (e.g. nextDiagnosticPage) pages its row whatever its spelling.
+const isPaging = ({ name, hint }, tool = '') => isPageName(name, tool) || PAGING_NAME.test(name) || PAGING_KEYS.some(k => k in hint.query) || (hint.query.queries ?? []).some(q => PAGING_KEYS.some(k => k in q));
 // A query that asked for a window (range, match, block, view) is partial by
 // request: its omission markers and isPartial flag are not truncation.
-const WINDOW_KEYS = ['matchString', 'ranges', 'startLine', 'endLine', 'block', 'symbol', 'view', 'charLength', 'charOffset', 'offset', 'chunkSize', 'fileFilter', 'matchContext', 'contextLines'];
+const WINDOW_KEYS = ['matchString', 'ranges', 'block', 'symbol', 'view', 'length', 'offset', 'unit', 'include', 'patchRanges', 'contextLines'];
 const OMISSION = /\.\.\. \[(?:lines? \d+(?:-\d+)?|\d+ gaps in lines \d+-\d+) (?:omitted|not requested)\] \.\.\.|\[\.\.\.\s*\d+ (?:more|omitted)[^\]]*\]/;
 
 /** Truncation signals under one row: [{at, signal}], skipping continuation values. */
@@ -455,7 +451,7 @@ function responseSensors(entry) {
     out.nextNames.push(...inRow.map(e => e.name));
     const query = queries[row?.index ?? i] ?? queries[0] ?? {};
     const windowed = WINDOW_KEYS.some(k => k in query);
-    const paging = inRow.some(isPaging);
+    const paging = inRow.some(e => isPaging(e, entry.tool));
     const disclosed = hasTerminalLimit(row);
     for (const s of trimSignals(row, `results[${i}]`, windowed)) {
       if (!paging && !disclosed) out.violations.push({ tool: entry.tool, ...s, query: JSON.stringify(query).slice(0, 160) });
@@ -521,7 +517,7 @@ async function replayHints(entries, ws) {
     seen.add(key);
     offered.push({ name: h.path.split('.').at(-1), hint: { tool: h.tool, query: h.query }, byRecipe: executed.has(key) });
   }
-  // CLI-only tools (ghCloneRepo, astRewrite) clone or write; they are counted, not replayed.
+  // CLI-only tools (ghCloneRepo, astRewrite, astTopology) never list on MCP; they are counted, not replayed.
   const client = await clientFor(ws);
   const onMcp = o => client.tools.some(t => t.name === o.hint.tool);
   const sample = offered.filter(o => !o.byRecipe && onMcp(o)).slice(0, Math.max(0, REPLAY_MAX));

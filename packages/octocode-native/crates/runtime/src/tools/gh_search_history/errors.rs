@@ -1,0 +1,39 @@
+//! Failure wording shared by both history tools: the message and the hint
+//! for a provider error.
+use crate::providers::github::{ProviderError, ProviderErrorKind, ProviderErrorReason};
+use crate::tools::gh_shared::{provider_hint, provider_message, validation_message};
+
+/// The message and the optional hint for a history failure. `search`
+/// distinguishes ghSearchHistory from the direct-fetch ghGetHistoryItem: a
+/// search 422 names the query, and a direct fetch of a bogus commit SHA
+/// (GitHub 422 "No commit found for SHA: …") is a missing commit, not a
+/// query-syntax problem. Without a hint here the runtime gives the one hint
+/// of the error kind, the same for every GitHub tool.
+pub(crate) fn history_failure(
+    error: &ProviderError,
+    search: bool,
+) -> (String, Option<&'static str>) {
+    let message = match error.kind {
+        ProviderErrorKind::NotFound
+            if matches!(
+                error.reason,
+                Some(ProviderErrorReason::PullRequestIsIssue | ProviderErrorReason::RefNotFound)
+            ) =>
+        {
+            error.message.to_string()
+        }
+        ProviderErrorKind::Validation if error.status == Some(422) && search => {
+            validation_message(error, "Invalid search query or request parameters")
+        }
+        ProviderErrorKind::Validation
+            if error.status == Some(422) && error.message.starts_with("No commit found") =>
+        {
+            "Commit not found - verify the ref/SHA exists in this repository".to_owned()
+        }
+        ProviderErrorKind::Validation if error.status == Some(422) => {
+            validation_message(error, "Invalid request parameters")
+        }
+        _ => provider_message(error),
+    };
+    (message, provider_hint(error))
+}

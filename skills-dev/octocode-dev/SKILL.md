@@ -57,6 +57,7 @@ Root `package.json` keeps only `build:native:all`, `platforms:check`, `lint:fix`
 | Full repo contract before handoff | `$DEV verify` |
 | Docs links, catalog, config keys | `$DEV docs:verify` |
 | Workspace scripts present / outputs built | `$DEV health:check` · `$DEV check-outputs` |
+| Disk cleanup | `$DEV clean:cache` (stale native copies, deps stay warm) · `$DEV clean` (all build outputs) |
 | One range per external dependency | `$DEV deps:dedupe` (`--fix` rewrites) |
 | Local dev resolutions | `$DEV setup` then `yarn install` |
 | Publish guard | `$DEV prepublish` (`--fix`, `--dry-run`); CI build: `$DEV build:ci` |

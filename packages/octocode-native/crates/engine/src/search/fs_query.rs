@@ -41,6 +41,9 @@ struct CompiledQuery {
     readable: bool,
     writable: bool,
     exclude_dir: Vec<String>,
+    /// Caller exclusions: basename globs and root-relative path globs.
+    exclude_names: Vec<Regex>,
+    exclude_paths: Vec<Regex>,
     limit: usize,
     warnings: Vec<String>,
 }
@@ -51,12 +54,7 @@ struct QueryState {
     total_discovered: u32,
     skipped: u32,
     permission_denied: u32,
-}
-
-pub(crate) fn query_file_system_inner(
-    options: FileSystemQueryOptions,
-) -> Result<FileSystemQueryResult, String> {
-    query_file_system_filtered_inner(options, &|_| Ok(true))
+    pruned_dirs: Vec<String>,
 }
 
 pub(crate) fn query_file_system_filtered_inner(
@@ -96,6 +94,7 @@ pub(crate) fn query_file_system_filtered_inner(
         skipped: state.skipped,
         permission_denied: state.permission_denied,
         warnings: query.warnings,
+        pruned_dirs: state.pruned_dirs,
     })
 }
 
@@ -110,6 +109,19 @@ impl CompiledQuery {
             .partition(|name| name.contains('/'));
         let name_globs = compile_globs(base_names, "names", &mut warnings);
         let name_path_globs = compile_globs(path_names, "names", &mut warnings);
+        let (exclude_paths, exclude_names): (Vec<String>, Vec<String>) = options
+            .exclude
+            .unwrap_or_default()
+            .into_iter()
+            .map(|glob| {
+                glob.trim_start_matches("./")
+                    .trim_end_matches('/')
+                    .to_owned()
+            })
+            .filter(|glob| !glob.is_empty())
+            .partition(|glob| glob.contains('/'));
+        let exclude_names = compile_globs(exclude_names, "exclude", &mut warnings);
+        let exclude_paths = compile_globs(exclude_paths, "exclude", &mut warnings);
         let extensions = normalize_extensions(options.extensions.unwrap_or_default());
         let path_glob = match options.path_pattern {
             Some(pattern) => Some(compile_glob(&pattern, "pathPattern").map_err(|err| err.reason)?),
@@ -168,8 +180,29 @@ impl CompiledQuery {
             readable: options.readable.unwrap_or(false),
             writable: options.writable.unwrap_or(false),
             exclude_dir: options.exclude_dir.unwrap_or_default(),
+            exclude_names,
+            exclude_paths,
             limit: options.limit.map(|n| n as usize).unwrap_or(DEFAULT_LIMIT),
             warnings,
+        })
+    }
+}
+
+impl CompiledQuery {
+    /// Whether a caller `exclude` glob names this entry: by name at any
+    /// depth, or by its path below the root. A directory also matches a
+    /// `dir/**` glob, so it is skipped whole.
+    fn excludes(&self, path: &Path, name: &str, is_dir: bool) -> bool {
+        if self.exclude_names.iter().any(|glob| glob.is_match(name)) {
+            return true;
+        }
+        if self.exclude_paths.is_empty() {
+            return false;
+        }
+        let relative = normalize_path(path.strip_prefix(&self.root).unwrap_or(path));
+        let as_dir = is_dir.then(|| format!("{relative}/"));
+        self.exclude_paths.iter().any(|glob| {
+            glob.is_match(&relative) || as_dir.as_deref().is_some_and(|dir| glob.is_match(dir))
         })
     }
 }
@@ -250,6 +283,11 @@ fn walk_children(
 
         let is_directory = metadata.is_dir();
         if is_directory && query.exclude_dir.iter().any(|dir| dir == name.as_ref()) {
+            let relative = path.strip_prefix(&query.root).unwrap_or(&path);
+            state.pruned_dirs.push(normalize_path(relative));
+            continue;
+        }
+        if query.excludes(&path, &name, is_directory) {
             continue;
         }
 
@@ -696,6 +734,12 @@ mod tests {
     use super::*;
     use std::fs::{self, File};
 
+    fn query_file_system_inner(
+        options: FileSystemQueryOptions,
+    ) -> Result<FileSystemQueryResult, String> {
+        query_file_system_filtered_inner(options, &|_| Ok(true))
+    }
+
     fn temp_root(name: &str) -> PathBuf {
         let root =
             std::env::temp_dir().join(format!("octocode_fs_query_{}_{}", name, std::process::id()));
@@ -868,6 +912,40 @@ mod tests {
 
         assert_eq!(result.entries.len(), 1);
         assert!(result.entries[0].path.ends_with("src/nested/a.ts"));
+        assert_eq!(result.pruned_dirs, ["node_modules"]);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn exclude_globs_skip_matching_files_and_whole_directories() {
+        let root = temp_root("exclude_globs");
+        fs::create_dir_all(root.join("src/gen/deep")).expect("create gen");
+        fs::create_dir_all(root.join("vendor/lib")).expect("create vendor");
+        File::create(root.join("src/a.ts")).expect("a");
+        File::create(root.join("src/a.min.js")).expect("min");
+        File::create(root.join("src/gen/deep/b.ts")).expect("b");
+        File::create(root.join("vendor/lib/c.ts")).expect("c");
+
+        let result = query_file_system_inner(FileSystemQueryOptions {
+            path: root.to_string_lossy().to_string(),
+            entry_type: Some("f".to_owned()),
+            exclude: Some(vec![
+                "vendor".to_owned(),
+                "src/gen/**".to_owned(),
+                "*.min.js".to_owned(),
+            ]),
+            ..Default::default()
+        })
+        .expect("query");
+
+        let paths = result
+            .entries
+            .iter()
+            .map(|entry| entry.relative_path.replace('\\', "/"))
+            .collect::<Vec<_>>();
+        assert_eq!(paths, ["src/a.ts"]);
+        // Caller exclusions are the caller's own filter, not a default prune.
+        assert!(result.pruned_dirs.is_empty());
         fs::remove_dir_all(root).expect("cleanup");
     }
 

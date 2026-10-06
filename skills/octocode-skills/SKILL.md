@@ -1,6 +1,6 @@
 ---
 name: octocode-skills
-description: "Use when Agent Skills/SKILL.md need finding, comparison, review, creation, repair, install, sync, or trigger tuning."
+description: "Use when Agent Skills/SKILL.md need finding, comparison, review, creation, repair, install, sync, or trigger tuning. Not for prompt or agent-flow behavior inside a skill → octocode-agentic-prompts; deleting dead code or stale text → octocode-clean-agentic-code."
 ---
 
 # Octocode Skills
@@ -59,7 +59,7 @@ Caption: discover only when the source is unresolved; review-only requests never
 - Lobby = full picture: the skill map plus every gate, stop condition, consent rule, threshold, default, and key phase rule, one line each. References hold detail only. Lobby 150 lines or fewer.
 - At most 12 reference pages, each 100 lines or fewer, each opening with `Load when … Why: …`. Merge pages that serve one decision.
 - Lobby convention below the H1: `tools:`, `output:` (or none); `routes:` only without a skill map; `related-skill:` only when useful.
-- Write in STE-80. Show a flow, branch, or loop as one Mermaid diagram (12 nodes or fewer) plus a caption; keep commands, thresholds, and paths as text.
+- Write in STE-80. Show a flow, branch, or loop as one Mermaid diagram (12 flow nodes or fewer; reference-page leaves on dotted edges do not count) plus a caption; keep commands, thresholds, and paths as text.
 - Pick one default; give alternatives only as escape hatches. Use exact commands for fragile, destructive, or order-dependent steps.
 - `description`: what the skill does and when to use it, as one `Use when` sentence of user intents (house rule). 1024 chars or fewer, trigger in the first ~50 chars, no "I" or "you", no mandate words. Hard rules go in the lobby body.
 - `name`: 64 chars or fewer, `a-z0-9` with single hyphens, equal to the folder, no `anthropic` or `claude`. Publish only spec fields; host extras stay host-local.

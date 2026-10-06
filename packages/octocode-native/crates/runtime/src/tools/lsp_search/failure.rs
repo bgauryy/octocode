@@ -24,7 +24,7 @@ const RETRY_OR_FALL_BACK: &str =
 impl LspFailure {
     pub(super) fn invalid_query(message: impl Into<String>) -> Self {
         Self {
-            code: "lsp.invalidQuery",
+            code: "invalidInput",
             message: message.into(),
             retryable: false,
             hint: "Correct the lspSearch fields (see `octocode scheme lspSearch`), then retry.",
@@ -48,7 +48,7 @@ impl LspFailure {
         use crate::policy::PolicyErrorCode;
         let hint = match error.code {
             PolicyErrorCode::OutsideAllowedRoots | PolicyErrorCode::SymlinkEscape => {
-                crate::runtime::response::SANDBOX_HINT
+                crate::tools::output::SANDBOX_HINT
             }
             _ => {
                 "Verify the path with structureSearch operation:\"files\", then retry the exact path."
@@ -130,9 +130,9 @@ impl From<EngineError> for LspFailure {
 pub(super) fn failure_hint(query: &LspSearchQuery, code: &str) -> &'static str {
     match code {
         "lsp.serverUnavailable"
-            if query.operation() == "workspaceSymbol" && query.uri().is_none() =>
+            if query.operation() == "workspaceSymbol" && query.path().is_none() =>
         {
-            "Provide uri for a representative workspace source file so Octocode can select its language server."
+            "Provide path for a representative workspace source file so Octocode can select its language server."
         }
         "lsp.serverUnavailable" => {
             "Use astSearch symbols/match or localSearch for candidates, then localFetch exact source."
@@ -145,7 +145,7 @@ pub(super) fn failure_hint(query: &LspSearchQuery, code: &str) -> &'static str {
         "lsp.capabilityUnavailable" => {
             "Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads."
         }
-        "lsp.anchorUnresolved" => {
+        "anchorUnresolved" => {
             "Read the source, then provide an exact position or a unique symbolName with lineHint."
         }
         "lsp.timeout" => {
@@ -185,15 +185,14 @@ pub(super) fn failure(
         "status": "error",
         "errorCode": code,
         "error": message,
-        "type": query.operation(),
         "lsp": { "serverAvailable": server_available },
         "hints": [failure_hint(query, code)]
     });
-    value["uri"] = json!(canonical_uri);
+    value["path"] = json!(super::render::uri_to_path(canonical_uri));
     if code == "lsp.timeout" {
         value["next"]["retry"] = continuation(query_value(query));
     }
-    if query.uri().is_some() {
+    if query.path().is_some() {
         attach_recovery_next(&mut value, query);
     }
     value
@@ -207,8 +206,7 @@ pub(super) fn empty(
 ) -> Value {
     json!({
         "status": "empty",
-        "type": query.operation(),
-        "uri": query.uri(),
+        "path": query.path(),
         "lsp": { "serverAvailable": server_available },
         "payload": { "kind": "empty", "category": category, "reason": reason },
         "hints": [empty_hint(category)]
@@ -221,7 +219,9 @@ pub(super) fn query_value(query: &LspSearchQuery) -> Value {
 
 /// An exact, executable `lspSearch` continuation.
 pub(super) fn continuation(query: Value) -> Value {
-    json!({ "tool": ToolId::LspSearch.as_str(), "query": query, "confidence": "exact" })
+    crate::tools::result::Continuation::new(ToolId::LspSearch, query)
+        .confidence("exact")
+        .build()
 }
 
 /// Mark a row partial with `reason` and warnings, without a continuation
@@ -298,20 +298,18 @@ pub(super) fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
             }
         }
         value["next"]["nextPage"] = continuation(next_query);
-        // Compact reference rows carry the snapshot once, in the continuation.
-        if value
-            .pointer("/payload/byFile/0/refs")
-            .is_some_and(Value::is_array)
-            && let Some(pagination) = value.get_mut("pagination").and_then(Value::as_object_mut)
-        {
-            pagination.shift_remove("snapshot");
+        // The continuation states the next page, its size and the snapshot.
+        if let Some(pagination) = value.get_mut("pagination").and_then(Value::as_object_mut) {
+            for key in ["nextPage", "pageSize", "snapshot"] {
+                pagination.shift_remove(key);
+            }
         }
     } else if value.pointer("/payload/kind").and_then(Value::as_str) == Some("empty") {
         value["status"] = json!("empty");
         // A workspaceRoot-only query has no file to fall back to reading, and
         // reading source cannot stand in for missing diagnostics.
         let category = value.pointer("/payload/category").and_then(Value::as_str);
-        if query.uri().is_some()
+        if query.path().is_some()
             && !matches!(category, Some("noDiagnostics" | "diagnosticsNotPublished"))
         {
             attach_recovery_next(&mut value, query);
@@ -326,22 +324,20 @@ pub(super) fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
     value
 }
 
-/// `next.readFile` recovery: the symbol's match windows when a name anchored
+/// `next.read` recovery: the symbol's match windows when a name anchored
 /// the request (not the whole file), otherwise the file's default view.
 pub(super) fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
-    let path = query.uri().map(uri_to_path).unwrap_or_default();
+    let path = query.path().map(uri_to_path).unwrap_or_default();
     let mut read = json!({ "path": path });
     if let Some(symbol) = query.symbol_name().filter(|name| !name.trim().is_empty()) {
         read["matchString"] = json!(symbol);
-        read["matchStringCaseSensitive"] = json!(true);
+        read["caseMode"] = json!("sensitive");
         read["contextLines"] = json!(3);
     }
-    value["next"]["readFile"] = json!({
-        "tool": ToolId::LocalFetch.as_str(),
-        "why": "Read the source directly to confirm the symbol and its anchor.",
-        "query": read,
-        "confidence": "exact"
-    });
+    value["next"]["read"] = crate::tools::result::Continuation::new(ToolId::LocalFetch, read)
+        .why("Read the source directly to confirm the symbol and its anchor.")
+        .confidence("exact")
+        .build();
 }
 
 /// Lines read on each side of `lineHint` when the symbol is not there.
@@ -353,21 +349,27 @@ const SUGGESTION_RADIUS: usize = 20;
 /// `lineHint` (a `matchString` of the missing name cannot match), and offer
 /// the closest identifier near the hint as an executable `next.didYouMean`.
 pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source: Option<&str>) {
-    let (Some(name), Some(path)) = (query.symbol_name(), query.uri().map(uri_to_path)) else {
+    let (Some(name), Some(path)) = (query.symbol_name(), query.path().map(uri_to_path)) else {
         return;
     };
     let hint = query.line_hint().filter(|line| *line > 0);
     if let Some(line) = hint {
-        value["next"]["readFile"] = json!({
-            "tool": ToolId::LocalFetch.as_str(),
-            "why": format!("`{name}` was not found near line {line}; read the lines around it."),
-            "query": {
+        value["next"]["read"] = crate::tools::result::Continuation::new(
+            ToolId::LocalFetch,
+            json!({
                 "path": path,
-                "startLine": line.saturating_sub(ANCHOR_READ_RADIUS).max(1),
-                "endLine": line.saturating_add(ANCHOR_READ_RADIUS)
-            },
-            "confidence": "exact"
-        });
+                "ranges": [format!(
+                    "{}-{}",
+                    line.saturating_sub(ANCHOR_READ_RADIUS).max(1),
+                    line.saturating_add(ANCHOR_READ_RADIUS)
+                )]
+            }),
+        )
+        .why(format!(
+            "`{name}` was not found near line {line}; read the lines around it."
+        ))
+        .confidence("exact")
+        .build();
     }
     let suggestions = source
         .map(|source| near_names(source, name, hint))
@@ -381,11 +383,9 @@ pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source:
         object.insert("lineHint".into(), json!(line));
         object.remove("orderHint");
     }
-    value["next"]["didYouMean"] = json!({
-        "tool": ToolId::LspSearch.as_str(),
-        "query": retry,
-        "confidence": "medium"
-    });
+    value["next"]["didYouMean"] = crate::tools::result::Continuation::new(ToolId::LspSearch, retry)
+        .confidence("medium")
+        .build();
     let listed = suggestions
         .iter()
         .map(|(name, line)| format!("`{name}` (line {line})"))
@@ -424,4 +424,47 @@ fn near_names(source: &str, name: &str, hint: Option<u32>) -> Vec<(String, usize
         .take(3)
         .map(|(_, _, word, line)| (word, line))
         .collect()
+}
+
+/// Mark an incoming-direction row partial: coverage reason, a warning, and
+/// (when the query names its symbol) a lexical `localSearch` fallback.
+pub(super) fn flag_partial(
+    row: &mut Value,
+    query: &LspSearchQuery,
+    reason: &str,
+    warning: &str,
+    workspace_root: &str,
+) {
+    if let Some(payload) = row.get_mut("payload").and_then(Value::as_object_mut) {
+        let coverage = payload
+            .entry("coverage")
+            .or_insert_with(|| json!({"scope":"languageServer","exhaustive":false}));
+        coverage["exhaustive"] = json!(false);
+        coverage["reason"] = json!(reason);
+    }
+    // A warning, not a hint: the hint policy keeps hints for empty/error rows
+    // only, and this caveat matters most when the row looks complete.
+    let name = query.symbol_name().filter(|name| !name.trim().is_empty());
+    match name {
+        // Partial only with an executable recovery.
+        Some(name) => {
+            push_reason(row, reason, &[warning.to_owned()]);
+            row["next"]["textSearch"] = crate::tools::result::Continuation::new(
+                ToolId::LocalSearch,
+                json!({
+                    "path": workspace_root,
+                    "matchString": super::render::word_pattern(name)
+                }),
+            )
+            .why("Find textual uses the language server's project cannot see.")
+            .confidence("medium")
+            .build();
+        }
+        // A position anchor has no name to search for: coverage reason and
+        // warning only.
+        None => match row.get_mut("warnings").and_then(Value::as_array_mut) {
+            Some(warnings) => warnings.push(json!(warning)),
+            None => row["warnings"] = json!([warning]),
+        },
+    }
 }

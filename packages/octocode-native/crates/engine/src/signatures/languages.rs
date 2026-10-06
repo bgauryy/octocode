@@ -257,12 +257,6 @@ pub fn supported_extensions() -> Vec<&'static str> {
         .collect()
 }
 
-/// Extensions that produce a signature outline. Every registry entry is a
-/// first-class language with a non-empty body query.
-pub fn signature_extensions() -> Vec<&'static str> {
-    supported_extensions()
-}
-
 #[cfg(test)]
 #[path = "languages_tests.rs"]
 mod tests;
