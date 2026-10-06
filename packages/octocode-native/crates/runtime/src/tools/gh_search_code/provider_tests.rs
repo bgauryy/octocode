@@ -84,7 +84,10 @@ async fn the_head_commit_resolves_while_the_search_runs() {
         .await
         .expect("search");
     assert_eq!(out.data["commitSha"], SHA, "{}", out.data);
-    assert_eq!(out.data["files"][0]["lines"], json!(["1\tfn wrap_app() {}"]));
+    assert_eq!(
+        out.data["files"][0]["lines"],
+        json!(["1\tfn wrap_app() {}"])
+    );
     let first = |slow: &Slow| {
         *slow
             .arrivals

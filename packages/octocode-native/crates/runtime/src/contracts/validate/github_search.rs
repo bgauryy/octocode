@@ -117,6 +117,26 @@ mod tests {
         .expect("path is an explicit code-search narrowing filter");
     }
 
+    /// A malformed repository date or count names the accepted forms (the
+    /// field's own note), not the regex.
+    #[test]
+    fn malformed_repository_ranges_name_the_accepted_forms() {
+        for (field, value, form) in [
+            ("pushed", "yesterday", "\"30d\""),
+            ("created", "2024/01/01", "\">2025-01-01\""),
+            ("stars", "lots", "\"10..50\""),
+        ] {
+            let error = validate(
+                "ghSearchRepo",
+                json!({"queries":[{"keywords":["x"], field: value}]}),
+            )
+            .expect_err(value);
+            let message = &error.issues[0].message;
+            assert!(message.contains(form), "{field}={value}: {message}");
+            assert!(message.contains(value), "{field}={value}: {message}");
+        }
+    }
+
     #[test]
     fn rejects_unscoped_code_search_that_would_wildcard_all_of_github() {
         let error = validate(

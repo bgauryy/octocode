@@ -96,13 +96,8 @@ describe('numeric schema fields are bounded (#C1)', () => {
       typeof contextLinesSchema === 'object'
         ? contextLinesSchema.maximum
         : undefined;
-    expect(maximum).toBeTypeOf('number');
+    expect(maximum).toBe(100);
     if (typeof maximum !== 'number') return;
-    // Values between the runtime clamp and the maximum are accepted (and
-    // clamped natively); only values past the published maximum reject.
-    expect(FileContentQueryLocalSchema.safeParse(query(120)).success).toBe(
-      true
-    );
     expect(FileContentQueryLocalSchema.safeParse(query(maximum)).success).toBe(
       true
     );

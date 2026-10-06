@@ -117,7 +117,7 @@
     ]
   },
   "contractFormatVersion": 2,
-  "fingerprint": "b2c63827c76e9a9c8d3e4549fbf2042fa6f7ce18589a5f683288c4991e7b52fa",
+  "fingerprint": "f4f9f9cc485ade8fa1abc62c4f71df052ee66d0ea805ccd12040e2fe6ba3991c",
   "limits": {
     "maxInputArrayItems": 100
   },
@@ -54719,7 +54719,7 @@
                                 "additionalProperties": {},
                                 "properties": {
                                   "files": {
-                                    "description": "Patch rows, one object per file.",
+                                    "description": "Patch rows, one object per file. Lines open \"N\t\": \" \"/\"+\" new-side line, \"-\" old-side line.",
                                     "items": {
                                       "additionalProperties": {},
                                       "properties": {
@@ -55444,6 +55444,7 @@
                                 "type": "integer"
                               },
                               "patch": {
+                                "description": "Lines open \"N\t\": \" \"/\"+\" new-side line, \"-\" old-side line.",
                                 "type": "string"
                               },
                               "path": {

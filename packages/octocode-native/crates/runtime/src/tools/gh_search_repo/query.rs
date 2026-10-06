@@ -32,7 +32,10 @@ pub(super) fn repositories(query: &GhSearchRepoQuery) -> String {
     }
     let stars = stars.as_deref().map(|value| range_value(value, false));
     push(&mut parts, "stars", stars.as_deref());
-    let dates = [("pushed", pushed.as_deref()), ("created", created.as_deref())];
+    let dates = [
+        ("pushed", pushed.as_deref()),
+        ("created", created.as_deref()),
+    ];
     for (key, value) in dates {
         let value = value.map(|value| range_value(value, true));
         push(&mut parts, key, value.as_deref());

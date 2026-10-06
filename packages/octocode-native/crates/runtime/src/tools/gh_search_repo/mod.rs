@@ -93,7 +93,10 @@ pub(crate) async fn execute<R: CredentialResolver, C: ConditionalCache>(
             None => current == 1,
         };
     if excluded {
-        leads.insert(leads.len().min(1), ("includeArchived", include_archived(query)));
+        leads.insert(
+            leads.len().min(1),
+            ("includeArchived", include_archived(query)),
+        );
     }
     let repositories = if query.concise == Some(true) {
         data.items

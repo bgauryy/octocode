@@ -699,7 +699,11 @@ impl ToolRuntime {
                 .available_tools
                 .write()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            *tools = tools.iter().copied().filter(|name| *name != clasify).collect();
+            *tools = tools
+                .iter()
+                .copied()
+                .filter(|name| *name != clasify)
+                .collect();
         }
         json!({
             "probed": true,

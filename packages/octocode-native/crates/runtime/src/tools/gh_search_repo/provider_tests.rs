@@ -143,8 +143,7 @@ async fn default_archived_exclusion_is_disclosed_with_a_lead() {
 
     let archived = run(&server, json!({"keywords":["x"],"archived":true})).await;
     assert_eq!(
-        archived.data["repositories"][0]["archived"],
-        true,
+        archived.data["repositories"][0]["archived"], true,
         "{}",
         archived.data
     );
@@ -172,11 +171,7 @@ async fn owner_listing_counts_skipped_archived_repositories() {
     let out = run(&server, json!({"owner":"o"})).await;
     assert_eq!(out.data["repositories"].as_array().map(Vec::len), Some(1));
     let warnings = out.data["warnings"].to_string();
-    assert!(
-        warnings.contains("2 archived repositories"),
-        "{}",
-        out.data
-    );
+    assert!(warnings.contains("2 archived repositories"), "{}", out.data);
     assert_eq!(
         out.data["next"]["includeArchived"]["query"]["queries"][0],
         json!({"owner":"o","archived":true}),

@@ -319,7 +319,7 @@ fn validate_string(
             return Err(issue(
                 "schema.pattern",
                 path.to_vec(),
-                pattern_message(string, path, &regex),
+                pattern_message(string, path, &regex, schema),
             ));
         }
     }
@@ -350,9 +350,10 @@ fn compiled_pattern(pattern: &str) -> Result<Regex, String> {
 }
 
 /// A blank value fails the non-blank patterns (`\S`) paths and names use
-/// (a blank brief is dropped before validation), and a search `qualifiers`
-/// string fails on one term: name the fix instead of the regex.
-fn pattern_message(value: &str, path: &[String], regex: &Regex) -> String {
+/// (a blank brief is dropped before validation), a search `qualifiers`
+/// string fails on one term, and any other value fails against the form its
+/// field note shows: name the fix instead of the regex.
+fn pattern_message(value: &str, path: &[String], regex: &Regex, schema: &Value) -> String {
     if path.last().map(String::as_str) == Some("qualifiers")
         && let Some(term) = super::qualifiers::qualifier_terms(value)
             .into_iter()
@@ -368,7 +369,13 @@ fn pattern_message(value: &str, path: &[String], regex: &Regex) -> String {
         };
     }
     if !value.trim().is_empty() {
-        return "String does not match required pattern".into();
+        return match schema.get("description").and_then(Value::as_str) {
+            Some(note) => {
+                let shown: String = value.chars().take(80).collect();
+                format!("\"{shown}\" does not match the expected form: {note}")
+            }
+            None => "String does not match required pattern".into(),
+        };
     }
     "is empty; give non-blank text.".into()
 }
