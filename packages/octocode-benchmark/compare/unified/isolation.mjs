@@ -101,7 +101,7 @@ export function upstreamEnv(base, serverEnv = {}, { corpus, repoRoot, statsHome,
   return {
     ...base, ...serverEnv,
     ...(githubToken ? { GITHUB_TOKEN: githubToken } : {}),
-    OCTOCODE_HOME: statsHome, OCTOCODE_ENABLE_STATS: 'true', OCTOCODE_STORAGE_MODE: 'persistent', ENABLE_LOCAL: 'true',
+    OCTOCODE_HOME: statsHome, OCTOCODE_ENABLE_STATS: 'true', OCTOCODE_STORAGE_MODE: 'persistent', OCTOCODE_ENABLE_LOCAL: 'true',
     WORKSPACE_ROOT: corpus[0] ?? repoRoot, ALLOWED_PATHS: corpus.join(','), DISABLE_TOOLS: disabled.join(','),
   };
 }

@@ -1,6 +1,6 @@
 # Locate answers in unread captures
 
-Load when a saved artifact is unread and a literal search or small read will not decide; admission and result rules belong to the `octocode-research` clasify gate.
+Load when a saved artifact is unread and a literal search or small read will not decide; admission and result rules belong to the `octocode-research` clasify gate.. Why: Locate deciding evidence without loading an entire capture.
 
 1. Capture once. `SNAPSHOT_STDOUT=summary` keeps snapshot refs on disk; if the default stdout refs already answer, stop.
 2. Narrow with metadata, URLs, and literal search. For HAR, huge logs, or minified JSON, first extract relevant records to readable text with `har-pager`/`measure-query`; keep the original for provenance.

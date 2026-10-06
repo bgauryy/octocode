@@ -6,7 +6,7 @@ mod lsp_provision;
 mod mcp_clients;
 mod mcp_install;
 mod mcp_manage;
-mod schema;
+mod serve;
 mod skill;
 mod system;
 use clap::{CommandFactory, FromArgMatches, Parser};
@@ -24,42 +24,38 @@ use std::io::{self, Write};
     name = "octocode",
     version,
     about = "Native Octocode research tools",
-    // Keep in sync with the "Exit codes" table in packages/octocode-native/README.md.
-    long_about = "Native Octocode research tools.\n\n\
-Every tool is called by its canonical name with a raw JSON query:\n\
-  octocode <toolName> '<json>'      execute a tool\n\
-  octocode scheme <toolName>        print the tool's contract\n\
-  octocode scheme                   list enabled tools\n\n\
-Code graph (persisted; see `octocode graph --help`):\n\
-  octocode graph ingest <path>      parse once into <workspace>/.octocode/graph\n\
-  octocode graph query <op> [ref]   callers, impact, cycles, issues, ... in milliseconds\n\n\
-EXIT CODES:\n\
-  0    Success\n\
-  1    Empty result / no matches\n\
-  2    Invalid input, including any rejected batch row (also clap argument errors)\n\
-  3    Not found\n\
-  4    Auth required\n\
-  5    Execution error\n\
-  6    Partial result - the response carries a re-runnable next.* continuation\n\
-  7    Rate limited\n\
-  130  Interrupted (Ctrl-C)"
+    long_about = ROOT_HELP
 )]
 pub struct Args {
-    /// Emit {"kind":"octocode.toolError","version":1,"error":"..."} to stdout on
-    /// errors (including argument parse errors) instead of stderr text.
-    #[arg(long, global = true)]
-    json_errors: bool,
-    /// Mask email addresses in GitHub tool outputs (same as OCTOCODE_REDACT_EMAILS=true).
-    #[arg(long, global = true)]
-    redact_emails: bool,
-    /// Disable ANSI color (also available through NO_COLOR).
-    #[arg(long, global = true)]
-    no_color: bool,
     #[command(subcommand)]
     command: Command,
 }
 
-/// The one `--json-errors` envelope, shared with contract input errors
+const ROOT_HELP: &str = r#"Native Octocode research tools.
+
+Tools take one JSON query and print text on a terminal, JSON on a pipe:
+  octocode <tool> '<json>'          run a tool; --input FILE|- reads the query, --json forces JSON
+  octocode schema                   list tools with agent instructions
+  octocode schema <tool>            print a tool's input contract
+
+Code graph (persisted; see `octocode graph --help`):
+  octocode graph ingest <path>      parse once into <workspace>/.octocode/graph
+  octocode graph query <op> [ref]   callers, impact, cycles, issues, ... in milliseconds
+
+Errors follow the output: JSON on stdout in JSON mode, text on stderr otherwise.
+
+Exit codes:
+  0    success
+  1    empty result / no matches
+  2    invalid input, including any rejected batch row
+  3    not found
+  4    auth required
+  5    execution error
+  6    partial result: the response carries a re-runnable next.* continuation
+  7    rate limited
+  130  interrupted (Ctrl-C)"#;
+
+/// The one error envelope, shared with contract input errors
 /// (`contracts::validate`) so callers parse a single shape.
 fn error_envelope(tool: Option<&str>, msg: &str) -> Value {
     let mut value = json!({"kind": "octocode.toolError", "version": 1, "error": msg});
@@ -69,20 +65,48 @@ fn error_envelope(tool: Option<&str>, msg: &str) -> Value {
     value
 }
 
-fn emit_error(msg: &str, json_errors: bool) {
-    emit_tool_error(None, msg, json_errors);
+fn emit_error(msg: &str, json_out: bool) {
+    emit_tool_error(None, msg, json_out);
 }
 
-fn emit_tool_error(tool: Option<&str>, msg: &str, json_errors: bool) {
-    if json_errors {
+/// An error in the command's output mode: the JSON envelope on stdout, or text
+/// on stderr.
+fn emit_tool_error(tool: Option<&str>, msg: &str, json_out: bool) {
+    if json_out {
         println!("{}", error_envelope(tool, msg));
     } else {
         eprintln!("{msg}");
     }
 }
 
-/// Parse argv; with `--json-errors`, argument errors use the JSON envelope
-/// (exit 2) instead of clap's text. Help and version output stay text.
+/// Machine output: a tool, `graph`, or `--json` call whose stdout is a pipe,
+/// or any call with `--json`. A terminal keeps text.
+fn machine_output(json_flag: bool) -> bool {
+    use std::io::IsTerminal;
+    json_flag || !io::stdout().is_terminal()
+}
+
+/// Commands whose output is text for people unless `--json` asks otherwise;
+/// every other command (tools, `graph`, an unknown name) answers in JSON.
+fn text_command(name: &str) -> bool {
+    matches!(
+        name,
+        "config" | "auth" | "skill" | "install" | "help" | "lsp-server" | "cache" | "serve"
+    )
+}
+
+/// Whether a parse error is reported as JSON: `--json` anywhere, or a
+/// non-text command (a mistyped tool name included) whose stdout is a pipe.
+fn json_errors_for(argv: &[std::ffi::OsString]) -> bool {
+    let json_flag = argv.iter().any(|arg| arg == "--json");
+    let command = argv
+        .iter()
+        .skip(1)
+        .filter_map(|arg| arg.to_str())
+        .find(|arg| !arg.starts_with('-'));
+    json_flag || (!command.is_some_and(text_command) && machine_output(false))
+}
+
 pub fn parse_args() -> Result<Args, u8> {
     parse_args_from(std::env::args_os())
 }
@@ -93,41 +117,35 @@ where
     T: Into<std::ffi::OsString> + Clone,
 {
     let argv: Vec<std::ffi::OsString> = argv.into_iter().map(Into::into).collect();
-    let command = || {
-        if argv.iter().any(|arg| arg == "--no-color") {
-            Args::command().color(clap::ColorChoice::Never)
-        } else {
-            Args::command()
-        }
-    };
-    match command()
+    match Args::command()
         .try_get_matches_from(&argv)
         .and_then(|matches| Args::from_arg_matches(&matches))
     {
         Ok(args) => Ok(args),
         Err(error) => {
             let error = if is_help(&error) {
-                hide_unavailable_tools(command())
+                hide_unavailable_tools(Args::command())
                     .try_get_matches_from(&argv)
                     .err()
                     .unwrap_or(error)
             } else {
                 error
             };
-            let json_errors = argv.iter().any(|arg| arg == "--json-errors");
             let displays_text =
                 is_help(&error) || error.kind() == clap::error::ErrorKind::DisplayVersion;
-            if !json_errors || displays_text {
+            if displays_text || !json_errors_for(&argv) {
                 let _ = error.print();
                 return Err(error.exit_code() as u8);
             }
+            // The error line and clap's `tip:` (the did-you-mean names).
             let rendered = error.render().to_string();
             let message = rendered
                 .lines()
-                .next()
-                .unwrap_or_default()
-                .trim_start_matches("error: ")
-                .to_owned();
+                .map(str::trim)
+                .filter(|line| line.starts_with("error: ") || line.starts_with("tip: "))
+                .map(|line| line.trim_start_matches("error: "))
+                .collect::<Vec<_>>()
+                .join("; ");
             emit_error(&message, true);
             Err(2)
         }
@@ -347,7 +365,7 @@ fn dropped_key_hint(
 }
 
 /// Config paths that include or exclude tools (`tools.enabled` /
-/// `tools.disabled` / `tools.family`), from the config contract.
+/// `tools.disabled`), from the config contract.
 fn tool_list_config_paths() -> String {
     octocode_native::config::CONFIG_FIELDS
         .iter()
@@ -371,20 +389,13 @@ fn compact_tool_catalog(
                 .iter()
                 .map(|tool| {
                     let name = tool.get("name").and_then(Value::as_str).unwrap_or_default();
-                    let short_description = tool
-                        .get("shortDescription")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default();
                     let enabled = tool
                         .get("available")
                         .and_then(Value::as_bool)
                         .unwrap_or(false);
                     let mut availability = json!({ "enabled": enabled });
-                    // Tool lists and the family preset are both `tools.*` config.
-                    let tool_list_excluded = matches!(
-                        tool.get("unavailableReason").and_then(Value::as_str),
-                        Some("toolsList" | "family")
-                    );
+                    let tool_list_excluded = tool.get("unavailableReason").and_then(Value::as_str)
+                        == Some("toolsList");
                     if !enabled {
                         if let Some(env_var) =
                             availability_env_var(name).filter(|_| !tool_list_excluded)
@@ -403,7 +414,6 @@ fn compact_tool_catalog(
                         .unwrap_or_else(|| "[]".to_owned());
                     json!({
                         "name": name,
-                        "description": short_description,
                         "fields": fields,
                         "availability": availability
                     })
@@ -412,15 +422,6 @@ fn compact_tool_catalog(
         })
         .unwrap_or_default();
     json!({
-        "kind": "octocode.toolCatalog",
-        "version": 1,
-        "toolCount": tools.len(),
-        "output": "Machine tool catalog. Descriptions, examples, and workflow instructions ship with the octocode npm launcher and MCP server.",
-        "commands": {
-            "schema": "scheme <name>",
-            "querySchema": "scheme <name> --view query",
-            "run": "<name> '<json>'"
-        },
         "fingerprint": catalog["fingerprint"],
         "grammarCapabilities": catalog["grammarCapabilities"],
         "tools": tools
@@ -428,249 +429,127 @@ fn compact_tool_catalog(
 }
 
 pub async fn run(args: Args) -> u8 {
-    let json_errors = args.json_errors;
-    if let Command::Config {
-        command:
-            Some(ConfigCommand::View {
-                no_open,
-                idle_timeout,
-            }),
-        ..
-    } = &args.command
-    {
-        return config_view::run(*no_open, *idle_timeout);
-    }
-    if args.redact_emails {
-        // Single-threaded startup; the config resolver reads the process env,
-        // so the flag is just the env spelling set before runtime creation.
-        unsafe { std::env::set_var("OCTOCODE_REDACT_EMAILS", "true") };
-    }
-    let runtime = match ToolRuntime::from_host(HostOptions {
+    let command = match args.command {
+        Command::Config {
+            command:
+                Some(ConfigCommand::View {
+                    no_open,
+                    idle_timeout,
+                }),
+            ..
+        } => return config_view::run(no_open, idle_timeout),
+        Command::Serve { socket } => return serve::run(&socket).await,
+        Command::Tool(tool) => return run_tool(tool).await,
+        command => command,
+    };
+    let runtime = match start_runtime() {
+        Ok(runtime) => runtime,
+        Err(code) => return code_after_start_error(code, command.json_output()),
+    };
+    let result = dispatch(command, &runtime).await;
+    runtime.close().await;
+    result
+}
+
+fn start_runtime() -> Result<ToolRuntime, octocode_native::runtime::RuntimeError> {
+    ToolRuntime::from_host(HostOptions {
         surface: RuntimeSurface::Cli,
         // Keep the outer execution budget above the worst configured cold start
         // plus one logical request: initialize, readiness, retries, and delays.
         timeout_secs: Some(INTERACTIVE_EXECUTION_TIMEOUT_SECS),
         ..HostOptions::default()
-    }) {
-        Ok(runtime) => runtime,
-        Err(error) => {
-            emit_error(&format!("{}: {}", error.code, error.message), json_errors);
-            return 5;
-        }
-    };
-    let result = dispatch(args.command, json_errors, &runtime).await;
-    runtime.close().await;
-    result
+    })
 }
 
-async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) -> u8 {
+fn code_after_start_error(error: octocode_native::runtime::RuntimeError, json_out: bool) -> u8 {
+    emit_error(&format!("{}: {}", error.code, error.message), json_out);
+    5
+}
+
+impl Command {
+    /// The output mode the command was asked for.
+    fn json_output(&self) -> bool {
+        match self {
+            Self::Tool(tool) => machine_output(tool.args.json),
+            Self::Catalog | Self::Graph { .. } | Self::Schema { .. } => machine_output(false),
+            Self::Config {
+                json, command: None, ..
+            } => *json,
+            Self::Config {
+                command:
+                    Some(
+                        ConfigCommand::Set { json, .. }
+                        | ConfigCommand::Unset { json, .. }
+                        | ConfigCommand::Check { json, .. },
+                    ),
+                ..
+            } => *json,
+            Self::Auth {
+                command: AuthCommand::Status { json } | AuthCommand::Login { json, .. },
+            } => *json,
+            Self::Install { json, .. } | Self::LspServer { json, .. } => *json,
+            _ => false,
+        }
+    }
+}
+
+async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
+    let json_out = command.json_output();
     match command {
-        Command::Tool(tool) => run_tool(runtime, tool.name, tool.args, json_errors).await,
-        Command::Scheme {
-            tool,
-            view,
-            select,
-            compact,
-        } => {
+        Command::Tool(tool) => run_tool(tool).await,
+        Command::Catalog => {
             let catalog = match runtime.catalog() {
                 Ok(catalog) => catalog,
                 Err(error) => {
-                    emit_error(&error.message, json_errors);
+                    emit_error(&error.message, true);
                     return 5;
                 }
             };
-            // Availability comes from the runtime catalog; schemas come from
-            // the embedded enforcement contract (the catalog carries neither).
-            let contract = match octocode_native::contracts::parsed_contract() {
-                Ok(contract) => contract,
-                Err(_) => {
-                    emit_error("Embedded contract is invalid", json_errors);
-                    return 5;
-                }
+            // Availability comes from the runtime catalog; field lists come
+            // from the embedded enforcement contract (the catalog has none).
+            let Ok(contract) = octocode_native::contracts::parsed_contract() else {
+                emit_error("Embedded contract is invalid", true);
+                return 5;
             };
-            let Some(name) = tool else {
-                return write_json(
-                    &compact_tool_catalog(&catalog, contract, &runtime.config().dotenv),
-                    compact,
-                );
-            };
-            let value = contract["tools"]
-                .as_array()
-                .and_then(|tools| tools.iter().find(|tool| tool["name"] == *name))
-                .cloned();
-            let Some(value) = value else {
-                let known = contract["tools"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|tool| tool["name"].as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                emit_error(
-                    &format!("Unknown tool: {name}. Known tools: {known}"),
-                    json_errors,
-                );
-                return 2;
-            };
-            match schema::project_selected(value, view.unwrap_or_default(), select.as_deref()) {
-                Ok(mut value) => {
-                    // The compact catalog carries a generic `run` hint; the
-                    // per-tool view echoes the concrete invocation so an agent
-                    // inspecting one contract sees exactly how to execute it.
-                    value["run"] = Value::String(format!("octocode {name} '<json>'"));
-                    write_json(&value, compact)
-                }
-                Err(error) => {
-                    emit_error(&error, json_errors);
-                    2
-                }
-            }
+            write_json(
+                &compact_tool_catalog(&catalog, contract, &runtime.config().dotenv),
+                true,
+            )
         }
-        Command::ShowConfig { json } => config::show_path(runtime, json),
+        Command::Schema { .. } => {
+            emit_error(
+                "`octocode schema` is served by the octocode npm launcher, which joins the tool contracts with this binary's catalog.",
+                json_out,
+            );
+            5
+        }
         Command::Config {
-            // `config view`, the only subcommand, returns from `run` before
-            // the runtime starts.
-            command: _,
-            manage,
-            check,
-            add,
-            value_stdin,
-            remove,
-            json,
+            command, manage, ..
         } => {
             if manage {
                 return config_management(runtime);
             }
-            if !add.is_empty() || remove.is_some() {
-                return config::edit(
-                    runtime,
-                    &add,
-                    remove.as_deref(),
-                    value_stdin,
-                    json || json_errors,
-                );
-            }
-            let view = runtime.inspect_config();
-            if let Some(key) = check {
-                let set = runtime
-                    .config()
-                    .env_value(&key)
-                    .is_some_and(|value| !value.is_empty());
-                if json {
-                    let code = write_json(&json!({"key": key, "set": set}), true);
-                    if code != 0 {
-                        return code;
-                    }
-                } else {
-                    println!("{key}: {}", if set { "set" } else { "unset" });
+            match command {
+                Some(ConfigCommand::Set {
+                    key, value, stdin, ..
+                }) => config::set(runtime, &key, value, stdin, json_out),
+                Some(ConfigCommand::Unset { key, .. }) => config::unset(runtime, &key, json_out),
+                Some(ConfigCommand::Check { key, .. }) => {
+                    config::check(runtime, &key, json_out).await
                 }
-                return if set { 0 } else { 1 };
+                // `config view` returns from `run` before the runtime starts.
+                Some(ConfigCommand::View { .. }) | None => config::show(runtime, json_out),
             }
-            let config_file = view
-                .config_path
-                .clone()
-                .unwrap_or_else(|| view.home.join(".octocoderc"));
-            let config_file_exists = view.config_path.is_some();
-            let project_config_exists = view.project_config_path.is_some();
-            if json {
-                return write_json(
-                    &json!({
-                        "home": view.home,
-                        "storage": view.storage_mode,
-                        "configFile": {
-                            "path": config_file,
-                            "exists": config_file_exists,
-                            "keys": view.config_keys,
-                        },
-                        "projectConfigFile": {
-                            "path": view.project_config_file,
-                            "exists": project_config_exists,
-                            "keys": view.project_config_keys,
-                        },
-                        "envFiles": {
-                            "global": view.global_env_path,
-                            "project": view.project_env_path,
-                        },
-                        "envKeys": view.loaded_keys,
-                        "skippedProtected": view.skipped_protected,
-                        "skippedExisting": view.skipped_existing,
-                        "diagnostics": view.diagnostics,
-                        "note": "Key names only; values are never printed.",
-                    }),
-                    true,
-                );
-            }
-            println!("home:    {}", view.home.display());
-            println!("storage: {}", view.storage_mode);
-            println!(
-                "config file: {}{}",
-                config_file.display(),
-                if config_file_exists {
-                    ""
-                } else {
-                    " (not found)"
-                }
-            );
-            println!(
-                "project config file: {}{}",
-                view.project_config_file.display(),
-                if project_config_exists {
-                    ""
-                } else {
-                    " (not found)"
-                }
-            );
-            println!("env files:");
-            println!("  global:  {}", view.global_env_path.display());
-            println!("  project: {}", view.project_env_path.display());
-            if !view.config_keys.is_empty() {
-                println!("config keys ({}):", view.config_keys.len());
-                for key in &view.config_keys {
-                    println!("  {key}");
-                }
-            }
-            if !view.project_config_keys.is_empty() {
-                println!("project config keys ({}):", view.project_config_keys.len());
-                for key in &view.project_config_keys {
-                    println!("  {key}");
-                }
-            }
-            if !view.loaded_keys.is_empty() {
-                println!("env keys ({}):", view.loaded_keys.len());
-                for key in &view.loaded_keys {
-                    println!("  {key}");
-                }
-            }
-            println!("(key names only; values are never printed)");
-            for skip in &view.skipped_protected {
-                println!(
-                    "skipped (protected): {} — found in {} but not applied; set it in the process environment or config file",
-                    skip.key,
-                    skip.source_path.display()
-                );
-            }
-            for skip in &view.skipped_existing {
-                println!(
-                    "skipped (existing): {} — found in {} but the process environment already sets it",
-                    skip.key,
-                    skip.source_path.display()
-                );
-            }
-            // Diagnostics were already printed to stderr at runtime start.
-            0
         }
-        Command::Auth { command, json } => match command {
-            None => system::auth_status(runtime, json).await,
-            Some(AuthCommand::Status { json: sub_json }) => {
-                system::auth_status(runtime, json || sub_json).await
-            }
-            Some(AuthCommand::Login {
+        Command::Auth { command } => match command {
+            AuthCommand::Status { json } => system::auth_status(runtime, json).await,
+            AuthCommand::Login {
                 hostname,
                 force,
                 refresh,
                 json,
-            }) => system::login(runtime, hostname.as_deref(), force, refresh, json).await,
-            Some(AuthCommand::Logout) => system::logout(runtime),
+            } => system::login(runtime, hostname.as_deref(), force, refresh, json).await,
+            AuthCommand::Logout => system::logout(runtime),
         },
         Command::Graph { command } => graph::graph(runtime, command),
         Command::Skill { args } => skill::skill(&args),
@@ -706,6 +585,8 @@ async fn dispatch(command: Command, json_errors: bool, runtime: &ToolRuntime) ->
             force,
             json,
         } => lsp_provision::run(runtime, &action, names, all, yes, force, json).await,
+        // Handled in `run` before the runtime starts.
+        Command::Serve { .. } => 2,
     }
 }
 
@@ -768,38 +649,69 @@ fn config_management_response(
     )
 }
 
-async fn run_tool(runtime: &ToolRuntime, tool: &str, args: ToolArgs, json_errors: bool) -> u8 {
-    let query_text = match args.query_text() {
-        Ok(text) => text,
-        Err(error) => {
-            emit_tool_error(Some(tool), &error, json_errors);
-            return 2;
-        }
-    };
-    let Some(query_text) = query_text else {
-        eprintln!("Usage: octocode {tool} '<json>'");
-        eprintln!("       octocode {tool} --input <file>");
-        eprintln!("Schema: octocode scheme {tool}");
-        return 2;
-    };
-    let input = match serde_json::from_str::<Value>(&query_text) {
+/// Parse the query, then run it on the workspace's warm server (lspSearch)
+/// or in this process.
+async fn run_tool(tool: commands::ToolCommand) -> u8 {
+    let json_out = machine_output(tool.args.json);
+    let input = match tool_input(tool.name, &tool.args, json_out) {
         Ok(input) => input,
-        Err(parse_error) => {
-            emit_tool_error(
-                Some(tool),
-                &format!("Invalid JSON query: {parse_error}"),
-                json_errors,
-            );
-            return 2;
-        }
+        Err(code) => return code,
     };
-    execute(runtime, tool, input, !args.pretty).await
+    if tool.name == ToolId::LspSearch.as_str()
+        && let Some(code) = serve::call(tool.name, &input, json_out).await
+    {
+        return code;
+    }
+    let runtime = match start_runtime() {
+        Ok(runtime) => runtime,
+        Err(error) => return code_after_start_error(error, json_out),
+    };
+    let code = execute(&runtime, tool.name, input, json_out).await;
+    runtime.close().await;
+    code
 }
 
-/// Execute one tool call and print its structured JSON result to stdout,
-/// exiting with the code of the runtime's [`ExitClass`].
-pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, compact: bool) -> u8 {
-    let execution = runtime.execute("cli-1".into(), tool.into(), input);
+/// The parsed JSON query of a tool command, or the exit code of a usage error
+/// already reported in the command's output mode.
+fn tool_input(tool: &str, args: &ToolArgs, json_out: bool) -> Result<Value, u8> {
+    let query_text = match args.query_text() {
+        Ok(Some(text)) => text,
+        Ok(None) => {
+            emit_tool_error(
+                Some(tool),
+                &format!(
+                    "Missing JSON query. Usage: octocode {tool} '<json>' | --input FILE|-. Contract: octocode schema {tool}"
+                ),
+                json_out,
+            );
+            return Err(2);
+        }
+        Err(error) => {
+            emit_tool_error(Some(tool), &error, json_out);
+            return Err(2);
+        }
+    };
+    serde_json::from_str::<Value>(&query_text).map_err(|parse_error| {
+        emit_tool_error(
+            Some(tool),
+            &format!("Invalid JSON query: {parse_error}"),
+            json_out,
+        );
+        2
+    })
+}
+
+/// Execute one tool call and print its result: the structured JSON in JSON
+/// mode, else the rendered text MCP clients read. Exits with the code of the
+/// runtime's [`ExitClass`].
+async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, json_out: bool) -> u8 {
+    let execution = async {
+        if json_out {
+            runtime.execute("cli-1".into(), tool.into(), input).await
+        } else {
+            runtime.execute_rendered("cli-1".into(), tool.into(), input).await
+        }
+    };
     tokio::pin!(execution);
     let result = tokio::select! {
         result = &mut execution => result,
@@ -808,20 +720,54 @@ pub(super) async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, com
             execution.await
         }
     };
-    let (value, class) = match result {
+    let (printed, class) = match result {
         Ok(outcome) => {
             let class = outcome.exit_class();
-            (outcome.structured_content, class)
+            let printed = if json_out {
+                write_json(&outcome.structured_content, true)
+            } else {
+                write_text(&outcome_text(&outcome.content))
+            };
+            (printed, class)
         }
         Err(error) => {
             let class = error.exit_class();
-            (runtime_error_output(error), class)
+            let value = runtime_error_output(error);
+            let printed = if json_out {
+                write_json(&value, true)
+            } else {
+                eprintln!("{}", runtime_error_text(&value));
+                0
+            };
+            (printed, class)
         }
     };
-    match write_json(&value, compact) {
+    match printed {
         0 => exit_code(class),
         code => code,
     }
+}
+
+/// The text channel of a tool result: its content blocks, in order.
+fn outcome_text(content: &[octocode_native::response::pager::TextContent]) -> String {
+    content
+        .iter()
+        .map(|block| block.text.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// One line for a runtime error on a terminal: the message, then its hints.
+fn runtime_error_text(value: &Value) -> String {
+    let message = value["error"].as_str().unwrap_or("Tool call failed.");
+    let hints = value["hints"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(|hint| format!("\n  {hint}"))
+        .collect::<String>();
+    format!("{message}{hints}")
 }
 
 /// The stdout JSON for a runtime error: its structured payload, else an
@@ -855,6 +801,15 @@ fn exit_code(class: ExitClass) -> u8 {
         ExitClass::Failed(FailureKind::Execution) => 5,
         ExitClass::Incomplete => 6,
         ExitClass::Failed(FailureKind::RateLimited) => 7,
+    }
+}
+
+pub(super) fn write_text(text: &str) -> u8 {
+    let text = text.strip_suffix('\n').unwrap_or(text);
+    match writeln!(io::stdout().lock(), "{text}") {
+        Ok(()) => 0,
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => 0,
+        Err(_) => 5,
     }
 }
 
@@ -915,12 +870,12 @@ mod tests {
         let contract = octocode_native::contracts::parsed_contract().expect("contract");
         for tool in contract["tools"].as_array().expect("tools") {
             let name = tool["name"].as_str().expect("name");
-            let args = parse_args_from(["octocode", name, "{}", "--pretty"]).expect(name);
+            let args = parse_args_from(["octocode", name, "{}", "--json"]).expect(name);
             match args.command {
                 super::Command::Tool(command) => {
                     assert_eq!(command.name, name);
                     assert_eq!(command.args.query.as_deref(), Some("{}"));
-                    assert!(command.args.pretty);
+                    assert!(command.args.json);
                 }
                 _ => panic!("{name} did not parse as a tool"),
             }
@@ -928,13 +883,57 @@ mod tests {
     }
 
     #[test]
-    fn argument_errors_keep_exit_two_with_or_without_json_errors() {
+    fn argument_errors_exit_two_in_either_output_mode() {
         assert_eq!(
-            parse_args_from(["octocode", "--json-errors", "notACommand"]).err(),
+            parse_args_from(["octocode", "notACommand", "--json"]).err(),
             Some(2)
         );
         assert_eq!(parse_args_from(["octocode", "notACommand"]).err(), Some(2));
-        assert!(parse_args_from(["octocode", "--json-errors", "scheme"]).is_ok());
+        assert!(parse_args_from(["octocode", "schema", "localSearch", "--view", "query"]).is_ok());
+    }
+
+    #[test]
+    fn removed_aliases_do_not_parse() {
+        for argv in [
+            vec!["octocode", "scheme"],
+            vec!["octocode", "showConfig"],
+            vec!["octocode", "--json-errors", "catalog"],
+            vec!["octocode", "--redact-emails", "catalog"],
+            vec!["octocode", "--no-color", "catalog"],
+            vec!["octocode", "localSearch", "{}", "--pretty"],
+            vec!["octocode", "config", "--add", "K", "V"],
+            vec!["octocode", "auth", "--json"],
+        ] {
+            assert_eq!(parse_args_from(argv.clone()).err(), Some(2), "{argv:?}");
+        }
+    }
+
+    #[test]
+    fn tool_input_reads_a_file_and_rejects_bad_json() {
+        let dir = tempfile::tempdir().expect("dir");
+        let path = dir.path().join("q.json");
+        std::fs::write(&path, r#"{"queries":[]}"#).expect("write");
+        let args = super::ToolArgs {
+            query: None,
+            input: Some(path),
+            json: true,
+        };
+        assert_eq!(
+            super::tool_input("localSearch", &args, true),
+            Ok(json!({"queries": []}))
+        );
+        let bad = super::ToolArgs {
+            query: Some("{".into()),
+            input: None,
+            json: true,
+        };
+        assert_eq!(super::tool_input("localSearch", &bad, true), Err(2));
+        let missing = super::ToolArgs {
+            query: None,
+            input: None,
+            json: true,
+        };
+        assert_eq!(super::tool_input("localSearch", &missing, true), Err(2));
     }
 
     #[test]

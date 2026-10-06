@@ -1,10 +1,9 @@
 import { listSkills } from '../registry.js';
 import {
   checkSkill,
-  isInstalledAtHome,
   linkedPlatforms,
-  hasBroken,
-  hasStale,
+  overallStatus,
+  type SkillStatus,
 } from '../checker.js';
 import { getSkillEnvStatus, missingHint } from '../env-params.js';
 import { bold, c, dim } from '../../../../utils/colors.js';
@@ -15,11 +14,9 @@ export interface ListResult {
     name: string;
     folder: string;
     description: string;
-    installed: boolean;
+    status: SkillStatus;
     linkedPlatforms: string[];
     hasWorkspaceLink: boolean;
-    hasBroken: boolean;
-    hasStale: boolean;
     env: {
       readiness: string;
       params: Array<{
@@ -34,25 +31,28 @@ export interface ListResult {
   source: string;
   count: number;
   installedCount: number;
-  staleCount: number;
+}
+
+/** The icon of a skill status, shared with `skill check`. */
+export function statusIcon(status: SkillStatus): string {
+  if (status === 'ok') return c('green', '✓');
+  if (status === 'not-installed') return dim('–');
+  return c('yellow', '⚠');
 }
 
 export function runList(opts: { json: boolean }): void {
-  const bundled = listSkills();
-  const skills = bundled.map(skill => {
+  const skills = listSkills().map(skill => {
     const check = checkSkill(skill.folder);
     const env = getSkillEnvStatus(skill.folder);
     return {
       name: skill.name,
       folder: skill.folder,
       description: skill.description,
-      installed: isInstalledAtHome(check),
+      status: overallStatus(check),
       linkedPlatforms: linkedPlatforms(check),
       hasWorkspaceLink:
         check.workspace.status === 'linked' ||
         check.workspace.status === 'installed',
-      hasBroken: hasBroken(check),
-      hasStale: hasStale(check),
       env: {
         readiness: env.readiness,
         params: env.params.map(param => ({
@@ -69,8 +69,8 @@ export function runList(opts: { json: boolean }): void {
     success: true,
     source: 'bundled',
     count: skills.length,
-    installedCount: skills.filter(skill => skill.installed).length,
-    staleCount: skills.filter(skill => skill.hasStale).length,
+    installedCount: skills.filter(skill => skill.status !== 'not-installed')
+      .length,
     skills,
   };
 
@@ -78,36 +78,28 @@ export function runList(opts: { json: boolean }): void {
     console.log(JSON.stringify(result, null, 2));
     return;
   }
-  const stale = result.staleCount > 0 ? ` · ${result.staleCount} stale` : '';
   console.log(
-    `\n  ${bold('Octocode skills')} ${dim(`· ${result.installedCount}/${result.count} installed${stale}`)}`
+    `${bold('Octocode skills')} ${dim(`· ${result.installedCount}/${result.count} installed`)}`
   );
-  if (skills.length === 0) console.log('  No bundled skills found.');
+  if (skills.length === 0) console.log('No bundled skills found.');
+  const width = Math.max(0, ...skills.map(skill => skill.name.length));
   for (const skill of skills) {
-    const icon =
-      skill.hasBroken || skill.hasStale
-        ? c('yellow', '⚠')
-        : skill.installed
-          ? c('green', '✓')
-          : dim('–');
-    const state = skill.hasBroken
-      ? c('yellow', ' [broken]')
-      : skill.hasStale
-        ? c('yellow', ' [stale]')
-        : '';
+    const state = skill.status === 'ok' ? '' : ` ${skill.status}`;
     const links =
       skill.linkedPlatforms.length > 0
-        ? ` · ${skill.linkedPlatforms.join(', ')}`
+        ? dim(` ${skill.linkedPlatforms.join(', ')}`)
         : '';
     console.log(
-      `  ${icon} ${skill.name}${state}${dim(links)} — ${skill.description}`
+      `${statusIcon(skill.status)} ${skill.name.padEnd(width)}${state}${links}`
     );
-    if (skill.env.hint) console.log(`    ${dim(`env: ${skill.env.hint}`)}`);
+    if (skill.env.hint) console.log(`  ${dim(`env: ${skill.env.hint}`)}`);
   }
-  if (result.staleCount > 0 || skills.some(skill => skill.hasBroken)) {
+  if (skills.some(skill => skill.status === 'stale' || skill.status === 'broken')) {
     console.log(
-      `\n  ${dim('Details:')} ${c('cyan', 'octocode skill check')} ${dim('· repair with')} ${c('cyan', 'octocode skill check --fix')}`
+      `${dim('Repair:')} ${c('cyan', 'octocode skill check --fix')}`
     );
   }
-  console.log();
+  console.log(
+    dim(`Details: octocode skill info <name> · status: octocode skill check`)
+  );
 }

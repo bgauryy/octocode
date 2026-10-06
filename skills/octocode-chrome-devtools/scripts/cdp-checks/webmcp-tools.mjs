@@ -59,13 +59,6 @@ export async function run(cdp) {
     return;
   }
 
-  cdp.addReasoningStep?.({
-    step: 'webmcp-discover',
-    hypothesis: 'Page may have registered document.modelContext tools',
-    action: `Enabled WebMCP domain, waiting ${WAIT_MS}ms for toolsAdded`,
-    result: 'pending',
-    nextAction: ACTION === 'invoke' ? `invoke ${TOOL_NAME}` : 'list discovered tools',
-  });
 
   // Real registrations happen synchronously during page/script load in every
   // case observed so far, so a short settle window covers the common

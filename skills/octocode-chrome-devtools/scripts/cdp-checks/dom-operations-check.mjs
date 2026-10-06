@@ -29,6 +29,7 @@ const WAIT_MS = Number.parseInt(process.env.DOM_WAIT_MS ?? '8000', 10);
 const WAIT_TEXT = process.env.DOM_WAIT_TEXT ?? '';
 const ACCEPT_DIALOG = process.env.DOM_DIALOG === 'accept';
 const DIFF = process.env.DOM_DIFF !== '0';
+const TRACE_EVENTS = process.env.DOM_TRACE_EVENTS === '1';
 const DEFAULT_SELECTOR = 'button, [role="button"], input, textarea, select, a[href]';
 const ACTIONS = ['inspect', 'click', 'dblclick', 'fill', 'type', 'press', 'hover', 'select', 'check', 'uncheck', 'focus', 'scroll', 'upload', 'drag', 'wait'];
 const DONE = {
@@ -43,19 +44,19 @@ function readSteps() {
     if (!Array.isArray(steps) || !steps.length) throw new Error('DOM_STEPS must be a non-empty JSON array of steps');
   } else {
     steps = [{
-      ref: process.env.DOM_REF, selector: process.env.DOM_SELECTOR, action: process.env.DOM_ACTION ?? 'inspect',
+      ref: process.env.DOM_REF, role: process.env.DOM_ROLE, name: process.env.DOM_NAME, selector: process.env.DOM_SELECTOR, action: process.env.DOM_ACTION ?? 'inspect',
       value: process.env.DOM_VALUE, key: process.env.DOM_KEY, toRef: process.env.DOM_TO_REF, toSelector: process.env.DOM_TO_SELECTOR,
     }];
   }
   return steps.map((s, i) => {
     const step = {
-      ref: s.ref || '', selector: s.selector || (s.ref ? '' : DEFAULT_SELECTOR), action: s.action ?? 'inspect',
+      ref: s.ref || '', role: s.role || '', name: s.name || '', waitTarget: Boolean(s.selector || s.ref || s.role || s.name), selector: s.selector || (s.ref || s.role || s.name ? '' : DEFAULT_SELECTOR), action: s.action ?? 'inspect',
       value: s.value == null ? '' : String(s.value), key: s.key || 'Enter', toRef: s.toRef || '', toSelector: s.toSelector || '', index: i + 1,
     };
     if (!ACTIONS.includes(step.action)) throw new Error(`Unsupported action "${step.action}" (step ${step.index}). Use ${ACTIONS.join(', ')}.`);
     if (step.action === 'press') buildKeyPressEvents(step.key); // fail fast on an unknown key
     if (step.action === 'drag' && !step.toRef && !step.toSelector) throw new Error('drag needs DOM_TO_REF or DOM_TO_SELECTOR (toRef/toSelector in DOM_STEPS)');
-    if (step.action === 'wait' && !step.value && !WAIT_TEXT) throw new Error('wait needs DOM_VALUE (or DOM_WAIT_TEXT): text to wait for, "|" = any of');
+    if (step.action === 'wait' && !step.value && !WAIT_TEXT && !step.waitTarget) throw new Error('wait needs DOM_VALUE (or DOM_WAIT_TEXT): text to wait for, "|" = any of');
     return step;
   });
 }
@@ -70,9 +71,9 @@ const STATE_JS = `
   }
   function stateOf(el) {
     const s = {};
-    if (el.isContentEditable) s.value = el.innerText.replace(/\\n$/, '').slice(0, 300);
+    if (el.isContentEditable) s.value = el.innerText.replace(/\\n$/, '');
     else if (el.type === 'file') s.files = [...(el.files ?? [])].map(f => f.name).join(', ');
-    else if ('value' in el && !['button', 'li', 'option'].includes(el.localName) && el.type !== 'checkbox' && el.type !== 'radio') s.value = String(el.value).slice(0, 300);
+    else if ('value' in el && !['button', 'li', 'option'].includes(el.localName) && el.type !== 'checkbox' && el.type !== 'radio') s.value = String(el.value);
     if (el.type === 'checkbox' || el.type === 'radio') s.checked = el.checked;
     else if (el.hasAttribute('aria-checked')) s.checked = el.getAttribute('aria-checked') === 'true';
     if (el.localName === 'select') s.selected = [...el.selectedOptions].map(o => o.label.trim()).join(', ');
@@ -147,18 +148,32 @@ const CORE_BODY_JS = `
   }
   async function checkElement(element, action, value, stabilityMs, mode, key) {
     globalThis.__octoTarget = element;
+    if (${TRACE_EVENTS} && !globalThis.__octoTrace) {
+      const events = [];
+      const root = element.getRootNode();
+      const types = ['pointerdown', 'pointerup', 'mousedown', 'mouseup', 'click', 'dblclick', 'keydown', 'keyup', 'beforeinput', 'input', 'change', 'focus', 'blur', 'dragstart', 'drop', 'compositionstart', 'compositionend'];
+      const handler = event => {
+        const target = event.composedPath()[0] || event.target;
+        events.push({ type: event.type, trusted: event.isTrusted, at: event.timeStamp, wallTime: performance.timeOrigin + event.timeStamp, frameURL: location.href, target: elementPath(target), inputType: event.inputType || null });
+      };
+      for (const type of types) root.addEventListener(type, handler, true);
+      globalThis.__octoTrace = { events, stop() { for (const type of types) root.removeEventListener(type, handler, true); delete globalThis.__octoTrace; return events; } };
+    }
     if (!globalThis.__octoMut) {
       globalThis.__octoMut = { n: 0 };
       new MutationObserver(list => { globalThis.__octoMut.n += list.length; })
         .observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
     }
-    if (action !== 'upload') element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+    if (!['upload', 'wait'].includes(action)) element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
     const style = getComputedStyle(element);
     const rectCheck = await stableRect(element, stabilityMs);
     const rect = rectCheck.second;
     const doc = element.ownerDocument;
     const hit = doc.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    const coveredBy = hit && hit !== element && !element.contains(hit) && !hit.contains(element) ? elementPath(hit) : null;
+    let shadowHost = element.getRootNode()?.host;
+    let hitIsShadowHost = false;
+    while (shadowHost) { if (hit === shadowHost) hitIsShadowHost = true; shadowHost = shadowHost.getRootNode()?.host; }
+    const coveredBy = hit && !hitIsShadowHost && hit !== element && !element.contains(hit) && !hit.contains(element) ? elementPath(hit) : null;
     const details = {
       found: true, action, mode, location: location.href,
       tag: element.localName, path: elementPath(element), id: element.id || null,
@@ -175,9 +190,12 @@ const CORE_BODY_JS = `
     };
     const pointer = ['click', 'dblclick', 'check', 'uncheck', 'hover', 'fill', 'type', 'drag'].includes(action);
     // File inputs are usually visually hidden behind a styled button; upload sets files directly.
-    details.canOperate = action === 'scroll' || action === 'upload' || (details.visible && !details.disabled && (!pointer || (!details.covered && details.stable)));
+    details.canOperate = action === 'scroll' || action === 'upload' || (details.visible && !details.disabled && (!pointer || (!details.covered && details.stable && style.pointerEvents !== 'none')));
 
-    if (action === 'inspect') details.operation = 'inspected';
+    if (action === 'inspect' || action === 'wait') {
+      details.operation = 'inspected';
+      details.waitTextMatches = !value || (element.innerText || '').includes(value);
+    }
     else if (action === 'upload') {
       if (element.localName === 'input' && element.type === 'file') details.pending = true;
       else details.operation = 'not-file-input';
@@ -191,7 +209,7 @@ const CORE_BODY_JS = `
         const want = String(value).trim();
         const opts = [...element.options];
         const opt = opts.find(o => o.label.trim() === want) || opts.find(o => o.value === want) || opts.find(o => o.label.trim().toLowerCase() === want.toLowerCase());
-        if (!opt) { details.operation = 'option-not-found'; details.options = opts.slice(0, 20).map(o => o.label.trim()); }
+        if (!opt) { details.operation = 'option-not-found'; details.options = opts.map(o => o.label.trim()); }
         else {
           element.focus();
           element.selectedIndex = opt.index;
@@ -213,7 +231,7 @@ const CORE_BODY_JS = `
     } else if (action === 'fill' || action === 'type') {
       element.focus();
       setNativeValue(element, value);
-      element.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: value }));
+      element.dispatchEvent(new InputEvent('input', { bubbles: true, composed: true, inputType: 'insertText', data: value }));
       element.dispatchEvent(new Event('change', { bubbles: true }));
       details.operation = action === 'fill' ? 'filled' : 'typed';
     } else if (action === 'hover') {
@@ -241,7 +259,7 @@ const SELECT_ALL_FN = `function() {
     range.selectNodeContents(el);
     const sel = doc.getSelection(); sel.removeAllRanges(); sel.addRange(range);
   } else { try { el.select(); } catch { el.setSelectionRange?.(0, String(el.value).length); } }
-  return doc.activeElement === el || el.contains(doc.activeElement);
+  return doc.activeElement === el || el.getRootNode().activeElement === el || el.contains(doc.activeElement);
 }`;
 
 const VERIFY_FN = `function() {
@@ -250,7 +268,7 @@ const VERIFY_FN = `function() {
   const doc = el?.ownerDocument ?? document;
   const connected = Boolean(el?.isConnected);
   return { url: location.href, connected, state: connected ? stateOf(el) : null,
-    mutations: globalThis.__octoMut?.n ?? 0, scrollY: Math.round(scrollY), focus: describeEl(doc.activeElement), dialogs: openDialogs() };
+    mutations: globalThis.__octoMut?.n ?? 0, scrollY: Math.round(scrollY), focus: describeEl(doc.activeElement), dialogs: openDialogs(), events: globalThis.__octoTrace?.stop() };
 }`;
 
 const PAGE_STATE_JS = `(() => ({ url: location.href, mutations: globalThis.__octoMut?.n ?? 0, scrollY: Math.round(scrollY) }))()`;
@@ -269,6 +287,7 @@ function loadSnapshot(cdp) {
 function resolveRefEntry(cdp, ref) {
   const snap = loadSnapshot(cdp);
   if (!snap) throw new Error('No page-snapshot resource found for this session — run scripts/cdp-checks/page-snapshot.mjs on the same --port first.');
+  if (!snap.data.targetId || snap.data.targetId !== cdp.targetInfo.id) throw new Error('Snapshot refs belong to another target or lack target identity; snapshot this target first');
   const entry = snap.data.refs?.[ref];
   if (!entry) throw new Error(`Ref ${ref} not found in ${snap.path}. Available: ${Object.keys(snap.data.refs ?? {}).slice(0, 40).join(', ')}`);
   return entry;
@@ -285,18 +304,26 @@ async function locateAndCheck(cdp, step) {
     const handle = details.found ? await cdp.send('Runtime.evaluate', { expression: 'globalThis.__octoTarget' }).catch(() => null) : null;
     return { label, details, objectId: handle?.result?.objectId ?? null };
   };
-  if (!step.ref) {
+  if (!step.ref && !step.role && !step.name) {
     return fromEvaluate(`selector:${step.selector}`, `(async () => {
       ${CORE_BODY_JS}
-      const element = document.querySelector(${JSON.stringify(step.selector)});
+      const matches = [...document.querySelectorAll(${JSON.stringify(step.selector)})];
+      if (matches.length > 1 && ${JSON.stringify(!['inspect', 'wait'].includes(step.action))}) return { found: false, error: 'Ambiguous selector: ' + matches.length + ' matches', ambiguous: true };
+      const element = ${JSON.stringify(step.action === 'wait')} ? matches.find(el => isVisible(el) && (!${JSON.stringify(step.value)} || (el.innerText || '').includes(${JSON.stringify(step.value)}))) || matches[0] : matches[0];
       if (!element) return { selector: ${JSON.stringify(step.selector)}, found: false };
       const details = await checkElement(element, ${args});
       details.selector = ${JSON.stringify(step.selector)};
       return details;
     })()`);
   }
-  const label = `ref:${step.ref}`;
-  const entry = resolveRefEntry(cdp, step.ref);
+  const label = step.ref ? `ref:${step.ref}` : `role:${step.role} name:${step.name}`;
+  let entry;
+  if (step.ref) entry = resolveRefEntry(cdp, step.ref);
+  else {
+    const candidates = (await collectRefs(cdp, {})).useful.filter(n => (!step.role || n.role === step.role) && (!step.name || n.fullName === step.name));
+    if (candidates.length !== 1) return { label, details: { found: false, ambiguous: candidates.length > 1, error: `${candidates.length} elements match role/name`, candidates: candidates.map(n => ({ role: n.role, name: n.fullName, backendDOMNodeId: n.backendDOMNodeId })) }, objectId: null };
+    entry = { ...candidates[0], name: candidates[0].fullName };
+  }
   let object = null;
   try {
     ({ object } = await cdp.send('DOM.resolveNode', { backendNodeId: entry.backendDOMNodeId }));
@@ -304,43 +331,24 @@ async function locateAndCheck(cdp, step) {
     // Client-rendered pages replace nodes after the snapshot; recover by role+name.
     console.log(`[FINDING] STALE_SNAPSHOT_REF ${step.ref}; recovering by role=${JSON.stringify(entry.role)} name=${JSON.stringify(entry.name)}`);
   }
-  if (object?.objectId) {
-    // callFunctionOn runs in the element's own realm, so iframe elements use the iframe's document.
-    const details = valueOf(await cdp.send('Runtime.callFunctionOn', {
-      objectId: object.objectId, awaitPromise: true, returnByValue: true,
-      functionDeclaration: `async function() {
-        ${CORE_BODY_JS}
-        const details = await checkElement(this, ${args});
-        details.ref = ${JSON.stringify(step.ref)};
-        return details;
-      }`,
-    }));
-    return { label, details, objectId: object.objectId };
+  let recovered = false;
+  if (!object?.objectId) {
+    const candidates = (await collectRefs(cdp, {})).useful.filter(n => n.role === entry.role && n.fullName === entry.name && (!entry.frame || n.frame === entry.frame));
+    if (candidates.length !== 1) return { label, details: { found: false, ambiguous: candidates.length > 1, error: `Stale ref recovery found ${candidates.length} role/name matches; refresh the snapshot` }, objectId: null };
+    ({ object } = await cdp.send('DOM.resolveNode', { backendNodeId: candidates[0].backendDOMNodeId }));
+    recovered = true;
   }
-  return fromEvaluate(label, `(async () => {
-    ${CORE_BODY_JS}
-    const wantedRole = ${JSON.stringify(entry.role)};
-    const wantedName = ${JSON.stringify(entry.name)};
-    function semanticRole(element) {
-      const explicit = element.getAttribute('role');
-      if (explicit) return explicit;
-      if (element.matches('a[href]')) return 'link';
-      if (element.matches('button, input[type="button"], input[type="submit"], input[type="reset"]')) return 'button';
-      if (/^h[1-6]$/.test(element.localName)) return 'heading';
-      if (element.matches('input[type="checkbox"]')) return 'checkbox';
-      if (element.matches('input[type="search"]')) return 'searchbox';
-      if (element.matches('select')) return 'combobox';
-      if (element.matches('input:not([type]), input[type="text"], input[type="email"], input[type="password"], textarea, [contenteditable="true"]')) return 'textbox';
-      return element.localName;
-    }
-    const element = [...document.querySelectorAll('*')].find((candidate) =>
-      semanticRole(candidate) === wantedRole && accessibleNameGuess(candidate) === wantedName);
-    if (!element) return { ref: ${JSON.stringify(step.ref)}, found: false, error: 'stale ref and no current element has the captured role/name', recoveredFromStaleRef: false };
-    const details = await checkElement(element, ${args});
-    details.ref = ${JSON.stringify(step.ref)};
-    details.recoveredFromStaleRef = true;
-    return details;
-  })()`);
+  const details = valueOf(await cdp.send('Runtime.callFunctionOn', {
+    objectId: object.objectId, awaitPromise: true, returnByValue: true,
+    functionDeclaration: `async function() {
+      ${CORE_BODY_JS}
+      const details = await checkElement(this, ${args});
+      details.ref = ${JSON.stringify(step.ref)};
+      return details;
+    }`,
+  }));
+  if (recovered) details.recoveredFromStaleRef = true;
+  return { label, details, objectId: object.objectId };
 }
 
 // Main-frame viewport coordinates; also right inside same-process iframes, where
@@ -491,16 +499,25 @@ function expectation(step) {
   return null;
 }
 
-async function waitForText(cdp, text) {
-  const wanted = text.split('|').map((t) => t.trim()).filter(Boolean);
+async function waitForText(cdp, text, objectId = null) {
+  const wanted = text.split('|').map(t => t.trim()).filter(Boolean);
   const start = Date.now();
+  let lastProgress = -Infinity;
+  const fn = `function() {
+    const texts = [];
+    const read = root => {
+      texts.push(root.nodeType === 9 ? root.body?.innerText || '' : root.textContent || '');
+      for (const frame of root.querySelectorAll('iframe,frame')) { try { if (frame.contentDocument) read(frame.contentDocument); } catch {} }
+    };
+    read(this?.getRootNode?.() || document);
+    return ${JSON.stringify(wanted)}.find(w => texts.some(t => t.includes(w))) || null;
+  }`;
   while (Date.now() - start < WAIT_MS) {
-    const res = await cdp.send('Runtime.evaluate', {
-      returnByValue: true,
-      expression: `(() => { const t = document.body?.innerText ?? ''; return ${JSON.stringify(wanted)}.find((w) => t.includes(w)) ?? null; })()`,
-    }).catch(() => null);
+    let res = objectId ? await cdp.send('Runtime.callFunctionOn', { objectId, functionDeclaration: fn, returnByValue: true }).catch(() => null) : null;
+    if (!res?.result) res = await cdp.send('Runtime.evaluate', { expression: `(${fn}).call(document)`, returnByValue: true }).catch(() => null);
     const hit = res?.result?.value;
     if (hit) return { hit, ms: Date.now() - start };
+    if (Date.now() - start - lastProgress >= 1000) { lastProgress = Date.now() - start; console.log(`[PROGRESS] waiting content elapsedMs=${lastProgress}`); }
     await sleep(150);
   }
   return { hit: null, ms: Date.now() - start };
@@ -545,6 +562,7 @@ function reportStep(step, label, details, effects, prefix) {
     if (effects.popup) parts.push(`popup=${effects.popup}`);
     if (a.connected === false && !effects.navigatedTo) parts.push('target-removed');
     console.log(`[VERIFY] ${prefix}${parts.join(' ')}`);
+    if (a.events) console.log(`[METRIC] ${prefix}USER_EVENTS count=${a.events.length} trusted=${a.events.filter(e => e.trusted).length}`);
     if (effects.dialog) console.log(`[FINDING] ${prefix}JS_DIALOG ${effects.dialog.type} ${JSON.stringify(effects.dialog.message)} ${ACCEPT_DIALOG ? 'accepted' : 'dismissed (DOM_DIALOG=accept to accept)'}`);
     if (details.verified === false) console.log(`[FINDING] ${prefix}VERIFY_MISMATCH expected=${JSON.stringify(details.expected)}${MODE === 'trusted' ? ' — retry with DOM_ACTION=type or DOM_INPUT=js' : ''}`);
     const noEffect = !effects.navigatedTo && !effects.popup && !effects.dialog && mutations === 0 && a.url === details.location;
@@ -575,7 +593,7 @@ function reportNewRefs(cdp, before, after) {
   const gone = before.filter((u) => !nowIds.has(u.backendDOMNodeId)).length;
   if (!added.length && !gone) return 0;
   const snap = loadSnapshot(cdp);
-  const data = snap?.data ?? { url: cdp.targetInfo.url, refs: {}, regions: {} };
+  const data = snap?.data?.targetId === cdp.targetInfo.id ? snap.data : { targetId: cdp.targetInfo.id, url: cdp.targetInfo.url, refs: {}, regions: {} };
   data.refs ??= {};
   let next = Math.max(0, ...Object.keys(data.refs).map((k) => Number(k.slice(1)) || 0)) + 1;
   const known = new Map(Object.entries(data.refs).map(([k, v]) => [v.backendDOMNodeId, k]));
@@ -584,29 +602,46 @@ function reportNewRefs(cdp, before, after) {
     let ref = known.get(u.backendDOMNodeId);
     if (!ref) {
       ref = `e${next++}`;
-      data.refs[ref] = { backendDOMNodeId: u.backendDOMNodeId, role: u.role, name: u.fullName };
+      data.refs[ref] = { backendDOMNodeId: u.backendDOMNodeId, role: u.role, name: u.fullName, frame: u.frame };
     }
     const role = u.role === 'heading' ? (u.level ? `h${u.level}` : 'heading') : u.role;
     lines.push(`[NEW] [${ref}] ${role}${u.name ? ` "${u.name}"` : ''}`);
   }
-  const path = snap?.path ?? join(cdp.outputDir, 'page-snapshot.json');
+  const path = join(cdp.outputDir, 'page-snapshot.json');
   writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
-  if (!snap) cdp.upsertResourceMap?.('page-snapshot', { type: 'page-snapshot', targetUrl: cdp.targetInfo.url, refCount: Object.keys(data.refs).length, artifactPath: path });
+  cdp.upsertResourceMap?.('page-snapshot', { type: 'page-snapshot', targetUrl: cdp.targetInfo.url, refCount: Object.keys(data.refs).length, artifactPath: path });
   console.log(`[DIFF] new=${added.length} gone=${gone}`);
   for (const line of lines.slice(0, 20)) console.log(line);
   if (lines.length > 20) console.log(`[NEW] … ${lines.length - 20} more (run page-snapshot)`);
   return added.length;
 }
 
+async function locateWhenReady(cdp, step) {
+  const start = Date.now();
+  let result;
+  let lastProgress = -Infinity;
+  do {
+    result = await locateAndCheck(cdp, step);
+    const d = result.details;
+    if (step.action === 'inspect' || d.ambiguous || (step.action === 'wait' ? d.found && d.visible && d.waitTextMatches : d.acted || d.pending || (d.found && d.operation !== 'blocked-by-actionability'))) return result;
+    if (Date.now() - start - lastProgress >= 1000) {
+      lastProgress = Date.now() - start;
+      console.log(`[PROGRESS] waiting target=${JSON.stringify(result.label)} elapsedMs=${lastProgress} found=${Boolean(d.found)} visible=${Boolean(d.visible)} disabled=${Boolean(d.disabled)}`);
+    }
+    await sleep(150);
+  } while (Date.now() - start < WAIT_MS);
+  return result;
+}
+
 async function runStep(cdp, step, effects) {
-  const { label, details, objectId } = await locateAndCheck(cdp, step);
+  const { label, details, objectId } = await locateWhenReady(cdp, step);
   if (details.pending) {
     details.pending = false;
     try {
       details.operation = await performTrusted(cdp, step, details, objectId);
     } catch (error) {
       details.operation = 'input-failed';
-      details.error = String(error.message ?? error).slice(0, 200);
+      details.error = String(error.message ?? error);
       console.log(`[FINDING] DOM_INPUT_FAILED ${details.error}`);
     }
   }
@@ -622,14 +657,18 @@ async function runStep(cdp, step, effects) {
       ?? null;
     details.effects = { ...effects };
     const exp = expectation(step);
-    if (exp && details.after?.state) {
-      const got = details.after.state[exp.field];
+    if (exp) {
+      const got = details.after?.state?.[exp.field];
       const ok = exp.loose ? String(got ?? '').toLowerCase().includes(String(exp.want).toLowerCase()) || got === exp.want : got === exp.want;
       details.verified = ok;
       details.expected = { [exp.field]: exp.want, got };
     }
   }
-  return { label, details };
+  if (TRACE_EVENTS && !details.acted && objectId) {
+    const traced = await cdp.send('Runtime.callFunctionOn', { objectId, functionDeclaration: 'function() { return globalThis.__octoTrace?.stop(); }', returnByValue: true });
+    details.events = traced.result?.value || [];
+  }
+  return { label, details, objectId };
 }
 
 export async function run(cdp) {
@@ -639,14 +678,14 @@ export async function run(cdp) {
   await cdp.send('Page.enable');
 
   const ready = await waitForPageReady(cdp);
-  if (!ready) console.log('[FINDING] PAGE_NOT_FULLY_LOADED document.readyState never reached "complete" — a not-found/blocked result below may reflect a page that hasn\'t rendered yet, not a real absence');
+  if (!ready) console.log('[FINDING] PAGE_NOT_FULLY_LOADED document did not reach an interactive state — a not-found/blocked result below may reflect a page that hasn\'t rendered yet, not a real absence');
 
   // Effects the action may cause outside the element.
   const effects = { navigatedTo: null, dialog: null, popup: null };
   let navigatedAny = false;
   const onNav = ({ frame }) => { if (!frame.parentId) { effects.navigatedTo = frame.url; navigatedAny = true; } };
   const onDialog = async ({ type, message }) => {
-    effects.dialog = { type, message: String(message).slice(0, 160), accepted: ACCEPT_DIALOG };
+    effects.dialog = { type, message: String(message), accepted: ACCEPT_DIALOG };
     await cdp.send('Page.handleJavaScriptDialog', { accept: ACCEPT_DIALOG }).catch(() => {});
   };
   const onPopup = ({ url }) => { effects.popup = url; };
@@ -662,19 +701,24 @@ export async function run(cdp) {
     const prefix = STEPS.length > 1 ? `#${step.index} ` : '';
     Object.assign(effects, { navigatedTo: null, dialog: null, popup: null });
     if (step.action === 'wait') {
-      const { hit, ms } = await waitForText(cdp, step.value || WAIT_TEXT);
+      const waited = step.waitTarget ? await locateWhenReady(cdp, step) : null;
+      const { hit, ms } = waited ? { hit: waited.details.found && waited.details.visible && waited.details.waitTextMatches && !waited.details.ambiguous ? waited.label : null, ms: null } : await waitForText(cdp, step.value || WAIT_TEXT);
       console.log(hit ? `[WAIT] ${prefix}found ${JSON.stringify(hit)} after ${ms}ms` : `[FINDING] ${prefix}WAIT_TIMEOUT none of ${JSON.stringify(step.value || WAIT_TEXT)} appeared within ${WAIT_MS}ms`);
       results.push({ step, found: Boolean(hit), ms });
       if (!hit) { ok = false; break; }
       continue;
     }
-    const { label, details } = await runStep(cdp, step, effects);
-    results.push({ step, label, details });
+    const { label, details, objectId } = await runStep(cdp, step, effects);
+    results.push({ step, label, details, objectId });
     if (!reportStep(step, label, details, effects, prefix)) { ok = false; break; }
   }
   if (ok && WAIT_TEXT && STEPS.at(-1).action !== 'wait') {
-    const { hit, ms } = await waitForText(cdp, WAIT_TEXT);
+    const { hit, ms } = await waitForText(cdp, WAIT_TEXT, results.at(-1)?.objectId);
     console.log(hit ? `[WAIT] found ${JSON.stringify(hit)} after ${ms}ms` : `[FINDING] WAIT_TIMEOUT none of ${JSON.stringify(WAIT_TEXT)} appeared within ${WAIT_MS}ms`);
+    const last = results.at(-1);
+    if (last?.details) last.details.postActionWait = { text: WAIT_TEXT, found: Boolean(hit), ms };
+    else if (last) last.postActionWait = { text: WAIT_TEXT, found: Boolean(hit), ms };
+    if (!hit) ok = false;
   }
   const added = before && !navigatedAny ? reportNewRefs(cdp, before, await currentRefs(cdp)) : 0;
   const lastHover = results.at(-1)?.step.action === 'hover' ? results.at(-1).details : null;

@@ -12,9 +12,12 @@
 //! bound; per-node failures are collected as data.
 
 use super::failure::{LspFailure, continuation, mark_partial, mark_terminal_limit, push_reason};
-use super::importers::{Importers, callers_from_references};
+use super::importers::{
+    Importers, callers_from_references, enclosing_callable, flatten_symbols, verified_anchors,
+};
 use super::locations::{items_payload, public_range};
 use super::render::{as_array, decode_uri_path, symbol_kind_name, uri_to_path};
+use super::scope::Scope;
 use super::source::{SourceCache, item_uri_is_authorized};
 use super::{LspSearchQuery, cancellable};
 use crate::policy::path::PathPolicy;
@@ -137,8 +140,9 @@ pub(super) struct HierarchyWalk {
     /// Results naming a file outside the read policy (skipped).
     pub(super) out_of_policy: usize,
     /// Results declared in a TypeScript built-in lib file (`lib.*.d.ts`,
-    /// e.g. `String.prototype.toUpperCase`), skipped as call-graph noise.
-    pub(super) builtin_lib: usize,
+    /// e.g. `String.toUpperCase`), kept out of the call graph and listed by
+    /// name once each.
+    pub(super) builtin_lib: Vec<String>,
 }
 
 /// Whether a hierarchy node is declared in a TypeScript built-in lib file
@@ -152,6 +156,21 @@ pub(super) fn is_builtin_lib_declaration(node: &Value) -> bool {
         return false;
     };
     dir.ends_with("/typescript/lib") && file.starts_with("lib.") && file.ends_with(".d.ts")
+}
+
+/// A built-in lib item's name, qualified by its container when the server
+/// names one (`String.toUpperCase`).
+pub(super) fn builtin_name(node: &Value) -> String {
+    let name = node.get("name").and_then(Value::as_str).unwrap_or("?");
+    match node
+        .get("detail")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|detail| !detail.is_empty() && !detail.contains(char::is_whitespace))
+    {
+        Some(container) => format!("{container}.{name}"),
+        None => name.to_owned(),
+    }
 }
 
 /// Memoized node identity and authorization for one walk.
@@ -220,6 +239,7 @@ impl<'a> NodeKeys<'a> {
 /// Breadth-first walk from `roots` up to `depth` levels (clamped to
 /// [`MAX_HIERARCHY_DEPTH`]). Cancellation is checked before every level and
 /// while each level's requests are in flight.
+#[cfg(test)]
 pub(super) async fn walk_hierarchy(
     source: &impl HierarchySource,
     roots: &[Value],
@@ -228,15 +248,51 @@ pub(super) async fn walk_hierarchy(
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
 ) -> Result<HierarchyWalk, LspFailure> {
-    let depth = depth.clamp(1, MAX_HIERARCHY_DEPTH);
-    let mut walker = Walker::new(paths, roots, depth);
-    let mut frontier = roots.to_vec();
-    for level in 1..=depth {
-        if frontier.is_empty() {
-            break;
+    Walk::new(paths, roots, expansion, depth)
+        .finish(source, cancel)
+        .await
+}
+
+/// A breadth-first walk in progress, one level per [`Walk::step`]. Roots
+/// found after level 1 (verified importer call sites) join level 1 through
+/// [`Walk::add_roots`], so the server's own level-1 answer can decide which
+/// importers still need verifying.
+pub(super) struct Walk<'a> {
+    walker: Walker<'a>,
+    expansion: Expansion,
+    /// The nodes the next level expands.
+    frontier: Vec<Value>,
+    /// The level the next step expands.
+    level: u32,
+}
+
+impl<'a> Walk<'a> {
+    pub(super) fn new(
+        paths: &'a PathPolicy,
+        roots: &[Value],
+        expansion: Expansion,
+        depth: u32,
+    ) -> Self {
+        let depth = depth.clamp(1, MAX_HIERARCHY_DEPTH);
+        Self {
+            walker: Walker::new(paths, roots, depth),
+            expansion,
+            frontier: roots.to_vec(),
+            level: 1,
         }
+    }
+
+    /// Expand `nodes` at `level`; returns the nodes the next level expands.
+    async fn expand_level(
+        &mut self,
+        source: &impl HierarchySource,
+        nodes: Vec<Value>,
+        level: u32,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<Vec<Value>, LspFailure> {
         cancel.check().map_err(LspFailure::cancelled)?;
-        let requests = frontier
+        let expansion = self.expansion;
+        let requests = nodes
             .iter()
             .map(|node| source.expand(expansion, node.clone()));
         let responses = cancellable(
@@ -247,17 +303,79 @@ pub(super) async fn walk_hierarchy(
         )
         .await?;
         let mut next = Vec::new();
-        for (parent, response) in frontier.into_iter().zip(responses) {
+        for (parent, response) in nodes.iter().zip(responses) {
             match response {
                 Ok(results) => {
-                    walker.expand(expansion, level, &parent, as_array(&results), &mut next)
+                    self.walker
+                        .expand(expansion, level, parent, as_array(&results), &mut next)
                 }
-                Err(error) => walker.walk.failures.push(error),
+                Err(error) => self.walker.walk.failures.push(error),
             }
         }
-        frontier = next;
+        Ok(next)
     }
-    Ok(walker.walk)
+
+    /// Expand the next level; `false` once the walk is complete.
+    pub(super) async fn step(
+        &mut self,
+        source: &impl HierarchySource,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<bool, LspFailure> {
+        if self.level > self.walker.depth || self.frontier.is_empty() {
+            return Ok(false);
+        }
+        let nodes = std::mem::take(&mut self.frontier);
+        let level = self.level;
+        self.frontier = self.expand_level(source, nodes, level, cancel).await?;
+        self.level += 1;
+        Ok(true)
+    }
+
+    /// Expand `roots` not already in the walk at level 1, after level 1 of
+    /// the original roots ran; their results join the next level.
+    pub(super) async fn add_roots(
+        &mut self,
+        source: &impl HierarchySource,
+        roots: Vec<Value>,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<(), LspFailure> {
+        let fresh = roots
+            .into_iter()
+            .filter(|root| {
+                let key = self.walker.keys.key(root);
+                self.walker.seen.insert(key)
+            })
+            .collect::<Vec<_>>();
+        if fresh.is_empty() {
+            return Ok(());
+        }
+        let next = self.expand_level(source, fresh, 1, cancel).await?;
+        self.frontier.extend(next);
+        Ok(())
+    }
+
+    /// Canonical files of the level-1 results: the files the server's own
+    /// answer covers.
+    pub(super) fn answered_files(&self) -> HashSet<String> {
+        self.walker
+            .walk
+            .edges
+            .iter()
+            .filter(|edge| edge.level == 1)
+            .filter_map(|edge| edge.node.get("uri").and_then(Value::as_str))
+            .map(canonical_uri_path)
+            .collect()
+    }
+
+    /// Run the remaining levels.
+    pub(super) async fn finish(
+        mut self,
+        source: &impl HierarchySource,
+        cancel: &dyn CancellationCheck,
+    ) -> Result<HierarchyWalk, LspFailure> {
+        while self.step(source, cancel).await? {}
+        Ok(self.walker.walk)
+    }
 }
 
 /// The state of one walk: discovered edges, seen nodes, and resume points.
@@ -336,7 +454,10 @@ impl<'a> Walker<'a> {
             return;
         };
         if is_builtin_lib_declaration(&node) {
-            self.walk.builtin_lib += 1;
+            let name = builtin_name(&node);
+            if !self.walk.builtin_lib.contains(&name) {
+                self.walk.builtin_lib.push(name);
+            }
             return;
         }
         if !self.keys.authorized(result) {
@@ -501,6 +622,112 @@ pub(super) fn public_edge(expansion: Expansion, edge: &HierarchyEdge) -> Value {
     public
 }
 
+/// LSP `SymbolKind`s of a whole file or module caller.
+const MODULE_KINDS: [u64; 2] = [1, 2];
+
+/// A caller the server reports as a whole module or file (tsserver does for
+/// calls inside a top-level callback: `describe(() => …)`, `it(…)`) split
+/// into one edge per innermost function symbol of `symbols` (the file's
+/// `documentSymbol` answer) around its call sites, the way reference-derived
+/// callers are named. Sites outside every function stay with the module.
+/// Any other edge is returned unchanged.
+pub(super) fn split_module_callers(edge: &HierarchyEdge, symbols: &Value) -> Vec<HierarchyEdge> {
+    let unchanged = || HierarchyEdge {
+        node: edge.node.clone(),
+        parent: edge.parent.clone(),
+        level: edge.level,
+        sites: edge.sites.clone(),
+    };
+    if !edge
+        .node
+        .get("kind")
+        .and_then(Value::as_u64)
+        .is_some_and(|kind| MODULE_KINDS.contains(&kind))
+    {
+        return vec![unchanged()];
+    }
+    let mut flat = Vec::new();
+    flatten_symbols(symbols, &mut flat);
+    let mut split: Vec<HierarchyEdge> = Vec::new();
+    for site in &edge.sites {
+        let point = |field: &str| {
+            site.pointer(&format!("/start/{field}"))
+                .and_then(Value::as_u64)
+                .and_then(|value| u32::try_from(value).ok())
+                .unwrap_or(0)
+        };
+        let node = enclosing_callable(&flat, point("line"), point("character")).map_or_else(
+            || edge.node.clone(),
+            |symbol| {
+                // Callback names quote their call (`it("…") callback`);
+                // a multi-line template keeps one line.
+                let name = symbol["name"].as_str().map_or(Value::Null, |name| {
+                    json!(name.split_whitespace().collect::<Vec<_>>().join(" "))
+                });
+                json!({
+                    "name": name,
+                    "kind": symbol["kind"],
+                    "uri": edge.node.get("uri"),
+                    "range": symbol["range"],
+                    "selectionRange": symbol["selectionRange"],
+                })
+            },
+        );
+        match split.iter_mut().find(|known| {
+            known.node.get("selectionRange") == node.get("selectionRange")
+                && known.node.get("name") == node.get("name")
+        }) {
+            Some(known) => known.sites.push(site.clone()),
+            None => split.push(HierarchyEdge {
+                node,
+                parent: edge.parent.clone(),
+                level: edge.level,
+                sites: vec![site.clone()],
+            }),
+        }
+    }
+    if split.is_empty() {
+        split.push(unchanged());
+    }
+    split
+}
+
+/// [`split_module_callers`] over a walk's incoming edges, with one
+/// `documentSymbol` request per module file (a failed request keeps the
+/// module caller).
+async fn name_module_callers(
+    client: &NativeLspClient,
+    edges: Vec<HierarchyEdge>,
+    cancel: &dyn CancellationCheck,
+) -> Result<Vec<HierarchyEdge>, LspFailure> {
+    let mut symbols: HashMap<String, Value> = HashMap::new();
+    let mut named = Vec::with_capacity(edges.len());
+    for edge in edges {
+        let module = edge
+            .node
+            .get("kind")
+            .and_then(Value::as_u64)
+            .is_some_and(|kind| MODULE_KINDS.contains(&kind));
+        let Some(uri) = edge
+            .node
+            .get("uri")
+            .and_then(Value::as_str)
+            .filter(|_| module && !edge.sites.is_empty())
+        else {
+            named.push(edge);
+            continue;
+        };
+        if !symbols.contains_key(uri) {
+            let found = cancellable(cancel, client.get_document_symbols(uri_to_path(uri)))
+                .await?
+                .unwrap_or(Value::Null);
+            symbols.insert(uri.to_owned(), found);
+        }
+        named.extend(split_module_callers(&edge, &symbols[uri]));
+    }
+    Ok(named)
+}
+
 /// Largest source read to narrow a class caller.
 const MAX_NARROW_SOURCE_BYTES: u64 = 4 * 1024 * 1024;
 
@@ -577,28 +804,12 @@ fn node_path(node: &Value) -> String {
         .unwrap_or_else(|| "unknown".to_owned())
 }
 
-/// `target` relative to the directory of the file `from`.
-fn relative_to_file(from: &str, target: &str) -> String {
-    let dir = std::path::Path::new(from)
-        .parent()
-        .map(|dir| dir.components().collect::<Vec<_>>())
-        .unwrap_or_default();
-    let target_parts = std::path::Path::new(target)
-        .components()
-        .collect::<Vec<_>>();
-    let shared = dir
-        .iter()
-        .zip(&target_parts)
-        .take_while(|(a, b)| a == b)
-        .count();
-    let mut out = std::path::PathBuf::new();
-    for _ in shared..dir.len() {
-        out.push("..");
-    }
-    for part in &target_parts[shared..] {
-        out.push(part);
-    }
-    out.to_string_lossy().into_owned()
+/// `target` as the response spells row paths: relative to the workspace
+/// root when inside it, absolute otherwise.
+fn display_path(paths: &PathPolicy, target: &str) -> String {
+    paths
+        .workspace_relative(target)
+        .unwrap_or_else(|| target.to_owned())
 }
 
 /// Declaration words a signature detail may repeat around the name.
@@ -624,16 +835,16 @@ fn detail_adds(detail: &str, node: &Value) -> bool {
 /// `{path, matches: ["<line>:<col>[,…] in|to <kind> <name>[ (<detail>)] [<file>:]<line>-<endLine>[ via <name>@<line>]"]}`,
 /// filed under the file the call sites lie in: an `in` row is a caller
 /// declared in that file; a `to` row is a callee called from that file (the
-/// anchor, or the `via` node), with the callee's file, relative to the row's
-/// file, before its range when they differ. Incoming and outgoing rows get
+/// anchor, or the `via` node), with the callee's file (workspace-relative,
+/// like row paths) before its range when they differ. Incoming and outgoing rows get
 /// separate entries. The declaration range starts on its name line, a
 /// `lineHint` for the next hop. An edge below level 1 names its parent node
 /// as `via <name>@<line>`; when another listed node shares that name and
-/// line, the parent's file relative to the row's file is added
+/// line, the parent's workspace-relative file is added
 /// (`via <name>@<path>:<line>`). Callers recovered from references are
 /// listed by label under `recovered` with their first call line. `all` is
 /// every edge of the walk (not only this page), for that disambiguation.
-pub(super) fn compact_calls(row: &mut Value, all: &[Value]) {
+pub(super) fn compact_calls(row: &mut Value, all: &[Value], paths: &PathPolicy) {
     let Some(items) = row.pointer("/payload/matches").and_then(Value::as_array) else {
         return;
     };
@@ -659,7 +870,15 @@ pub(super) fn compact_calls(row: &mut Value, all: &[Value]) {
             _ => declared_in.clone(),
         };
         let sites = call_sites(item);
-        let text = call_text(key, node, item, &sites, &path, &declared_in, &declared);
+        let text = call_text(
+            key,
+            node,
+            item,
+            &sites,
+            (&path, &declared_in),
+            &declared,
+            paths,
+        );
         // One entry per (direction, file): a callHierarchy lists its
         // incoming rows and its outgoing rows apart.
         let group = (key, path);
@@ -744,9 +963,9 @@ fn call_text(
     node: &Value,
     item: &Value,
     sites: &[(u64, Option<u64>)],
-    path: &str,
-    declared_in: &str,
+    (path, declared_in): (&str, &str),
     declared: &HashMap<(String, u64), HashSet<String>>,
+    paths: &PathPolicy,
 ) -> String {
     let mut text = sites
         .iter()
@@ -786,12 +1005,12 @@ fn call_text(
     if let Some(range) = node.get("displayRange")
         && let Some(start) = range.get("startLine").and_then(Value::as_u64)
     {
-        // A callee declared in another file names it, relative to the row's
-        // file, so its range is a `lineHint` for the next hop.
+        // A callee declared in another file names it, so its range is a
+        // `lineHint` for the next hop.
         let file = if declared_in == path {
             String::new()
         } else {
-            format!("{}:", relative_to_file(path, declared_in))
+            format!("{}:", display_path(paths, declared_in))
         };
         match range.get("endLine").and_then(Value::as_u64) {
             Some(end) if end != start => text.push_str(&format!(" {file}{start}-{end}")),
@@ -805,7 +1024,7 @@ fn call_text(
             .get(&(name.to_owned(), line))
             .is_some_and(|files| files.len() > 1);
         if ambiguous {
-            let file = relative_to_file(path, &node_path(via));
+            let file = display_path(paths, &node_path(via));
             text.push_str(&format!(" via {name}@{file}:{line}"));
         } else {
             text.push_str(&format!(" via {name}@{line}"));
@@ -1004,17 +1223,20 @@ pub(super) fn mark_truncation(
     }
 }
 
-/// Warnings for results a walk skipped: outside the read policy, or
-/// TypeScript built-in library declarations.
+/// A warning for results outside the read policy; TypeScript built-in
+/// library callees are listed by name under `payload.builtinLib` (tiny, and
+/// never worth a second call).
 fn warn_omitted(row: &mut Value, walks: &[(Expansion, &HierarchyWalk)]) {
     let out_of_policy = walks
         .iter()
         .map(|(_, walk)| walk.out_of_policy)
         .sum::<usize>();
-    let builtin_lib = walks
-        .iter()
-        .map(|(_, walk)| walk.builtin_lib)
-        .sum::<usize>();
+    let mut builtin_lib: Vec<&String> = Vec::new();
+    for name in walks.iter().flat_map(|(_, walk)| &walk.builtin_lib) {
+        if !builtin_lib.contains(&name) {
+            builtin_lib.push(name);
+        }
+    }
     let mut push = |warning: String| {
         if let Some(warnings) = row
             .as_object_mut()
@@ -1029,10 +1251,10 @@ fn warn_omitted(row: &mut Value, walks: &[(Expansion, &HierarchyWalk)]) {
             "{out_of_policy} hierarchy items outside the allowed read roots were omitted."
         ));
     }
-    if builtin_lib > 0 {
-        push(format!(
-            "{builtin_lib} TypeScript built-in library items (lib.*.d.ts) were omitted."
-        ));
+    if !builtin_lib.is_empty()
+        && let Some(payload) = row.get_mut("payload").and_then(Value::as_object_mut)
+    {
+        payload.insert("builtinLib".into(), json!(builtin_lib));
     }
 }
 
@@ -1112,14 +1334,13 @@ fn canonical_uri_path(uri: &str) -> String {
         .unwrap_or(decoded)
 }
 
-/// The walk's authorized, deduplicated roots — prepared at the anchor and at
-/// any verified importer call sites — and the directions to expand.
+/// The walk's authorized, deduplicated roots, prepared at the anchor, and
+/// the directions to expand.
 async fn hierarchy_roots(
     client: &NativeLspClient,
     query: &LspSearchQuery,
     paths: &PathPolicy,
     (path, line, character): (&str, u32, u32),
-    extra_roots: &[(String, u32, u32)],
     cancel: &dyn CancellationCheck,
 ) -> Result<(Vec<Value>, &'static [Expansion]), LspFailure> {
     let (prepared, expansions): (Value, &[Expansion]) = match query.operation().as_str() {
@@ -1148,27 +1369,9 @@ async fn hierarchy_roots(
             },
         ),
     };
-    let mut prepared = as_array(&prepared);
-    // Verified importer call sites (TS/JS recovery) root the same walk; a
-    // call-hierarchy item prepared there resolves in the importer's program.
-    if !extra_roots.is_empty()
-        && query.operation() != "supertypes"
-        && query.operation() != "subtypes"
-    {
-        for (root_path, root_line, root_character) in extra_roots {
-            if let Ok(Ok(more)) = cancellable(
-                cancel,
-                client.prepare_call_hierarchy(root_path.clone(), *root_line, *root_character),
-            )
-            .await
-            {
-                prepared.extend(as_array(&more));
-            }
-        }
-    }
     let mut keys = NodeKeys::new(paths);
     let mut root_keys = HashSet::new();
-    let roots = prepared
+    let roots = as_array(&prepared)
         .into_iter()
         .filter(|root| item_uri_is_authorized(root, paths))
         .filter(|root| root_keys.insert(keys.key(root)))
@@ -1176,78 +1379,126 @@ async fn hierarchy_roots(
     Ok((roots, expansions))
 }
 
-/// A call or type hierarchy walk from the anchor (plus `extra_roots`). With
-/// `importers`, callers are also derived from verified importer references,
-/// for the importer files the server's call hierarchy did not answer.
+/// Call-hierarchy items prepared at verified importer call sites (TS/JS
+/// recovery); an item prepared there resolves in the importer's program.
+async fn importer_roots(
+    client: &NativeLspClient,
+    paths: &PathPolicy,
+    importers: &Importers,
+    cancel: &dyn CancellationCheck,
+) -> Result<Vec<Value>, LspFailure> {
+    let mut roots = Vec::new();
+    for anchor in importers.call_sites() {
+        if let Ok(more) = cancellable(
+            cancel,
+            client.prepare_call_hierarchy(anchor.path.clone(), anchor.line, anchor.character),
+        )
+        .await?
+        {
+            roots.extend(
+                as_array(&more)
+                    .into_iter()
+                    .filter(|root| item_uri_is_authorized(root, paths)),
+            );
+        }
+    }
+    Ok(roots)
+}
+
+/// Importer recovery for an incoming walk: the symbol whose importers are
+/// verified, and the policy for the snippets the checks read.
+pub(super) struct ImporterRecovery<'a> {
+    pub(super) symbol: String,
+    pub(super) snippet_policy: &'a SnippetReadPolicy,
+}
+
+/// A call or type hierarchy walk from the anchor. With `recovery`, an
+/// incoming walk first takes the server's level-1 answer, then verifies
+/// only the importer files that answer does not cover (the same contract as
+/// `references`), roots the walk at their call sites too, and derives
+/// callers from their references where the call hierarchy cannot cross the
+/// importer's binding. The files the answer covers are recorded on `scope`.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn hierarchy(
     client: &NativeLspClient,
     query: &LspSearchQuery,
     sources: &mut SourceCache<'_>,
-    path: &str,
-    line: u32,
-    character: u32,
-    extra_roots: &[(String, u32, u32)],
-    importers: Option<(&Importers, &SnippetReadPolicy)>,
+    scope: &Scope,
+    (path, line, character): (&str, u32, u32),
+    recovery: Option<ImporterRecovery<'_>>,
     cancel: &dyn CancellationCheck,
-) -> Result<Value, LspFailure> {
+) -> Result<(Value, Option<Importers>), LspFailure> {
     let paths = sources.policy();
-    let (roots, expansions) = hierarchy_roots(
-        client,
-        query,
-        paths,
-        (path, line, character),
-        extra_roots,
-        cancel,
-    )
-    .await?;
+    let (roots, expansions) =
+        hierarchy_roots(client, query, paths, (path, line, character), cancel).await?;
     let depth = query.depth().unwrap_or(1);
     let mut items = Vec::new();
     let mut failures = Vec::new();
     let mut walks = Vec::new();
+    let mut verified = None;
     for &expansion in expansions {
-        let walk = walk_hierarchy(client, &roots, expansion, depth, paths, cancel).await?;
-        items.extend(walk.edges.iter().map(|edge| public_edge(expansion, edge)));
+        let mut walk = Walk::new(paths, &roots, expansion, depth);
+        walk.step(client, cancel).await?;
+        let mut derived_items = Vec::new();
         if expansion == Expansion::IncomingCalls
-            && let Some((importers, snippet_policy)) = importers
+            && let Some(recovery) = &recovery
         {
-            // Reference-derived callers fill in only files the server's
-            // call hierarchy did not answer for at level 1.
-            let answered = walk
-                .edges
-                .iter()
-                .filter(|edge| edge.level == 1)
-                .filter_map(|edge| edge.node.get("uri").and_then(Value::as_str))
-                .map(canonical_uri_path)
-                .collect::<HashSet<_>>();
-            let derived = callers_from_references(
+            let mut answered = walk.answered_files();
+            answered.insert(canonical_uri_path(path));
+            let importers = verified_anchors(
                 client,
                 sources,
-                snippet_policy,
+                recovery.snippet_policy,
                 cancel,
-                importers,
+                &recovery.symbol,
+                scope,
+                path,
+                line,
+                character,
                 &answered,
             )
             .await?;
-            for (node, sites) in &derived {
+            let extra = importer_roots(client, paths, &importers, cancel).await?;
+            walk.add_roots(client, extra, cancel).await?;
+            // Reference-derived callers fill in only files the server's
+            // call hierarchy did not answer for at level 1.
+            let derived = callers_from_references(
+                client,
+                sources,
+                cancel,
+                &importers,
+                &walk.answered_files(),
+            )
+            .await?;
+            for (node, sites) in derived {
                 let edge = HierarchyEdge {
-                    node: node.clone(),
+                    node,
                     parent: None,
                     level: 1,
-                    sites: sites.clone(),
+                    sites,
                 };
                 let mut item = public_edge(expansion, &edge);
                 item["source"] = json!(RECOVERED_FROM_REFERENCES);
-                items.push(item);
+                derived_items.push(item);
             }
+            verified = Some(importers);
         }
+        let mut walk = walk.finish(client, cancel).await?;
+        if expansion == Expansion::IncomingCalls {
+            walk.edges =
+                name_module_callers(client, std::mem::take(&mut walk.edges), cancel).await?;
+        }
+        items.extend(walk.edges.iter().map(|edge| public_edge(expansion, edge)));
+        items.extend(derived_items);
         walks.push((expansion, walk));
     }
+    scope.answer(answer_files(path, &items, verified.as_ref()));
     for (_, walk) in &mut walks {
         failures.append(&mut walk.failures);
     }
     let (items, failures) = expansion_outcome(items, failures)?;
     let mut row = items_payload(query, query.operation().as_str(), json!(items.clone()));
-    compact_calls(&mut row, &items);
+    compact_calls(&mut row, &items, paths);
     mark_partial_expansion(&mut row, query, &failures);
     let walks = walks
         .iter()
@@ -1257,5 +1508,29 @@ pub(super) async fn hierarchy(
     // them one after the other would let the second overwrite the first's
     // `unexpandedParents` and `continueWalk*`.
     mark_truncation(&mut row, query, &walks);
-    Ok(row)
+    Ok((row, verified))
+}
+
+/// Every file a walk's answer covers: the anchor, each listed node and call
+/// site file, the verified importers, and the candidates the server showed
+/// to name another declaration.
+fn answer_files(anchor: &str, items: &[Value], importers: Option<&Importers>) -> Vec<String> {
+    let mut files = vec![anchor.to_owned()];
+    for item in items {
+        for pointer in [
+            "/from/path",
+            "/to/path",
+            "/path",
+            &format!("/{CALLER_PATH}"),
+        ] {
+            if let Some(path) = item.pointer(pointer).and_then(Value::as_str) {
+                files.push(path.to_owned());
+            }
+        }
+    }
+    if let Some(importers) = importers {
+        files.extend(importers.per_file().map(|anchor| anchor.path.clone()));
+        files.extend(importers.rejected.iter().cloned());
+    }
+    files
 }

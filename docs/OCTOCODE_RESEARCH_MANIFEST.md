@@ -9,9 +9,9 @@ This page owns tool selection: choosing and combining the 16 public tools for lo
 Inspect the contract before calling (from the monorepo root, after building the CLI):
 
 ```bash
-node packages/octocode/out/octocode.js scheme
-node packages/octocode/out/octocode.js scheme localSearch --view query --compact
-node packages/octocode/out/octocode.js scheme ghGetHistoryItem --view query
+node packages/octocode/out/octocode.js schema
+node packages/octocode/out/octocode.js schema localSearch --view query
+node packages/octocode/out/octocode.js schema ghGetHistoryItem --view query
 ```
 
 The catalog shows available tools and configuration gates; a compact schema shows fields, operation variants, and conditional relations. Read the full schema when a nested selector is abbreviated — for example, selected PR patches accept both file selection and added/deleted line ranges.

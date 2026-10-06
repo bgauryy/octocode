@@ -49,7 +49,7 @@ async fn mcp_runtime_discovers_once_and_pins_credential_across_github_requests()
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
         ("PATH", gh_path),
     ]);
-    config.env.remove("OCTOCODE_TOKEN");
+    config.env.remove("GITHUB_TOKEN");
     config.runtime_surface = octocode_native::config::RuntimeSurface::Mcp;
     let runtime = octocode_native::runtime::ToolRuntime::new(config).unwrap();
     let result = call(
@@ -84,7 +84,7 @@ async fn local_tools_never_discover_github_credentials() {
     let workspace = Workspace::new();
     workspace.write("readme.txt", "hello\n");
     let mut config = workspace.config(&[("PATH", workspace.fake_gh_path())]);
-    config.env.remove("OCTOCODE_TOKEN");
+    config.env.remove("GITHUB_TOKEN");
     let runtime = octocode_native::runtime::ToolRuntime::new(config).unwrap();
     let result = call(
         &runtime,

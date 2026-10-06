@@ -1,11 +1,11 @@
 # Octocode interfaces
 
-Load when invocation, availability, or recovery is unclear. Live `scheme` output is authoritative. Per-flow diagrams (local, GitHub, history, external → local, pages, hints, clasify): [OCTOCODE_WORKFLOWS.md](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_WORKFLOWS.md).
+Load when invocation, availability, or recovery is unclear. Live `schema` output is authoritative. Per-flow diagrams (local, GitHub, history, external → local, pages, hints, clasify): [OCTOCODE_WORKFLOWS.md](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_WORKFLOWS.md).
 
 ```bash
-node packages/octocode/out/octocode.js scheme --compact          # or: npx -y octocode scheme --compact
-node packages/octocode/out/octocode.js scheme localSearch        # variants with runnable examples
-node packages/octocode/out/octocode.js scheme localSearch --view query --compact
+node packages/octocode/out/octocode.js schema          # or: npx -y octocode schema
+node packages/octocode/out/octocode.js schema localSearch        # variants with runnable examples
+node packages/octocode/out/octocode.js schema localSearch --view query
 ```
 
 `debug:true` adds diagnostics and receipts. MCP and the CLI both take `{ "queries": [query, ...] }` (clasify too); a bare query runs as one row. On validation failure fix the named field.
@@ -21,7 +21,7 @@ The default catalog contains 12 tools; a classification key adds `clasify`. `OCT
 | Local text / layout / syntax / content / identity | `localSearch` / `structureSearch` / `astSearch` / `localFetch` / `lspSearch` |
 | Topology / rewrite / packages / classification | `astTopology` / `astRewrite` / `artifactSearch` / `clasify` |
 
-`ghCloneRepo`, `astTopology` and `astRewrite` are CLI-only; MCP never lists them. `ghCloneRepo` needs persistent storage (the default). `astTopology` and `astRewrite` need `OCTOCODE_BETA=true`; `clasify` needs a classification key (`OCTOCODE_CLASSIFICATION_API`). Check reach with `scheme` (`availability`), `auth status`, and `lsp-server status <file>`; report an unavailable tool as a gap, not as empty.
+`ghCloneRepo`, `astTopology` and `astRewrite` are CLI-only; MCP never lists them. `ghCloneRepo` needs persistent storage (the default). `astTopology` and `astRewrite` need `OCTOCODE_BETA=true`; `clasify` needs a classification key (`OCTOCODE_CLASSIFICATION_API`). Check reach with `schema` (`availability`), `auth status`, and `lsp-server status <file>`; report an unavailable tool as a gap, not as empty.
 
 ## Output and recovery
 - A row `status` `error` names its repair: its `hints.text` tip, `hints.repair` lead, or `next.restart` page. Check hoisted `shared` before calling a field missing.

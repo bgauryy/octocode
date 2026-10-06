@@ -11,6 +11,9 @@
  * overall `required` level.
  */
 
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import {
   applyOctocodeEnv,
   configFieldEnvNames,
@@ -143,6 +146,21 @@ export function isEnvSet(key: string): boolean {
   return typeof val === 'string' && val.trim().length > 0;
 }
 
+/**
+ * A group a credential outside the environment satisfies: the GitHub token
+ * group by a stored `octocode auth login` or a `gh` CLI login (file
+ * presence only; `octocode auth status` verifies the token).
+ */
+function satisfiedOutsideEnv(group: string | undefined): boolean {
+  if (group !== 'github-token') return false;
+  const ghConfig =
+    process.env.GH_CONFIG_DIR?.trim() || join(homedir(), '.config', 'gh');
+  return (
+    existsSync(join(getOctocodeHome(), 'credentials.json')) ||
+    existsSync(join(ghConfig, 'hosts.yml'))
+  );
+}
+
 /** Get env status for all params of a skill. */
 export function getSkillEnvStatus(skillName: string): SkillEnvStatus {
   const params = SKILL_ENV_PARAMS[skillName] ?? [];
@@ -172,7 +190,7 @@ export function getSkillEnvStatus(skillName: string): SkillEnvStatus {
       } else {
         groups.set(group, {
           level: required,
-          anySatisfied: ps.status === 'set',
+          anySatisfied: ps.status === 'set' || satisfiedOutsideEnv(group),
         });
       }
     } else {
@@ -225,8 +243,9 @@ export function groupLabel(group: string): string {
 function isGroupSatisfied(ps: EnvParamStatus, all: EnvParamStatus[]): boolean {
   const { group } = ps.param;
   if (!group) return ps.status === 'set';
-  return all.some(
-    other => other.param.group === group && other.status === 'set'
+  return (
+    satisfiedOutsideEnv(group) ||
+    all.some(other => other.param.group === group && other.status === 'set')
   );
 }
 

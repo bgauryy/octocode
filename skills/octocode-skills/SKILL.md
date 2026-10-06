@@ -59,7 +59,8 @@ Caption: discover only when the source is unresolved; review-only requests never
 - Lobby = full picture: the skill map plus every gate, stop condition, consent rule, threshold, default, and key phase rule, one line each. References hold detail only. Lobby 150 lines or fewer.
 - At most 12 reference pages, each 100 lines or fewer, each opening with `Load when … Why: …`. Merge pages that serve one decision.
 - Lobby convention below the H1: `tools:`, `output:` (or none); `routes:` only without a skill map; `related-skill:` only when useful.
-- Write in STE-80. Show a flow, branch, or loop as one Mermaid diagram (12 flow nodes or fewer; reference-page leaves on dotted edges do not count) plus a caption; keep commands, thresholds, and paths as text.
+- End the lobby with `## Output`. One document in chat, or one saved file. Name a second file only when that part has its own lifecycle. The `output:` line stays the root. Do not add frontmatter metadata for this, and do not add a review check for the section.
+- Write in ASD-STE100. Show a flow, branch, or loop as one Mermaid diagram (12 flow nodes or fewer; reference-page leaves on dotted edges do not count) plus a caption; keep commands, thresholds, and paths as text.
 - Pick one default; give alternatives only as escape hatches. Use exact commands for fragile, destructive, or order-dependent steps.
 - `description`: what the skill does and when to use it, as one `Use when` sentence of user intents (house rule). 1024 chars or fewer, trigger in the first ~50 chars, no "I" or "you", no mandate words. Hard rules go in the lobby body.
 - `name`: 64 chars or fewer, `a-z0-9` with single hyphens, equal to the folder, no `anthropic` or `claude`. Publish only spec fields; host extras stay host-local.
@@ -80,7 +81,8 @@ Caption: discover only when the source is unresolved; review-only requests never
 - Evaluate first: write three or more eval prompts and run them without the skill (or with the old copy) as the baseline before you write; measure the change with `octocode-eval-benchmark`.
 
 ## Output
-Reviews go to `<output>/octocode-skills/`; scratch to `<output>/tmp/octocode-skills/`. Authored skills use the same shape: `<root>/<skill-name>/` and `<root>/tmp/<skill-name>/`, with `<home>/.octocode/` only when no workspace applies or the artifact is user-scoped. Chat-only results stay in chat. Approved edits, installs, symlinks, and config keep their gated destinations. An unwritable root fails clearly; never switch roots silently.
+One review in chat. Save one file under `<output>/octocode-skills/` only when the task asks to keep it. Scratch stays in `<output>/tmp/octocode-skills/`.
+An authored skill is one folder. Approved edits, installs, and config keep their own paths. An unwritable root fails clearly; never switch roots silently.
 
 ## Scripts
 Hooks templates live in `assets/hooks/`.

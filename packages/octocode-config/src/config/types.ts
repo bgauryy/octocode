@@ -21,7 +21,6 @@ export type {
   RequiredNetworkConfig,
   RequiredOutputConfig,
   RequiredOutputPaginationConfig,
-  RequiredSessionConfig,
   RequiredStorageConfig,
   RequiredToolsConfig,
   StorageConfigOptions,

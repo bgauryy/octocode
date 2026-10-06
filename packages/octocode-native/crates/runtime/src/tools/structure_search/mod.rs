@@ -150,7 +150,7 @@ fn path_error(
 ) -> StructureError {
     let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
     let mut out = StructureError::from(error);
-    if missing && let Some(parent) = nearest_parent(requested, paths) {
+    if missing && let Some(parent) = paths.nearest_existing_dir(requested) {
         let lead = crate::tools::result::Continuation::new(
             crate::tools::id::ToolId::StructureSearch,
             json!({"operation": "tree", "path": parent}),
@@ -159,25 +159,6 @@ fn path_error(
         out.next = Some(json!({ "viewTree": lead }));
     }
     out
-}
-
-/// The closest ancestor of `requested` the policy admits as a directory,
-/// named relative to the workspace when it lies inside it.
-fn nearest_parent(requested: &str, paths: &crate::policy::path::PathPolicy) -> Option<String> {
-    let mut path = paths.expand_and_resolve(std::path::Path::new(requested));
-    while let Some(parent) = path.parent().map(std::path::Path::to_path_buf) {
-        if let Ok(valid) = paths.validate(&parent)
-            && valid.canonical.is_dir()
-        {
-            return Some(
-                paths
-                    .workspace_relative(&valid.canonical)
-                    .unwrap_or_else(|| valid.canonical.to_string_lossy().into_owned()),
-            );
-        }
-        path = parent;
-    }
-    None
 }
 
 impl From<PolicyError> for StructureError {
@@ -293,9 +274,38 @@ fn narrow_scope(query: &impl serde::Serialize) -> Value {
 #[derive(Clone, Debug, Default)]
 struct Uncovered {
     ignored: usize,
+    /// Basenames of the `.gitignore`d directories (at most
+    /// [`IGNORED_DIR_NAMES`]): one named like a default-pruned directory
+    /// needs `defaultExcludes:false` too before its entries are walked.
+    ignored_dirs: Vec<String>,
     withheld: crate::policy::discovery::Withheld,
     hidden: usize,
     pruned: Vec<String>,
+}
+
+/// Most `.gitignore`d directory names a walk keeps for its retry.
+const IGNORED_DIR_NAMES: usize = 64;
+
+/// Records each `.gitignore`d directory's basename, bounded, for
+/// [`Uncovered::ignored_dirs`].
+#[derive(Default)]
+struct IgnoredDirs(std::sync::Mutex<Vec<String>>);
+
+impl IgnoredDirs {
+    fn record(&self, path: &std::path::Path) {
+        if !path.is_dir() {
+            return;
+        }
+        let mut names = self.0.lock().unwrap_or_else(|error| error.into_inner());
+        if names.len() < IGNORED_DIR_NAMES {
+            names.push(display_name(path));
+        }
+    }
+    fn into_names(self) -> Vec<String> {
+        self.0
+            .into_inner()
+            .unwrap_or_else(|error| error.into_inner())
+    }
 }
 
 impl Uncovered {
@@ -320,27 +330,35 @@ impl Uncovered {
         ))
     }
 
-    /// An empty listing cannot prove absence in what the walk skipped: name
-    /// it, and lead to the same listing with those entries included.
+    /// An empty listing cannot prove absence in what the walk skipped: say
+    /// so (the counts and names are in `summary`), and lead to the same
+    /// listing with all of it included in one hop: a `.gitignore`d
+    /// directory named like a default-pruned one (`target/`) needs both
+    /// flags.
     fn note_empty(&self, out: &mut Value, query: &impl serde::Serialize) {
         if out["status"] != "empty" || (self.ignored == 0 && self.pruned.is_empty()) {
             return;
         }
+        let pruned_names = crate::policy::prune::PruneMode::SyntaxVisible.directories(true);
+        let ignored_pruned = self
+            .ignored_dirs
+            .iter()
+            .any(|name| pruned_names.contains(name));
         let mut retry = json!({"page": 1, "snapshot": null});
         let (mut skipped, mut flags) = (Vec::new(), Vec::new());
         if self.ignored > 0 {
             retry["noIgnore"] = json!(true);
-            skipped.push(format!("{} .gitignore'd entries", self.ignored));
+            skipped.push(".gitignore'd");
             flags.push("noIgnore:true");
         }
-        if let Some(note) = self.pruned_note() {
+        if !self.pruned.is_empty() || ignored_pruned {
             retry["defaultExcludes"] = json!(false);
-            skipped.push(note);
+            skipped.push("default-excluded");
             flags.push("defaultExcludes:false");
         }
         out["hints"] = json!([format!(
-            "The walk skipped {}; whether they match these filters is unproven. hints.includeIgnored retries with {}.",
-            skipped.join(" and "),
+            "Skipped {} entries may match; hints.includeIgnored sets {}.",
+            skipped.join("/"),
             flags.join(", ")
         )]);
         out["next"]["includeIgnored"] = continuation(query, retry);

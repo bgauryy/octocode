@@ -32,7 +32,13 @@ async fn refs<R: CredentialResolver, C: crate::providers::github::ConditionalCac
 ) -> Result<ToolData, ProviderError> {
     let (owner, repo) = (query.owner.as_str(), query.repo.as_str());
     let page = crate::tools::num::usize_of(query.page);
-    let per_page = crate::tools::num::usize_of(query.page_size).clamp(1, MAX_REFS_PER_PAGE);
+    // TODO(gh-read GS6a): refs default 30 once the {name: sha} map lands.
+    let per_page = crate::tools::num::usize_of(
+        query
+            .page_size
+            .map_or(super::DEFAULT_ENTRIES_PER_PAGE, std::num::NonZeroU64::get),
+    )
+    .clamp(1, MAX_REFS_PER_PAGE);
     let transport = &provider.transport;
     let (default_branch, branches, tags) = tokio::try_join!(
         default_branch(provider, owner, repo, context),

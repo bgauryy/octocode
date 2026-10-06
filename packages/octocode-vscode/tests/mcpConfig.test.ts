@@ -50,7 +50,7 @@ describe('MCP configuration persistence', () => {
     );
     await updateMcpConfigToken(file, 'second', 'servers');
     const result = JSON.parse(await fs.readFile(file, 'utf8'));
-    expect(result.servers.octocode.env.OCTOCODE_TOKEN).toBe('second');
+    expect(result.servers.octocode.env.GH_TOKEN).toBe('second');
     expect(result.servers.other.url).toBe('https://example.test');
     expect(result.inputs).toEqual([]);
     expect(result).not.toHaveProperty('mcpServers');
@@ -62,8 +62,8 @@ describe('MCP configuration persistence', () => {
       updateMcpConfigToken(file, 'second'),
     ]);
     expect(
-      JSON.parse(await fs.readFile(file, 'utf8')).mcpServers.octocode.env
-        .OCTOCODE_TOKEN
+      JSON.parse(await fs.readFile(file, 'utf8')).mcpServers.octocode
+        .env.GH_TOKEN
     ).toBe('second');
   });
 

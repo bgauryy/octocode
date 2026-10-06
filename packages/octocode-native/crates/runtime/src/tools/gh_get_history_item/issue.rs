@@ -88,6 +88,8 @@ pub(super) async fn issue<R: CredentialResolver>(
         "state":str_at(&raw,"/state").unwrap_or("open"),"author":str_at(&raw,"/user/login").unwrap_or("unknown"),
         "labels":raw.get("labels").and_then(Value::as_array).into_iter().flatten().filter_map(|v|str_at(v,"/name").map(str::to_owned)).collect::<Vec<_>>(),
         "createdAt":string(raw.get("created_at")),
+        // The discussion's size, so the caller can choose to read it.
+        "commentsCount":super::util::nonzero(raw.get("comments")),
         // Only an open issue's last update says whether it is still moving.
         "updatedAt":(str_at(&raw,"/state").unwrap_or("open") == "open").then(|| string(raw.get("updated_at"))),
         "closedAt":raw.get("closed_at").filter(|v|!v.is_null())
@@ -152,6 +154,9 @@ pub(super) async fn issue<R: CredentialResolver>(
     }
     let mut out = json!({"owner":query.owner(),"repo":query.repo(),"issues":[row]});
     promote_issue_continuations(&mut out, query);
+    if !want_comments && !later_page {
+        attach_comments_read(&mut out, query, &raw);
+    }
     if bots_hidden > 0 {
         attach_bot_read(&mut out, query, bots_hidden);
     }
@@ -322,6 +327,23 @@ fn attach_bot_read(out: &mut Value, query: &HistoryItemRequest, hidden: usize) {
         out["next"] = json!({});
     }
     out["next"]["includeBots"] = super::pr_menu::menu_read(nq);
+}
+
+/// `next.readDiscussion`: an issue read without its discussion offers it
+/// when GitHub counts any comment (the same issue, `sections:["comments"]`).
+fn attach_comments_read(out: &mut Value, query: &HistoryItemRequest, raw: &Value) {
+    if super::util::nonzero(raw.get("comments")).is_none() {
+        return;
+    }
+    let mut nq = super::pr_menu::base_public_query(query, super::ItemOperation::Issue);
+    for key in ["offset", "length", "commentPage"] {
+        super::pr_menu::remove_key(&mut nq, key);
+    }
+    nq["content"] = json!({"comments": {"discussion": true}});
+    if !out.get("next").is_some_and(Value::is_object) {
+        out["next"] = json!({});
+    }
+    out["next"]["readDiscussion"] = super::pr_menu::menu_read(nq);
 }
 
 /// The `(commentPage, pageSize)` pair whose page starts at comment index

@@ -5,6 +5,7 @@ use crate::providers::github::{ProviderError, ProviderErrorKind, ProviderErrorRe
 use crate::tools::gh_shared::{
     GITHUB_AUTH_RECOVERY_HINT, GhFailure, PathRecovery, REPOSITORY_ACCESS_HINT, RepoPath,
     parent_dir, provider_message, repository_not_found, tree_recovery, validation_message,
+    with_ref_recovery,
 };
 use crate::tools::id::ToolId;
 use crate::tools::result::{Continuation, remove_nulls};
@@ -37,20 +38,22 @@ pub(crate) fn failure(
         failure
     };
     // GitHub reports an unknown ref as "No commit found for SHA: <ref>" (422
-    // on the commits endpoint used for ref resolution) or "No commit found
-    // for the ref <ref>" (404 on the contents endpoint): the requested
-    // branch/tag/SHA does not exist, so name it.
+    // on the commits endpoint used for ref resolution, typed `RefNotFound`)
+    // or "No commit found for the ref <ref>" (404 on the contents endpoint):
+    // the requested branch/tag/SHA does not exist, so name it and list the
+    // refs it could name.
     if let Some(reference) = at.reference.filter(|value| !value.is_empty())
-        && error.message.starts_with("No commit found")
+        && (error.reason == Some(ProviderErrorReason::RefNotFound)
+            || error.message.starts_with("No commit found"))
     {
+        let mut error = error;
+        error.kind = ProviderErrorKind::NotFound;
+        error.reason = Some(ProviderErrorReason::RefNotFound);
         let failure = GhFailure::new(
             error,
             format!("Branch, tag, or SHA not found for {owner}/{repo}: \"{reference}\""),
-        )
-        .hint(format!(
-            "Verify the ref \"{reference}\" exists (branch, tag, or full commit SHA), or omit ref to use the default branch."
-        ));
-        return identity(failure);
+        );
+        return identity(with_ref_recovery(failure, owner, repo));
     }
     let message = match error.kind {
         ProviderErrorKind::NotFound if repository_not_found(&error) => {

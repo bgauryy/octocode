@@ -1,6 +1,6 @@
 # Clasify
 
-Load when the SKILL.md `SEMANTIC?` gate admits a call, or for an explicit typed judgment. `clasify` is the only semantic tool (provider: Jev). Fields: `scheme clasify --view query --compact`.
+Load when the SKILL.md `SEMANTIC?` gate admits a call, or for an explicit typed judgment. `clasify` is the only semantic tool (provider: Jev). Fields: `octocode schema clasify --view query`.
 
 **Scout** screens unread read-tool resources and returns typed judgments plus source line windows, never bodies. **Judge** classifies state already held in a resource `value`; nothing is retrieved.
 

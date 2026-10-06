@@ -10,7 +10,7 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
     path::{Path, PathBuf},
-    sync::Mutex,
+    sync::{Arc, Mutex},
 };
 
 mod journal;
@@ -22,6 +22,7 @@ use journal::{commit_transaction, recover_transactions};
 use lock::RootLock;
 use output::{attach_receipts, continuation_query, portable_relative, success_value};
 mod patch;
+mod preview_memo;
 mod raw;
 mod request;
 mod staged;
@@ -288,19 +289,40 @@ fn execute(
     let executable = embedded_engine_receipt();
     // Compiling validates the rule; no probe parse.
     let analyzer = StagedAnalyzer::new(&query)?;
-    let (prepared, coverage) = prepare(
-        &query,
-        &root,
-        &PrepareContext {
-            boundary: &boundary,
-            paths,
-            security,
-            cancellation,
-            options,
-            analyzer: &analyzer,
-        },
-    )?;
-    let snapshot = snapshot(&query, &root, &prepared, &executable);
+    // Later preview pages of an unchanged scope reuse the first page's
+    // prepare; apply always prepares (under its lock).
+    let memo_key = (!query.apply()).then(|| preview_memo_key(&query, &root, &boundary, options));
+    let reused = memo_key
+        .as_deref()
+        .filter(|_| query.page() > 1)
+        .zip(query.snapshot())
+        .and_then(|(key, pinned)| {
+            preview_memo::reuse(key, pinned, |path| paths.permits_discovery(path))
+        });
+    let (prepared, coverage, snapshot) = match reused {
+        Some(hit) => (Arc::clone(&hit.files), hit.coverage, hit.snapshot.clone()),
+        None => {
+            let (prepared, coverage) = prepare(
+                &query,
+                &root,
+                &PrepareContext {
+                    boundary: &boundary,
+                    paths,
+                    security,
+                    cancellation,
+                    options,
+                    analyzer: &analyzer,
+                },
+            )?;
+            note_prepare();
+            let snapshot = snapshot(&query, &root, &prepared, &executable);
+            let prepared = Arc::new(prepared);
+            if let Some(key) = memo_key {
+                preview_memo::store(key, &snapshot, Arc::clone(&prepared), coverage);
+            }
+            (prepared, coverage, snapshot)
+        }
+    };
     if (query.apply() || query.page() > 1) && query.snapshot() != Some(snapshot.as_str()) {
         return Err(RewriteError::new(
             "staleSnapshot",
@@ -332,9 +354,9 @@ fn execute(
                 &analyzer,
             )?;
             let transaction = commit(&query, &files, &boundary, paths, cancellation)?;
-            (files, matches, Some(transaction))
+            (std::borrow::Cow::Owned(files), matches, Some(transaction))
         } else {
-            (prepared, all_matches, None)
+            (std::borrow::Cow::Borrowed(&prepared[..]), all_matches, None)
         };
         success_value(
             &query,
@@ -349,6 +371,47 @@ fn execute(
     drop(lock);
     mark_gaps(&mut value, &coverage);
     Ok(value)
+}
+
+/// The preview memo key: the query as its continuations spell it, without
+/// the page cursor, plus the boundary and the patch bound.
+fn preview_memo_key(
+    query: &RewriteRequest,
+    root: &Path,
+    boundary: &Path,
+    options: &AstRewriteRuntimeOptions,
+) -> String {
+    // Key order differs between a caller's row and its continuation.
+    let shape = match continuation_query(query, root) {
+        Value::Object(fields) => fields
+            .into_iter()
+            .filter(|(key, _)| !["page", "pageSize", "snapshot"].contains(&key.as_str()))
+            .collect::<BTreeMap<_, _>>(),
+        _ => BTreeMap::new(),
+    };
+    json_sha256(&json!([
+        shape,
+        query.default_excludes(),
+        boundary,
+        options.max_patch_bytes
+    ]))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Full prepares run by the current thread (test sensor).
+    static PREPARES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+fn note_prepare() {
+    #[cfg(test)]
+    PREPARES.with(|count| count.set(count.get() + 1));
+}
+
+/// Full prepares run so far by the current thread.
+#[cfg(test)]
+fn prepares() -> usize {
+    PREPARES.with(std::cell::Cell::get)
 }
 
 /// Rejects what no scan can fix: blank fields, an apply without the

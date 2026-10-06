@@ -544,7 +544,7 @@ describe('createNativeMcp registration + execution', () => {
   });
 
   // Hosts truncate server instructions near 2 KB; the grammar inventory is
-  // served by `octocode scheme`, not the MCP instructions.
+  // served by `octocode schema`, not the MCP instructions.
   it('keeps the grammar inventory out of the size-bounded MCP instructions', async () => {
     const instance = await createNativeMcp({
       env: {},

@@ -688,10 +688,31 @@ fn match_content_length_bounds_each_match_value() {
     assert_eq!(value_len(None), 500);
 }
 
-/// A value cut at `matchContentLength` is never a silent loss: the page is
-/// not complete and one exact continuation returns every cut value whole.
+/// The localFetch read rows of every `expandValues*` lead, in order.
+fn value_reads(out: &serde_json::Value) -> Vec<serde_json::Value> {
+    let mut reads = out["next"]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(name, _)| name.starts_with("expandValues"))
+        .map(|(name, read)| {
+            assert_eq!(read["tool"], "localFetch", "{name}: {read}");
+            let row = read["query"]["queries"][0].clone();
+            crate::contracts::validate_query("localFetch", row.clone())
+                .expect("a valid localFetch row");
+            row
+        })
+        .collect::<Vec<_>>();
+    reads.sort_by_key(|row| row["path"].as_str().map(str::to_owned));
+    reads
+}
+
+/// A value cut at `matchContentLength` is display clipping, not a coverage
+/// gap: every match is listed, so the row is not partial. The cut is never
+/// silent: the shown text ends in `…`, an object row says `truncated`, and
+/// `next.expandValues` reads exactly the clipped rows' lines whole.
 #[test]
-fn clipped_match_values_carry_one_continuation_to_the_whole_text() {
+fn clipped_values_do_not_mark_the_row_partial() {
     let root = Fixture::new();
     let source = root.0.join("long.rs");
     let args = (0..200)
@@ -700,65 +721,133 @@ fn clipped_match_values_carry_one_continuation_to_the_whole_text() {
         .join(", ");
     std::fs::write(
         &source,
-        format!("fn m() {{ call({args}); }}\nfn n() {{ call(x); }}\n"),
+        format!("fn n() {{ call(x); }}\nfn m() {{\n    call({args});\n}}\n"),
     )
     .expect("source");
-    let full = format!("call({args})");
-    // The lean cut also hides the `$$$A` capture, so one expandCaptures call
-    // returns captures and whole values; a captureText cut needs only the
-    // length.
-    for (capture_text, key) in [(false, "expandCaptures"), (true, "expandValues")] {
-        let mut query = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"call($$$A)"});
-        if capture_text {
-            query["captureText"] = json!(true);
-        }
-        let out = run(&root.0, query).expect("match");
-        assert_eq!(out["isPartial"], true, "{out}");
-        // One expansion; `read` is the separate lead to the hits' lines.
-        assert_eq!(
-            out["next"]
-                .as_object()
-                .map(|next| next.keys().filter(|name| *name != "read").count()),
-            Some(1),
-            "{out}"
-        );
-        let next = &out["next"][key]["query"]["queries"][0];
-        assert_eq!(next["matchContentLength"], full.chars().count(), "{out}");
-        assert_eq!(next["captureText"], true, "{out}");
-        let expanded = run(&root.0, next.clone()).expect("expanded");
-        assert_eq!(
-            expanded["files"][0]["matches"][0]["value"],
-            full.as_str(),
-            "{expanded}"
-        );
-        assert!(
-            !expanded["isPartial"].as_bool().unwrap_or(false),
-            "{expanded}"
-        );
-        // Nothing left to expand: only the read of the hits remains.
-        assert!(
-            expanded["next"]
-                .as_object()
-                .is_none_or(|next| next.keys().all(|name| name == "read")),
-            "{expanded}"
-        );
-    }
-    // Without captures to hide, a lean cut expands by length alone.
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":source,"pattern":"call($$$A)","captureText":true}),
+    )
+    .expect("match");
+    assert!(out.get("isPartial").is_none(), "{out}");
+    assert!(out.get("partialReasons").is_none(), "{out}");
+    let rows = out["files"][0]["matches"].as_array().expect("rows");
+    assert_eq!(rows.len(), 2, "{out}");
+    assert!(rows[0].get("truncated").is_none(), "{out}");
+    assert_eq!(rows[1]["truncated"], true, "{out}");
+    assert!(
+        rows[1]["value"].as_str().is_some_and(|v| v.ends_with('…')),
+        "{out}"
+    );
+    let reads = value_reads(&out);
+    assert_eq!(reads.len(), 1, "{out}");
+    assert_eq!(reads[0]["ranges"], json!(["3-3"]), "{out}");
+    assert!(
+        reads[0]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("long.rs")),
+        "{out}"
+    );
+    // The lean view hides the `$$$A` capture as well: one expandCaptures
+    // re-run returns captures and whole values; it is still not partial.
     let lean = run(
         &root.0,
-        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"fn n() { call(x); }","matchContentLength":8}),
+        json!({"operation":"match","path":source,"pattern":"call($$$A)"}),
+    )
+    .expect("lean match");
+    assert!(lean.get("isPartial").is_none(), "{lean}");
+    let expand = &lean["next"]["expandCaptures"]["query"]["queries"][0];
+    assert_eq!(expand["captureText"], true, "{lean}");
+    let full = format!("call({args})");
+    assert_eq!(expand["matchContentLength"], full.chars().count(), "{lean}");
+    let expanded = run(&root.0, expand.clone()).expect("expanded");
+    assert_eq!(expanded["files"][0]["matches"][1]["value"], full.as_str());
+    assert!(only_read_left(&expanded), "{expanded}");
+}
+
+/// Clipped rows across files and past the read-range limit each stay
+/// reachable: one `expandValues*` read per file and per range batch.
+#[test]
+fn clipped_values_read_per_file_in_range_batches() {
+    let root = Fixture::new();
+    let long = format!("call({});", "y".repeat(80));
+    let many = (0..30)
+        .map(|i| {
+            if i % 2 == 0 {
+                long.clone()
+            } else {
+                format!("// {i}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    std::fs::write(root.0.join("a.rs"), format!("fn a() {{\n{many}\n}}\n")).expect("a");
+    std::fs::write(root.0.join("b.rs"), format!("fn b() {{\n{long}\n}}\n")).expect("b");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"language":"rust","pattern":"call($A)","captureText":true,"matchContentLength":20}),
+    )
+    .expect("match");
+    assert!(out.get("isPartial").is_none(), "{out}");
+    let reads = value_reads(&out);
+    let ranges = reads
+        .iter()
+        .flat_map(|row| row["ranges"].as_array().cloned().unwrap_or_default())
+        .collect::<Vec<_>>();
+    // 15 clipped calls in a.rs (lines 2, 4, … 30) and one in b.rs (line 2).
+    assert_eq!(ranges.len(), 16, "{out}");
+    let max = crate::tools::local_fetch::MAX_READ_RANGES;
+    assert!(
+        reads
+            .iter()
+            .all(|row| row["ranges"].as_array().map_or(0, Vec::len) <= max),
+        "{out}"
+    );
+    assert!(reads.len() >= 3, "{out}");
+}
+
+/// A value longer than the `matchContentLength` maximum still reads whole:
+/// the lead is a line read, not a longer re-run that would cut again.
+#[test]
+fn values_past_the_content_maximum_read_their_lines() {
+    let root = Fixture::new();
+    let source = root.0.join("huge.rs");
+    let args = (0..2_000)
+        .map(|i| format!("arg{i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    std::fs::write(&source, format!("fn m() {{\n    call({args});\n}}\n")).expect("source");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":source,"pattern":"call($$$A)","captureText":true}),
+    )
+    .expect("match");
+    assert!(out.get("isPartial").is_none(), "{out}");
+    assert_eq!(value_reads(&out)[0]["ranges"], json!(["2-2"]), "{out}");
+    let codes = out["diagnostics"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|d| d["code"].as_str())
+        .collect::<Vec<_>>();
+    assert!(!codes.contains(&"structural.match.valueClipped"), "{out}");
+}
+
+/// A cut header row (a whole block) expands its captures and whole text in
+/// one re-run; a lean cut without hidden captures reads its lines.
+#[test]
+fn block_and_lean_cuts_expand_to_the_whole_text() {
+    let root = Fixture::new();
+    let source = root.0.join("long.rs");
+    std::fs::write(&source, "fn m() { call(1); }\nfn n() { call(x); }\n").expect("source");
+    let lean = run(
+        &root.0,
+        json!({"operation":"match","path":source,"pattern":"fn n() { call(x); }","matchContentLength":8}),
     )
     .expect("lean cut");
-    let next = &lean["next"]["expandValues"]["query"]["queries"][0];
-    assert_eq!(next["matchContentLength"], 19, "{lean}");
-    let expanded = run(&root.0, next.clone()).expect("expanded lean");
-    assert_eq!(
-        lean_row(&expanded["files"][0]["matches"][0]).2,
-        "fn n() { call(x); }",
-        "{expanded}"
-    );
-    assert!(only_read_left(&expanded), "{expanded}");
-    // A cut header row expands its captures and its whole text in one call.
+    assert!(lean.get("isPartial").is_none(), "{lean}");
+    assert!(lean["next"].get("expandCaptures").is_none(), "{lean}");
+    assert_eq!(value_reads(&lean)[0]["ranges"], json!(["2-2"]), "{lean}");
     let block = root.0.join("block.rs");
     let body = (0..120)
         .map(|i| format!("    let v{i} = {i};"))
@@ -770,7 +859,7 @@ fn clipped_match_values_carry_one_continuation_to_the_whole_text() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":block,"pattern":"fn $N() { $$$B }"}),
     )
     .expect("block match");
-    assert!(out["next"].get("expandValues").is_none(), "{out}");
+    assert!(value_reads(&out).is_empty(), "{out}");
     let expand = out["next"]["expandCaptures"]["query"]["queries"][0].clone();
     assert_eq!(expand["captureText"], true, "{out}");
     let expanded = run(&root.0, expand).expect("expanded block");
@@ -1703,5 +1792,152 @@ fn symbols_group_recovery_notes_of_files_without_a_listed_declaration() {
     assert_eq!(
         lead["query"]["queries"][0]["matchString"], "sdsnewlen",
         "{out}"
+    );
+}
+
+/// N11: a recovered parse can hide a declaration of the queried name only
+/// where its syntax errors spell that name. A file that only calls the name
+/// in code that parsed keeps no note and leaves the outline complete.
+#[test]
+fn recovered_notes_only_for_files_whose_errors_spell_the_name() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.c"), "int foo(int x) { return x; }\n").expect("a");
+    // Calls `foo` on a clean line; the syntax error is elsewhere.
+    std::fs::write(
+        root.0.join("b.c"),
+        "int caller(void) { return foo(1); }\n\nint broken( {\n  return 2;\n}\n",
+    )
+    .expect("b");
+    // The syntax error spells `foo`: a declaration could hide there.
+    std::fs::write(root.0.join("c.c"), "int user(void) {\n  int foo( = 3;\n}\n").expect("c");
+    let out = run(
+        &root.0,
+        json!({"operation":"symbols","path":root.0,"symbolName":"foo"}),
+    )
+    .expect("symbols");
+    let diagnostics = out["diagnostics"].as_array().cloned().unwrap_or_default();
+    let noted = diagnostics
+        .iter()
+        .flat_map(|d| {
+            d["files"]
+                .as_array()
+                .cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(|file| file["path"].clone())
+                .chain(d.get("path").cloned())
+        })
+        .filter_map(|path| path.as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    assert!(noted.iter().any(|path| path.ends_with("c.c")), "{out}");
+    assert!(!noted.iter().any(|path| path.ends_with("b.c")), "{out}");
+    assert_eq!(out["isPartial"], true, "{out}");
+    // Only b.c's irrelevant note: the outline is complete.
+    std::fs::remove_file(root.0.join("c.c")).expect("remove c");
+    let out = run(
+        &root.0,
+        json!({"operation":"symbols","path":root.0,"symbolName":"foo"}),
+    )
+    .expect("symbols");
+    assert!(
+        out["diagnostics"].as_array().is_none_or(Vec::is_empty),
+        "{out}"
+    );
+    assert_eq!(out["isPartial"], false, "{out}");
+}
+
+/// AS4: an empty symbols search says what it searched (the name and the
+/// file count) and leads to the name's text.
+#[test]
+fn empty_symbols_hint_names_file_count_and_text_lead() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.rs"), "fn alpha() {}\n").expect("a");
+    std::fs::write(root.0.join("b.rs"), "fn beta() { missing_name(); }\n").expect("b");
+    let out = run(
+        &root.0,
+        json!({"operation":"symbols","path":root.0,"symbolName":"missing_name"}),
+    )
+    .expect("symbols");
+    assert_eq!(out["status"], "empty", "{out}");
+    let hints = out["hints"].as_array().expect("hints");
+    assert!(
+        hints.iter().any(|hint| hint
+            .as_str()
+            .is_some_and(|text| text.contains("0 declarations named missing_name in 2 files"))),
+        "{out}"
+    );
+    let lead = &out["next"]["textSearch"];
+    assert_eq!(lead["tool"], "localSearch", "{out}");
+    assert_eq!(
+        lead["query"]["queries"][0]["matchString"], "missing_name",
+        "{out}"
+    );
+    // Without a name, the hint counts the files and names no text lead.
+    let outline = run(
+        &root.0,
+        json!({"operation":"symbols","path":root.0,"kinds":["class"]}),
+    )
+    .expect("outline");
+    assert_eq!(outline["status"], "empty", "{outline}");
+    assert!(
+        outline["hints"][0]
+            .as_str()
+            .is_some_and(|text| text.contains("0 declarations in 2 files")),
+        "{outline}"
+    );
+    assert!(outline["next"].get("textSearch").is_none(), "{outline}");
+}
+
+/// AS4: an empty match counts the files it parsed and leads to the syntax
+/// tree of the first, where the pattern's node shape can be compared.
+#[test]
+fn empty_match_hint_leads_to_syntax_tree() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.rs"), "fn alpha() { beta(1); }\n").expect("a");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"language":"rust","pattern":"beta($A, $B)"}),
+    )
+    .expect("match");
+    assert_eq!(out["status"], "empty", "{out}");
+    assert!(
+        out["diagnostics"][0]["message"]
+            .as_str()
+            .is_some_and(|text| text.contains("in 1 parsed file")),
+        "{out}"
+    );
+    let lead = &out["next"]["viewTree"];
+    assert_eq!(lead["tool"], "astSearch", "{out}");
+    let row = &lead["query"]["queries"][0];
+    assert_eq!(row["operation"], "syntaxTree", "{out}");
+    assert!(
+        row["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("a.rs")),
+        "{out}"
+    );
+    crate::contracts::validate_query("astSearch", row.clone()).expect("a valid syntaxTree row");
+}
+
+/// AS5 (native half): a wrapped rule document `rule:\n  …` matches like the
+/// bare rule. The object form `{rule:{…}}` serializes to the same document,
+/// so it runs unchanged once core declares it (core request AS5).
+#[test]
+fn wrapped_rule_document_matches_like_the_bare_rule() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.rs"), "fn a() { f(x); g(1); }\n").expect("source");
+    let base = json!({"operation":"match","path":root.0,"language":"rust"});
+    let mut bare = base.clone();
+    bare["rule"] = json!({"pattern":"f($A)"});
+    let mut wrapped = base;
+    // The JSON text of `{rule:{pattern:"f($A)"}}` is valid YAML for it.
+    wrapped["rule"] = json!(json!({"rule":{"pattern":"f($A)"}}).to_string());
+    let bare = run(&root.0, bare).expect("bare rule");
+    let wrapped = run(&root.0, wrapped).expect("wrapped rule");
+    assert_eq!(bare["files"], wrapped["files"], "{bare} vs {wrapped}");
+    assert_eq!(
+        wrapped["files"][0]["matches"].as_array().map(Vec::len),
+        Some(1),
+        "{wrapped}"
     );
 }

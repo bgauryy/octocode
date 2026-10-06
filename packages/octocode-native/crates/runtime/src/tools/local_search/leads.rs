@@ -139,18 +139,15 @@ impl Coverage {
             return vec![];
         }
         if self.scope_miss {
-            vec!["Nothing searched: include/exclude matched no file under path. Fix the globs, or set path to the directory.".into()]
+            vec!["Nothing searched: include/exclude matched no file. hints.viewStructure lists what they match.".into()]
         } else if self.error_count > 0 {
             vec![unreadable_hint(self.error_count)]
         } else if let Some(hint) = &self.skip_hint {
             vec![hint.clone()]
         } else if self.withheld > 0 {
             // Not a spelling problem: the policy notice in `warnings` names
-            // what was withheld.
-            vec![format!(
-                "No matches; {} withheld by security path policy (no flag lifts it), so absence there is unproven.",
-                entries(self.withheld)
-            )]
+            // what was withheld (once, there).
+            vec!["No matches where searched; the withheld entries named in warnings may hold it (unproven).".into()]
         } else if self.binary_cut {
             vec![
                 "No matches in the searched text, but binary file(s) were searched only up to their first NUL byte; absence is not proven for them.".into(),
@@ -260,10 +257,12 @@ impl Found<'_> {
         // when the literal and regex readings differ.
         let inferred = match query.regex_mode() {
             _ if query.regex.is_some() => None,
-            LocalSearchQueryRegex::Literal => query
-                .match_string
-                .contains(['.', '(', ')'])
-                .then_some("matchString ran as literal text; regex:\"rust\" runs it as a regex."),
+            // Only a `.` or a balanced group reads differently as a regex.
+            LocalSearchQueryRegex::Literal => (query.match_string.contains('.')
+                || query.match_string.contains('(') && query.match_string.contains(')'))
+            .then_some("matchString ran as literal text; regex:\"rust\" runs it as a regex."),
+            // An obvious regex (`a.*b`, `\bfoo`, `a|b`) ran as one: no note.
+            _ if unambiguous_regex(&query.match_string) => None,
             _ => Some("matchString ran as a regex; regex:\"literal\" matches it exactly."),
         };
         warnings.extend(inferred.map(str::to_owned));
@@ -284,14 +283,15 @@ impl Found<'_> {
         self.query.page().max(1) == 1
     }
 
-    /// The natural next step on a complete first page: read the top hit in
+    /// The natural next step on a first page with hits: read the top hit in
     /// context. A shown declaration of the searched symbol reads that
     /// declaration whole when one block read holds it; a larger one (a big
-    /// class) reads its hit in context, like any other hit.
+    /// class) reads its hit in context, like any other hit. A partial page
+    /// (a binary cut, an unreadable path) still reads its shown hits; a file
+    /// cut at a NUL byte is never the read (localFetch rejects binaries).
     pub(super) fn read_lead(&self) -> Option<Value> {
         let query = self.query;
-        let readable = self.complete
-            && self.first_page()
+        let readable = self.first_page()
             && !self.layout.list
             && query.result_view != LocalSearchQueryResultView::MatchOnly
             && self.layout.context_lines == 0
@@ -300,9 +300,16 @@ impl Found<'_> {
         if !readable {
             return None;
         }
+        let binary_cut = self.scanned.binary_files.as_deref().unwrap_or_default();
+        let text_file = |file: &&SearchFile| {
+            !binary_cut
+                .iter()
+                .any(|cut| std::path::Path::new(cut).ends_with(&file.path))
+        };
         let declared = self.definition.and_then(|definition| {
             self.files
                 .iter()
+                .filter(text_file)
                 .find(|file| {
                     self.output_root.join(&file.path).to_string_lossy()
                         == definition.source.as_str()
@@ -325,7 +332,8 @@ impl Found<'_> {
             Some((file, _)) => read_handoff(query, self.root, file),
             None => self
                 .files
-                .first()
+                .iter()
+                .find(text_file)
                 .and_then(|top| read_handoff(query, self.root, top)),
         }
     }
@@ -534,13 +542,48 @@ pub(super) fn restart_fields(query: &LocalSearchQuery) -> Value {
     lead
 }
 
-/// "1 entry" or "N entries".
-pub(super) fn entries(count: usize) -> String {
-    if count == 1 {
-        "1 entry".to_owned()
-    } else {
-        format!("{count} entries")
+/// A structureSearch `files` listing of the searched scope with the query's
+/// own include/exclude globs: what a scope-miss row's globs match there.
+pub(super) fn scope_listing(query: &LocalSearchQuery) -> Value {
+    let mut listing = json!({"operation": "files", "path": query.path.as_str()});
+    if !query.include.is_empty() {
+        listing["include"] = json!(query.include);
     }
+    if !query.exclude.is_empty() {
+        listing["exclude"] = json!(query.exclude);
+    }
+    Continuation::new(ToolId::StructureSearch, listing)
+        .why("List what the include/exclude globs match.")
+        .build()
+}
+
+/// Whether `text` reads only as a regex: it holds `.*`, `.+`, `.?`, a
+/// `\` + letter class (`\w`, `\d`, `\s`, `\b`), or a `|` outside `||`.
+/// Ambiguous texts (`a?.b`, `$scope`, `arr[0]`, `x + y`) keep the inferred-
+/// regex note: their literal reading is plausible.
+pub(super) fn unambiguous_regex(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let wildcard = text.contains(".*") || text.contains(".+") || text.contains(".?");
+    // `\w`, `\b`, or escaped punctuation such as `\(`: only a regex escapes.
+    let escape = bytes.windows(2).any(|pair| {
+        pair[0] == b'\\' && (pair[1].is_ascii_alphabetic() || pair[1].is_ascii_punctuation())
+    });
+    let alternation = bytes.iter().enumerate().any(|(index, byte)| {
+        *byte == b'|'
+            && bytes.get(index + 1) != Some(&b'|')
+            && (index == 0 || bytes[index - 1] != b'|')
+    });
+    // A repeated class or group: `[a-z_]+`, `(ab)*`. A trailing `?` stays
+    // ambiguous: Rust's `list[i]?` and `read(path)?` are code.
+    let quantified = bytes
+        .windows(2)
+        .any(|pair| matches!(pair[0], b']' | b')') && matches!(pair[1], b'+' | b'*' | b'{'));
+    // A class range: `[a-z]`, `[0-9_]`.
+    let range = text.split('[').skip(1).any(|rest| {
+        rest.split_once(']')
+            .is_some_and(|(class, _)| class.len() >= 3 && class[1..class.len() - 1].contains('-'))
+    });
+    wildcard || escape || alternation || quantified || range || text.starts_with('^')
 }
 
 /// The same search over everything the defaults leave out, from page 1.
@@ -554,13 +597,10 @@ pub(super) fn unsearched_lead(query: &LocalSearchQuery) -> Value {
     Continuation::new(ToolId::LocalSearch, lead).build()
 }
 
-/// Hit rows a page may show and still name each hit's enclosing
-/// declaration: a sweep of more hits is read as lines, not functions.
-pub(super) const ENCLOSING_MAX_ROWS: usize = 50;
-
-/// Shown files checked for the searched symbol's declaration when the page
-/// is too large to annotate.
-pub(super) const DEFINITION_MAX_FILES: usize = 3;
+/// Shown files a page parses for enclosing names and the searched
+/// symbol's declaration (a first page holds at most this many); rows of
+/// later files stay unnamed, and the page says so.
+pub(super) const ENCLOSING_MAX_FILES: usize = DEFAULT_SNIPPET_PAGE_SIZE as usize;
 
 /// Serialized chars an `in` field adds besides its value: `,"in":""`.
 pub(super) const ENCLOSING_FIELD_CHARS: usize = 8;
@@ -588,9 +628,11 @@ pub(super) fn row_lines(row: &SearchMatch) -> Vec<u32> {
     row.match_lines.clone().unwrap_or_else(|| vec![row.line])
 }
 
-/// Set `in` on every hit row of a page of at most [`ENCLOSING_MAX_ROWS`]
-/// rows whose names fit the page budget, and find the first shown hit that
-/// declares `symbol`. Each file is parsed once.
+/// Set `in` on the hit rows of a page's first [`ENCLOSING_MAX_FILES`]
+/// files, in page order while the names fit the page budget, and find the
+/// first shown hit that declares `symbol`. Each file is parsed once. Rows a
+/// name was found for but not shown (budget or parse bound) are counted in
+/// the returned note, never dropped silently.
 pub(super) fn annotate_enclosing(
     files: &mut [SearchFile],
     symbol: Option<&str>,
@@ -599,24 +641,19 @@ pub(super) fn annotate_enclosing(
     page_budget: usize,
     expected: &dyn Fn(&std::path::Path) -> Option<Option<super::manifest::Digest>>,
     security: &ContentSecurity,
-) -> Option<Definition> {
-    let rows: usize = files
-        .iter()
-        .map(|file| file.matches.as_ref().map_or(0, Vec::len))
-        .sum();
-    let annotate = rows > 0 && rows <= ENCLOSING_MAX_ROWS;
-    if !annotate && symbol.is_none() {
-        return None;
-    }
+) -> (Option<Definition>, Option<String>) {
     let mut names: Vec<Vec<Option<String>>> = Vec::with_capacity(files.len());
     let mut definition = None;
+    let mut unparsed_rows = 0usize;
     for (position, file) in files.iter().enumerate() {
         let Some(matches) = file.matches.as_ref().filter(|rows| !rows.is_empty()) else {
             names.push(Vec::new());
             continue;
         };
-        if !annotate && (definition.is_some() || position >= DEFINITION_MAX_FILES) {
-            break;
+        if position >= ENCLOSING_MAX_FILES {
+            unparsed_rows += matches.len();
+            names.push(Vec::new());
+            continue;
         }
         let source = output_root.join(&file.path);
         let Some(outline) = shown_outline(&source, expected(&source), security) else {
@@ -638,29 +675,33 @@ pub(super) fn annotate_enclosing(
                 end,
             });
         }
-        names.push(if annotate {
-            row_owners(&outline, matches, declaring)
-        } else {
-            Vec::new()
-        });
+        names.push(row_owners(&outline, matches, declaring));
     }
-    if annotate {
-        let added: usize = names
-            .iter()
-            .flatten()
-            .flatten()
-            .map(|name| crate::tools::stream_page::json_text_chars(name) + ENCLOSING_FIELD_CHARS)
-            .sum();
-        let page = serde_json::to_string(&*files).map_or(usize::MAX, |text| text.len());
-        if page.saturating_add(added) <= page_budget {
-            for (file, names) in files.iter_mut().zip(names) {
-                for (row, name) in file.matches.iter_mut().flatten().zip(names) {
-                    row.enclosing = name;
-                }
+    // Names go on in page order while the page stays within its budget.
+    let mut used = serde_json::to_string(&*files).map_or(usize::MAX, |text| text.len());
+    let mut over_budget = 0usize;
+    for (file, names) in files.iter_mut().zip(names) {
+        for (row, name) in file.matches.iter_mut().flatten().zip(names) {
+            let Some(name) = name else { continue };
+            let added = crate::tools::stream_page::json_text_chars(&name) + ENCLOSING_FIELD_CHARS;
+            if over_budget == 0 && used.saturating_add(added) <= page_budget {
+                used += added;
+                row.enclosing = Some(name);
+            } else {
+                over_budget += 1;
             }
         }
     }
-    definition
+    let note = match (over_budget, unparsed_rows) {
+        (0, 0) => None,
+        (0, rows) => Some(format!(
+            "Enclosing declarations (in) are named for the first {ENCLOSING_MAX_FILES} files only; {rows} hit rows after them have none."
+        )),
+        (rows, _) => Some(format!(
+            "Enclosing declarations (in) omitted on {rows} later rows to keep the page within its size budget."
+        )),
+    };
+    (definition, note)
 }
 
 /// Each row's `in` name. A run of consecutive rows in one declaration names
@@ -691,8 +732,7 @@ pub(super) fn row_owners(
             if index > 0 && owners[index - 1] == Some(owner) {
                 return None;
             }
-            let shared = owners.get(index + 1) == Some(&Some(owner));
-            outline.label(owner, shared)
+            outline.label(owner)
         })
         .collect()
 }
@@ -783,14 +823,14 @@ pub(super) fn skipped_target_hint(
     }
     (single_file && files_searched == 0).then(|| {
         format!(
-            "The target file was skipped ({reason}): nothing was searched. Raise limits or read it with localFetch chunks."
+            "Nothing searched: the target file was skipped ({reason}). Read it with localFetch."
         )
     })
 }
 
 pub(super) fn unreadable_hint(count: u32) -> String {
     format!(
-        "{count} path(s) could not be read (see stats.firstError), so absence is not proven. Check permissions, or narrow path to readable directories."
+        "{count} path(s) unreadable (check permissions, stats.firstError); absence is unproven, so narrow path to readable dirs."
     )
 }
 
@@ -873,7 +913,7 @@ pub(super) fn leading_binary_warning(
         ("binary files", "them")
     };
     format!(
-        "binarySkipped: {total} {noun} not searched ({by_extension}); structureSearch operation:\"files\" with these extensions (or hints.binarySkipped) lists {them}."
+        "binarySkipped: {total} {noun} not searched ({by_extension}); structureSearch operation:\"files\" with these extensions lists {them}."
     )
 }
 

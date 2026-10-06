@@ -109,6 +109,22 @@ where
         Ok(result) => return Ok(file_read(result, query)),
         Err(error) => error,
     };
+    // Recovery leads name a renamed repository as it is now.
+    let canonical = crate::tools::gh_shared::canonical_repo(
+        provider,
+        query.owner.as_str(),
+        query.repo.as_str(),
+        request_context,
+    )
+    .await
+    .and_then(|(owner, repo)| {
+        Some(GhGetFileContentQuery {
+            owner: owner.parse().ok()?,
+            repo: repo.parse().ok()?,
+            ..query.clone()
+        })
+    });
+    let query = canonical.as_ref().unwrap_or(query);
     let found = if missing_path(&error, Some(query.path.as_str())) {
         locate_path(provider, &errors::repo_path(query), request_context).await
     } else {
@@ -184,10 +200,34 @@ where
     let acquired = provider
         .get_file_content(&content_request, request_context)
         .await?;
-    // The last-commit timestamp is diagnostic: only a debug read of the first
-    // page asks for it, after the body arrived, so a failed or throttled read
-    // never spends a second request.
-    let (last_modified, last_modified_by) = if query.debug && query.offset.unwrap_or(0) == 0 {
+    // A renamed repository: later requests and every lead use the canonical
+    // name (a redirect-free read of a never-redirected name costs nothing).
+    let renamed = crate::tools::gh_shared::canonical_repo(
+        provider,
+        query.owner.as_str(),
+        query.repo.as_str(),
+        request_context,
+    )
+    .await;
+    let renamed_warning = renamed.as_ref().map(|to| {
+        crate::tools::gh_shared::renamed_warning(query.owner.as_str(), query.repo.as_str(), to)
+    });
+    let canonical;
+    let query = match &renamed {
+        Some((owner, repo)) => {
+            canonical = GhGetFileContentQuery {
+                owner: owner.parse().map_err(decode_display)?,
+                repo: repo.parse().map_err(decode_display)?,
+                ..query.clone()
+            };
+            &canonical
+        }
+        None => query,
+    };
+    // The first page states when the file last changed: one commits request
+    // after the body arrived, so a failed or throttled read never spends it,
+    // and later pages repeat nothing.
+    let (last_modified, last_modified_by) = if query.offset.unwrap_or(0) == 0 {
         file_timestamp(provider, query, &acquired.resolved_ref, request_context).await
     } else {
         (None, None)
@@ -251,6 +291,9 @@ where
     // requires the repository-relative identity even when processing fails.
     if content.path.is_empty() {
         content.path = query.path.to_string();
+    }
+    if let Some(warning) = renamed_warning {
+        content.warnings.insert(0, warning);
     }
     let mut next = rewrite_continuations(&mut content, query, &acquired.resolved_ref);
     if match_not_found
@@ -504,7 +547,11 @@ where
             digest.update(value.as_bytes());
             digest.update([0]);
         }
-        format!("github-file-timestamp:{}", hex::encode(digest.finalize()))
+        // v2: the author is the login when GitHub links one.
+        format!(
+            "github-file-timestamp:v2-{}",
+            hex::encode(digest.finalize())
+        )
     };
     if let Some(partition) = &partition
         && let Some(cached) = provider.cache.get(partition, &key).await
@@ -541,8 +588,8 @@ where
                 .and_then(Value::as_str)
                 .map(str::to_owned),
             commit
-                .pointer("/commit/author/name")
-                .or_else(|| commit.pointer("/author/login"))
+                .pointer("/author/login")
+                .or_else(|| commit.pointer("/commit/author/name"))
                 .and_then(Value::as_str)
                 .map(str::to_owned),
         )
@@ -643,6 +690,13 @@ fn default_chunk_size(local: &LocalFetchQuery) -> usize {
         WindowUnit::Lines => crate::tools::local_fetch::DEFAULT_LINE_CHUNK,
         WindowUnit::Bytes => 16384,
     }
+}
+
+fn decode_display(error: impl std::fmt::Display) -> ProviderError {
+    ProviderError::new(
+        crate::providers::github::ProviderErrorKind::Decode,
+        error.to_string(),
+    )
 }
 
 fn decode_error(error: serde_json::Error) -> ProviderError {
@@ -878,14 +932,21 @@ mod tests {
         .expect("result")
     }
 
-    /// The last-commit timestamp is a debug field: a default read sends only
-    /// the contents request, a debug read adds the commits request after the
-    /// body arrives, and a failed read sends no commits request at all.
+    /// Freshness: the first page of a read (offset 0) states when the file
+    /// last changed and by whom, without debug, for one commits request
+    /// sent after the body arrived; a later page and a failed read send none.
     #[tokio::test]
-    async fn timestamp_is_requested_only_by_a_successful_debug_read() {
+    async fn the_first_page_states_the_last_change_for_one_extra_request() {
         let server = MockServer::start().await;
         let sha = "0123456789abcdef0123456789abcdef01234567";
-        mount_json(&server, "/api/v3/repos/a/b/contents/a.txt", 200, serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode("one\n")}),).await;
+        let body: String = (1..=40).map(|i| format!("line {i}\n")).collect();
+        mount_json(
+            &server,
+            "/api/v3/repos/a/b/contents/a.txt",
+            200,
+            serde_json::json!({"type":"file","encoding":"base64","content":STANDARD.encode(&body)}),
+        )
+        .await;
         mount_json(
             &server,
             "/api/v3/repos/a/b/contents/missing.txt",
@@ -897,25 +958,26 @@ mod tests {
             .and(path("/api/v3/repos/a/b/commits"))
             .and(wiremock::matchers::query_param("path", "a.txt"))
             .respond_with(ResponseTemplate::new(200).set_body_json(
-                serde_json::json!([{"commit":{"committer":{"date":"2026-01-02T00:00:00Z"},"author":{"name":"Ada"}}}]),
+                serde_json::json!([{"author":{"login":"ada-l"},"commit":{"committer":{"date":"2026-01-02T00:00:00Z"},"author":{"name":"Ada"}}}]),
             ))
             .expect(1)
             .mount(&server)
             .await;
         let provider = mock_provider(&server, RetryPolicy::default());
         let base = serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha});
-        let plain = read(&provider, base.clone()).await;
-        assert_eq!(plain.files[0].last_modified, None);
-        let mut debug = base;
-        debug["debug"] = true.into();
-        let stamped = read(&provider, debug).await;
+        let stamped = read(&provider, base.clone()).await;
         assert_eq!(
             stamped.files[0].last_modified.as_deref(),
             Some("2026-01-02T00:00:00Z")
         );
-        assert_eq!(stamped.files[0].last_modified_by.as_deref(), Some("Ada"));
+        assert_eq!(stamped.files[0].last_modified_by.as_deref(), Some("ada-l"));
+        let mut later = base;
+        later["offset"] = 20.into();
+        let later = read(&provider, later).await;
+        assert_eq!(later.files[0].last_modified, None);
+        assert_eq!(later.files[0].last_modified_by, None);
         let mut missing =
-            serde_json::json!({"owner":"a","repo":"b","path":"missing.txt","ref":sha,"debug":true});
+            serde_json::json!({"owner":"a","repo":"b","path":"missing.txt","ref":sha});
         missing["mainGoal"] = "test".into();
         missing["reasoning"] = "test".into();
         let missing: GhGetFileContentQuery = serde_json::from_value(missing).expect("query");

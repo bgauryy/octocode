@@ -27,6 +27,7 @@ import { installSkill } from '../installer.js';
 import { runRemove } from './remove.js';
 import { reportFailure } from './fail.js';
 import { bold, c, dim } from '../../../../utils/colors.js';
+import { statusIcon } from './list.js';
 
 export interface CheckOptions {
   names: string[];
@@ -36,11 +37,10 @@ export interface CheckOptions {
   dryRun: boolean;
   noEnv: boolean;
   json: boolean;
-  jsonErrors?: boolean;
 }
 
-const fail = (message: string, json: boolean, jsonErrors = false): void =>
-  reportFailure(message, json, jsonErrors, {
+const fail = (message: string, json: boolean): void =>
+  reportFailure(message, json, {
     human: `  ${c('red', '✗')} ${message}`,
   });
 
@@ -96,14 +96,12 @@ export function runCheck(opts: CheckOptions): void {
   if (missing)
     return fail(
       `Skill not found: "${missing}".${retiredHint(missing)}`,
-      opts.json,
-      opts.jsonErrors
-    );
+      opts.json);
 
   let platforms: SkillPlatform[] = SCAN_PLATFORMS;
   if (opts.platform) {
     const parsed = parseSkillPlatforms(opts.platform);
-    if (parsed.error) return fail(parsed.error, opts.json, opts.jsonErrors);
+    if (parsed.error) return fail(parsed.error, opts.json);
     platforms = parsed.platforms;
   }
 
@@ -215,27 +213,25 @@ export function runCheck(opts: CheckOptions): void {
   if (opts.json) {
     console.log(JSON.stringify({ success, skills, retired, summary }, null, 2));
   } else {
-    console.log(`\n  ${bold('Skill check')}`);
+    console.log(bold('Skill check'));
+    const width = Math.max(0, ...skills.map(skill => skill.name.length));
     for (const skill of skills) {
-      const icon =
-        skill.installStatus === 'ok' ? c('green', '✓') : c('red', '✗');
       const env = opts.noEnv ? '' : ` · env ${skill.env.readiness}`;
-      console.log(`  ${icon} ${skill.name}: ${skill.installStatus}${dim(env)}`);
+      console.log(
+        `${statusIcon(skill.installStatus)} ${skill.name.padEnd(width)} ${skill.installStatus}${dim(env)}`
+      );
     }
     for (const entry of retired) {
       console.log(
-        `  ${c('red', '✗')} ${entry.name}: retired → merged into ${entry.replacement} ${dim(entry.paths.join(', '))}`
+        `${c('red', '✗')} ${entry.name} retired → merged into ${entry.replacement} ${dim(entry.paths.join(', '))}`
       );
     }
     console.log(
-      `  ${summary.install.ok}/${summary.install.total} ok; ${summary.install.stale} stale; ${summary.install.broken} broken; ${summary.install.notInstalled} not installed; ${summary.install.retired} retired; env: ${summary.env.needsConfig} need config, ${summary.env.partial} optional missing`
+      `${summary.install.ok} ok, ${summary.install.notInstalled} not installed, ${summary.install.stale} stale, ${summary.install.broken} broken, ${summary.install.retired} retired · env: ${summary.env.needsConfig} need config, ${summary.env.partial} optional missing`
     );
     if (!installOk && !opts.fix) {
-      console.log(
-        `  ${dim('Repair with')} ${c('cyan', 'octocode skill check --fix')}`
-      );
+      console.log(`${dim('Repair:')} ${c('cyan', 'octocode skill check --fix')}`);
     }
-    console.log();
   }
   if (!success) process.exitCode = 1;
 }

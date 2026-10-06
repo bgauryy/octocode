@@ -3,8 +3,8 @@
 This reference explains how agents carry evidence through the research layer of the Octocode agentic toolkit. It covers handoffs among Octocode's 16 tools. Use the [tool reference](OCTOCODE_TOOLS.md) for operation fields and the [local workflow](OCTOCODE_RESEARCH_MANIFEST.md#local-workflow) for choosing the next evidence source. Inspect the live input schema when constructing an unfamiliar request; the catalog's compact fields are a summary, while `--view query` and `--view full` retain nested and conditional input constraints.
 
 ```sh
-node packages/octocode/out/octocode.js scheme --compact
-node packages/octocode/out/octocode.js scheme astSearch --view query
+node packages/octocode/out/octocode.js schema
+node packages/octocode/out/octocode.js schema astSearch --view query
 ```
 
 The CLI discovery catalog includes disabled tools: 16 tools are discoverable, and a disabled tool reports `availability.enabled:false` with the gating `envVar`. With beta tools disabled and no classification key resolved, the CLI enables 13 and MCP registers 12: MCP never registers the CLI-only `ghCloneRepo` and `astRewrite`. Check `availability` and effective configuration. Enabling a tool does not install a language server or supply provider credentials.

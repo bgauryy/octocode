@@ -235,7 +235,10 @@ async fn structure_search_dispatches_on_both_surfaces_and_owns_file_discovery() 
     workspace.write("docs/readme.md", "# docs\n");
     let mcp = ToolRuntime::from_host(HostOptions {
         cwd: Some(workspace.workspace.clone()),
-        env: Some(BTreeMap::from([("ENABLE_LOCAL".into(), "true".into())])),
+        env: Some(BTreeMap::from([(
+            "OCTOCODE_ENABLE_LOCAL".into(),
+            "true".into(),
+        )])),
         surface: RuntimeSurface::Mcp,
         ..HostOptions::default()
     })
@@ -298,7 +301,7 @@ async fn structure_search_dispatches_on_both_surfaces_and_owns_file_discovery() 
 #[tokio::test]
 async fn disabled_local_family_is_unavailable() {
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("ENABLE_LOCAL", "false".into())]);
+    let runtime = workspace.runtime(&[("OCTOCODE_ENABLE_LOCAL", "false".into())]);
     let error = call(
         &runtime,
         "localFetch",
@@ -356,7 +359,7 @@ async fn host_options_environment_controls_embedded_tool_availability() {
     let runtime = ToolRuntime::from_host(HostOptions {
         cwd: Some(workspace.workspace.clone()),
         env: Some(BTreeMap::from([
-            ("ENABLE_LOCAL".into(), "true".into()),
+            ("OCTOCODE_ENABLE_LOCAL".into(), "true".into()),
             ("OCTOCODE_BETA".into(), "true".into()),
         ])),
         surface: RuntimeSurface::Mcp,
@@ -1263,5 +1266,40 @@ async fn local_search_discloses_default_excluded_dirs_and_files_with_a_rerun() {
         .await
         .expect("rerun");
     assert_eq!(files_of(&all).len(), 5, "{}", all.structured_content);
+    runtime.close().await;
+}
+
+/// N11b replay: astTopology echoes a nested package `path` in the caller's
+/// workspace-relative form on every page, and its next page replays as is.
+#[tokio::test]
+async fn topology_path_echo_matches_caller_form_on_paged_cycles() {
+    let workspace = Workspace::new();
+    for (name, other) in [("a", "b"), ("b", "a"), ("c", "d"), ("d", "c")] {
+        workspace.write(
+            &format!("packages/app/src/{name}.ts"),
+            format!(
+                "import {{ {other} }} from './{other}';\nexport const {name} = () => {other}();\n"
+            ),
+        );
+    }
+    let runtime = workspace.runtime(&[("OCTOCODE_BETA", "true".into())]);
+    let first = call(
+        &runtime,
+        "astTopology",
+        json!({"operation":"cycles","path":"packages/app","pageSize":1}),
+    )
+    .await
+    .expect("cycles page 1");
+    let data = row_data(&first);
+    assert_eq!(data["path"], "packages/app", "{data}");
+    let next = data["next"]["nextPage"]["query"].clone();
+    assert!(next.is_object(), "a second page: {data}");
+    let second = runtime
+        .execute("test-2".into(), "astTopology".into(), next)
+        .await
+        .expect("cycles page 2");
+    let data = row_data(&second);
+    assert_eq!(data["path"], "packages/app", "{data}");
+    assert_eq!(data["results"].as_array().map(Vec::len), Some(1), "{data}");
     runtime.close().await;
 }

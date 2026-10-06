@@ -152,12 +152,26 @@ pub(super) fn scan(
         hits.push((index, at, every));
     }
     let total = hits.len();
+    let raw: Vec<&str> = text.lines().collect();
     // The read anchors where the listing does: on lines holding every
-    // keyword when any exist, else on any keyword line.
+    // keyword when any exist; else on the smallest window holding every
+    // keyword (one opened by a declaration first); else on any keyword line.
     let any_every = hits.iter().any(|hit| hit.2);
+    let window = (!any_every && needles.len() > 1)
+        .then(|| {
+            covering_window(&hits, &lowered, &needles, |hit| {
+                let (index, at, _) = hits[hit];
+                declared_head(raw[index], &lowered, index, at, path, security).is_some()
+            })
+        })
+        .flatten();
     let (mut first, mut last, mut best) = (0, 0, (0, (0, 0)));
+    if let Some((start, end)) = window {
+        let number = |hit: usize| u32::try_from(hits[hit].0 + 1).unwrap_or(u32::MAX);
+        (first, last, best) = (number(start), number(end), (number(start), scores[start]));
+    }
     for (&(index, _, every), &score) in hits.iter().zip(&scores) {
-        if any_every && !every {
+        if window.is_some() || (any_every && !every) {
             continue;
         }
         let number = u32::try_from(index + 1).unwrap_or(u32::MAX);
@@ -170,23 +184,24 @@ pub(super) fn scan(
         last = number;
     }
     // Listed: the lines holding every keyword; without one, each keyword's
-    // first line. The rest stay counted for the whole-file read.
-    let mut uncovered: Vec<&String> = if hits.iter().any(|hit| hit.2) {
+    // first line and the anchoring window's first and last lines. The rest stay counted for
+    // the whole-file read.
+    let mut uncovered: Vec<&String> = if any_every {
         Vec::new()
     } else {
         needles.iter().collect()
     };
-    let raw: Vec<&str> = text.lines().collect();
+    let in_window = |hit: usize| window.is_some_and(|(start, end)| hit == start || hit == end);
     let mut lines = Vec::new();
     let mut clipped = false;
-    for &(index, at, every) in &hits {
+    for (hit, &(index, at, every)) in hits.iter().enumerate() {
         if lines.len() >= MAX_LINES_PER_FILE {
             break;
         }
         let lower = &lowered[index];
         let before = uncovered.len();
         uncovered.retain(|needle| !lower.contains(needle.as_str()));
-        if !every && uncovered.len() == before {
+        if !every && uncovered.len() == before && !in_window(hit) {
             continue;
         }
         let number = u32::try_from(index + 1).unwrap_or(u32::MAX);
@@ -235,6 +250,42 @@ pub(super) fn scan(
         line_count,
         declaration,
     }
+}
+
+/// Widest span (in lines) of a window that anchors a multi-keyword read.
+const MAX_WINDOW_LINES: usize = 60;
+
+/// The hits (`start..=end` indexes into `hits`) of the smallest window of at
+/// most [`MAX_WINDOW_LINES`] lines holding every keyword, preferring one
+/// opened by a declaration (`declares`), then the narrowest, then the
+/// earliest. `None` when no such window exists.
+fn covering_window(
+    hits: &[(usize, usize, bool)],
+    lowered: &[String],
+    needles: &[String],
+    declares: impl Fn(usize) -> bool,
+) -> Option<(usize, usize)> {
+    // ((opened by no declaration, span, start), (start, end)).
+    type Ranked = ((bool, usize, usize), (usize, usize));
+    let mut chosen: Option<Ranked> = None;
+    for start in 0..hits.len() {
+        let mut missing: Vec<&String> = needles.iter().collect();
+        for end in start..hits.len() {
+            let span = hits[end].0 - hits[start].0;
+            if span > MAX_WINDOW_LINES {
+                break;
+            }
+            missing.retain(|needle| !lowered[hits[end].0].contains(needle.as_str()));
+            if missing.is_empty() {
+                let rank = (!declares(start), span, start);
+                if chosen.as_ref().is_none_or(|(best, _)| rank < *best) {
+                    chosen = Some((rank, (start, end)));
+                }
+                break;
+            }
+        }
+    }
+    chosen.map(|(_, window)| window)
 }
 
 /// Keywords that open a named block: the word right before a declared name.
@@ -648,7 +699,11 @@ mod tests {
         else {
             panic!("hit");
         };
-        assert_eq!(lines, vec!["1\toctocode one", "3\tmcp three"]);
+        // The window anchoring the read (lines 2-3) is listed too.
+        assert_eq!(
+            lines,
+            vec!["1\toctocode one", "2\toctocode two", "3\tmcp three"]
+        );
         assert_eq!(total, 4);
     }
 
@@ -663,6 +718,57 @@ mod tests {
             panic!("hit");
         };
         assert_eq!((first, last, best), (4, 4, 4));
+    }
+
+    /// GC3: with no line holding every keyword, the read anchors on the
+    /// smallest window that holds them all, preferring one a declaration
+    /// opens, not on the best single-keyword hit elsewhere in the file.
+    #[test]
+    fn spread_keywords_anchor_on_the_declaration_window() {
+        let mut lines = vec![String::new(); 900];
+        lines[128] = "        self.trust_env = trust_env".into();
+        lines[491] = "        self.trust_env = True".into();
+        lines[640] = "        settings = self.merge_environment_settings(".into();
+        lines[830] =
+            "    def merge_environment_settings(self, url, proxies, stream, verify, cert):".into();
+        lines[844] = "        if self.trust_env:".into();
+        let text = lines.join("\n");
+        let keywords = [
+            "merge_environment_settings".to_owned(),
+            "trust_env".to_owned(),
+        ];
+        let FileHits::Lines {
+            lines,
+            first,
+            last,
+            best,
+            declaration,
+            ..
+        } = scan(text.as_bytes(), "sessions.py", &keywords, "", &Passthrough)
+        else {
+            panic!("hit");
+        };
+        assert_eq!((first, last, best), (831, 845, 831));
+        assert_eq!(
+            declaration.as_deref(),
+            Some("def merge_environment_settings(self, url, proxies, stream, verify, cert):")
+        );
+        let numbers: Vec<&str> = lines
+            .iter()
+            .filter_map(|line| line.split('\t').next())
+            .collect();
+        for number in ["129", "641", "831", "845"] {
+            assert!(numbers.contains(&number), "{lines:?}");
+        }
+        // Keywords never within the window size keep the best single hit.
+        let far =
+            "x = trust_env\n".to_owned() + &"\n".repeat(100) + "merge_environment_settings()\n";
+        let FileHits::Lines { best, .. } =
+            scan(far.as_bytes(), "a.py", &keywords, "", &Passthrough)
+        else {
+            panic!("hit");
+        };
+        assert_eq!(best, 1);
     }
 
     #[test]

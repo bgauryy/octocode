@@ -83,6 +83,15 @@ describe('native config bridge', () => {
       configViewCommand('/missing', ['config', 'view', '--add', 'KEY'])
     ).resolves.toBe(2);
   });
+  it.each(['--no-color', '--json-errors'])(
+    'rejects the removed global flag %s',
+    async flag => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      await expect(
+        configViewCommand('/missing', ['config', 'view', flag])
+      ).resolves.toBe(2);
+    }
+  );
 });
 
 describe('config view lifecycle', () => {
@@ -100,7 +109,6 @@ describe('config view lifecycle', () => {
       if (match) ready(match[0]);
     });
     const running = configViewCommand(bin, [
-      '--no-color',
       'config',
       'view',
       '--no-open',

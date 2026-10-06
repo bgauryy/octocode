@@ -67,12 +67,13 @@ impl DomainResult {
     /// language servers). Every fact is stated once, in this order:
     ///
     /// ```text
-    /// {error, errorCode, retryable, httpStatus?,
+    /// {error, errorCode, retryable?, httpStatus?,
     ///  rateLimit?: {resource?, remaining?, resetEpochSeconds?, retryAfterSeconds?},
     ///  hints?, next?}
     /// ```
     ///
-    /// `retryable` is always present (true/false). `httpStatus` appears only
+    /// `retryable:true` appears only when a retry can help (absence = do not
+    /// retry unchanged). `httpStatus` appears only
     /// when the upstream answered. Rate-limit members are seconds and absent
     /// when unknown, never null or a made-up 0. There is no `status`, `type`,
     /// `rateLimitRemaining`, `rateLimitReset` sibling and no raw provider
@@ -89,7 +90,9 @@ impl DomainResult {
     ) -> Self {
         let mut row = Self::failure(code, message, Vec::new(), None, kind);
         let data = &mut row.data;
-        data["retryable"] = json!(upstream.retryable);
+        if upstream.retryable {
+            data["retryable"] = json!(true);
+        }
         if let Some(status) = upstream.http_status {
             data["httpStatus"] = json!(status);
         }
@@ -290,15 +293,13 @@ pub(super) fn parse_query<'de, T: serde::Deserialize<'de>>(
 }
 
 pub(super) fn invalid_query(error: &serde_json::Error) -> DomainResult {
-    let mut row = DomainResult::failure(
+    DomainResult::failure(
         "invalidInput",
         "Check the query fields.",
         vec![format!("Query does not match the runtime type: {error}.")],
         None,
         FailureKind::Execution,
-    );
-    row.data["retryable"] = json!(false);
-    row
+    )
 }
 
 /// A tool payload whose own `status` field selects the row status.
@@ -576,7 +577,8 @@ mod provider_failure_tests {
         );
         assert_eq!(
             bare.data,
-            json!({"error": "Network connection failed", "errorCode": "transport", "retryable": false})
+            json!({"error": "Network connection failed", "errorCode": "transport"}),
+            "retryable is stated only when true"
         );
         // Registry and language-server rows use the same builder; an
         // emitter's own retry verdict wins over the derived one.
@@ -614,7 +616,7 @@ mod provider_failure_tests {
             None,
         );
         assert!(without.data.get("httpStatus").is_none(), "absence is valid");
-        assert_eq!(without.data["retryable"], false);
+        assert!(without.data.get("retryable").is_none(), "{}", without.data);
         assert!(
             without.data["hints"][0]
                 .as_str()
@@ -636,7 +638,11 @@ mod provider_failure_tests {
         ] {
             let failure =
                 provider_failure(format!("{code} failure"), code.into(), vec![], status, None);
-            assert_eq!(failure.data["retryable"], retryable, "{code}");
+            assert_eq!(
+                failure.data.get("retryable"),
+                retryable.then_some(&serde_json::json!(true)),
+                "{code}"
+            );
             assert!(
                 failure.data["hints"][0]
                     .as_str()

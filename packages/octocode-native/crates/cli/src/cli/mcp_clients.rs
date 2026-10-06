@@ -49,7 +49,6 @@ pub(super) enum EnableFlag {
 
 pub(super) struct ClientSpec {
     pub(super) id: &'static str,
-    pub(super) aliases: &'static [&'static str],
     pub(super) format: ConfigFormat,
     pub(super) shape: EntryShape,
     /// Map that holds the `octocode` entry.
@@ -86,7 +85,6 @@ pub(super) static CLIENTS: [ClientSpec; 15] = [
         ..ClientSpec::stdio("cursor", |dirs| dirs.home.join(".cursor").join("mcp.json"))
     },
     ClientSpec {
-        aliases: &["claude"],
         ..ClientSpec::stdio("claude-desktop", |dirs| {
             dirs.app_support
                 .join("Claude")
@@ -115,7 +113,6 @@ pub(super) static CLIENTS: [ClientSpec; 15] = [
             .join("mcp_config.json")
     }),
     ClientSpec {
-        aliases: &["vscode"],
         enable: Some(EnableFlag::Disabled),
         ..ClientSpec::stdio("vscode-cline", |dirs| {
             dirs.vscode_storage()
@@ -203,18 +200,15 @@ pub(super) static CLIENTS: [ClientSpec; 15] = [
     },
 ];
 
-/// The client named by an id or alias.
+/// The client with this id.
 pub(super) fn client(name: &str) -> Option<&'static ClientSpec> {
-    CLIENTS
-        .iter()
-        .find(|spec| spec.id == name || spec.aliases.contains(&name))
+    CLIENTS.iter().find(|spec| spec.id == name)
 }
 
 impl ClientSpec {
     const fn stdio(id: &'static str, home: fn(&Dirs) -> PathBuf) -> Self {
         Self {
             id,
-            aliases: &[],
             format: ConfigFormat::Json,
             shape: EntryShape::Stdio,
             servers: "mcpServers",

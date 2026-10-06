@@ -1,6 +1,6 @@
 # Recovery
 
-Load when a run errors, returns nothing, or fails twice. Match the symptom. Common classes: consent wall, bot/CDN challenge, stale session, framework-controlled input, thin JS shell (run `actionability-diagnostics`, then scraping diagnostics).
+Load when a run errors or returns nothing. Why: Change the failing cause before retrying. Match the symptom. Common classes: consent wall, bot/CDN challenge, stale session, framework-controlled input, thin JS shell (run `actionability-diagnostics`, then scraping diagnostics).
 
 ## Launch and session
 
@@ -18,9 +18,9 @@ Load when a run errors, returns nothing, or fails twice. Match the symptom. Comm
 |---|---|
 | `STALE_SNAPSHOT_REF`; `DOM_BLOCKED not visible` after a hover/menu | Auto-recovered by role+name; else layout shifted: re-snapshot or use the `[NEW]` refs the last action printed |
 | `ERR_ACCESS_DENIED` | Sandbox limits (`script-patterns.md`); `--verbose` lists allowed paths |
-| `[CDP_RETRY_NEEDED]` (exit 2) / `CDP timeout for <method>` | Enable the domain or fix the method name; retry once |
+| `[CDP_RETRY_NEEDED]` (exit 2) / `CDP timeout for <method>` | Enable the required domain or fix the method/parameters before retrying |
 | `VERIFY_MISMATCH` / framework ignores value | Try `DOM_ACTION=type` (keystrokes), then `DOM_INPUT=js` (native setter) |
-| Bot/CDN challenge or CAPTCHA | Try a current desktop `--userAgent` once |
+| Bot/CDN challenge or CAPTCHA | Inspect the challenge; use visible `user-auth` if it persists |
 | Consent wall | Locate the control; after an authorized click, re-navigate |
 | Headless text shows ligature gaps (`Sy tem One`) | Use `octocode-scraping` for clean text |
 
@@ -30,8 +30,8 @@ Load when a run errors, returns nothing, or fails twice. Match the symptom. Comm
 |---|---|
 | `Storage.enable` not found | Not needed; use `Network.getAllCookies`, `Runtime.evaluate`, `IndexedDB.*` |
 | `IndexedDB.requestDatabaseNames` error | `IndexedDB.enable` + matching `securityOrigin`, or `indexedDB.databases()` |
-| `getResponseBody` empty | Body evicted; read it on `responseReceived` |
+| `getResponseBody` empty | Body evicted; read it on `loadingFinished` after attaching before navigation |
 | Zero DNS/TCP/TLS timings | Warm cache: `Network.clearBrowserCache` before navigating |
 | FCP is null | Read paint entries after the final navigation settles; don't mix CDP lifecycle and `performance.now()` clocks |
 
-Next: static fallback → `octocode-scraping`; otherwise apply the lobby stop rule.
+Next: static fallback → `octocode-scraping`; otherwise report the persistent blocker.

@@ -79,6 +79,17 @@ pub(crate) async fn pypi(
             super::release_ref::github_release_tag(repository, version, client).await;
         artifact.source_tag = artifact.source_ref.is_some();
     }
+    // The manifest lead reads where this release declares its dependencies.
+    if artifact.source_ref.is_some()
+        && !artifact.dependency_list.is_empty()
+        && let (Some(version), Some(files)) = (
+            artifact.version.clone(),
+            body.get("urls").and_then(Value::as_array),
+        )
+    {
+        artifact.manifest =
+            super::release_ref::pypi_sdist_manifest(&artifact.name, &version, files, client).await;
+    }
     Ok(single(artifact))
 }
 
@@ -480,6 +491,8 @@ async fn go_exact(
     );
     artifact.version = string(row.get("version"));
     artifact.description = string(row.get("synopsis"));
+    // The version's commit time is its release date on pkg.go.dev.
+    artifact.published_at = date_prefix(row.get("commitTime"));
     artifact.repository = safe_url(row.get("repoUrl"));
     artifact.module_path = if is_package {
         string(row.get("modulePath"))
@@ -1488,7 +1501,8 @@ mod tests {
         let http = StaticHttp::json(json!({
             "path": "github.com/gin-gonic/gin",
             "version": "v1.9.1",
-            "synopsis": "HTTP web framework for Go"
+            "synopsis": "HTTP web framework for Go",
+            "commitTime": "2023-06-12T08:50:28Z"
         }));
         let b = test_budget();
         let client = RegistryClient::uncached(&http, &b);
@@ -1500,6 +1514,8 @@ mod tests {
         let item = &page.artifacts[0];
         assert_eq!(item.name, "github.com/gin-gonic/gin");
         assert_eq!(item.version.as_deref(), Some("v1.9.1"));
+        // AR4: the release date comes from the same response (0 calls).
+        assert_eq!(item.published_at.as_deref(), Some("2023-06-12"));
         assert!(
             item.registry_url.contains("pkg.go.dev"),
             "{}",

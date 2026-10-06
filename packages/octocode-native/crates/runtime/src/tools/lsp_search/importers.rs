@@ -13,24 +13,17 @@
 //! declaration: identity is proven by the server, never guessed from text.
 //! Verified occurrences become extra anchors for the same request.
 
-use super::blocking_cancellable;
 use super::failure::LspFailure;
 use super::recovery::{get_locations, resolve_definition_chain, snippet_identity};
-use super::render::{TS_LANGUAGE_IDS, uri_to_path, word_pattern};
+use super::render::{TS_LANGUAGE_IDS, uri_to_path};
+use super::scope::Scope;
 use super::source::SourceCache;
 use crate::policy::path::PathPolicy;
 use crate::tools::cancel::CancellationCheck;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
-use octocode_engine::portable::search_ripgrep_cancellable;
-use octocode_engine::types::RipgrepSearchOptions;
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
-use std::sync::Arc;
-
-const TS_JS_GLOBS: [&str; 8] = [
-    "*.ts", "*.tsx", "*.mts", "*.cts", "*.js", "*.jsx", "*.mjs", "*.cjs",
-];
 /// Candidate files opened and verified per request.
 pub(super) const MAX_CANDIDATE_FILES: usize = 24;
 /// Settle/ready bounds for the last candidate open; the load it triggers
@@ -54,6 +47,9 @@ pub(super) struct Importers {
     pub(super) capped: bool,
     /// A candidate could not be read, opened, or resolved, or the scan failed.
     pub(super) failed: bool,
+    /// Candidates whose every occurrence the server resolved to another
+    /// declaration: checked, and not uses of this symbol.
+    pub(super) rejected: Vec<String>,
 }
 
 /// True for operations whose answer lists places that point *at* the anchor.
@@ -97,96 +93,31 @@ fn canonical(path: &str) -> String {
         .unwrap_or_else(|_| path.to_owned())
 }
 
-/// TS/JS files under `workspace_root` that mention `symbol` as a word,
-/// excluding `skip`, capped at [`MAX_CANDIDATE_FILES`]. The walk observes
-/// `cancel` while it runs; `None` means the scan itself failed, which is
-/// neither cancellation nor an empty candidate set.
+/// TS/JS files under the request's search scope that mention `symbol` as
+/// a word, excluding `skip`, capped at [`MAX_CANDIDATE_FILES`]. The scan is
+/// the scope's text scan (shared with `textOnlyFiles`) and observes
+/// `cancel`; `None` means the scan itself failed, which is neither
+/// cancellation nor an empty candidate set.
 async fn candidate_files(
-    workspace_root: &str,
+    scope: &Scope,
     symbol: &str,
     skip: &HashSet<String>,
     policy: &PathPolicy,
     cancel: &dyn CancellationCheck,
 ) -> Result<Option<(Vec<String>, bool)>, LspFailure> {
-    let options = RipgrepSearchOptions {
-        path: workspace_root.to_owned(),
-        pattern: word_pattern(symbol),
-        files_only: Some(true),
-        include: Some(TS_JS_GLOBS.iter().map(|glob| (*glob).to_owned()).collect()),
-        ..RipgrepSearchOptions::default()
-    };
-    let filter = Arc::new(policy.clone());
-    let root = workspace_root.to_owned();
-    let Some(Ok(parsed)) = blocking_cancellable(cancel, move |stopped| {
-        search_ripgrep_cancellable(options, filter, stopped)
-    })
-    .await?
-    else {
+    let Some(files) = scope.text_files(symbol, policy, cancel).await? else {
         return Ok(None);
     };
-    let files = parsed
-        .files
-        .into_iter()
-        .map(|file| {
-            let path = Path::new(&file.path);
-            let absolute = if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                Path::new(&root).join(path)
-            };
-            canonical(&absolute.to_string_lossy())
-        })
-        .filter(|path| !skip.contains(path))
+    let files = files
+        .iter()
+        .filter(|path| !skip.contains(*path))
+        .cloned()
         .collect::<BTreeSet<_>>();
     let capped = files.len() > MAX_CANDIDATE_FILES;
     Ok(Some((
         files.into_iter().take(MAX_CANDIDATE_FILES).collect(),
         capped,
     )))
-}
-
-/// Ancestors checked above the server's workspace root for a JS monorepo root.
-const MAX_SCAN_ROOT_ASCENT: usize = 6;
-
-/// Where importers are searched: the server's workspace root, widened to the
-/// nearest enclosing JS workspace root (`pnpm-workspace.yaml`, `lerna.json`,
-/// or a `package.json` with `workspaces`) the read policy authorizes. A
-/// package's own root (its `package.json`) hides sibling packages that import
-/// it through a package-index re-export (`export { f } from "@scope/pkg"`).
-/// The scan never leaves the anchor's repository: a monorepo above a nested
-/// checkout (a directory with its own `.git`) is a different project, and its
-/// ignore rules may hide the checkout entirely.
-fn scan_root(workspace_root: &str, policy: &crate::policy::path::PathPolicy) -> String {
-    let start = Path::new(workspace_root);
-    let mut repository = Vec::new();
-    for dir in start.ancestors().take(MAX_SCAN_ROOT_ASCENT + 1) {
-        repository.push(dir);
-        if dir.join(".git").exists() {
-            break;
-        }
-    }
-    repository
-        .into_iter()
-        .skip(1)
-        .find(|dir| is_js_workspace_root(dir))
-        .filter(|dir| {
-            policy
-                .validate(dir)
-                .is_ok_and(|valid| valid.canonical.is_dir())
-        })
-        .map_or_else(
-            || workspace_root.to_owned(),
-            |dir| dir.to_string_lossy().into_owned(),
-        )
-}
-
-fn is_js_workspace_root(dir: &Path) -> bool {
-    dir.join("pnpm-workspace.yaml").is_file()
-        || dir.join("lerna.json").is_file()
-        || std::fs::read_to_string(dir.join("package.json"))
-            .ok()
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-            .is_some_and(|manifest| manifest.get("workspaces").is_some())
 }
 
 /// The identifier covering a zero-based UTF-16 position, for anchors given
@@ -275,13 +206,13 @@ pub(super) async fn verified_anchors(
     snippet_policy: &SnippetReadPolicy,
     cancel: &dyn CancellationCheck,
     symbol: &str,
-    workspace_root: &str,
+    scope: &Scope,
     anchor_path: &str,
     line: u32,
     character: u32,
     known_files: &HashSet<String>,
 ) -> Result<Importers, LspFailure> {
-    if symbol.trim().is_empty() || workspace_root.is_empty() {
+    if symbol.trim().is_empty() || scope.root.is_empty() {
         return Ok(Importers::default());
     }
     let declaration = identities(
@@ -302,9 +233,8 @@ pub(super) async fn verified_anchors(
     };
     let mut skip = known_files.clone();
     skip.insert(canonical(anchor_path));
-    let scan_root = scan_root(workspace_root, sources.policy());
     let Some((files, capped)) =
-        candidate_files(&scan_root, symbol, &skip, sources.policy(), cancel).await?
+        candidate_files(scope, symbol, &skip, sources.policy(), cancel).await?
     else {
         return Ok(Importers {
             failed: true,
@@ -312,7 +242,7 @@ pub(super) async fn verified_anchors(
         });
     };
     let (opened, open_failed) = open_candidates(client, sources, cancel, &files, symbol).await?;
-    let (anchors, verify_failed) = verify_occurrences(
+    let (anchors, rejected, verify_failed) = verify_occurrences(
         client,
         sources,
         snippet_policy,
@@ -326,6 +256,7 @@ pub(super) async fn verified_anchors(
         anchors,
         capped,
         failed,
+        rejected,
     })
 }
 
@@ -379,7 +310,8 @@ async fn open_candidates(
 }
 
 /// Keep each occurrence whose definition chain reaches `declaration`.
-/// Returns the verified anchors and whether any identity check failed.
+/// Returns the verified anchors, the files whose every occurrence resolved
+/// elsewhere, and whether any identity check failed.
 async fn verify_occurrences(
     client: &NativeLspClient,
     sources: &mut SourceCache<'_>,
@@ -387,10 +319,13 @@ async fn verify_occurrences(
     cancel: &dyn CancellationCheck,
     opened: Vec<OpenedFile>,
     declaration: &HashSet<String>,
-) -> Result<(Vec<Anchor>, bool), LspFailure> {
+) -> Result<(Vec<Anchor>, Vec<String>, bool), LspFailure> {
     let mut failed = false;
     let mut anchors = Vec::new();
+    let mut rejected = Vec::new();
     for (file, spots) in opened {
+        let mut file_failed = false;
+        let verified_before = anchors.len();
         // One verified anchor answers for the whole file's program; keep
         // checking only until a verified call site is found as well.
         let mut verified_any = false;
@@ -411,6 +346,7 @@ async fn verify_occurrences(
             .await?;
             let Some(resolved) = resolved else {
                 failed = true;
+                file_failed = true;
                 continue;
             };
             if !resolved.is_disjoint(declaration) {
@@ -426,8 +362,11 @@ async fn verify_occurrences(
                 verified_any = true;
             }
         }
+        if !file_failed && anchors.len() == verified_before {
+            rejected.push(file);
+        }
     }
-    Ok((anchors, failed))
+    Ok((anchors, rejected, failed))
 }
 
 /// LSP `SymbolKind`s that own call sites: method, constructor, function.
@@ -446,7 +385,6 @@ const FILE_KIND: u64 = 1;
 pub(super) async fn callers_from_references(
     client: &NativeLspClient,
     sources: &mut SourceCache<'_>,
-    snippet_policy: &SnippetReadPolicy,
     cancel: &dyn CancellationCheck,
     importers: &Importers,
     answered: &HashSet<String>,
@@ -457,9 +395,13 @@ pub(super) async fn callers_from_references(
         if answered.contains(&canonical(&anchor.path)) {
             continue;
         }
+        let file = canonical(&anchor.path);
+        // Only the importer's own sites are kept: read no other file's
+        // snippet (a references answer names every file using the symbol).
+        let own_file = own_file_policy(sources.policy(), &file);
         let Ok(references) = get_locations(
             client,
-            snippet_policy,
+            &own_file,
             cancel,
             LocationRequest::References {
                 include_declaration: false,
@@ -472,7 +414,6 @@ pub(super) async fn callers_from_references(
         else {
             continue;
         };
-        let file = canonical(&anchor.path);
         let Some(source) = sources.get(&anchor.path).await else {
             continue;
         };
@@ -530,6 +471,16 @@ pub(super) async fn callers_from_references(
     Ok(edges)
 }
 
+/// A snippet policy that reads only `file` (canonical) under `paths`;
+/// locations in other files keep their range with withheld content.
+fn own_file_policy(paths: &PathPolicy, file: &str) -> SnippetReadPolicy {
+    let (paths, file) = (paths.clone(), file.to_owned());
+    SnippetReadPolicy::with_authorizer(move |path| {
+        let valid = paths.validate_read(path).ok()?.canonical;
+        (valid.to_string_lossy() == file).then_some(valid)
+    })
+}
+
 /// True when `(` (after optional spaces) follows the UTF-16 position.
 fn is_call_at(content: &str, line: u32, character: u32) -> bool {
     let Some(text) = usize::try_from(line)
@@ -551,34 +502,35 @@ fn is_call_at(content: &str, line: u32, character: u32) -> bool {
 }
 
 /// DocumentSymbol trees (and flat SymbolInformation lists) as one flat list
-/// of `{name, kind, range, selectionRange}`.
-fn flatten_symbols(value: &Value, out: &mut Vec<Value>) {
+/// of `{name, kind, range, selectionRange}` (`selectionRange` defaults to
+/// `range`), in one pass.
+pub(super) fn flatten_symbols(value: &Value, out: &mut Vec<Value>) {
     for symbol in value.as_array().into_iter().flatten() {
         let range = symbol
             .get("range")
             .or_else(|| symbol.pointer("/location/range"))
             .cloned();
         if let Some(range) = range {
+            let selection = symbol
+                .get("selectionRange")
+                .filter(|selection| !selection.is_null())
+                .cloned()
+                .unwrap_or_else(|| range.clone());
             out.push(json!({
                 "name": symbol.get("name").cloned().unwrap_or(Value::Null),
                 "kind": symbol.get("kind").cloned().unwrap_or(Value::Null),
                 "range": range,
-                "selectionRange": symbol.get("selectionRange").cloned().unwrap_or(Value::Null),
+                "selectionRange": selection,
             }));
         }
         if let Some(children) = symbol.get("children") {
             flatten_symbols(children, out);
         }
     }
-    for symbol in out.iter_mut() {
-        if symbol["selectionRange"].is_null() {
-            symbol["selectionRange"] = symbol["range"].clone();
-        }
-    }
 }
 
 /// Innermost callable symbol whose range contains the position.
-fn enclosing_callable(symbols: &[Value], line: u32, character: u32) -> Option<&Value> {
+pub(super) fn enclosing_callable(symbols: &[Value], line: u32, character: u32) -> Option<&Value> {
     let point = |symbol: &Value, edge: &str| {
         (
             symbol
@@ -636,6 +588,7 @@ async fn identities(
 
 #[cfg(test)]
 mod tests {
+    use super::super::blocking_cancellable;
     use super::*;
 
     #[test]
@@ -692,6 +645,7 @@ mod tests {
             ],
             capped: false,
             failed: false,
+            rejected: Vec::new(),
         };
         let sites = importers
             .call_sites()
@@ -726,48 +680,6 @@ mod tests {
             Some(json!("run"))
         );
         assert!(enclosing_callable(&flat, 9, 0).is_none());
-    }
-
-    #[test]
-    fn importer_scan_widens_to_the_enclosing_js_workspace_root() {
-        let root =
-            std::env::temp_dir().join(format!("octocode-lsp-scan-root-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
-        let package = root.join("packages/element");
-        std::fs::create_dir_all(package.join("src")).expect("package");
-        let root = root.canonicalize().expect("canonical");
-        let package = root.join("packages/element");
-        std::fs::write(package.join("package.json"), r#"{"name":"@x/element"}"#).expect("pkg");
-        let policy = |workspace: &Path| crate::tools::test_support::workspace_policy(workspace);
-        let package_str = package.to_string_lossy().into_owned();
-        // No monorepo marker: the package root stays the scan root.
-        assert_eq!(scan_root(&package_str, &policy(&root)), package_str);
-        std::fs::write(
-            root.join("package.json"),
-            r#"{"private":true,"workspaces":["packages/*"]}"#,
-        )
-        .expect("root manifest");
-        assert_eq!(
-            scan_root(&package_str, &policy(&root)),
-            root.to_string_lossy()
-        );
-        // An unauthorized monorepo root never widens the scan.
-        assert_eq!(scan_root(&package_str, &policy(&package)), package_str);
-        // A repository boundary below the monorepo root stops the widening:
-        // a nested checkout is its own project.
-        std::fs::create_dir_all(root.join("packages/.git")).expect("nested repository");
-        assert_eq!(scan_root(&package_str, &policy(&root)), package_str);
-        std::fs::remove_dir_all(root.join("packages/.git")).expect("cleanup");
-        std::fs::create_dir_all(package.join(".git")).expect("checkout");
-        assert_eq!(scan_root(&package_str, &policy(&root)), package_str);
-        std::fs::remove_dir_all(package.join(".git")).expect("cleanup");
-        // The repository's own root still widens when it is the monorepo.
-        std::fs::create_dir_all(root.join(".git")).expect("monorepo repository");
-        assert_eq!(
-            scan_root(&package_str, &policy(&root)),
-            root.to_string_lossy()
-        );
-        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// Cancels once `flag` is set, or once `deadline` passes (as a timeout).
@@ -902,8 +814,9 @@ mod tests {
         }
         let root_str = root.path().to_string_lossy().into_owned();
         let policy = |workspace: &Path| crate::tools::test_support::workspace_policy(workspace);
+        let scope = Scope::new(root_str.clone(), vec!["*.ts".into()]);
         let failure = candidate_files(
-            &root_str,
+            &scope,
             "target",
             &HashSet::new(),
             &policy(root.path()),
@@ -912,8 +825,9 @@ mod tests {
         .await
         .expect_err("cancellation is not an empty or complete scan");
         assert_eq!(failure.code, "lsp.cancelled");
+        let scope = Scope::new(root_str, vec!["*.ts".into()]);
         let complete = candidate_files(
-            &root_str,
+            &scope,
             "target",
             &HashSet::new(),
             &policy(root.path()),

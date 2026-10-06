@@ -602,6 +602,31 @@ mod drift_tests {
         assert!(cycles[0].get("runtimeCycleEdges").is_none(), "{out}");
     }
 
+    /// N6: a cycle item leads with its small facts (counts, runtime cycles,
+    /// edges) and ends with its `files`, so a split item shows them first.
+    #[test]
+    fn cycle_items_put_counts_before_files() {
+        let temp = fixture(&[
+            (
+                "a.ts",
+                "import { b } from './b';\nexport const a = () => b();\n",
+            ),
+            (
+                "b.ts",
+                "import { a } from './a';\nexport const b = () => a();\n",
+            ),
+        ]);
+        let root = temp.path();
+        let out = topology(root, json!({"operation":"cycles"}));
+        let cycle = out["results"][0].as_object().expect("cycle item");
+        let keys = cycle.keys().map(String::as_str).collect::<Vec<_>>();
+        assert_eq!(keys.last(), Some(&"files"), "{out}");
+        assert_eq!(cycle["fileCount"], json!(2), "{out}");
+        let at = |key: &str| keys.iter().position(|k| *k == key);
+        assert!(at("fileCount") < at("files"), "{keys:?}");
+        assert!(at("runtimeCycles") < at("cycleEdges"), "{keys:?}");
+    }
+
     #[test]
     fn rust_qualified_path_calls_are_dependencies_that_close_cycles() {
         let temp = fixture(&[

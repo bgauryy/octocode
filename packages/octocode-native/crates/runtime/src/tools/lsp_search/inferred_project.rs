@@ -16,6 +16,7 @@ use super::LspSearchQuery;
 use super::failure::flag_partial;
 use super::importers::{MAX_CANDIDATE_FILES, SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED};
 use super::render::TS_LANGUAGE_IDS;
+use super::scope::Scope;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -60,7 +61,7 @@ pub(super) fn annotate(
     query: &LspSearchQuery,
     language_id: Option<&str>,
     anchor_path: &str,
-    workspace_root: &str,
+    scope: &Scope,
 ) {
     if !language_id.is_some_and(|id| TS_LANGUAGE_IDS.contains(&id))
         || !is_incoming(&query.operation())
@@ -90,7 +91,7 @@ pub(super) fn annotate(
         _ if lacks_project_config(Path::new(anchor_path)) => (REASON, INFERRED_WARNING.to_owned()),
         _ => return,
     };
-    flag_partial(row, query, reason, &warning, workspace_root);
+    flag_partial(row, query, reason, &warning, scope);
 }
 
 const CLANGD_LANGUAGE_IDS: [&str; 4] = ["c", "cpp", "objective-c", "objective-cpp"];
@@ -124,7 +125,7 @@ pub(super) fn annotate_compile_database(
     query: &LspSearchQuery,
     language_id: Option<&str>,
     anchor_path: &str,
-    workspace_root: &str,
+    scope: &Scope,
 ) {
     if !language_id.is_some_and(|id| CLANGD_LANGUAGE_IDS.contains(&id))
         || !row.is_object()
@@ -143,7 +144,7 @@ pub(super) fn annotate_compile_database(
             query,
             NO_COMPILE_DATABASE_REASON,
             NO_COMPILE_DATABASE_WARNING,
-            workspace_root,
+            scope,
         );
     }
 }
@@ -184,7 +185,7 @@ mod tests {
             &query,
             Some("typescript"),
             &file.to_string_lossy(),
-            &root,
+            &Scope::new(root.clone(), Vec::new()),
         );
         assert_eq!(row["isPartial"], true, "{row}");
         assert_eq!(row["partialReasons"], json!([REASON]));
@@ -214,7 +215,7 @@ mod tests {
             &query,
             Some("typescript"),
             &file.to_string_lossy(),
-            &root,
+            &Scope::new(root.clone(), Vec::new()),
         );
         assert_eq!(row, refs_row());
     }
@@ -232,7 +233,7 @@ mod tests {
             &query,
             Some("rust"),
             &file.to_string_lossy(),
-            &root,
+            &Scope::new(root.clone(), Vec::new()),
         );
         assert_eq!(row, refs_row());
 
@@ -247,7 +248,7 @@ mod tests {
             &definition,
             Some("typescript"),
             &file.to_string_lossy(),
-            &root,
+            &Scope::new(root.clone(), Vec::new()),
         );
         assert_eq!(row, refs_row());
     }
@@ -261,7 +262,7 @@ mod tests {
             return; // an ancestor of the temp dir has one
         }
         let query = refs_query(&format!("file://{}", file.display()));
-        let root = dir.path().to_string_lossy();
+        let root = Scope::new(dir.path().to_string_lossy().into_owned(), Vec::new());
         let path = file.to_string_lossy();
         let mut row = json!({"status":"empty","payload":{"kind":"empty"},"hints":["generic"]});
         annotate_compile_database(&mut row, &query, Some("cpp"), &path, &root);

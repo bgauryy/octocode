@@ -17,6 +17,20 @@ fn no_continuation(value: &serde_json::Value) -> bool {
             .is_none_or(|hints| hints.keys().all(|key| key == "text"))
 }
 
+/// The read lead of a clasify resource (`hints.read` or `next.read`), on the
+/// resource or its first page.
+fn resource_read(resource: &serde_json::Value) -> Option<serde_json::Value> {
+    ["", "/pages/0"]
+        .iter()
+        .flat_map(|at| [format!("{at}/hints/read"), format!("{at}/next/read")])
+        .find_map(|pointer| resource.pointer(&pointer).cloned())
+}
+
+/// The single row of a lead query (`{queries:[row]}` or a bare row).
+fn lead_row(query: &serde_json::Value) -> serde_json::Value {
+    query.pointer("/queries/0").unwrap_or(query).clone()
+}
+
 #[derive(Clone)]
 struct DelayedJevResponse {
     arrivals: std::sync::Arc<std::sync::Mutex<Vec<Instant>>>,
@@ -401,12 +415,11 @@ async fn provider_byte_limit_forwards_reasoning_and_isolates_oversized_questions
 }
 
 #[tokio::test]
-async fn jev_vendor_key_alias_enables_clasify() {
-    // The generic OCTOCODE_CLASSIFICATION_API is unset; the jev vendor's native
-    // OCTOCODE_JEV_KEY alias alone must satisfy the availability gate.
+async fn retired_jev_vendor_key_does_not_enable_clasify() {
+    // OCTOCODE_CLASSIFICATION_API is the only classification credential.
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("OCTOCODE_JEV_KEY", "jev-native-secret".into())]);
-    assert!(runtime.is_available("clasify"));
+    assert!(!runtime.is_available("clasify"));
     runtime.close().await;
 }
 
@@ -2356,7 +2369,7 @@ async fn gh_search_code_resource_is_judged_without_a_context_contract_violation(
         ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
         // Own GitHub limiter key: the process-wide budget is keyed by host and
         // token, so concurrent GitHub fixtures must not share throttling state.
-        ("OCTOCODE_TOKEN", "clasify-gh-search-code-fixture".into()),
+        ("GITHUB_TOKEN", "clasify-gh-search-code-fixture".into()),
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
@@ -2423,7 +2436,7 @@ async fn a_lone_strong_locate_window_in_best_carries_an_exact_github_read() {
         ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
         // Own GitHub limiter key: the process-wide budget is keyed by host and
         // token, so concurrent GitHub fixtures must not share throttling state.
-        ("OCTOCODE_TOKEN", "clasify-locate-read-fixture".into()),
+        ("GITHUB_TOKEN", "clasify-locate-read-fixture".into()),
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
         ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
     ]);
@@ -3435,14 +3448,46 @@ async fn exhausted_provider_quota_fails_once_per_resource_and_is_remembered() {
     let row = &out.structured_content["queries"][0];
     assert_eq!(row["resources"][0]["coverage"], "error", "{row}");
     assert!(row.pointer("/next/clasify").is_none(), "{row}");
-    // The 402 is remembered across calls: the walk read nothing and sent no
-    // request, so it answers at once with the same error.
+    // The 402 is remembered across calls: the walk sent no request and
+    // answers with the same error (N12: its bounded reads still run, so
+    // per-page input checks come first) and the read the host runs instead
+    // (CL1): the resource's own query, valid input for its tool.
     assert_eq!(
         row["resources"][0]["error"]["errorCode"], "classificationQuotaExhausted",
         "{row}"
     );
-    assert!(row["resources"][0].get("pages").is_none(), "{row}");
-    assert!(no_continuation(row), "{row}");
+    let read = resource_read(&row["resources"][0]).unwrap_or_else(|| panic!("read: {row}"));
+    assert_eq!(read["tool"], "localFetch", "{row}");
+    octocode_native::contracts::validate_query("localFetch", lead_row(&read["query"]))
+        .expect("the read lead is valid localFetch input");
+    assert_eq!(
+        out.exit_class(),
+        octocode_native::runtime::ExitClass::Failed(
+            octocode_native::runtime::FailureKind::Execution
+        ),
+        "{row}"
+    );
+    // N12: inside the remembered 402, a per-page input error (locate over a
+    // minified view) is still the caller's error, not the quota.
+    let minified = json!({
+        "id":"min","reasoning":"r","mainGoal":"g",
+        "resources":[{"id":"file","tool":"localFetch","query":{"path":file,"ranges":["1-40"],"minify":"standard"}}],
+        "questions":[{"id":"where","type":"locate","ask":"the line that names line 7"}]
+    });
+    let out = runtime
+        .execute("quota-minified".into(), "clasify".into(), call(minified))
+        .await
+        .unwrap();
+    let row = &out.structured_content["queries"][0];
+    assert!(
+        row.to_string().contains("classificationLocateUnsupported"),
+        "{row}"
+    );
+    assert_eq!(
+        out.exit_class(),
+        octocode_native::runtime::ExitClass::InvalidInput,
+        "{row}"
+    );
     // The remembered 402 still routes a literal target: the tip and its
     // exact search are local facts, not provider answers.
     let named = json!({

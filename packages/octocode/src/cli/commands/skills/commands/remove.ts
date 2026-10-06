@@ -18,7 +18,6 @@ export interface RemoveOptions {
   /** Also delete real (non-link) directories outside the canonical store. */
   force?: boolean;
   json: boolean;
-  jsonErrors?: boolean;
 }
 
 type Target = { target: string; path: string };
@@ -116,16 +115,14 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
     }
     return reportFailure(
       'Specify a skill name or use --all.',
-      opts.json,
-      opts.jsonErrors
-    );
+      opts.json);
   }
 
   let platforms: SkillPlatform[] | null = null;
   if (opts.platform) {
     const parsed = parseSkillPlatforms(opts.platform);
     if (parsed.error)
-      return reportFailure(parsed.error, opts.json, opts.jsonErrors);
+      return reportFailure(parsed.error, opts.json);
     platforms = parsed.platforms;
   }
 

@@ -73,7 +73,7 @@ fn help_lists_only_the_minimal_command_surface() {
         "ghCloneRepo",
         "artifactSearch",
         "clasify",
-        "scheme",
+        "schema",
         "config",
         "auth",
         "skill",
@@ -107,6 +107,10 @@ fn help_lists_only_the_minimal_command_surface() {
         "\n  cache",
         "\n  lsp-server",
         "\n  jev",
+        "\n  scheme",
+        "\n  showConfig",
+        "\n  catalog",
+        "\n  serve",
     ] {
         assert!(!text.contains(removed), "alias leaked into help: {removed}");
     }
@@ -167,7 +171,7 @@ fn clasify_with_every_resource_failed_exits_by_failure_class() {
 }
 
 #[test]
-fn tool_output_is_compact_by_default_and_pretty_on_request() {
+fn tool_output_is_compact_json_on_a_pipe() {
     let workspace = Workspace::new();
     let query = serde_json::json!({"queries":[{
         "id":"decision",
@@ -183,22 +187,24 @@ fn tool_output_is_compact_by_default_and_pretty_on_request() {
         "{}",
         stdout(&compact)
     );
-    let pretty = workspace
+    let forced = workspace
         .cli()
-        .args(["clasify", &query, "--pretty"])
+        .args(["clasify", &query, "--json"])
         .output()
         .unwrap();
-    assert!(stdout(&pretty).lines().count() > 1, "{}", stdout(&pretty));
-    let retired = workspace
-        .cli()
-        .args(["clasify", &query, "--compact"])
-        .output()
-        .unwrap();
-    assert_eq!(
-        retired.status.code(),
-        Some(2),
-        "tool commands reject --compact"
-    );
+    assert_eq!(stdout(&forced), stdout(&compact));
+    for retired in ["--compact", "--pretty"] {
+        let output = workspace
+            .cli()
+            .args(["clasify", &query, retired])
+            .output()
+            .unwrap();
+        assert_eq!(
+            output.status.code(),
+            Some(2),
+            "tool commands reject {retired}"
+        );
+    }
 }
 
 #[test]
@@ -219,6 +225,7 @@ fn blank_classification_key_disables_clasify_despite_home_and_vendor_keys() {
     let output = workspace
         .cli()
         .env("OCTOCODE_CLASSIFICATION_API", "")
+        // The retired vendor alias is not a credential.
         .env("OCTOCODE_JEV_KEY", "vendor-key")
         .args(["clasify", &query])
         .output()
@@ -242,8 +249,7 @@ fn tool_help_uses_canonical_core_short_descriptions() {
     // The tool commands are exactly the contract tools: a tool dropped from
     // the contract must not linger as a command, and none may be missing.
     let system = [
-        "scheme",
-        "showConfig",
+        "schema",
         "config",
         "auth",
         "graph",
@@ -335,6 +341,8 @@ fn removed_alias_commands_are_rejected() {
         "status",
         "login",
         "logout",
+        "scheme",
+        "showConfig",
     ] {
         let output = workspace.cli().arg(alias).output().expect("alias");
         assert_eq!(exit_code(&output), Some(2), "{alias} must be rejected");
@@ -380,24 +388,25 @@ fn auth_login_and_skill_fail_closed() {
 }
 
 #[test]
-fn auth_status_honors_personal_access_token_alias() {
+fn auth_status_reports_an_unreachable_env_token_as_unverified() {
     let workspace = Workspace::new();
-    for argv in [vec!["auth", "--json"], vec!["auth", "status", "--json"]] {
-        // Unreachable API: the token cannot be verified, so it stays
-        // authenticated but says so.
-        let output = workspace
-            .cli()
-            .env("GITHUB_PERSONAL_ACCESS_TOKEN", "fixture-pat")
-            .env("GITHUB_API_URL", "http://127.0.0.1:1/api/v3")
-            .args(&argv)
-            .output()
-            .expect("auth status");
-        assert!(output.status.success(), "{}", stderr(&output));
-        let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("auth json");
-        assert_eq!(value["authenticated"], true, "{argv:?}");
-        assert_eq!(value["verification"], "unverified", "{argv:?}");
-        assert_eq!(value["tokenSource"], "env", "{argv:?}");
-    }
+    // `auth` requires its subcommand: `status` is not implied.
+    let bare = workspace.cli().arg("auth").output().expect("bare auth");
+    assert_eq!(exit_code(&bare), Some(2), "{}", stdout(&bare));
+    // Unreachable API: the token cannot be verified, so it stays
+    // authenticated but says so.
+    let output = workspace
+        .cli()
+        .env("GITHUB_TOKEN", "fixture-pat")
+        .env("GITHUB_API_URL", "http://127.0.0.1:1/api/v3")
+        .args(["auth", "status", "--json"])
+        .output()
+        .expect("auth status");
+    assert!(output.status.success(), "{}", stderr(&output));
+    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("auth json");
+    assert_eq!(value["authenticated"], true, "{value}");
+    assert_eq!(value["verification"], "unverified", "{value}");
+    assert_eq!(value["tokenSource"], "env", "{value}");
 }
 
 /// A whitespace-only env token must NOT be reported as an `env` credential:
@@ -434,17 +443,19 @@ fn config_shows_files_and_keys_but_never_values() {
     let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("config JSON");
     assert!(value["configFile"]["path"].is_string());
     assert!(value["configFile"]["exists"].is_boolean());
-    assert!(value["envFiles"]["global"].is_string());
-    assert!(value["envFiles"]["project"].is_string());
+    for scope in ["global", "project"] {
+        assert!(value["envFiles"][scope]["path"].is_string(), "{value}");
+        assert!(value["envFiles"][scope]["exists"].is_boolean(), "{value}");
+    }
     assert!(value["envKeys"].is_array());
 
     let human = workspace.cli().arg("config").output().expect("config");
     assert!(human.status.success(), "{}", stderr(&human));
     let text = stdout(&human);
-    assert!(text.contains("config file:"), "{text}");
-    assert!(text.contains("env files:"), "{text}");
+    assert!(text.contains("\nconfig\n  global "), "{text}");
+    assert!(text.contains("\n.env\n  global "), "{text}");
     assert!(
-        text.contains("values are never printed"),
+        text.contains("Values are never printed."),
         "missing no-values note: {text}"
     );
 }
@@ -455,7 +466,7 @@ fn config_check_reports_set_state_without_the_value() {
     let set = workspace
         .cli()
         .env("GITHUB_TOKEN", "fixture-secret")
-        .args(["config", "--check", "GITHUB_TOKEN"])
+        .args(["config", "check", "GITHUB_TOKEN"])
         .output()
         .expect("config check");
     assert!(set.status.success(), "{}", stderr(&set));
@@ -471,7 +482,7 @@ fn config_check_reports_set_state_without_the_value() {
     );
     let unset = workspace
         .cli()
-        .args(["config", "--check", "OCTOCODE_NOT_A_KEY"])
+        .args(["config", "check", "OCTOCODE_NOT_A_KEY"])
         .output()
         .expect("config check unset");
     assert_eq!(exit_code(&unset), Some(1));
@@ -606,7 +617,7 @@ fn localfetch_pages_expose_a_rerunnable_continuation() {
 }
 
 #[test]
-fn tool_without_query_exits_two_with_scheme_hint() {
+fn tool_without_query_exits_two_with_schema_hint() {
     let workspace = Workspace::new();
     let output = workspace
         .cli()
@@ -614,11 +625,16 @@ fn tool_without_query_exits_two_with_scheme_hint() {
         .output()
         .expect("astSearch no args");
     assert_eq!(exit_code(&output), Some(2));
-    let text = format!("{}{}", stdout(&output), stderr(&output));
+    // A pipe is JSON mode: the usage error is the envelope on stdout.
+    let error: serde_json::Value = serde_json::from_str(stdout(&output)).expect("JSON error");
+    assert_eq!(error["kind"], "octocode.toolError", "{error}");
+    assert_eq!(error["tool"], "astSearch", "{error}");
+    let message = error["error"].as_str().unwrap_or_default();
     assert!(
-        text.contains("Usage:") && text.contains("scheme astSearch"),
-        "expected usage + scheme hint: {text}"
+        message.contains("Missing JSON query") && message.contains("octocode schema astSearch"),
+        "expected usage + schema hint: {message}"
     );
+    assert!(stderr(&output).is_empty(), "{}", stderr(&output));
 }
 
 #[test]
@@ -632,6 +648,31 @@ fn tool_with_bad_json_exits_two() {
     assert_eq!(exit_code(&output), Some(2));
     let text = format!("{}{}", stdout(&output), stderr(&output));
     assert!(text.contains("Invalid JSON"), "expected json error: {text}");
+}
+
+#[test]
+fn tool_reads_query_from_stdin() {
+    use std::io::Write;
+    let workspace = Workspace::new();
+    let source = workspace.write("stdin-source.rs", "fn from_stdin() {}\n");
+    let query = serde_json::json!({"queries":[{"path": source}]}).to_string();
+    let mut child = workspace
+        .cli()
+        .args(["localFetch", "--input", "-"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .expect("localFetch --input -");
+    child
+        .stdin
+        .take()
+        .expect("stdin")
+        .write_all(query.as_bytes())
+        .expect("write query");
+    let output = child.wait_with_output().expect("output");
+    assert!(output.status.success(), "{}", stderr(&output));
+    assert!(stdout(&output).contains("from_stdin"), "{}", stdout(&output));
 }
 
 #[test]
@@ -659,31 +700,22 @@ fn tool_reads_query_from_input_file() {
 }
 
 #[test]
-fn scheme_lists_the_compact_discovery_catalog() {
+fn catalog_lists_the_machine_catalog_for_the_launcher() {
     let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["scheme", "--compact"])
-        .output()
-        .expect("scheme");
+    let output = workspace.cli().arg("catalog").output().expect("catalog");
     assert!(output.status.success(), "{}", stderr(&output));
     assert!(
         output.stdout.len() < 20_000,
-        "discovery catalog should stay token-efficient, got {} bytes",
+        "machine catalog should stay token-efficient, got {} bytes",
         output.stdout.len()
     );
+    assert_eq!(stdout(&output).trim_end().lines().count(), 1);
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).expect("catalog JSON");
-    assert_eq!(value["kind"], "octocode.toolCatalog");
-    assert_eq!(
-        value["toolCount"],
-        value["tools"].as_array().expect("tools array").len()
-    );
-    assert_eq!(value["commands"]["schema"], "scheme <name>");
-    assert_eq!(value["commands"]["run"], "<name> '<json>'");
-    assert!(
-        value.get("instructions").is_none(),
-        "instructions are core-delivered by the JS layers, not the binary: {value}"
-    );
+    // Presentation (kind, commands, descriptions, instructions) is composed
+    // by the npm launcher's `schema`; the binary carries machine facts only.
+    for presentation in ["kind", "commands", "output", "instructions"] {
+        assert!(value.get(presentation).is_none(), "{presentation}: {value}");
+    }
     assert!(
         value["fingerprint"]
             .as_str()
@@ -692,20 +724,7 @@ fn scheme_lists_the_compact_discovery_catalog() {
     );
     let first = &value["tools"][0];
     assert!(first["name"].is_string());
-    let contract = octocode_native::contracts::parsed_contract().expect("embedded contract");
-    let expected_short = contract["tools"]
-        .as_array()
-        .expect("contract tools")
-        .iter()
-        .find(|tool| tool["name"] == first["name"])
-        .and_then(|tool| tool["shortDescription"].as_str())
-        .expect("core shortDescription");
-    assert_eq!(first["description"], expected_short);
-    assert!(
-        first["description"]
-            .as_str()
-            .is_some_and(|text| text.len() <= 96)
-    );
+    assert!(first.get("description").is_none(), "{first}");
     assert!(first["fields"].is_string());
     // Union tools list every mode instead of an empty field list.
     for tool in value["tools"].as_array().expect("tools array") {
@@ -735,89 +754,42 @@ fn scheme_lists_the_compact_discovery_catalog() {
     assert!(first.get("outputSchema").is_none());
 }
 
+/// `schema` is served by the npm launcher; the binary owns its help and
+/// names the launcher when run directly.
 #[test]
-fn scheme_prints_the_public_tool_contract_without_output_schema() {
+fn schema_help_is_native_and_execution_names_the_launcher() {
     let workspace = Workspace::new();
     let help = workspace
         .cli()
-        .args(["scheme", "--help"])
+        .args(["schema", "--help"])
         .output()
-        .expect("scheme help");
+        .expect("schema help");
     assert!(help.status.success(), "{}", stderr(&help));
     let help = stdout(&help);
-    assert!(help.contains("public tool contract"), "{help}");
-    assert!(!help.contains("full contract"), "{help}");
+    assert!(help.contains("octocode schema <tool> --view query"), "{help}");
+    assert!(help.contains("--select"), "{help}");
 
     let output = workspace
         .cli()
-        .args(["scheme", "localSearch", "--compact"])
+        .args(["schema", "localSearch"])
         .output()
-        .expect("scheme localSearch");
-    assert!(output.status.success(), "{}", stderr(&output));
-    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("contract JSON");
-    assert_eq!(value["name"], "localSearch");
-    assert_eq!(
-        value["shortDescription"],
-        "Find literal or regex matches in local files."
+        .expect("schema localSearch");
+    assert_eq!(exit_code(&output), Some(5));
+    let error: serde_json::Value = serde_json::from_str(stdout(&output)).expect("JSON error");
+    assert_eq!(error["kind"], "octocode.toolError", "{error}");
+    assert!(
+        error["error"]
+            .as_str()
+            .is_some_and(|message| message.contains("npm launcher")),
+        "{error}"
     );
-    // instructions live at catalog level (scheme with no args), not per-tool.
-    assert!(value["instructions"].is_null());
-    assert!(value["inputSchema"].is_object());
-    assert!(!value.to_string().contains("\"outputSchema\""));
-    // The per-tool view echoes the concrete run command for the inspected tool.
-    assert_eq!(value["run"], "octocode localSearch '<json>'");
-
-    let full = workspace
+    // --view takes only the views the launcher serves.
+    let bad_view = workspace
         .cli()
-        .args(["scheme", "localSearch", "--view", "full", "--compact"])
+        .args(["schema", "localSearch", "--view", "bad"])
         .output()
-        .expect("scheme localSearch full");
-    assert!(full.status.success(), "{}", stderr(&full));
-    let full: serde_json::Value = serde_json::from_str(stdout(&full)).expect("full contract JSON");
-    assert!(full["inputSchema"].is_object());
-    assert!(!full.to_string().contains("\"outputSchema\""));
-}
-
-#[test]
-fn scheme_unknown_tool_exits_two_and_lists_known_names() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args(["scheme", "notATool"])
-        .output()
-        .expect("scheme unknown");
-    assert_eq!(exit_code(&output), Some(2));
-    let text = stderr(&output);
-    assert!(text.contains("Unknown tool: notATool"), "{text}");
-    assert!(text.contains("localSearch"), "known names missing: {text}");
-}
-
-#[test]
-fn scheme_query_view_selects_a_single_union_branch() {
-    let workspace = Workspace::new();
-    let output = workspace
-        .cli()
-        .args([
-            "scheme",
-            "ghSearchHistory",
-            "--view",
-            "query",
-            "--select",
-            "operation=commit",
-            "--compact",
-        ])
-        .output()
-        .expect("scheme select");
-    assert!(output.status.success(), "{}", stderr(&output));
-    let value: serde_json::Value = serde_json::from_str(stdout(&output)).expect("schema JSON");
-    assert_eq!(value["name"], "ghSearchHistory");
-    // instructions live at catalog level (scheme with no args), not per-tool.
-    assert!(value["instructions"].is_null());
-    assert_eq!(
-        value["querySchema"]["oneOf"].as_array().map(Vec::len),
-        Some(1)
-    );
-    assert!(!value.to_string().contains("\"outputSchema\""));
+        .expect("schema bad view");
+    assert_eq!(exit_code(&bad_view), Some(2));
 }
 
 #[test]
@@ -972,7 +944,7 @@ fn astrewrite_previews_then_applies_with_hash_guards() {
 }
 
 #[test]
-fn json_errors_do_not_leak_duplicate_stderr() {
+fn json_mode_errors_go_to_stdout_without_stderr() {
     let workspace = Workspace::new();
     let missing = workspace.workspace.join("missing.rs");
     let query = serde_json::json!({"queries":[{
@@ -982,7 +954,7 @@ fn json_errors_do_not_leak_duplicate_stderr() {
     .to_string();
     let output = workspace
         .cli()
-        .args(["--json-errors", "localFetch", &query])
+        .args(["localFetch", &query])
         .output()
         .expect("missing read");
     assert_eq!(exit_code(&output), Some(3));
@@ -996,7 +968,7 @@ fn json_errors_do_not_leak_duplicate_stderr() {
 
     let malformed = workspace
         .cli()
-        .args(["--json-errors", "localSearch", "{"])
+        .args(["localSearch", "{"])
         .output()
         .expect("malformed raw JSON");
     assert_eq!(exit_code(&malformed), Some(2));
@@ -1008,7 +980,7 @@ fn json_errors_do_not_leak_duplicate_stderr() {
 
     let unknown = workspace
         .cli()
-        .args(["--json-errors", "notACommand"])
+        .args(["notACommand"])
         .output()
         .expect("unknown subcommand");
     assert_eq!(exit_code(&unknown), Some(2));
@@ -1022,10 +994,35 @@ fn json_errors_do_not_leak_duplicate_stderr() {
         "{error}"
     );
     assert!(stderr(&unknown).is_empty(), "{}", stderr(&unknown));
+
+    // A mistyped tool keeps clap's did-you-mean names in the envelope.
+    let typo = workspace
+        .cli()
+        .args(["lokalSearch", "{}"])
+        .output()
+        .expect("typo subcommand");
+    assert_eq!(exit_code(&typo), Some(2));
+    let error: serde_json::Value = serde_json::from_str(stdout(&typo)).expect("JSON error");
+    assert!(
+        error["error"]
+            .as_str()
+            .is_some_and(|message| message.contains("localSearch")),
+        "{error}"
+    );
+
+    // Retired global flags are argument errors, not aliases.
+    for flag in ["--json-errors", "--redact-emails", "--no-color"] {
+        let retired = workspace
+            .cli()
+            .args([flag, "localSearch", "{}"])
+            .output()
+            .expect("retired flag");
+        assert_eq!(exit_code(&retired), Some(2), "{flag}");
+    }
 }
 
 #[test]
-fn install_rejects_unknown_method_and_accepts_claude_alias() {
+fn install_rejects_unknown_method_and_names_near_miss_ids() {
     let workspace = Workspace::new();
     let invalid = workspace
         .cli()
@@ -1041,13 +1038,34 @@ fn install_rejects_unknown_method_and_accepts_claude_alias() {
         .expect("invalid method");
     assert_eq!(exit_code(&invalid), Some(2), "{}", stderr(&invalid));
 
-    let claude = workspace
+    // Ids are exact: `claude` names both Claude clients instead of picking one.
+    for alias in ["claude", "vscode"] {
+        let near = workspace
+            .cli()
+            .args(["install", "--ide", alias, "--dry-run", "--json"])
+            .output()
+            .expect("retired alias");
+        assert_eq!(exit_code(&near), Some(2), "{alias}: {}", stdout(&near));
+        let error: serde_json::Value = serde_json::from_str(stdout(&near)).expect("JSON error");
+        assert_eq!(error["kind"], "octocode.toolError", "{error}");
+    }
+    let near = workspace
         .cli()
-        .args(["install", "--ide", "claude", "--dry-run", "--json"])
+        .args(["install", "--ide", "claude", "--dry-run"])
         .output()
-        .expect("claude alias");
-    assert!(claude.status.success(), "{}", stderr(&claude));
-    let value: serde_json::Value = serde_json::from_str(stdout(&claude)).expect("install JSON");
+        .expect("near miss text");
+    let text = stderr(&near);
+    assert!(
+        text.contains("Did you mean") && text.contains("claude-code") && text.contains("claude-desktop"),
+        "{text}"
+    );
+    let desktop = workspace
+        .cli()
+        .args(["install", "--ide", "claude-desktop", "--dry-run", "--json"])
+        .output()
+        .expect("claude-desktop");
+    assert!(desktop.status.success(), "{}", stderr(&desktop));
+    let value: serde_json::Value = serde_json::from_str(stdout(&desktop)).expect("install JSON");
     assert_eq!(value["ide"], "claude-desktop");
 }
 
@@ -1066,7 +1084,7 @@ async fn github_authentication_failure_uses_exit_four_and_actionable_hint() {
     let mut command = workspace.cli();
     command
         .env("GITHUB_API_URL", format!("{}/api/v3", server.uri()))
-        .env("OCTOCODE_TOKEN", "invalid-fixture-token")
+        .env("GITHUB_TOKEN", "invalid-fixture-token")
         .args([
             "ghGetFileContent",
             r#"{"queries":[{"owner":"fixture","repo":"fixture","path":"README","forceRefresh":true,"mainGoal":"Read the fixture README.","reasoning":"Exercise the authentication failure path."}]}"#,

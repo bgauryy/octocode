@@ -103,6 +103,9 @@ pub enum Severity {
     Warning,
     Error,
 }
+/// Diagnostic code of a configuration key no setting reads.
+pub const UNKNOWN_CONFIG_CODE: &str = "unknown_or_future_config";
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub struct ConfigDiagnostic {
     pub severity: Severity,

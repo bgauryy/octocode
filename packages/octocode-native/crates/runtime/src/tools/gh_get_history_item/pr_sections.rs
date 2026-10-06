@@ -32,15 +32,30 @@ const COMMIT_DETAIL_CONCURRENCY: usize = 4;
 pub(super) struct CommentShape {
     /// A minified body view dropped text from a comment.
     pub(super) dropped: bool,
-    /// `hints.readCommentCode`: the code the page's first anchored review
-    /// comment discusses.
+    /// `hints.readCommentCode`: the code the page's anchored review comments
+    /// on the first anchor's file discuss.
     pub(super) code_read: Option<Value>,
 }
 
-/// The ghGetFileContent read of the lines a review comment anchors: its
-/// path at the commit the lines belong to, `startLine-line`. A comment on
-/// the old side (`LEFT`) names base lines, which that commit does not hold.
-fn comment_code_read(query: &HistoryItemRequest, comment: &Value) -> Option<Value> {
+/// A commit's person as one string: the GitHub login, else the git name
+/// (the same rule as search rows).
+pub(super) fn commit_person(item: &Value) -> Value {
+    match crate::tools::gh_search_history::rows::person(item, "author") {
+        Value::Null => Value::from("unknown"),
+        person => person,
+    }
+}
+
+/// Lines a review-comment read shows on each side of its anchor.
+const COMMENT_CODE_PAD: u64 = 3;
+
+/// Ranges one `ghGetFileContent` read takes (the contract's `maxItems`).
+const COMMENT_CODE_RANGES: usize = 10;
+
+/// A review comment's anchor: path, the commit the lines belong to, and its
+/// `startLine..=line` span. A comment on the old side (`LEFT`) names base
+/// lines, which that commit does not hold.
+fn comment_anchor(comment: &Value) -> Option<(&str, &str, u64, u64)> {
     if str_at(comment, "/side") == Some("LEFT") {
         return None;
     }
@@ -52,6 +67,43 @@ fn comment_code_read(query: &HistoryItemRequest, comment: &Value) -> Option<Valu
         .and_then(Value::as_u64)
         .filter(|start| *start <= line)
         .unwrap_or(line);
+    Some((path, sha, start, line))
+}
+
+/// The ghGetFileContent read of the code the page's anchored review
+/// comments discuss: the first anchor's file at its commit, with every
+/// anchor of the page on that `(path, commitSha)` as one range each
+/// (`startLine-line` padded by [`COMMENT_CODE_PAD`] lines, touching ranges
+/// merged, at most [`COMMENT_CODE_RANGES`]).
+fn comment_code_read(query: &HistoryItemRequest, comments: &[Value]) -> Option<Value> {
+    let anchors = comments
+        .iter()
+        .filter_map(comment_anchor)
+        .collect::<Vec<_>>();
+    let (path, sha, _, _) = *anchors.first()?;
+    let mut spans = anchors
+        .iter()
+        .filter(|(p, c, _, _)| *p == path && *c == sha)
+        .map(|(_, _, start, line)| {
+            (
+                start.saturating_sub(COMMENT_CODE_PAD).max(1),
+                line + COMMENT_CODE_PAD,
+            )
+        })
+        .collect::<Vec<_>>();
+    spans.sort_unstable();
+    let mut merged: Vec<(u64, u64)> = Vec::new();
+    for span in spans {
+        match merged.last_mut() {
+            Some(last) if span.0 <= last.1 + 1 => last.1 = last.1.max(span.1),
+            _ => merged.push(span),
+        }
+    }
+    merged.truncate(COMMENT_CODE_RANGES);
+    let ranges = merged
+        .into_iter()
+        .map(|(start, end)| format!("{start}-{end}"))
+        .collect::<Vec<_>>();
     Some(
         crate::tools::result::Continuation::new(
             ToolId::GhGetFileContent,
@@ -60,10 +112,10 @@ fn comment_code_read(query: &HistoryItemRequest, comment: &Value) -> Option<Valu
                 "repo": query.repo(),
                 "path": path,
                 "ref": sha,
-                "ranges": [format!("{start}-{line}")],
+                "ranges": ranges,
             }),
         )
-        .why("Read the code the review comment discusses.")
+        .why("Read the code the review comments discuss.")
         .confidence("exact")
         .build(),
     )
@@ -135,7 +187,7 @@ pub(super) fn shape_pr_comments(
     }
     if !shaped.is_empty() {
         row["comments"] = Value::Array(shaped);
-        row["reviewSummary"] = json!({"totalComments":total_comments,"inlineComments":inline_comments,"discussionComments":total_comments-inline_comments,"commenters":commenters.iter().take(8).collect::<Vec<_>>(),"commenterCount":commenters.len(),"latestCommentAt":latest,"themes":["discussion"],"countScope":"providerBatch"});
+        row["reviewSummary"] = json!({"totalComments":total_comments,"inlineComments":inline_comments,"discussionComments":total_comments-inline_comments,"commenters":commenters.iter().take(8).collect::<Vec<_>>(),"commenterCount":commenters.len(),"latestCommentAt":latest,"countScope":"providerBatch"});
     }
     pagination.insert("comments".into(), page);
     if let Some(page) = first_body_page {
@@ -143,9 +195,7 @@ pub(super) fn shape_pr_comments(
     }
     let code_read = row["comments"]
         .as_array()
-        .into_iter()
-        .flatten()
-        .find_map(|comment| comment_code_read(query, comment));
+        .and_then(|comments| comment_code_read(query, comments));
     CommentShape { dropped, code_read }
 }
 
@@ -232,7 +282,7 @@ pub(super) async fn shape_pr_commits<R: CredentialResolver>(
             let mut commit = json!({
                 "sha":sha,
                 "message":str_at(&item,"/commit/message").unwrap_or(""),
-                "author":str_at(&item,"/commit/author/name").unwrap_or("unknown"),
+                "author":commit_person(&item),
                 "date":super::util::utc_date(str_at(&item,"/commit/author/date"))
             });
             if include_files {
@@ -387,8 +437,55 @@ mod tests {
         assert_eq!(read["tool"], "ghGetFileContent", "{read}");
         let q = &read["query"]["queries"][0];
         assert_eq!(q["ref"], "head1", "{read}");
-        assert_eq!(q["ranges"], json!(["2773-2776"]), "{read}");
+        assert_eq!(q["ranges"], json!(["2770-2779"]), "{read}");
         assert_eq!(q["path"], "src/a.ts", "{read}");
+    }
+
+    /// HI12(c): one read covers every anchor of the page on the first
+    /// anchor's file and commit; another file or commit stays out.
+    #[test]
+    fn review_comment_read_covers_every_anchor_on_its_file() {
+        let query = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","owner":"o","repo":"r","number":1,
+            "sections":["reviewComments"]
+        }))
+        .expect("pull request row");
+        let mut row = json!({});
+        let comments = map_comments(
+            vec![
+                raw(json!({"id":1,"line":40,"start_line":null,"commit_id":"h"})),
+                raw(json!({"id":2,"line":2,"start_line":null,"commit_id":"h"})),
+                raw(json!({"id":3,"line":45,"start_line":43,"commit_id":"h"})),
+                raw(json!({"id":4,"line":9,"commit_id":"h","path":"src/b.ts"})),
+                raw(json!({"id":5,"line":90,"commit_id":"other"})),
+            ],
+            "review_inline",
+            true,
+        );
+        let shape = shape_pr_comments(
+            &mut row,
+            &mut Map::new(),
+            comments,
+            WindowState::COMPLETE,
+            &query,
+        );
+        let read = shape.code_read.expect("a code read");
+        let q = &read["query"]["queries"][0];
+        assert_eq!(q["path"], "src/a.ts", "{read}");
+        assert_eq!(q["ref"], "h", "{read}");
+        assert_eq!(q["ranges"], json!(["1-5", "37-48"]), "{read}");
+        assert!(row["reviewSummary"].get("themes").is_none(), "{row}");
+        assert_eq!(row["reviewSummary"]["countScope"], "providerBatch", "{row}");
+    }
+
+    /// X5: a commit names its GitHub account first, else its git name.
+    #[test]
+    fn commit_person_is_login_first() {
+        let login = json!({"author":{"login":"rickhanlonii"},"commit":{"author":{"name":"Ricky"}}});
+        assert_eq!(commit_person(&login), "rickhanlonii");
+        let unlinked = json!({"author":null,"commit":{"author":{"name":"Ricky"}}});
+        assert_eq!(commit_person(&unlinked), "Ricky");
+        assert_eq!(commit_person(&json!({})), "unknown");
     }
 
     /// A single-line comment omits startLine; a reply keeps its thread link

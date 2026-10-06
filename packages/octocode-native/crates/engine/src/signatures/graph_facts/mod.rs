@@ -172,6 +172,42 @@ fn extract_graph_facts_with_metadata_inner(
     )
 }
 
+/// Error spans past this many collapse to the whole file.
+const MAX_ERROR_SPANS: usize = 64;
+
+/// 1-based line spans of the `ERROR` and missing nodes of a recovered parse,
+/// merged; past [`MAX_ERROR_SPANS`] one span covers every line.
+fn syntax_error_lines(root: Node<'_>) -> Vec<[u32; 2]> {
+    let mut spans = Vec::new();
+    let mut cursor = root.walk();
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.is_error() || node.is_missing() {
+            let line = |row: usize| u32::try_from(row + 1).unwrap_or(u32::MAX);
+            spans.push((
+                line(node.start_position().row),
+                line(node.end_position().row),
+            ));
+            continue;
+        }
+        if node.has_error() {
+            stack.extend(node.children(&mut cursor));
+        }
+    }
+    spans.sort_unstable();
+    let mut merged: Vec<[u32; 2]> = Vec::new();
+    for (start, end) in spans {
+        match merged.last_mut() {
+            Some(last) if start <= last[1].saturating_add(1) => last[1] = last[1].max(end),
+            _ => merged.push([start, end]),
+        }
+    }
+    if merged.len() > MAX_ERROR_SPANS {
+        return vec![[1, u32::MAX]];
+    }
+    merged
+}
+
 fn extract_graph_facts_with_metadata_before(
     content: &str,
     file_path: &str,
@@ -187,6 +223,7 @@ fn extract_graph_facts_with_metadata_before(
     let mut rust_root_unsupported = (ext == "rs").then_some(true);
     let mut reference_counts = Vec::new();
     let mut import_uses = None;
+    let mut error_lines = Vec::new();
     let rust = ext == "rs";
     if let Some(tree) = super::extractor::parse_before(content, &entry.language, deadline) {
         let root = tree.root_node();
@@ -200,6 +237,7 @@ fn extract_graph_facts_with_metadata_before(
             acc.diagnostics.push(
                 "tree-sitter recovered from parse errors; graph facts may be partial".to_owned(),
             );
+            error_lines = syntax_error_lines(root);
         }
         if !visit_node(root, content, &line_index, &mut acc, deadline, &[])
             || !visit_macro_bodies(content, &entry.language, &line_index, &mut acc, deadline)
@@ -244,6 +282,7 @@ fn extract_graph_facts_with_metadata_before(
         calls: acc.calls,
         edges: acc.edges,
         diagnostics: acc.diagnostics,
+        error_lines,
         modules: acc.modules,
         rust_root_unsupported,
         ..super::native_graph_facts(language_label(&ext, entry.language_id), file_path)

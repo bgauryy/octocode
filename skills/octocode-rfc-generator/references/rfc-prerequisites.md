@@ -1,6 +1,6 @@
 # RFC Prerequisites
 
-Load when an RFC or plan changes existing code. Prove readiness facts, setup, owners, blockers, and baselines before the decision or plan.
+Load when readiness evidence does not fit Motivation and Current State. Why: this file is the readiness record that has left the RFC.
 Use `octocode-research` for repository, artifact, dependency, history, and migration evidence.
 
 Every prerequisite needs an exact local/external citation or an open question with owner, next proof, and why work cannot start.
@@ -37,4 +37,4 @@ Existing-code area and contracts affected.
 Gate: do not decide or plan as though an unresolved blocker is satisfied. Record it in the primary artifact and close it before recommendation or before any step that depends on it; a blocker cannot be deferred as though executable. <!-- style-lint: ignore-line passive-voice -->
 Cite only implementation-gating facts here.
 
-Next: once no blocker has to be assumed satisfied, decide or confirm the direction. Define separate acceptance with `references/rfc-kpi.md` when warranted; otherwise define it inline before steps through `references/rfc-implementation.md`. When a readiness fact needs more proof return to `references/research-playbook.md`. <!-- style-lint: ignore-line passive-voice -->
+Next: lock Goals and Non-Goals in `references/rfc-template.md` before `Recommendation: final`. Use `references/rfc-kpi.md` when measurement needs its own file; otherwise write the acceptance contract in `references/rfc-implementation.md` before the steps. When a readiness fact needs more proof, return to `references/research-playbook.md`.

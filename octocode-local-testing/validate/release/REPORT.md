@@ -21,7 +21,7 @@ Date: 2026-09-30. Read-only audit: nothing was published, bumped, committed or e
 - **B6 (High): platform binaries are missing or stale.** 5 of 6 platforms have none, and the darwin-arm64 `.node` files date from 09-28. Fix: `build:all`, then `yarn platforms:check`.
 - **B7 (Medium): config tests fail at HEAD (3 of 261).** `PROTECTED_KEYS` is missing the two storage-mode keys, and two rc-layer tests still expect workspace `storage.mode` to win. Storage mode is home-trusted since commit 17375b97a.
 - **B8 (Medium): `cargo fmt --check` fails in 6 native files**, so native `verify` fails. Fix: `cargo fmt --all`.
-- **B9 (Medium): the `scheme` usage line shows `[goal]` as optional**, but the runtime requires it on new queries. The launcher test `scheme.test.ts:213` fails.
+- **B9 (Medium): the `schema` usage line shows `[goal]` as optional**, but the runtime requires it on new queries. The launcher test `scheme.test.ts:213` fails.
 
 ## Warnings
 - **W1:** the core `files` list omits `dist/public-catalog.json`, so the catalog is rebuilt on cold start.

@@ -100,12 +100,12 @@ A `null` input means “unset; use the next source.” A `null` generated defaul
 
 ### Environment aliases and invalid input
 
-Bindings are keyed by variable; lower `priority` wins. Every binding must be in the contract, or source labeling, protection, docs and both resolvers cannot derive it.
+Bindings are keyed by variable; lower `priority` wins. Every binding must be in the contract, or source labeling, protection, docs and both resolvers cannot derive it. Give each setting one variable; a second binding is only a temporary migration path (hypothetical example):
 
 ```json
 "env": {
-  "ENABLE_LOCAL": { "priority": 0 },
-  "OCTOCODE_ENABLE_LOCAL": { "priority": 1 }
+  "OCTOCODE_MAX_RESULTS": { "priority": 0 },
+  "MAX_RESULTS": { "priority": 1 }
 }
 ```
 
@@ -170,8 +170,8 @@ Add `configSource: true` only if the variable changes resolved configuration sou
 GitHub tokens are Pattern A entries with `tokenPriority`; lower numbers win. The generator derives `ENV_TOKEN_VARS`, token-source types, and protected-key sets from these declarations. Do not add a token array elsewhere.
 
 ```json
-"OCTOCODE_TOKEN": { "dotenv": "all", "tokenPriority": 0 },
-"GH_TOKEN": { "dotenv": "all", "tokenPriority": 1 }
+"GH_TOKEN": { "dotenv": "all", "tokenPriority": 0 },
+"GITHUB_TOKEN": { "dotenv": "all", "tokenPriority": 1 }
 ```
 
 Source beats alias order: process → workspace `.octocode/.env` → global `.env`. A workspace alias beats a global canonical key. Declared alias order breaks ties within one source.

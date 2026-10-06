@@ -10,7 +10,7 @@
      "verdict":"octocode: phrase-as-one-keyword works first try; gh quoted phrase silently returns 0"},
     {"id":"cs3","tool":"ghSearchCode","task":"Find reconciler files implementing useEffectEvent in facebook/react (repo since renamed to react/react)","truth":"4 files incl. packages/react-reconciler/src/ReactFiberHooks.js (gh api total_count=4 on react/react)",
      "gh":{"steps":["1","2","3"],"cmd":"gh api search/code q='useEffectEvent repo:facebook/react path:...' -> total 0 incomplete:true (silent) -> gh api repos/facebook/react --jq .full_name -> re-search react/react","correct":"yes (after manual rename discovery)"},
-     "oc":{"steps":["1","2"],"query":"ghSearchCode {owner:facebook, repo:react, ...} -> next.retryRenamed replayed","correct":"yes"},
+     "oc":{"steps":["1","2"],"query":"ghSearchCode {owner:facebook, repo:react, ...} -> GitHub rename followed (no lead)","correct":"yes"},
      "verdict":"octocode wins: detects the rename and hands back an exact retry"},
     {"id":"cs4","tool":"ghSearchCode","task":"Paginated path search: files whose path contains useEffectEvent (page 1 of 3/page)","truth":"total_count 10 (search API)",
      "gh":{"steps":["2"],"cmd":"gh api -X GET search/code -f q='useEffectEvent in:path repo:react/react' -f per_page=3 --jq '{total,incomplete,paths}'","correct":"yes","note":"step 1 hit the code-search 403 quota; excluded"},

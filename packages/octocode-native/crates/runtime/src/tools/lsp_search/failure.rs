@@ -27,7 +27,7 @@ impl LspFailure {
             code: "invalidInput",
             message: message.into(),
             retryable: false,
-            hint: "Correct the lspSearch fields (see `octocode scheme lspSearch`), then retry.",
+            hint: "Correct the lspSearch fields (see `octocode schema lspSearch`), then retry.",
         }
     }
 
@@ -371,29 +371,121 @@ pub(super) fn anchor_recovery(value: &mut Value, query: &LspSearchQuery, source:
         .confidence("exact")
         .build();
     }
-    let suggestions = source
+    // The name itself elsewhere in the file (a stale `lineHint`) first,
+    // declarations before uses; then near-miss spellings.
+    let exact = source
+        .map(|source| name_lines(source, name, hint))
+        .unwrap_or_default();
+    let near = source
         .map(|source| near_names(source, name, hint))
         .unwrap_or_default();
-    let Some((best, line)) = suggestions.first() else {
-        return;
-    };
-    let mut retry = query_value(query);
-    if let Some(object) = retry.as_object_mut() {
-        object.insert("symbolName".into(), json!(best));
-        object.insert("lineHint".into(), json!(line));
-        object.remove("orderHint");
-    }
-    value["next"]["didYouMean"] = crate::tools::result::Continuation::new(ToolId::LspSearch, retry)
-        .confidence("medium")
-        .build();
-    let listed = suggestions
+    let leads = exact
         .iter()
-        .map(|(name, line)| format!("`{name}` (line {line})"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    if let Some(hints) = value["hints"].as_array_mut() {
-        hints.push(json!(format!("Closest names: {listed}.")));
+        .map(|line| (name.to_owned(), *line, "high"))
+        .chain(
+            near.iter()
+                .map(|(word, line)| (word.clone(), *line, "medium")),
+        )
+        .take(MAX_ANCHOR_LEADS)
+        .collect::<Vec<_>>();
+    for (index, (symbol, line, confidence)) in leads.iter().enumerate() {
+        let mut retry = query_value(query);
+        if let Some(object) = retry.as_object_mut() {
+            object.insert("symbolName".into(), json!(symbol));
+            object.insert("lineHint".into(), json!(line));
+            object.remove("orderHint");
+        }
+        let key = match index {
+            0 => "didYouMean".to_owned(),
+            n => format!("didYouMean{}", n + 1),
+        };
+        value["next"][key] = crate::tools::result::Continuation::new(ToolId::LspSearch, retry)
+            .confidence(*confidence)
+            .build();
     }
+    let mut notes = Vec::new();
+    if !exact.is_empty() {
+        let lines = exact
+            .iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        notes.push(format!("`{name}` appears on line {lines}."));
+    }
+    if !near.is_empty() {
+        let listed = near
+            .iter()
+            .map(|(name, line)| format!("`{name}` (line {line})"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        notes.push(format!("Closest names: {listed}."));
+    }
+    if let Some(hints) = value["hints"].as_array_mut() {
+        hints.extend(notes.into_iter().map(Value::from));
+    }
+}
+
+/// Re-anchor leads one unresolved anchor offers.
+const MAX_ANCHOR_LEADS: usize = 3;
+
+/// Declaration keywords that may precede a declared name on its line.
+const DECLARATION_WORDS: &[&str] = &[
+    "function",
+    "class",
+    "interface",
+    "type",
+    "enum",
+    "const",
+    "let",
+    "var",
+    "fn",
+    "struct",
+    "trait",
+    "impl",
+    "mod",
+    "def",
+    "func",
+    "static",
+    "namespace",
+    "module",
+];
+
+/// One-based lines that spell `name` as a word: declaration lines first
+/// (a declaration keyword just before the name), then the rest, each
+/// group nearest `hint` first; at most [`MAX_ANCHOR_LEADS`].
+fn name_lines(source: &str, name: &str, hint: Option<u32>) -> Vec<usize> {
+    if name.trim().is_empty() {
+        return Vec::new();
+    }
+    let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
+    let hint = hint.map_or(0, |line| line as usize);
+    let mut found: Vec<(bool, usize, usize)> = Vec::new();
+    for (index, text) in source.lines().enumerate() {
+        let declares = text.match_indices(name).any(|(at, _)| {
+            let bounded = !text[..at].chars().next_back().is_some_and(is_word)
+                && !text[at + name.len()..].chars().next().is_some_and(is_word);
+            bounded
+                && text[..at]
+                    .split(|c: char| !is_word(c))
+                    .rfind(|word| !word.is_empty())
+                    .is_some_and(|word| DECLARATION_WORDS.contains(&word))
+        });
+        let mentions = declares
+            || text.match_indices(name).any(|(at, _)| {
+                !text[..at].chars().next_back().is_some_and(is_word)
+                    && !text[at + name.len()..].chars().next().is_some_and(is_word)
+            });
+        if mentions {
+            let line = index + 1;
+            found.push((!declares, line.abs_diff(hint), line));
+        }
+    }
+    found.sort_unstable();
+    found
+        .into_iter()
+        .take(MAX_ANCHOR_LEADS)
+        .map(|(_, _, line)| line)
+        .collect()
 }
 
 /// Up to three distinct identifiers within a small edit distance of `name`,
@@ -426,39 +518,55 @@ fn near_names(source: &str, name: &str, hint: Option<u32>) -> Vec<(String, usize
         .collect()
 }
 
+/// Partial reasons about *files* the server's project may not see. When
+/// every file that spells the name is in the answer (`textOnlyFiles == 0`),
+/// such a reason is moot and is not flagged. Site-level reasons (dynamic
+/// dispatch, cfg-gated code) can hide sites inside listed files, so file
+/// agreement never clears them.
+pub(super) const FILE_LEVEL_REASONS: [&str; 5] = [
+    "inferredProject",
+    "importerScanCapped",
+    "importerScanFailed",
+    "aliasScanCapped",
+    "noCompileDatabase",
+];
+/// At most this many text-only files are listed as one bulk lead.
+const LISTED_TEXT_FILES: usize = 5;
+
 /// Mark an incoming-direction row partial: coverage reason, a warning, and
-/// (when the query names its symbol) a lexical `localSearch` fallback.
+/// (when the query names its symbol) a lexical `textSearch` lead over the
+/// request's search scope. `coverage.textOnlyFiles` counts the files that
+/// spell the name but are not in the answer; up to five are the lead's rows.
 pub(super) fn flag_partial(
     row: &mut Value,
     query: &LspSearchQuery,
     reason: &str,
     warning: &str,
-    workspace_root: &str,
+    scope: &super::scope::Scope,
 ) {
+    let name = query.symbol_name().filter(|name| !name.trim().is_empty());
+    let text_only = name.and_then(|name| scope.text_only_files(name));
+    let agrees = text_only.as_ref().is_some_and(Vec::is_empty);
     if let Some(payload) = row.get_mut("payload").and_then(Value::as_object_mut) {
         let coverage = payload
             .entry("coverage")
             .or_insert_with(|| json!({"scope":"languageServer","exhaustive":false}));
         coverage["exhaustive"] = json!(false);
+        if let Some(files) = &text_only {
+            coverage["textOnlyFiles"] = json!(files.len());
+        }
+        if agrees && FILE_LEVEL_REASONS.contains(&reason) {
+            return;
+        }
         coverage["reason"] = json!(reason);
     }
     // A warning, not a hint: the hint policy keeps hints for empty/error rows
     // only, and this caveat matters most when the row looks complete.
-    let name = query.symbol_name().filter(|name| !name.trim().is_empty());
     match name {
         // Partial only with an executable recovery.
         Some(name) => {
             push_reason(row, reason, &[warning.to_owned()]);
-            row["next"]["textSearch"] = crate::tools::result::Continuation::new(
-                ToolId::LocalSearch,
-                json!({
-                    "path": workspace_root,
-                    "matchString": super::render::word_pattern(name)
-                }),
-            )
-            .why("Find textual uses the language server's project cannot see.")
-            .confidence("medium")
-            .build();
+            row["next"]["textSearch"] = text_search_lead(name, scope, text_only.as_deref());
         }
         // A position anchor has no name to search for: coverage reason and
         // warning only.
@@ -467,4 +575,35 @@ pub(super) fn flag_partial(
             None => row["warnings"] = json!([warning]),
         },
     }
+}
+
+/// The lexical lead: one row per text-only file when there are a few,
+/// otherwise the whole scope with the language family's globs.
+fn text_search_lead(
+    name: &str,
+    scope: &super::scope::Scope,
+    text_only: Option<&[String]>,
+) -> Value {
+    let pattern = super::render::word_pattern(name);
+    if let Some(files) = text_only.filter(|files| (1..=LISTED_TEXT_FILES).contains(&files.len())) {
+        let rows = files
+            .iter()
+            .map(|file| json!({ "path": file, "matchString": pattern }))
+            .collect::<Vec<_>>();
+        return crate::tools::result::Continuation::input(
+            ToolId::LocalSearch,
+            json!({ "queries": rows }),
+        )
+        .why("Search the files that spell the name but are missing from the language server's answer.")
+        .confidence("high")
+        .build();
+    }
+    let mut search = json!({ "path": scope.root, "matchString": pattern });
+    if !scope.include.is_empty() {
+        search["include"] = json!(scope.include);
+    }
+    crate::tools::result::Continuation::new(ToolId::LocalSearch, search)
+        .why("Find textual uses the language server's project cannot see.")
+        .confidence("medium")
+        .build()
 }

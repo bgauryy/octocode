@@ -42,12 +42,7 @@ describe('generated config contract', () => {
   });
 
   it('derives token priority and dotenv protection from one environment policy', () => {
-    expect(ENV_TOKEN_VARS).toEqual([
-      'OCTOCODE_TOKEN',
-      'GH_TOKEN',
-      'GITHUB_TOKEN',
-      'GITHUB_PERSONAL_ACCESS_TOKEN',
-    ]);
+    expect(ENV_TOKEN_VARS).toEqual(['GH_TOKEN', 'GITHUB_TOKEN']);
     expect(
       ENV_TOKEN_VARS.every(name => !new Set<string>(PROTECTED_KEY_NAMES).has(name))
     ).toBe(true);
@@ -69,7 +64,7 @@ describe('generated config contract', () => {
 
     const malformedEnvironment = {
       GITHUB_API_URL: 'not a URL',
-      ENABLE_LOCAL: 1,
+      OCTOCODE_ENABLE_LOCAL: 1,
       ALLOWED_PATHS: 'relative/path',
       REQUEST_TIMEOUT: 'fast',
       OCTOCODE_OUTPUT_FORMAT: 'xml',
@@ -80,7 +75,7 @@ describe('generated config contract', () => {
       expect.objectContaining({
         version: 1,
         github: { apiUrl: 'https://api.github.com', graphqlEnabled: true },
-        tools: { enabled: null, disabled: null, family: 'all' },
+        tools: { enabled: null, disabled: null },
         network: expect.objectContaining({ timeout: 30_000 }),
         output: expect.objectContaining({ format: 'yaml' }),
       })

@@ -3,6 +3,7 @@
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
 
 mod budget;
+mod commit_dates;
 mod content;
 mod credentials;
 mod endpoint;
@@ -17,6 +18,9 @@ mod transport;
 mod tree;
 
 pub use budget::{AuthAdmission, ExecutorConfig, GitHubBudget, GitHubResource, LimiterKey};
+pub use commit_dates::{
+    MAX_PATHS_PER_REQUEST, PathDates, path_dates_document, path_dates_variables,
+};
 pub use content::{
     CachePartition, CachedContent, ConditionalCache, ContentRequest, ContentResponse,
     GitHubProvider, NoCache,

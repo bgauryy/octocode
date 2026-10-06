@@ -12,8 +12,9 @@ use super::locations::{
 use super::recovery::{get_locations, recover_aliases, resolve_definition_chain, snippet_identity};
 use super::render::as_array;
 use super::render::uri_to_path;
+use super::scope::Scope;
 use super::source::{SourceCache, filter_authorized_items};
-use super::walk::hierarchy;
+use super::walk::{ImporterRecovery, hierarchy};
 use crate::tools::cancel::CancellationCheck;
 use crate::tools::id::ToolId;
 use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetReadPolicy};
@@ -35,7 +36,8 @@ pub(super) struct Operation<'a, 'p> {
     pub(super) cancel: &'a dyn CancellationCheck,
     /// Canonical file (or workspace-root directory) path of the request.
     pub(super) path: &'a str,
-    pub(super) workspace_root: &'a str,
+    /// Where lexical scans and leads search; records the answer's files.
+    pub(super) scope: &'a Scope,
     /// A `workspaceRoot`-only request (no source file).
     pub(super) root_only: bool,
     /// Zero-based LSP anchor (0,0 for document-wide operations).
@@ -63,17 +65,28 @@ impl Operation<'_, '_> {
                 let found = self
                     .location_request(LocationRequest::Implementation)
                     .await?;
+                self.scope.answer(
+                    std::iter::once(self.path)
+                        .chain(found.iter().map(|snippet| snippet.uri.as_str())),
+                );
                 Ok(self
                     .locations("implementation", "implementationProvider", found)
                     .await)
             }
             "hover" => self.hover().await,
             "documentSymbols" => {
-                let symbols = cancellable(
+                let mut symbols = cancellable(
                     self.cancel,
                     self.client.get_document_symbols(self.path.to_owned()),
                 )
                 .await??;
+                if self
+                    .language_id
+                    .is_some_and(|id| super::render::TS_LANGUAGE_IDS.contains(&id))
+                    && let Some(source) = self.sources.get(self.path).await
+                {
+                    super::render::name_type_aliases(&mut symbols, &source.content);
+                }
                 Ok(items_payload(query, "documentSymbols", symbols))
             }
             "workspaceSymbol" => self.workspace_symbol().await,
@@ -182,6 +195,22 @@ impl Operation<'_, '_> {
                 value
             }
         };
+        self.scope.answer(
+            std::iter::once(self.path.to_owned())
+                .chain(known_files)
+                .chain(
+                    from_importers
+                        .iter()
+                        .map(|snippet| uri_to_path(&snippet.uri)),
+                )
+                .chain(
+                    importers
+                        .iter()
+                        .flat_map(Importers::per_file)
+                        .map(|anchor| anchor.path.clone()),
+                )
+                .chain(importers.iter().flat_map(|found| found.rejected.clone())),
+        );
         let found = found
             .drain(..)
             .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
@@ -200,7 +229,12 @@ impl Operation<'_, '_> {
             importers.annotate(&mut row);
         }
         if alias_scan_capped && row.pointer("/payload/coverage").is_some() {
-            super::recovery::disclose_alias_cap(&mut row, query, self.workspace_root);
+            if let Some(name) = query.symbol_name() {
+                self.scope
+                    .text_files(name, self.sources.policy(), self.cancel)
+                    .await?;
+            }
+            super::recovery::disclose_alias_cap(&mut row, query, self.scope);
         }
         Ok(row)
     }
@@ -227,34 +261,24 @@ impl Operation<'_, '_> {
         })
     }
 
-    /// A call or type hierarchy walk; TS/JS incoming walks are rooted at
-    /// verified importer call sites too.
+    /// A call or type hierarchy walk; TS/JS incoming walks also verify the
+    /// importers the server's level-1 answer does not cover.
     async fn hierarchy(mut self) -> Result<Value, LspFailure> {
         let query = self.query;
-        let importers = self.importers(&HashSet::new()).await?;
-        let extra_roots = importers
-            .as_ref()
-            .map(|importers| {
-                importers
-                    .call_sites()
-                    .into_iter()
-                    .map(|anchor| (anchor.path.clone(), anchor.line, anchor.character))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        let derive = importers
-            .as_ref()
-            .filter(|_| query.operation() != "callees")
-            .map(|importers| (importers, self.snippet_policy));
-        let mut row = hierarchy(
+        let recovery = match self.importer_symbol().await {
+            Some(symbol) => Some(ImporterRecovery {
+                symbol,
+                snippet_policy: self.snippet_policy,
+            }),
+            None => None,
+        };
+        let (mut row, importers) = hierarchy(
             self.client,
             query,
             self.sources,
-            self.path,
-            self.line,
-            self.character,
-            &extra_roots,
-            derive,
+            self.scope,
+            (self.path, self.line, self.character),
+            recovery,
             self.cancel,
         )
         .await?;
@@ -264,24 +288,30 @@ impl Operation<'_, '_> {
         Ok(row)
     }
 
+    /// The symbol whose importers recovery verifies, when the server may
+    /// have missed importers (TS/JS incoming operations).
+    async fn importer_symbol(&mut self) -> Option<String> {
+        let operation = self.query.operation();
+        if !importers::applies(self.language_id, &operation) || self.root_only {
+            return None;
+        }
+        match self.query.symbol_name() {
+            Some(name) if !name.trim().is_empty() => Some(name.to_owned()),
+            _ => {
+                self.sources.get(self.path).await.and_then(|source| {
+                    importers::word_at(&source.content, self.line, self.character)
+                })
+            }
+        }
+    }
+
     /// Verified importer anchors when the server may have missed importers
     /// (TS/JS incoming operations); `None` when recovery does not apply.
     async fn importers(
         &mut self,
         known_files: &HashSet<String>,
     ) -> Result<Option<Importers>, LspFailure> {
-        let operation = self.query.operation();
-        if !importers::applies(self.language_id, &operation) || self.root_only {
-            return Ok(None);
-        }
-        let symbol =
-            match self.query.symbol_name() {
-                Some(name) if !name.trim().is_empty() => Some(name.to_owned()),
-                _ => self.sources.get(self.path).await.and_then(|source| {
-                    importers::word_at(&source.content, self.line, self.character)
-                }),
-            };
-        let Some(symbol) = symbol else {
+        let Some(symbol) = self.importer_symbol().await else {
             return Ok(None);
         };
         importers::verified_anchors(
@@ -290,7 +320,7 @@ impl Operation<'_, '_> {
             self.snippet_policy,
             self.cancel,
             &symbol,
-            self.workspace_root,
+            self.scope,
             self.path,
             self.line,
             self.character,

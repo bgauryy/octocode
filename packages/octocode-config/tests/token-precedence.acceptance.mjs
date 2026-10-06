@@ -24,12 +24,7 @@ const endpoint = `http://127.0.0.1:${server.address().port}`;
 const groups = [
   {
     tool: 'ghSearchRepo',
-    aliases: [
-      'OCTOCODE_TOKEN',
-      'GH_TOKEN',
-      'GITHUB_TOKEN',
-      'GITHUB_PERSONAL_ACCESS_TOKEN',
-    ],
+    aliases: ['GH_TOKEN', 'GITHUB_TOKEN'],
     input: {
       queries: [
         {
@@ -41,7 +36,7 @@ const groups = [
   },
   {
     tool: 'clasify',
-    aliases: ['OCTOCODE_CLASSIFICATION_API', 'OCTOCODE_JEV_KEY'],
+    aliases: ['OCTOCODE_CLASSIFICATION_API'],
     input: {
       reasoning: 'Probe source precedence on a local fixture endpoint.',
       resources: [{ context: { value: 'fixture' } }],

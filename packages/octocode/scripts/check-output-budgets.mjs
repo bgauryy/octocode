@@ -16,14 +16,14 @@ if (!existsSync(cli)) {
 const cases = [
   { name: 'root-help', args: ['--help'], maxBytes: 4500, instructions: 'text' },
   {
-    name: 'scheme-catalog',
-    args: ['scheme', '--compact'],
+    name: 'schema-catalog',
+    args: ['schema'],
     maxBytes: 7500,
     instructions: 'json',
   },
   {
     name: 'localSearch-compact-schema',
-    args: ['scheme', 'localSearch', '--view', 'query', '--compact'],
+    args: ['schema', 'localSearch', '--view', 'query'],
     maxBytes: 14000,
   },
   {

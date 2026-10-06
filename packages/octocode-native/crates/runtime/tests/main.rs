@@ -12,9 +12,11 @@ mod support;
 
 mod auth_discovery;
 mod contract_field_effects;
+mod runtime_batch_indices;
 mod runtime_batch_response;
 mod runtime_clasify;
 mod runtime_clasify_routing;
+mod runtime_empty_error_rows;
 mod runtime_flow_edge_replay;
 mod runtime_gh_structure;
 mod runtime_github;

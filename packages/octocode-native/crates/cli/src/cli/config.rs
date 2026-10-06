@@ -55,71 +55,178 @@ impl From<&str> for ManageError {
     }
 }
 
-pub fn show_path(runtime: &ToolRuntime, json_out: bool) -> u8 {
-    let path = runtime.inspect_config().global_env_path;
+/// `octocode config`: where configuration lives and which keys are loaded,
+/// never their values.
+pub fn show(runtime: &ToolRuntime, json_out: bool) -> u8 {
+    let view = runtime.inspect_config();
+    let config_file = view
+        .config_path
+        .clone()
+        .unwrap_or_else(|| view.home.join(".octocoderc"));
+    let config_file_exists = view.config_path.is_some();
+    let project_config_exists = view.project_config_path.is_some();
     if json_out {
-        write_json(&json!({"path": path, "exists": path.is_file()}), true)
+        return write_json(
+            &json!({
+                "home": view.home,
+                "storage": view.storage_mode,
+                "configFile": {
+                    "path": config_file,
+                    "exists": config_file_exists,
+                    "keys": view.config_keys,
+                },
+                "projectConfigFile": {
+                    "path": view.project_config_file,
+                    "exists": project_config_exists,
+                    "keys": view.project_config_keys,
+                },
+                "envFiles": {
+                    "global": {"path": view.global_env_path, "exists": view.global_env_path.is_file()},
+                    "project": {"path": view.project_env_path, "exists": view.project_env_path.is_file()},
+                },
+                "envKeys": view.loaded_keys,
+                "skippedProtected": view.skipped_protected,
+                "skippedExisting": view.skipped_existing,
+                "diagnostics": view.diagnostics,
+            }),
+            true,
+        );
+    }
+    let found = |exists: bool| if exists { "" } else { " (not found)" };
+    println!("home     {}", view.home.display());
+    println!("storage  {}", view.storage_mode);
+    println!("config");
+    println!("  global   {}{}", config_file.display(), found(config_file_exists));
+    println!(
+        "  project  {}{}",
+        view.project_config_file.display(),
+        found(project_config_exists)
+    );
+    println!(".env");
+    println!(
+        "  global   {}{}",
+        view.global_env_path.display(),
+        found(view.global_env_path.is_file())
+    );
+    println!(
+        "  project  {}{}",
+        view.project_env_path.display(),
+        found(view.project_env_path.is_file())
+    );
+    let list = |label: &str, keys: &[String]| {
+        if !keys.is_empty() {
+            println!("{label} ({}): {}", keys.len(), keys.join(", "));
+        }
+    };
+    list("config keys", &view.config_keys);
+    list("project config keys", &view.project_config_keys);
+    list("env keys", &view.loaded_keys);
+    for skip in &view.skipped_protected {
+        println!(
+            "skipped (protected) {}: found in {} but not applied; set it in the process environment or config file",
+            skip.key,
+            skip.source_path.display()
+        );
+    }
+    for skip in &view.skipped_existing {
+        println!(
+            "skipped (existing) {}: found in {} but the process environment already sets it",
+            skip.key,
+            skip.source_path.display()
+        );
+    }
+    for diagnostic in &view.diagnostics {
+        println!("{diagnostic}");
+    }
+    println!("Values are never printed.");
+    0
+}
+
+/// `config check KEY`: exit 0 when set, 1 when unset. A GitHub token key that
+/// is unset names the credential GitHub calls use instead.
+pub async fn check(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
+    let set = runtime
+        .config()
+        .env_value(key)
+        .is_some_and(|value| !value.is_empty());
+    let github_auth = if !set && octocode_native::config::ENV_TOKEN_VARS.contains(&key) {
+        super::system::active_token_source(runtime).await
     } else {
-        println!("{}", path.display());
-        0
+        None
+    };
+    if json_out {
+        let mut value = json!({"key": key, "set": set});
+        if let Some(source) = &github_auth {
+            value["githubTokenSource"] = json!(source);
+        }
+        let code = write_json(&value, true);
+        if code != 0 {
+            return code;
+        }
+    } else {
+        match &github_auth {
+            Some(source) => {
+                println!("{key}: unset (GitHub calls use the token from {source})");
+            }
+            None => println!("{key}: {}", if set { "set" } else { "unset" }),
+        }
+    }
+    if set { 0 } else { 1 }
+}
+
+/// `config set KEY VALUE` / `config set KEY --stdin`.
+pub fn set(
+    runtime: &ToolRuntime,
+    key: &str,
+    value: Option<String>,
+    stdin: bool,
+    json_out: bool,
+) -> u8 {
+    let value = if stdin {
+        read_stdin_value()
+    } else {
+        value.ok_or("Supply a value: config set KEY VALUE, or config set KEY --stdin.")
+    };
+    match value {
+        Ok(value) => edit(runtime, key, Some(&value), json_out),
+        Err(message) => {
+            emit_error(message, json_out);
+            2
+        }
     }
 }
 
-pub fn edit(
-    runtime: &ToolRuntime,
-    add: &[String],
-    remove: Option<&str>,
-    value_stdin: bool,
-    json_out: bool,
-) -> u8 {
-    let result = (|| {
-        let key = remove
-            .or_else(|| add.first().map(String::as_str))
-            .ok_or("Supply --add KEY VALUE or --remove KEY.")?;
-        let value = if remove.is_some() {
-            None
-        } else if value_stdin {
-            if add.len() != 1 {
-                return Err("Use --add KEY --value-stdin without a VALUE argument.");
-            }
-            let mut value = String::new();
-            io::stdin()
-                .take(65_537)
-                .read_to_string(&mut value)
-                .map_err(|_| "Cannot read value from stdin.")?;
-            if value.len() > 65_536 {
-                return Err("Value exceeds 64 KiB.");
-            }
-            if value.ends_with('\n') {
-                value.pop();
-                if value.ends_with('\r') {
-                    value.pop();
-                }
-            }
-            Some(value)
-        } else {
-            Some(
-                add.get(1)
-                    .ok_or("Supply --add KEY VALUE or --add KEY --value-stdin.")?
-                    .clone(),
-            )
-        };
-        Ok((key, value))
-    })();
-    let (key, value) = match result {
-        Ok(value) => value,
-        Err(message) => {
-            emit_error(message, json_out);
-            return 2;
+/// `config unset KEY`.
+pub fn unset(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
+    edit(runtime, key, None, json_out)
+}
+
+fn read_stdin_value() -> Result<String, &'static str> {
+    let mut value = String::new();
+    io::stdin()
+        .take(65_537)
+        .read_to_string(&mut value)
+        .map_err(|_| "Cannot read value from stdin.")?;
+    if value.len() > 65_536 {
+        return Err("Value exceeds 64 KiB.");
+    }
+    if value.ends_with('\n') {
+        value.pop();
+        if value.ends_with('\r') {
+            value.pop();
         }
-    };
+    }
+    Ok(value)
+}
+
+fn edit(runtime: &ToolRuntime, key: &str, value: Option<&str>, json_out: bool) -> u8 {
     let path = runtime.config().home.join(".env");
-    match octocode_native::config::edit_scoped_env(&path, key, value.as_deref(), false, None) {
+    match octocode_native::config::edit_scoped_env(&path, key, value, false, None) {
         Ok(changed) => {
-            let action = if remove.is_some() { "remove" } else { "add" };
+            let action = if value.is_some() { "set" } else { "unset" };
             if json_out {
                 write_json(
-                    &json!({"success": true, "action": action, "key": key, "path": path, "changed": changed}),
+                    &json!({"action": action, "key": key, "path": path, "changed": changed}),
                     true,
                 )
             } else {

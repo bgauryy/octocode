@@ -1,6 +1,6 @@
 //! The one reading of an `include` entry every tool shares: a glob as
 //! written, or a bare word (no glob metacharacter) that matches names
-//! containing it.
+//! containing it and everything under a directory whose name contains it.
 
 /// The glob an `include` entry stands for: a bare word (no `/`, no glob
 /// metacharacter) becomes `*word*`, names containing it at any depth; any
@@ -15,15 +15,22 @@ pub fn include_glob(pattern: &str) -> String {
 }
 
 /// Every `include` entry as a glob. A path without glob metacharacters
-/// (`src/api`, `src/api/x.ts`) also matches everything under it, so naming a
-/// directory scopes to its files instead of matching nothing.
+/// (`src/api`, `src/api/x.ts`) also matches everything under it, and a bare
+/// word (`local_fetch`) also matches everything under a directory whose name
+/// contains it, so naming a directory scopes to its files instead of
+/// matching nothing.
 pub fn include_globs(patterns: &[String]) -> Vec<String> {
     patterns
         .iter()
         .flat_map(|pattern| {
+            let trimmed = pattern.trim().trim_start_matches("./");
             let glob = include_glob(pattern);
-            let plain_path = glob.contains('/') && !glob.contains(['*', '?', '[', '{']);
-            let under = plain_path.then(|| format!("{}/**", glob.trim_end_matches('/')));
+            let under = if !trimmed.contains(['/', '*', '?', '[', '{']) {
+                Some(format!("**/{glob}/**"))
+            } else {
+                let plain_path = glob.contains('/') && !glob.contains(['*', '?', '[', '{']);
+                plain_path.then(|| format!("{}/**", glob.trim_end_matches('/')))
+            };
             std::iter::once(glob).chain(under)
         })
         .collect()
@@ -57,6 +64,16 @@ mod tests {
             ["octocode-mcp/src", "octocode-mcp/src/**"]
         );
         assert_eq!(globs(&["src/api/"]), ["src/api/", "src/api/**"]);
-        assert_eq!(globs(&["test", "src/**/*.ts"]), ["*test*", "src/**/*.ts"]);
+        assert_eq!(
+            globs(&["test", "src/**/*.ts"]),
+            ["*test*", "**/*test*/**", "src/**/*.ts"]
+        );
+    }
+
+    #[test]
+    fn a_bare_word_also_matches_under_dirs_containing_it() {
+        assert_eq!(include_globs(&["src".to_owned()]), ["*src*", "**/*src*/**"]);
+        // Globs and paths keep their own reading.
+        assert_eq!(include_globs(&["*.rs".to_owned()]), ["*.rs"]);
     }
 }

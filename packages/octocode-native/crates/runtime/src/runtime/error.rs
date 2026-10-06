@@ -87,7 +87,7 @@ mod tests {
         );
         assert!(typo.contains("did you mean 'matchString'?"), "{typo}");
         assert!(typo.contains("See the localFetch inputSchema"), "{typo}");
-        assert!(!typo.contains("scheme"), "{typo}");
+        assert!(!typo.contains("octocode schema"), "{typo}");
 
         let missing = text(
             "ghGetFileContent",

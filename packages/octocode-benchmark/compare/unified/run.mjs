@@ -93,7 +93,7 @@ function buildManifest() {
       references: Object.fromEntries(questions.map(q => [q.id, hashFile(path.join(REFERENCES_DIR, `${q.id}.md`))])),
       dependencyLock: hashFile(path.join(REPO_ROOT, 'yarn.lock')),
       configDist: hashFile(path.join(REPO_ROOT, 'packages/octocode-config/dist/index.js')),
-      environment: sha256(JSON.stringify(Object.entries(effectiveEnv).filter(([k]) => /^(OCTOCODE_|ENABLE_LOCAL|TOOLS_TO_RUN|DISABLE_TOOLS|GITHUB_API_URL|REQUEST_TIMEOUT|MAX_RETRIES)/.test(k)).sort())),
+      environment: sha256(JSON.stringify(Object.entries(effectiveEnv).filter(([k]) => /^(OCTOCODE_|TOOLS_TO_RUN|DISABLE_TOOLS|GITHUB_API_URL|REQUEST_TIMEOUT|MAX_RETRIES)/.test(k)).sort())),
       workers: Object.fromEntries(workers.map((w) => [w.id, { doc: w.docSha, profile: w.profileSha }])),
       ...configurationHashes(REPO_ROOT, getOctocodeHome()),
       prompts: Object.fromEntries(questions.map((q) => [q.id, sha256(buildPrompt(q))])),

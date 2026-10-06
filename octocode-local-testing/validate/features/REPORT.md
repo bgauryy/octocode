@@ -50,7 +50,7 @@ Spot probes:
     - Scout `next.read` ranges run past end of file.
     - `skill remove ../../etc` is refused with an empty reason.
     - MCP missing-goal errors are raw Zod text.
-    - `scheme` suppresses config warnings.
+    - `schema` suppresses config warnings.
 15. **Harness:** `harness/mcp-client.mjs` hangs for 240 s when the server dies during init, because it has no child-exit handler.
 
 ## Docs ↔ behavior drift
@@ -108,7 +108,7 @@ Spot probes:
 - **P-8.** The skills/README.md:14 link is broken; the skill is in `skills-beta/`.
 - **P-9.** CONFIGURATION.md:189 says every key is accepted from either `.env`. Home-only keys are skipped from the workspace `.env`.
 - **P-10.** CONFIGURATION.md:360 says tokens are blocked in `.env`. They are accepted.
-- **P-11.** CONFIGURATION.md:211/:236 promise config warnings. `scheme` prints none.
+- **P-11.** CONFIGURATION.md:211/:236 promise config warnings. `schema` prints none.
 - **P-12.** The CONFIGURATION.md:232 and :253 bullets are duplicates.
 - **P-13.** The CONFIGURATION.md:277 `--ide` aliases aren't listed (claude → claude-desktop, vscode → vscode-cline).
 

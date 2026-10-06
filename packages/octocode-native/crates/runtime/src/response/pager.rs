@@ -17,6 +17,9 @@ pub struct ResponsePageOptions {
     /// Opt-in: `"structured"` windows the serialized structuredContent
     /// envelope instead of the rendered text (default `None`/`"text"`).
     pub response_scope: Option<String>,
+    /// Host-set, never read from a query: render the text channel. Unset,
+    /// only MCP renders it.
+    #[serde(skip_deserializing)]
     pub render_text: Option<bool>,
 }
 
@@ -1075,7 +1078,7 @@ mod tests {
                 .collect::<Vec<_>>();
             rows.push(json!({"index":3,"status":"error","data":{
                 "error":"Repository, resource, or path not found","errorCode":"notFound",
-                "retryable":false,"httpStatus":404,
+                "httpStatus":404,
                 "requestId":format!("{call:X}F4:376635:800A3C:A22BF9:6ABD2D60"),
                 "rateLimit":{"remaining":100_000 + call,"resetEpochSeconds":1_700_000_000 + call,"retryAfterSeconds":call},
                 "retryAfterSeconds":call}}));

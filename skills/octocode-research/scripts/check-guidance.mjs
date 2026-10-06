@@ -12,7 +12,7 @@ if (args.includes('--help')) {
     'Usage: node scripts/check-guidance.mjs [--json] [--self-test] [--examples]',
     'Checks local/external routing, completeness, and TDD guidance. No network or writes.',
     '--examples  also validate every JSON tool-call example in SKILL.md, README.md, and references/*.md',
-    '            against the live query schema from `octocode scheme <tool> --compact`.',
+    '            against the live query schema from `octocode schema <tool>`.',
     '            CLI lookup: $OCTOCODE_CLI (a .js file or binary), the monorepo build, then `octocode` on PATH.',
     '            Without a CLI the example check is skipped with a clear message (exit unaffected).',
   ].join('\n'));
@@ -213,8 +213,8 @@ function resolveCli() {
   for (const cli of candidates) {
     const [cmd, pre] = cli.endsWith('.js') ? [process.execPath, [cli]] : [cli, []];
     try {
-      execFileSync(cmd, [...pre, 'scheme', '--compact'], { stdio: 'pipe', timeout: 20000 });
-      return (tool) => JSON.parse(execFileSync(cmd, [...pre, 'scheme', tool, '--view', 'query', '--compact'], {
+      execFileSync(cmd, [...pre, 'schema'], { stdio: 'pipe', timeout: 20000 });
+      return (tool) => JSON.parse(execFileSync(cmd, [...pre, 'schema', tool, '--view', 'query'], {
         stdio: 'pipe', timeout: 20000, env: { ...process.env, OCTOCODE_BETA: '1' },
       }).toString()).querySchema;
     } catch (error) {

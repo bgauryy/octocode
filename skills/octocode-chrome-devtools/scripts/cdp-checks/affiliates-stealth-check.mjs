@@ -13,7 +13,7 @@ const TARGET = process.env.AFFILIATES_CHECK_URL ?? 'https://affiliates.walmart.c
 
 export async function run(cdp) {
   if (!cdp.stealthApplied) {
-    throw new Error('[STEALTH_GATE] mandatory stealth was not applied by cdp-runner — do not use --no-stealth');
+    throw new Error('[STEALTH_GATE] emulation was not enabled; use --stealth for this dedicated check');
   }
 
   await cdp.send('Network.enable', {});
@@ -25,9 +25,9 @@ export async function run(cdp) {
     returnByValue: true,
     expression: `({
       title: document.title,
-      h1: document.querySelector('h1')?.innerText?.trim()?.slice(0, 120) || '',
+      h1: document.querySelector('h1')?.innerText?.trim() || '',
       href: location.href,
-      signupLinks: [...document.querySelectorAll('a')].filter(a => /sign up|apply|join/i.test(a.innerText||'')).slice(0,5).map(a => ({ text: (a.innerText||'').trim().slice(0,60), href: a.href }))
+      signupLinks: [...document.querySelectorAll('a')].filter(a => /sign up|apply|join/i.test(a.innerText||'')).map(a => ({ text: (a.innerText||'').trim(), href: a.href }))
     })`,
   });
   const info = page.result?.value || {};
@@ -37,7 +37,8 @@ export async function run(cdp) {
   console.log(`[FINDING] signup CTAs=${JSON.stringify(info.signupLinks)}`);
 
   let cookies = [];
-  try { cookies = (await cdp.send('Network.getAllCookies')).cookies || []; } catch {}
+  cookies = (await cdp.send('Network.getAllCookies')).cookies;
+  if (!Array.isArray(cookies)) throw new Error('Cookie inventory unavailable');
   const storage = await cdp.send('Runtime.evaluate', {
     awaitPromise: true,
     returnByValue: true,

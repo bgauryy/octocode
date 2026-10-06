@@ -482,7 +482,9 @@ impl<R: CredentialResolver> GitHubTransport<R> {
 }
 
 /// Type a ref-resolution failure: a 404 is the repository (missing, private,
-/// or hidden from the token), a 422 "No commit found" the ref itself.
+/// or hidden from the token), a 422 "No commit found" the ref itself. A
+/// missing ref is not-found input (one code and exit class for every tool),
+/// not a malformed request.
 fn classify_ref_failure(error: ProviderError) -> ProviderError {
     match error.status {
         Some(404) => {
@@ -493,7 +495,9 @@ fn classify_ref_failure(error: ProviderError) -> ProviderError {
             error
         }
         Some(422) if error.message.starts_with("No commit found") => {
-            error.with_reason(super::ProviderErrorReason::RefNotFound)
+            let mut error = error.with_reason(super::ProviderErrorReason::RefNotFound);
+            error.kind = ProviderErrorKind::NotFound;
+            error
         }
         _ => error,
     }

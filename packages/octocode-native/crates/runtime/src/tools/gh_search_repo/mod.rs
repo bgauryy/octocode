@@ -83,7 +83,7 @@ pub(crate) async fn execute<R: CredentialResolver, C: ConditionalCache>(
     };
     let provider_incomplete = data.incomplete_results;
     let provider_capped = listing.is_none() && data.total_count > SEARCH_RESULT_CAP;
-    let mut leads = top_leads(query, data.items.first());
+    let mut leads = top_leads(data.items.first());
     // Archived repositories are excluded unless the caller set `archived`:
     // a search states it once (page 1); a listing, whenever it skipped some.
     let archived_skipped = listing.as_ref().map_or(0, |listing| listing.archived);
@@ -237,38 +237,21 @@ async fn owner_listing<R: CredentialResolver, C: ConditionalCache>(
     ))
 }
 
-/// Where the top repository leads: its default-branch root listing, and,
-/// for a keyword search, the same keywords in its code.
+/// Where the top repository leads: its default-branch root listing. Repo
+/// discovery words are not code keywords, so no code-search lead follows.
 fn top_leads(
-    query: &GhSearchRepoQuery,
     top: Option<&crate::providers::github::RepositorySearchItem>,
 ) -> Vec<(&'static str, Value)> {
     let Some((owner, repo)) = top.and_then(|item| item.full_name.split_once('/')) else {
         return Vec::new();
     };
-    let mut leads = vec![(
+    vec![(
         "viewRepo",
         Continuation::new(ToolId::GhStructure, json!({"owner": owner, "repo": repo})).build(),
-    )];
-    let keywords = query
-        .keywords
-        .iter()
-        .filter(|keyword| !keyword.trim().is_empty())
-        .collect::<Vec<_>>();
-    if !keywords.is_empty() {
-        leads.push((
-            "searchContent",
-            Continuation::new(
-                ToolId::GhSearchCode,
-                json!({"owner": owner, "repo": repo, "keywords": keywords}),
-            )
-            .build(),
-        ));
-    }
-    leads
+    )]
 }
 
-/// The same search for archived repositories only, from its first page.
+/// The same search with archived repositories included, from its first page.
 fn include_archived(query: &GhSearchRepoQuery) -> Value {
     let mut row = serde_json::to_value(query).unwrap_or_else(|_| json!({}));
     if let Some(row) = row.as_object_mut() {
@@ -362,7 +345,7 @@ fn wanted_topics(query: &GhSearchRepoQuery) -> Vec<String> {
 }
 
 /// One compact repository row: `owner` and `repo`, the decision facts (stars,
-/// language, license, last push, creation, `archived` when set), the whole
+/// language, license, last push, creation, `archived`/`fork` when set), the whole
 /// description, and every topic (query matches first). Forks and the
 /// metadata-update date are verbose (core field class).
 fn repository_row(
@@ -370,8 +353,15 @@ fn repository_row(
     wanted: &[String],
 ) -> Value {
     let mut topics = item.topics;
-    // A topic equal to the repository's own name repeats `repo`.
-    topics.retain(|topic| !topic.eq_ignore_ascii_case(&item.name));
+    // A topic equal to the repository's own name repeats `repo`; one equal
+    // to its language repeats `language`.
+    topics.retain(|topic| {
+        !topic.eq_ignore_ascii_case(&item.name)
+            && item
+                .language
+                .as_deref()
+                .is_none_or(|language| !topic.eq_ignore_ascii_case(language))
+    });
     // Stable: matching topics keep GitHub's order, then the rest.
     topics.sort_by_key(|topic| !wanted.contains(&topic.to_lowercase()));
     let (owner, repo) = item
@@ -392,6 +382,10 @@ fn repository_row(
     });
     if item.archived {
         row["archived"] = json!(true);
+    }
+    // A fork in an owner listing is not the owner's own source.
+    if item.fork {
+        row["fork"] = json!(true);
     }
     if !topics.is_empty() {
         row["topics"] = json!(topics);
@@ -478,5 +472,18 @@ mod tests {
         .expect("item");
         let row = repository_row(item, &[]);
         assert_eq!(row["topics"], json!(["rtmp", "rust"]), "{row}");
+    }
+
+    /// A topic that only repeats the row's `language` is dropped too.
+    #[test]
+    fn topic_naming_the_language_is_dropped() {
+        let item: crate::providers::github::RepositorySearchItem = serde_json::from_value(json!({
+            "full_name":"psf/requests","name":"requests","html_url":"h","default_branch":"main",
+            "language":"Python","topics":["python","http"]
+        }))
+        .expect("item");
+        let row = repository_row(item, &[]);
+        assert_eq!(row["topics"], json!(["http"]), "{row}");
+        assert_eq!(row["language"], "Python", "{row}");
     }
 }

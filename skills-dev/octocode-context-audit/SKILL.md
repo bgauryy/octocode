@@ -36,3 +36,6 @@ Budgets are review points (≈ 4 chars per token), not failures. Cursor/other-cl
 2. Move reference detail out of always-loaded files into linked docs or skills; keep rules the agent must follow every turn.
 3. Remove broken skill links and duplicate installs; keep one canonical source.
 4. For unused or error-prone tools, check routing text and schemas with `octocode-agentic-prompts` before deleting — zero calls in a short window is a candidate, not proof.
+
+## Output
+One report in the directory on the `output:` line. `context-audit.html` is the document a person reads. `context-audit.json` sits beside it because an agent reads the json. Do not add a third file.

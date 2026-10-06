@@ -30,7 +30,7 @@ Caption: develop on dev data; open the sealed test once, after selection; a dott
 Modes: **ErrorAnalyze** · **Define** · **Run** · **Suite** · **Benchmark** · **Audit**.
 Read `references/references.md` when you audit method provenance.
 
-Definitions: `benchmarks/<name>/` (`benchmarks/README.md`); saved runs: `<output>/benchmarks/<name>/results/<run-id>/`. Keep evaluator artifacts outside solver access. Approved source edits keep their paths.
+Definitions live in `benchmarks/<name>/` (`benchmarks/README.md`). Keep evaluator artifacts outside solver access.
 
 ## Invariants
 - Freeze the goal, primary KPI, meaningful effect threshold, guardrails, trial and selection budget, splits, and executable harness before comparing candidates. Version a corrected harness; rerun both sides.
@@ -48,3 +48,6 @@ Other owners: `octocode-research` proves code claims; `octocode-brainstorming` e
 
 ## Maintainer verification
 After maintainer edits, run `node scripts/check-description.mjs` (metadata), `node scripts/eval-skill.mjs --self-test` (grader mechanics), then the `octocode-skills` review. `benchmarks/skill-smoke/README.md` documents case and batch checks.
+
+## Output
+One verdict in chat. A run writes one result directory at `<output>/benchmarks/<name>/results/<run-id>/`. Approved source edits keep their paths.

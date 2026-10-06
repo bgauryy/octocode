@@ -1,19 +1,19 @@
-import { describe, it, expect, vi } from 'vitest';
-import { runScheme, useCompactJson } from '../../../src/cli/commands/scheme.js';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { runSchema } from '../../../src/cli/commands/schema.js';
 import {
   project,
   usageLines,
-} from '../../../src/cli/commands/scheme-projection.js';
+} from '../../../src/cli/commands/schema-projection.js';
 import {
   getPublicToolCatalog,
   getNativeContractFingerprint,
-  type SchemeJsonObject,
+  type SchemaJsonObject,
 } from '@octocodeai/config/schema';
 import { buildMcpInstructions } from '@octocodeai/config/mcp';
 
 const catalog = getPublicToolCatalog();
-const tools = catalog.tools as unknown as readonly SchemeJsonObject[];
-const toolNamed = (name: string): SchemeJsonObject => {
+const tools = catalog.tools as unknown as readonly SchemaJsonObject[];
+const toolNamed = (name: string): SchemaJsonObject => {
   const tool = tools.find(candidate => candidate.name === name);
   if (!tool) throw new Error(`missing tool ${name}`);
   return { ...tool };
@@ -46,103 +46,112 @@ describe('core public catalog', () => {
   });
 });
 
-describe('scheme output format', () => {
-  it('is compact when piped, indented on a terminal, and flag-overridable', () => {
-    expect(useCompactJson({}, false)).toBe(true);
-    expect(useCompactJson({}, true)).toBe(false);
-    expect(useCompactJson({ compact: true }, true)).toBe(true);
-    expect(useCompactJson({ pretty: true }, false)).toBe(false);
+const stdoutTty = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+function setTty(value: boolean): void {
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value,
+    configurable: true,
   });
+}
+afterEach(() => {
+  if (stdoutTty) Object.defineProperty(process.stdout, 'isTTY', stdoutTty);
+  else delete (process.stdout as { isTTY?: boolean }).isTTY;
+  vi.restoreAllMocks();
 });
 
-describe('scheme command admission', () => {
-  it('rejects unknown flags with the global JSON error contract', async () => {
+describe('schema command admission', () => {
+  it('rejects unknown flags with the JSON error envelope on a pipe', async () => {
+    setTty(false);
     const output = vi.spyOn(console, 'log').mockImplementation(() => {});
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(
-      runScheme({
-        command: 'scheme',
-        args: [],
-        options: { bogus: true, 'json-errors': true },
-      })
+      runSchema({ command: 'schema', args: [], options: { bogus: true } })
     ).resolves.toBe(2);
-    expect(JSON.parse(output.mock.calls[0][0])).toEqual({
-      kind: 'octocode.toolError',
-      version: 1,
-      error: 'Unknown option: --bogus',
-    });
+    const printed = JSON.parse(output.mock.calls[0][0]);
+    expect(printed.kind).toBe('octocode.toolError');
+    expect(printed.error).toContain('Unknown option: --bogus');
     expect(error).not.toHaveBeenCalled();
-    output.mockRestore();
-    error.mockRestore();
+  });
+
+  it('rejects removed flags (--compact, --pretty, --json-errors)', async () => {
+    setTty(true);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (const flag of ['compact', 'pretty', 'json-errors']) {
+      await expect(
+        runSchema({ command: 'schema', args: [], options: { [flag]: true } })
+      ).resolves.toBe(2);
+    }
+    expect(error).toHaveBeenCalledTimes(3);
   });
 
   it('rejects missing selector values', async () => {
+    setTty(true);
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(
-      runScheme({
-        command: 'scheme',
+      runSchema({
+        command: 'schema',
         args: ['localSearch'],
         options: { select: true },
       })
     ).resolves.toBe(2);
     expect(error).toHaveBeenCalledWith('--select requires a value.');
-    error.mockRestore();
   });
+
   it('rejects extra tool names instead of silently ignoring them', async () => {
+    setTty(true);
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(
-      runScheme({
-        command: 'scheme',
+      runSchema({
+        command: 'schema',
         args: ['localFetch', 'localSearch'],
         options: {},
       })
     ).resolves.toBe(2);
     expect(error).toHaveBeenCalledWith(
-      'scheme accepts one tool name per call.'
+      'schema accepts one tool name per call.'
     );
   });
 
-  it.each(['help', 'h'])('prints usage for --%s', async option => {
-    const output = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await expect(
-      runScheme({
-        command: 'scheme',
-        args: [],
-        options: { [option]: true },
-      })
-    ).resolves.toBe(0);
-    expect(output).toHaveBeenCalledWith(
-      expect.stringContaining('octocode scheme')
-    );
-  });
-
-  it('rejects an invalid view on the text error channel', async () => {
+  it('requires a tool name for --view and --select', async () => {
+    setTty(true);
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
     await expect(
-      runScheme({
-        command: 'scheme',
-        args: [],
+      runSchema({ command: 'schema', args: [], options: { view: 'query' } })
+    ).resolves.toBe(2);
+    expect(error).toHaveBeenCalledWith(
+      expect.stringContaining('need a tool name')
+    );
+  });
+
+  it('rejects an invalid view as text on a terminal', async () => {
+    setTty(true);
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      runSchema({
+        command: 'schema',
+        args: ['localSearch'],
         options: { view: 'invalid' },
       })
     ).resolves.toBe(2);
     expect(error).toHaveBeenCalledWith(
-      '--view expects full|query|variants, got: invalid'
+      '--view expects query|variants|full, got: invalid'
     );
   });
 
-  it('rejects an invalid view on the JSON error channel', async () => {
+  it('rejects an invalid view as the JSON envelope on a pipe', async () => {
+    setTty(false);
     const output = vi.spyOn(console, 'log').mockImplementation(() => {});
     await expect(
-      runScheme({
-        command: 'scheme',
-        args: [],
-        options: { view: 'invalid', 'json-errors': true },
+      runSchema({
+        command: 'schema',
+        args: ['localSearch'],
+        options: { view: 'invalid' },
       })
     ).resolves.toBe(2);
     expect(JSON.parse(String(output.mock.calls[0]?.[0]))).toEqual({
       kind: 'octocode.toolError',
       version: 1,
-      error: '--view expects full|query|variants, got: invalid',
+      error: '--view expects query|variants|full, got: invalid',
     });
   });
 });
@@ -256,7 +265,7 @@ describe('usageLines', () => {
     );
   });
 
-  it('degrades to a scheme hint when no query fields are exposed', () => {
+  it('degrades to a schema hint when no query fields are exposed', () => {
     const lines = usageLines(toolNamed('clasify'));
     expect(lines[0]).toBe('octocode clasify \'{"queries":[ … ]}\'');
     expect(lines.some(line => line.includes('--view query'))).toBe(true);
@@ -264,16 +273,16 @@ describe('usageLines', () => {
 });
 
 describe('compact query view', () => {
-  const isObject = (value: unknown): value is SchemeJsonObject =>
+  const isObject = (value: unknown): value is SchemaJsonObject =>
     typeof value === 'object' && value !== null && !Array.isArray(value);
-  const branchesOf = (schema: SchemeJsonObject): SchemeJsonObject[] =>
+  const branchesOf = (schema: SchemaJsonObject): SchemaJsonObject[] =>
     ((schema.oneOf ?? schema.anyOf ?? [schema]) as unknown[]).filter(isObject);
   // Every `$ref` expanded in place (bounded for recursion); a reference to a
   // summarized definition expands to the view's summary on both sides.
   const expand = (
-    root: SchemeJsonObject,
+    root: SchemaJsonObject,
     value: unknown,
-    summaries: SchemeJsonObject,
+    summaries: SchemaJsonObject,
     depth = 0
   ): unknown => {
     if (Array.isArray(value))
@@ -286,17 +295,17 @@ describe('compact query view', () => {
       if (name in summaries || depth > 6)
         return {
           ...((summaries[name] ??
-            (root.$defs as SchemeJsonObject)[name]) as SchemeJsonObject),
+            (root.$defs as SchemaJsonObject)[name]) as SchemaJsonObject),
           ...siblings,
         };
       return {
         ...(expand(
           root,
-          (root.$defs as SchemeJsonObject)[name],
+          (root.$defs as SchemaJsonObject)[name],
           summaries,
           depth + 1
-        ) as SchemeJsonObject),
-        ...(expand(root, siblings, summaries, depth + 1) as SchemeJsonObject),
+        ) as SchemaJsonObject),
+        ...(expand(root, siblings, summaries, depth + 1) as SchemaJsonObject),
       };
     }
     return Object.fromEntries(
@@ -308,7 +317,7 @@ describe('compact query view', () => {
   };
 
   // CLI compact views retain optional research briefs even when MCP omits them.
-  const briefNotes = (tool: SchemeJsonObject): Record<string, string> => ({
+  const briefNotes = (tool: SchemaJsonObject): Record<string, string> => ({
     mainGoal:
       tool.name === 'clasify'
         ? 'Research question; sent to the judge.'
@@ -343,32 +352,32 @@ describe('compact query view', () => {
         'mainGoal',
         'reasoning',
       ]);
-      const full = tool.querySchema as SchemeJsonObject;
+      const full = tool.querySchema as SchemaJsonObject;
       const view = project({ ...tool }, 'query')
-        .querySchema as SchemeJsonObject;
+        .querySchema as SchemaJsonObject;
       expect(view.$schema, String(tool.name)).toBeUndefined();
       const summaries = Object.fromEntries(
-        Object.entries((view.$defs ?? {}) as SchemeJsonObject).filter(
+        Object.entries((view.$defs ?? {}) as SchemaJsonObject).filter(
           ([, definition]) =>
             isObject(definition) &&
             String(definition.$comment ?? '').includes('--view full')
         )
       );
       for (const [name, summary] of Object.entries(summaries)) {
-        const original = (full.$defs as SchemeJsonObject)[
+        const original = (full.$defs as SchemaJsonObject)[
           name
-        ] as SchemeJsonObject;
+        ] as SchemaJsonObject;
         expect(JSON.stringify(original).length, name).toBeGreaterThan(300);
-        expect((summary as SchemeJsonObject).description).toEqual(
+        expect((summary as SchemaJsonObject).description).toEqual(
           original.description
         );
       }
       // A root `$ref` (clasify's matrix) reads through to its definition.
-      const rooted = (schema: SchemeJsonObject): SchemeJsonObject =>
+      const rooted = (schema: SchemaJsonObject): SchemaJsonObject =>
         typeof schema.$ref === 'string'
-          ? ((schema.$defs as SchemeJsonObject)[
+          ? ((schema.$defs as SchemaJsonObject)[
               schema.$ref.slice('#/$defs/'.length)
-            ] as SchemeJsonObject)
+            ] as SchemaJsonObject)
           : schema;
       const fullBranches = branchesOf(rooted(full));
       const viewBranches = branchesOf(rooted(view));
@@ -378,13 +387,13 @@ describe('compact query view', () => {
         expect(compact.required, String(tool.name)).toEqual(original.required);
         const hoisted =
           fullBranches.length > 1
-            ? ((rooted(view).properties ?? {}) as SchemeJsonObject)
+            ? ((rooted(view).properties ?? {}) as SchemaJsonObject)
             : {};
         const shown = {
           ...hoisted,
-          ...((compact.properties ?? {}) as SchemeJsonObject),
+          ...((compact.properties ?? {}) as SchemaJsonObject),
         };
-        const fields = (original.properties ?? {}) as SchemeJsonObject;
+        const fields = (original.properties ?? {}) as SchemaJsonObject;
         expect(Object.keys(shown).sort(), String(tool.name)).toEqual(
           Object.keys(fields).sort()
         );
@@ -400,7 +409,7 @@ describe('compact query view', () => {
         for (const [name, field] of Object.entries(fields)) {
           const expected = unguarded(
             expand(full, field, summaries)
-          ) as SchemeJsonObject;
+          ) as SchemaJsonObject;
           shortenBriefs({ properties: { [name]: expected } }, notes);
           expect(
             expand(view, shown[name], summaries),
@@ -447,11 +456,11 @@ describe('project with --select', () => {
       'query',
       'operation=commit'
     );
-    const schema = projected.querySchema as SchemeJsonObject;
+    const schema = projected.querySchema as SchemaJsonObject;
     const union = (schema.oneOf ?? schema.anyOf) as unknown[];
     expect(union).toHaveLength(1);
     const serialized = JSON.stringify(schema);
-    const defs = (schema.$defs ?? {}) as SchemeJsonObject;
+    const defs = (schema.$defs ?? {}) as SchemaJsonObject;
     for (const name of Object.keys(defs)) {
       expect(serialized).toContain(`#/$defs/${name}`);
     }
@@ -463,20 +472,20 @@ describe('project with --select', () => {
       'query',
       'variant=dependencies'
     );
-    const schema = projected.querySchema as SchemeJsonObject;
-    const union = (schema.oneOf ?? schema.anyOf) as SchemeJsonObject[];
+    const schema = projected.querySchema as SchemaJsonObject;
+    const union = (schema.oneOf ?? schema.anyOf) as SchemaJsonObject[];
     expect(union).toHaveLength(1);
-    const properties = union[0]!.properties as SchemeJsonObject;
+    const properties = union[0]!.properties as SchemaJsonObject;
     expect(properties).not.toHaveProperty('analysis');
-    expect((properties.operation as SchemeJsonObject).const).toBe(
+    expect((properties.operation as SchemaJsonObject).const).toBe(
       'dependencies'
     );
   });
 
   it('keeps both valid match shapes when selecting the match variant', () => {
     const projected = project(toolNamed('astSearch'), 'query', 'variant=match');
-    const schema = projected.querySchema as SchemeJsonObject;
-    const union = (schema.oneOf ?? schema.anyOf) as SchemeJsonObject[];
+    const schema = projected.querySchema as SchemaJsonObject;
+    const union = (schema.oneOf ?? schema.anyOf) as SchemaJsonObject[];
     expect(union).toHaveLength(2);
   });
 
@@ -486,8 +495,8 @@ describe('project with --select', () => {
       'query',
       'operation=match'
     );
-    const schema = projected.querySchema as SchemeJsonObject;
-    const union = (schema.oneOf ?? schema.anyOf) as SchemeJsonObject[];
+    const schema = projected.querySchema as SchemaJsonObject;
+    const union = (schema.oneOf ?? schema.anyOf) as SchemaJsonObject[];
     expect(union).toHaveLength(2);
   });
 
@@ -497,8 +506,8 @@ describe('project with --select', () => {
       'query',
       'operation=match(pattern)'
     );
-    const schema = projected.querySchema as SchemeJsonObject;
-    const union = (schema.oneOf ?? schema.anyOf) as SchemeJsonObject[];
+    const schema = projected.querySchema as SchemaJsonObject;
+    const union = (schema.oneOf ?? schema.anyOf) as SchemaJsonObject[];
     expect(union).toHaveLength(1);
     expect(union[0]!.required).toContain('pattern');
   });
@@ -514,9 +523,9 @@ describe('project with --select', () => {
       'query',
       `operation=${operation}`
     );
-    const schema = projected.querySchema as SchemeJsonObject;
+    const schema = projected.querySchema as SchemaJsonObject;
     expect(
-      (schema.anyOf as SchemeJsonObject[]).map(branch => branch.title)
+      (schema.anyOf as SchemaJsonObject[]).map(branch => branch.title)
     ).toEqual(titles);
     expect(JSON.stringify(schema)).not.toContain('outputSchema');
   });
@@ -532,18 +541,18 @@ describe('project with --select', () => {
       toolNamed('lspSearch'),
       'query',
       `variant=${variant}`
-    ).querySchema as SchemeJsonObject;
+    ).querySchema as SchemaJsonObject;
     expect(
-      (schema.anyOf as SchemeJsonObject[]).map(branch => branch.title)
+      (schema.anyOf as SchemaJsonObject[]).map(branch => branch.title)
     ).toEqual([variant]);
   });
 
   it('follows chained local refs but never treats a default as an enum', () => {
-    const branch = (operation: SchemeJsonObject): SchemeJsonObject => ({
+    const branch = (operation: SchemaJsonObject): SchemaJsonObject => ({
       type: 'object',
       properties: { operation },
     });
-    const tool: SchemeJsonObject = {
+    const tool: SchemaJsonObject = {
       name: 'fixture',
       querySchema: {
         anyOf: [
@@ -557,9 +566,9 @@ describe('project with --select', () => {
       },
     };
     const schema = project(tool, 'query', 'operation=references')
-      .querySchema as SchemeJsonObject;
+      .querySchema as SchemaJsonObject;
     expect(schema.anyOf).toHaveLength(1);
-    expect(schema.$defs).toEqual((tool.querySchema as SchemeJsonObject).$defs);
+    expect(schema.$defs).toEqual((tool.querySchema as SchemaJsonObject).$defs);
     expect(() => project(tool, 'query', 'operation=missing')).toThrow(
       'matched 0'
     );
@@ -571,7 +580,7 @@ describe('project with --select', () => {
       properties: { operation: { const: 'references' } },
       required: ['operation'],
     };
-    const tool: SchemeJsonObject = {
+    const tool: SchemaJsonObject = {
       name: 'fixture',
       querySchema: {
         oneOf: [
@@ -585,7 +594,7 @@ describe('project with --select', () => {
       },
     };
     const schema = project(tool, 'query', 'operation=definition')
-      .querySchema as SchemeJsonObject;
+      .querySchema as SchemaJsonObject;
     expect(schema.oneOf).toHaveLength(1);
     expect(schema.allOf).toEqual([{ not: { anyOf: [sibling] } }]);
   });

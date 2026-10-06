@@ -47,14 +47,14 @@ const normalize = (s) =>
     .toLowerCase();
 
 // 1. Exit-code table --------------------------------------------------------
-// Source of truth: the EXIT CODES block inside long_about.
-const longAbout = cliSource.match(/EXIT CODES:(.*?)"\s*\)]/s);
+// Source of truth: the `Exit codes:` block of ROOT_HELP (the root long_about).
+const longAbout = cliSource.match(/Exit codes:\n(.*?)"#;/s);
 if (!longAbout) {
-  fail('exit codes', 'EXIT CODES block not found in cli/mod.rs long_about');
+  fail('exit codes', 'Exit codes block not found in cli/mod.rs ROOT_HELP');
 } else {
   const sourceCodes = new Map();
-  for (const line of longAbout[1].split('\\n')) {
-    const m = line.replace(/\\\s*/g, '').match(/^\s*(\d+)\s+(.*)$/);
+  for (const line of longAbout[1].split('\n')) {
+    const m = line.match(/^\s*(\d+)\s+(.*)$/);
     if (m) sourceCodes.set(m[1], normalize(m[2]));
   }
   const readmeCodes = new Map();
@@ -145,13 +145,17 @@ for (const key of sourceKeys) {
 
 // 4. Retired CLI grammar ----------------------------------------------------
 // Historical benchmark receipts keep their original commands. Everything
-// else that is maintained must use `scheme` and direct root tool commands.
+// else that is maintained must use `schema` and direct root tool commands.
 const retiredQueriesFlag = /--queries\b/;
 const retiredCliPatterns = [
   /\bnode\s+[^\n]*octocode(?:\.js)?\s+tools(?:\s|$)/,
   /\bnpx(?:\s+-y)?\s+octocode\s+tools(?:\s|$)/,
   /\bcontext\s+--(?:json|compact|minimal)\b/,
   /--scheme(?:-view)?\b/,
+  /(?:\boctocode(?:\.js)?|\$OCTO)\s+scheme\b/,
+  /\boctocode(?:\.js)?\s+showConfig\b/,
+  /(?:\boctocode(?:\.js)?|\$OCTO)\s+[^\n]*--(?:json-errors|redact-emails|pretty)\b/,
+  /(?:\boctocode(?:\.js)?|\$OCTO)\s+config\s+--(?:add|remove|check|value-stdin)\b/,
   retiredQueriesFlag,
   /\[\s*['"]tools['"]\s*,\s*['"][A-Za-z]/,
 ];
@@ -177,6 +181,9 @@ if (
 }
 const retiredCliSelfTest = [
   'node packages/octocode/out/octocode.js tools localFetch --scheme --json',
+  'node packages/octocode/out/octocode.js scheme localFetch --view query',
+  '$OCTO localSearch --pretty \'{}\'',
+  'octocode config --add GITHUB_TOKEN x',
   "['tools', 'localFetch', '--queries', '{}']",
   'octocode context --compact',
 ];
@@ -185,14 +192,15 @@ if (retiredCliSelfTest.some((sample) => !retiredCliPatterns.some((pattern) => pa
 }
 if (
   retiredCliPatterns.some((pattern) =>
-    pattern.test("node packages/octocode/out/octocode.js scheme localFetch --view query --compact"),
+    pattern.test("node packages/octocode/out/octocode.js schema localFetch --view query --select operation=x"),
   )
 ) {
-  fail('retired CLI grammar', 'the detector self-test rejects the current scheme grammar');
+  fail('retired CLI grammar', 'the detector self-test rejects the current schema grammar');
 }
 
 const ignoredDirs = new Set([
   '.git',
+  'releases',
   '.octocode',
   'node_modules',
   'out',
@@ -204,6 +212,8 @@ const ignoredDirs = new Set([
 const ignoredPaths = new Set([
   // Separate checkouts have their own validation; keep this scan in the current tree.
   path.join(repoRoot, '.claude/worktrees'),
+  // Dated validation reports record the commands each run used.
+  path.join(repoRoot, 'octocode-local-testing/validate/features'),
   path.join(repoRoot, 'packages/octocode-native/scripts/check-doc-claims.cjs'),
 ]);
 // The research skill's guidance checker lists retired grammar as forbidden
@@ -259,13 +269,6 @@ if (!ownership) {
     }
   }
   if (rows === 0) fail('ownership modules', 'no modules parsed from the Ownership table (parser drift)');
-}
-
-// 6. Scheme instructions ----------------------------------------------------
-// The CLI catalog states that workflow instructions ship elsewhere; README
-// scheme examples must not show an `instructions` field.
-if (/workflow instructions ship with/.test(cliSource) && /"instructions"\s*:/.test(nativeReadme)) {
-  fail('scheme output', 'README.md shows `instructions` in scheme output, but cli/mod.rs says instructions ship with the npm launcher and MCP');
 }
 
 // 7. Cargo feature flags ----------------------------------------------------

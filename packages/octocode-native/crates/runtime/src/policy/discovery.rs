@@ -73,12 +73,15 @@ pub const GENERATED_FILE_NAMES: &[&str] =
     &["package-lock.json", ".DS_Store", "Thumbs.db", "db.sqlite3"];
 
 /// Generated, minified, archive, and object-file extensions a text search
-/// skips by default; `defaultExcludes:false` searches them.
+/// skips by default; `defaultExcludes:false` searches them. Source maps are
+/// named by their compound suffix, so a keymap or linker `.map` source stays
+/// searchable.
 pub const GENERATED_FILE_EXTENSIONS: &[&str] = &[
     ".lock", ".tmp", ".temp", ".cache", ".bak", ".backup", ".orig", ".swp", ".swo", ".rej", ".pid",
     ".exe", ".dll", ".so", ".dylib", ".a", ".lib", ".o", ".obj", ".bin", ".class", ".pdb", ".pyc",
     ".pyo", ".pyd", ".jar", ".war", ".db", ".sqlite", ".sqlite3", ".zip", ".tar", ".gz", ".bz2",
-    ".xz", ".rar", ".7z", ".map", ".min.js", ".min.css", ".patch", ".diff",
+    ".xz", ".rar", ".7z", ".js.map", ".mjs.map", ".cjs.map", ".css.map", ".ts.map", ".min.js",
+    ".min.css", ".patch", ".diff",
 ];
 
 /// The default-exclude pattern a file name matches (`package-lock.json`,
@@ -383,5 +386,22 @@ mod tests {
         assert!(is_sensitive_path(Path::new(
             "/home/user/.docker/config.json"
         )));
+    }
+
+    #[test]
+    fn keymap_sources_are_not_source_maps() {
+        assert_eq!(generated_file_pattern("speakupmap.map"), None);
+        assert_eq!(
+            generated_file_pattern("app.js.map").as_deref(),
+            Some("*.js.map")
+        );
+        assert_eq!(
+            generated_file_pattern("index.d.ts.map").as_deref(),
+            Some("*.ts.map")
+        );
+        assert_eq!(
+            generated_file_pattern("site.min.css").as_deref(),
+            Some("*.min.css")
+        );
     }
 }

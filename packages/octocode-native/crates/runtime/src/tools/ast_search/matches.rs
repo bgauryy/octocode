@@ -330,7 +330,8 @@ struct Group {
     truncated_captures: bool,
     /// The longest value this match page shortened, in characters.
     cut_chars: Option<usize>,
-    shown_cut: bool,
+    /// Line spans of this match page's rows whose shown text was cut.
+    clipped: Vec<(u64, u64)>,
 }
 
 /// Rows per file plus per-file coverage: files that parsed, files whose
@@ -339,6 +340,8 @@ struct Group {
 #[derive(Default)]
 struct Grouped {
     groups: Vec<Group>,
+    /// The first file that parsed (its row path).
+    first_parsed: Option<String>,
     diagnostics: Vec<Value>,
     total_matches: u64,
     parsed_files: u32,
@@ -621,7 +624,10 @@ fn group_files(q: MatchQuery<'_>, files: Vec<ScannedFile>) -> Grouped {
         .clamp(1, limits::MATCH_CONTENT_LENGTH_MAXIMUM);
     for (path, matches, diagnostics, status) in files {
         match status.as_str() {
-            "ok" => grouped.parsed_files += 1,
+            "ok" => {
+                grouped.parsed_files += 1;
+                grouped.first_parsed.get_or_insert_with(|| path.clone());
+            }
             "skippedByPreFilter" => {}
             _ => {
                 if let Some(diagnostic) = diagnostics
@@ -679,7 +685,7 @@ fn listed_file(q: MatchQuery<'_>, path: String, total: usize) -> Group {
         more_matches: false,
         truncated_captures: false,
         cut_chars: None,
-        shown_cut: false,
+        clipped: vec![],
     }
 }
 
@@ -693,7 +699,11 @@ fn match_group(q: MatchQuery<'_>, path: String, rows: Vec<MatchRow>) -> Group {
     // `captureText:true` (next.expandCaptures) returns them whole.
     let truncated_captures = page_rows.iter().any(|row| row.withheld);
     let cut_chars = page_rows.iter().filter_map(|row| row.cut).max();
-    let shown_cut = page_rows.iter().any(|row| row.shown_cut);
+    let clipped = page_rows
+        .iter()
+        .filter(|row| row.shown_cut)
+        .map(|row| row.lines)
+        .collect();
     let selected = page_rows
         .iter()
         .map(|row| row.value.clone())
@@ -728,7 +738,7 @@ fn match_group(q: MatchQuery<'_>, path: String, rows: Vec<MatchRow>) -> Group {
         more_matches: end < total,
         truncated_captures,
         cut_chars,
-        shown_cut,
+        clipped,
     }
 }
 
@@ -769,6 +779,7 @@ fn render_match_page(
     let (skips, truncated) = (scan.skips, scan.truncated);
     let mut diagnostics = grouped.diagnostics;
     diagnostics.extend(scan_diagnostics(q, scope, scan));
+    let parsed = grouped.parsed_files;
     let groups = grouped.groups;
     let size = (q.page_size() as usize).clamp(1, limits::PAGE_SIZE_MAXIMUM);
     let page = q.page().max(1) as usize;
@@ -776,21 +787,6 @@ fn render_match_page(
     let page_groups = groups
         .get(start..(start + size).min(groups.len()))
         .unwrap_or(&[]);
-    // The longest whole value a row on this page shortened: a continuation
-    // at that `matchContentLength` returns every cut value whole.
-    let cut_chars = page_groups.iter().filter_map(|group| group.cut_chars).max();
-    let shown_cut = page_groups.iter().any(|group| group.shown_cut);
-    let max_content_length = limits::MATCH_CONTENT_LENGTH_MAXIMUM;
-    if let Some(chars) = cut_chars.filter(|chars| *chars > max_content_length) {
-        diagnostics.push(json!({
-            "code":"structural.match.valueClipped",
-            "severity":"warning",
-            "stage":"match",
-            "message":format!("A match value has {chars} characters, past the matchContentLength maximum ({max_content_length}); its row shows the first {max_content_length}."),
-            "path":super::display_name(&scope.canonical),
-            "recovery":"Read the row's line range with localFetch for the whole text."
-        }));
-    }
     let more = start + size < groups.len();
     let mut out = json!({"searchEngine":"structural","snapshot":snapshot,"stats":{"totalMatches":grouped.total_matches}});
     if let Some(inferred) = &scope.inferred {
@@ -808,7 +804,7 @@ fn render_match_page(
             "code":"structural.query.noMatches",
             "severity":"info",
             "stage":"match",
-            "message":"0 structural matches for the requested pattern in this scope. Patterns must be complete parseable nodes with their relevant bodies (`$$$BODY`), return types, or decorators; trailing punctuation the pattern omits is not required. Confirm the node shape with operation:\"syntaxTree\"; use an explicit YAML rule for partial or relational constraints.",
+            "message":format!("0 structural matches for the requested pattern in {parsed} parsed file{}. Patterns must be complete parseable nodes with their relevant bodies (`$$$BODY`), return types, or decorators; trailing punctuation the pattern omits is not required. Confirm the node shape with operation:\"syntaxTree\" (next.viewTree); use an explicit YAML rule for partial or relational constraints.", if parsed == 1 { "" } else { "s" }),
             "path":super::display_name(&scope.canonical)
         }]);
     }
@@ -821,7 +817,6 @@ fn render_match_page(
         (skipped, "filesSkipped"),
         (grouped.compile_failed_files > 0, "compileFailed"),
         (grouped.unevaluated_files > 0, "filesUnevaluated"),
-        (shown_cut, "valueClipped"),
     ]
     .into_iter()
     .filter_map(|(cut, reason)| cut.then_some(reason))
@@ -830,10 +825,29 @@ fn render_match_page(
         out["isPartial"] = json!(true);
         out["partialReasons"] = json!(partial_reasons);
     }
-    if groups.is_empty() && !more && !incomplete {
+    let empty = groups.is_empty() && !more && !incomplete;
+    if empty {
         out["status"] = json!("empty");
     }
     attach_match_continuations(q, scope, &mut out, page_groups, truncated, more, snapshot);
+    // An empty match leads to the syntax tree of a parsed file, where the
+    // pattern's node shape can be compared with the source.
+    if empty
+        && let Some(file) = grouped
+            .first_parsed
+            .and_then(|path| row_file(scope, &json!({"path": path})))
+    {
+        let mut tree = json!({"operation":"syntaxTree","path":file.to_string_lossy()});
+        if scope.is_file
+            && let Some(language) = q.language()
+        {
+            tree["language"] = json!(language);
+        }
+        out["next"]["viewTree"] = crate::tools::result::Continuation::new(ToolId::AstSearch, tree)
+            .why("Compare the pattern with a parsed file's node shapes.")
+            .confidence("medium")
+            .build();
+    }
     out
 }
 
@@ -894,15 +908,31 @@ fn attach_match_continuations(
         out["next"]["expandScan"] =
             with(json!({"maxFiles":bound,"page":1,"matchPage":1,"snapshot":null}));
     }
+    // A clipped value is display clipping of a listed match, not a coverage
+    // gap: expandCaptures re-runs with captures and the whole length when
+    // captures are hidden; otherwise (or past the length maximum) the
+    // clipped rows' lines are read whole.
     let whole_length = cut_chars.map(|chars| chars.min(max_content_length));
-    if has_truncated_captures && !q.capture_text().unwrap_or(false) {
+    let expand_captures = has_truncated_captures && !q.capture_text().unwrap_or(false);
+    if expand_captures {
         let mut expand = json!({"captureText":true});
-        if let Some(length) = whole_length {
+        if let Some(length) = whole_length.filter(|length| *length > content_length) {
             expand["matchContentLength"] = json!(length);
         }
         out["next"]["expandCaptures"] = with(expand);
-    } else if let Some(length) = whole_length.filter(|length| *length > content_length) {
-        out["next"]["expandValues"] = with(json!({"matchContentLength":length}));
+    }
+    if !expand_captures || cut_chars.is_some_and(|chars| chars > max_content_length) {
+        let reads = page_groups
+            .iter()
+            .flat_map(|group| read_clipped_values(scope, group))
+            .enumerate();
+        for (index, read) in reads {
+            let name = match index {
+                0 => "expandValues".to_owned(),
+                n => format!("expandValues{}", n + 1),
+            };
+            out["next"][name] = read;
+        }
     }
     if let Some(read) = page_groups
         .first()
@@ -917,11 +947,10 @@ const READ_CONTEXT: u64 = 3;
 /// Hit windows one `read` lead may name.
 const READ_MAX_RANGES: usize = 5;
 
-/// The natural next step after a match: read the top file's hit lines in
-/// context. Offered when they fit [`READ_MAX_RANGES`] windows.
-fn read_top_hits(scope: &Scope, row: &Value) -> Option<Value> {
+/// The file a match row names.
+fn row_file(scope: &Scope, row: &Value) -> Option<std::path::PathBuf> {
     let shown = row["path"].as_str()?;
-    let file = if scope.is_file {
+    Some(if scope.is_file {
         scope.canonical.clone()
     } else {
         scope
@@ -929,7 +958,38 @@ fn read_top_hits(scope: &Scope, row: &Value) -> Option<Value> {
             .parent()
             .unwrap_or(&scope.canonical)
             .join(shown)
+    })
+}
+
+/// Reads of one file's clipped rows, whole: their merged line spans, at most
+/// [`MAX_READ_RANGES`](crate::tools::local_fetch::MAX_READ_RANGES) per read.
+fn read_clipped_values(scope: &Scope, group: &Group) -> Vec<Value> {
+    let Some(file) = row_file(scope, &group.row).filter(|_| !group.clipped.is_empty()) else {
+        return vec![];
     };
+    let spans = crate::tools::line_spans::merge_spans(group.clipped.iter().copied());
+    spans
+        .chunks(crate::tools::local_fetch::MAX_READ_RANGES)
+        .map(|chunk| {
+            let ranges = chunk
+                .iter()
+                .map(|(start, end)| format!("{start}-{end}"))
+                .collect::<Vec<_>>();
+            crate::tools::result::Continuation::new(
+                ToolId::LocalFetch,
+                json!({"path": file.to_string_lossy(), "ranges": ranges}),
+            )
+            .why("Read the clipped match values whole.")
+            .confidence("high")
+            .build()
+        })
+        .collect()
+}
+
+/// The natural next step after a match: read the top file's hit lines in
+/// context. Offered when they fit [`READ_MAX_RANGES`] windows.
+fn read_top_hits(scope: &Scope, row: &Value) -> Option<Value> {
+    let file = row_file(scope, row)?;
     // A hit's first line anchors its window: a multi-line match (a whole
     // function) is already shown by its row and expandCaptures.
     let mut hits = vec![];
@@ -984,12 +1044,15 @@ struct MatchRow {
     withheld: bool,
     /// The shown text was cut at `matchContentLength`.
     shown_cut: bool,
+    /// The match's 1-based start and end lines.
+    lines: (u64, u64),
     /// The whole value's characters when they exceed `matchContentLength`,
     /// so the shown or the `captureText` value is cut.
     cut: Option<usize>,
 }
 
 fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: usize) -> MatchRow {
+    let lines = (u64::from(m.start_line), u64::from(m.end_line));
     let whole_chars = normalized_chars(&m.text);
     let cut = (whole_chars > content_length).then_some(whole_chars);
     let header = m.header.as_deref().filter(|_| !capture_text);
@@ -1001,7 +1064,7 @@ fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: u
         None => compact_match(&m.text, content_length),
     };
     if !capture_text {
-        let lines = if m.end_line == m.start_line {
+        let shown_lines = if m.end_line == m.start_line {
             m.start_line.to_string()
         } else {
             format!("{}-{}", m.start_line, m.end_line)
@@ -1017,13 +1080,17 @@ fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: u
                 .any(|range| hidden(&range.text))
             || m.metavars.values().flatten().any(|value| hidden(value));
         return MatchRow {
-            value: json!(format!("{lines}\t{text}")),
+            value: json!(format!("{shown_lines}\t{text}")),
             withheld,
             shown_cut,
+            lines,
             cut,
         };
     }
     let mut value = json!({"line":m.start_line,"value":text,"column":m.start_col});
+    if shown_cut {
+        value["truncated"] = json!(true);
+    }
     if m.end_line != m.start_line {
         value["endLine"] = json!(m.end_line);
         value["endColumn"] = json!(m.end_col);
@@ -1068,6 +1135,7 @@ fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: u
         value,
         withheld: false,
         shown_cut,
+        lines,
         cut,
     }
 }

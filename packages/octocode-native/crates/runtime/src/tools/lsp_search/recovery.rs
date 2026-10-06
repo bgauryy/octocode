@@ -322,7 +322,7 @@ pub(super) const ALIAS_SCAN_CAPPED_REASON: &str = "aliasScanCapped";
 pub(super) fn disclose_alias_cap(
     row: &mut Value,
     query: &super::LspSearchQuery,
-    workspace_root: &str,
+    scope: &super::scope::Scope,
 ) {
     if let Some(coverage) = row.pointer_mut("/payload/coverage") {
         coverage["aliasScan"] = serde_json::json!("capped");
@@ -334,7 +334,7 @@ pub(super) fn disclose_alias_cap(
         &format!(
             "Alias recovery checked at most {MAX_ALIAS_FILES_READ} files and {MAX_ALIAS_IMPORTS} renaming imports; references through the unchecked aliases may be missing. Confirm with hints.textSearch."
         ),
-        workspace_root,
+        scope,
     );
 }
 

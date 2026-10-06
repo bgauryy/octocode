@@ -206,6 +206,7 @@ fn walk_files(
         q.name_regex.as_deref(),
     );
     let ignored = std::sync::atomic::AtomicUsize::new(0);
+    let ignored_dirs = super::IgnoredDirs::default();
     let withheld = std::sync::Mutex::new(crate::policy::discovery::Withheld::default());
     let detail = q.detail();
     let sort = q.sort();
@@ -249,6 +250,7 @@ fn walk_files(
                 .is_some_and(|filter| filter.is_ignored(path))
             {
                 ignored.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                ignored_dirs.record(path);
                 return Ok(false);
             }
             let allowed = super::allow_discovery(path, &discovery, cancel)?;
@@ -265,9 +267,14 @@ fn walk_files(
     .map_err(|error| super::walk_error(error, q.path.as_str()))?;
     cancel.check().map_err(super::cancelled)?;
     let count_lines = detail == "full" || sort == "lines";
+    // A directory root is the listing itself, never one of its rows.
     let mut rows = native
         .entries
         .iter()
+        .filter(|e| {
+            !(e.entry_type == "directory"
+                && (e.relative_path.is_empty() || std::path::Path::new(&e.path) == root))
+        })
         .map(|e| make_row(e, root, security, &detail, count_lines, paths, cancel))
         .collect::<Result<Vec<_>, super::StructureError>>()?;
     sort_rows(&mut rows, &sort);
@@ -293,6 +300,7 @@ fn walk_files(
         was_capped: native.was_capped,
         uncovered: super::Uncovered {
             ignored: ignored.into_inner(),
+            ignored_dirs: ignored_dirs.into_names(),
             withheld: withheld
                 .into_inner()
                 .unwrap_or_else(|error| error.into_inner()),
@@ -390,10 +398,16 @@ fn files_page(
     }
     let mut warnings = walk.warnings.clone();
     cut.finish(&mut out, q, &mut warnings);
-    if page == 1
-        && let Some(note) = walk.uncovered.pruned_note()
-    {
-        out["summary"] = json!(note);
+    if page == 1 {
+        let ignored = (walk.uncovered.ignored > 0)
+            .then(|| format!("{} .gitignore'd entries not walked", walk.uncovered.ignored));
+        let notes = ignored
+            .into_iter()
+            .chain(walk.uncovered.pruned_note())
+            .collect::<Vec<_>>();
+        if !notes.is_empty() {
+            out["summary"] = json!(notes.join("; "));
+        }
     }
     if page == 1
         && let Some(read) = outline_read(&walk.rows[shown], root)
@@ -409,12 +423,7 @@ fn files_page(
     if cut.out_of_range() {
         out["pagination"]["outOfRange"] = json!(true);
     }
-    if let Some(warning) = walk.uncovered.withheld.notice() {
-        if total == 0 {
-            out["hints"] = json!([warning]);
-        }
-        warnings.push(warning);
-    }
+    warnings.extend(walk.uncovered.withheld.notice());
     if !warnings.is_empty() {
         out["warnings"] = json!(warnings)
     }
@@ -423,12 +432,19 @@ fn files_page(
 }
 
 /// `next.read` on a listing's first page: the outline (localFetch
-/// `minify:"symbols"`) of its first source or doc file, evidence the
-/// listing itself does not hold. Rows name paths relative to the root.
+/// `minify:"symbols"`) of a source or doc file, evidence the listing itself
+/// does not hold: the first hand-written one of at most
+/// [`READ_LEAD_MAX_BYTES`], else the first one of at most
+/// [`READ_LEAD_FALLBACK_MAX_BYTES`] in listing order. Rows name paths
+/// relative to the root.
 fn outline_read(rows: &[Row], root: &std::path::Path) -> Option<Value> {
-    let row = rows
-        .iter()
-        .find(|row| row.is_file && crate::tools::outlines(&row.path))?;
+    let candidates = || {
+        rows.iter()
+            .filter(|row| row.is_file && crate::tools::outlines(&row.path))
+    };
+    let row = candidates()
+        .find(|row| row.size <= READ_LEAD_MAX_BYTES && !generated_or_fixture(&row.path))
+        .or_else(|| candidates().find(|row| row.size <= READ_LEAD_FALLBACK_MAX_BYTES))?;
     let path = if row.path.is_empty() || root.is_file() {
         root.to_path_buf()
     } else {
@@ -441,6 +457,32 @@ fn outline_read(rows: &[Row], root: &std::path::Path) -> Option<Value> {
         )
         .build(),
     )
+}
+
+/// Largest file a listing's read lead points at by preference: a lead
+/// over a multi-megabyte generated file would page for many calls.
+pub(super) const READ_LEAD_MAX_BYTES: i64 = 64 * 1024;
+
+/// Largest file a listing's read lead points at at all: past it, the
+/// outline itself would page for many calls, so no lead is offered.
+const READ_LEAD_FALLBACK_MAX_BYTES: i64 = 1024 * 1024;
+
+/// A generated, minified, declaration, or lock file, or one under a test
+/// or fixture directory: a poor first read of an unfamiliar tree.
+pub(super) fn generated_or_fixture(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path).to_ascii_lowercase();
+    let generated = name.contains(".generated.")
+        || name.contains("_generated")
+        || name.contains(".min.")
+        || name.ends_with(".d.ts")
+        || name.ends_with(".lock");
+    let fixture_dir = path.split('/').rev().skip(1).any(|dir| {
+        matches!(
+            dir,
+            "test" | "tests" | "fixtures" | "__fixtures__" | "__snapshots__"
+        )
+    });
+    generated || fixture_dir
 }
 
 fn make_row(

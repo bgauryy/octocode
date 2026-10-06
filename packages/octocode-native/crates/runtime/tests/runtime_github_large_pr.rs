@@ -176,7 +176,7 @@ async fn large_pr_inventory_flags_patchless_files_and_keeps_rename_origin() {
                 "M +39550 -39342 !tooLarge checker.ts"
             ]},
             "M +0 -0 !binary assets/logo.png",
-            "M +0 -0 !omitted src/omitted.ts"
+            "M !omitted src/omitted.ts"
         ]),
         "{data}"
     );
@@ -549,17 +549,18 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     // head it read) and no follow-up menu; the metadata read names the PR.
     let row = &data["pullRequests"][0];
     assert!(no_continuation(row), "{row}");
-    for dropped in [
-        "mergeCommitSha",
-        "additions",
-        "deletions",
-        "title",
-        "author",
-        "createdAt",
-    ] {
+    for dropped in ["additions", "deletions", "title", "author", "createdAt"] {
         assert!(row.get(dropped).is_none(), "{dropped} kept: {row}");
     }
-    for kept in ["number", "state", "sourceSha", "mergedAt", "targetBranch"] {
+    // HI4: every view names the merge commit beside the head it read.
+    for kept in [
+        "number",
+        "state",
+        "sourceSha",
+        "mergeCommitSha",
+        "mergedAt",
+        "targetBranch",
+    ] {
         assert!(row.get(kept).is_some(), "{kept} dropped: {row}");
     }
     // Without a patch row the read proves nothing about files: it keeps the
@@ -1197,8 +1198,9 @@ async fn read_at_merge_picks_the_code_file_of_the_whole_pr_not_the_first_window(
     for (field, value) in [
         ("ref", json!("fedcba9876543210fedcba9876543210fedcba98")),
         ("path", json!("pkg/client/client.go")),
-        // A whole new file ends at its last line: no range past it.
-        ("ranges", json!(["1-3"])),
+        // HI11: the merge commit is searched for the added code, not read
+        // at `sourceSha` line numbers.
+        ("matchString", json!(["func Alpha() {}"])),
     ] {
         assert_eq!(read[field], value, "{field}: {data}");
     }
@@ -1521,5 +1523,160 @@ async fn default_large_pr_patch_walk_reaches_every_patch_once() {
             "{path}"
         );
     }
+    runtime.close().await;
+}
+
+/// HI10 pin: a merged pull request's `matchString` read offers the hit
+/// file at the PR head (`readAtCommit` at `sourceSha`, where the gutter
+/// numbers hold) and no `readAtMerge` (a targeted answer already).
+#[tokio::test]
+async fn history_b_merged_match_string_read_offers_the_source_side_only() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 2).await;
+    mount_file_batches(
+        &server,
+        vec![vec![
+            rest_file(
+                "src/hit.rs",
+                Some("@@ -1,3 +1,3 @@ fn f\n a\n-old needle\n+new needle\n b"),
+                1,
+                1,
+            ),
+            rest_file("src/other.rs", Some("@@ -1 +1 @@\n-a\n+b"), 1, 1),
+        ]],
+        Duration::ZERO,
+    )
+    .await;
+    let data = run(
+        &server,
+        json!({"matchString": "needle", "contextLines": 1, "debug": false}),
+    )
+    .await;
+    let lead = |name: &str| {
+        data.get("next")
+            .and_then(|next| next.get(name))
+            .or_else(|| data.get("hints").and_then(|hints| hints.get(name)))
+            .cloned()
+    };
+    let at_commit = lead("readAtCommit").expect("readAtCommit lead");
+    let row = &at_commit["query"]["queries"][0];
+    assert_eq!(row["ref"], SHA, "{data}");
+    assert_eq!(row["path"], "src/hit.rs", "{data}");
+    assert!(lead("readAtMerge").is_none(), "{data}");
+    // X6: the hit row counts the hits it shows.
+    assert_eq!(
+        data["pullRequests"][0]["files"][0]["matchCount"], 2,
+        "{data}"
+    );
+}
+
+/// HI9: a 115-file, ~560k-char pull request walked by following its leads
+/// only (`continuePatch`, then `nextFilePage`) at a 20k configured page reads
+/// every patch byte-identical (after the gutters) with no gap and no
+/// repeat, never overflows the page a hop asks for, and takes half the
+/// calls it did (44 → 21: hop pages doubled once per walk, windows packed
+/// to line ends; the numbered view is ~10% larger than the raw patches).
+#[tokio::test]
+async fn history_b_large_pr_lead_walk_is_lossless_in_half_the_calls() {
+    let server = MockServer::start().await;
+    mount_pr(&server, 115).await;
+    // A few large patches and a long tail of small ones (~560k chars).
+    let size = |i: usize| match i {
+        0 => 70_000,
+        7 => 48_000,
+        19 => 33_000,
+        40 => 26_000,
+        77 => 21_000,
+        _ => 1_200 + (i * 1_327) % 4_200,
+    };
+    let patches = (0..115)
+        .map(|i| {
+            let mut patch = format!("@@ -1,{0} +1,{0} @@ fn f{i}\n", size(i) / 40);
+            let mut line = 0;
+            while patch.len() < size(i) {
+                line += 1;
+                patch.push_str(&format!(
+                    "+let value_{i}_{line} = compute({line}); // pad\n"
+                ));
+            }
+            patch
+        })
+        .collect::<Vec<_>>();
+    let total: usize = patches.iter().map(String::len).sum();
+    assert!((540_000..600_000).contains(&total), "{total}");
+    let files = patches
+        .iter()
+        .enumerate()
+        .map(|(i, patch)| rest_file(&format!("src/m{i:03}.rs"), Some(patch), 9, 0))
+        .collect::<Vec<_>>();
+    mount_file_batches(
+        &server,
+        vec![files[..100].to_vec(), files[100..].to_vec()],
+        Duration::ZERO,
+    )
+    .await;
+    let workspace = Workspace::new();
+    // A 20k configured page: a 15k first window, doubled hop pages.
+    let runtime = workspace.runtime(&[
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH", "20000".into()),
+    ]);
+    let mut envelope = json!({"queries": [{"operation": "pullRequest", "owner": "a",
+        "repo": "b", "number": 9, "sections": ["patches"]}]});
+    let mut read = std::collections::BTreeMap::<String, String>::new();
+    let mut calls = 0;
+    loop {
+        calls += 1;
+        assert!(calls <= 60, "walk did not finish");
+        let outcome = runtime
+            .execute(
+                format!("walk-{calls}"),
+                "ghGetHistoryItem".into(),
+                envelope.clone(),
+            )
+            .await
+            .expect("patch window");
+        let content = &outcome.structured_content;
+        assert_ne!(
+            content["responsePagination"]["hasMore"], true,
+            "call {calls}: a patch window overflowed the page it asked for"
+        );
+        let data = &content["results"][0]["data"];
+        for file in data["pullRequests"][0]["files"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            let Some(patch) = file["patch"].as_str() else {
+                continue;
+            };
+            let path = file["path"].as_str().expect("path").to_owned();
+            let text = read.entry(path).or_default();
+            let offset = file["patchPagination"]["offset"].as_u64().unwrap_or(0);
+            assert_eq!(
+                offset as usize,
+                text.chars().count(),
+                "gap or repeat: {file}"
+            );
+            text.push_str(patch);
+        }
+        let next = &data["next"];
+        let Some(lead) = ["continuePatch", "nextFilePage"]
+            .iter()
+            .find_map(|name| next.get(*name))
+        else {
+            break;
+        };
+        envelope = lead["query"].clone();
+    }
+    for (i, patch) in patches.iter().enumerate() {
+        let path = format!("src/m{i:03}.rs");
+        assert_eq!(
+            read.get(&path).map(|view| raw_patch(view)).as_ref(),
+            Some(patch),
+            "{path}"
+        );
+    }
+    assert!(calls <= 21, "{calls} calls");
     runtime.close().await;
 }

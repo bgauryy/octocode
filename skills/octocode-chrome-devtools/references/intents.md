@@ -1,6 +1,6 @@
 # Intents
 
-Load when choosing what to capture or do. Pick one primary intent; a full audit is separate small scripts on one port, with findings merged in the answer. Prefer a ready check (`cdp-checks.md`) over custom code. Default when unsure: automate or debug/network.
+Load when choosing what to capture or do. Why: Match the capture to the task. Use a ready check (`cdp-checks.md`) when it fits; combine checks or write a custom script for the evidence the task needs.
 
 ## Debug
 
@@ -26,7 +26,7 @@ Load when choosing what to capture or do. Pick one primary intent; a full audit 
 - `page-snapshot` → `DOM_REF=eN` on `dom-operations-check`; prefer refs over guessed CSS. Input is trusted by default; `fill` replaces text, `type` sends keystrokes (key handlers, autocomplete), `press DOM_KEY=Enter` submits. Read `[VERIFY]`: `MISMATCH` or `NO_VISIBLE_EFFECT` means the step did not land. After a hover/click that opens UI, act on the printed `[NEW] [eN]` refs without re-snapshotting. Icon-only or visual layouts: `SHOT_ANNOTATE=1` screenshot maps boxes to refs.
 - A known multi-step sequence fits one `run(cdp)`.
 - One meaningful mutation per step; confirm with a targeted check, not a new full snapshot. Listeners miss past events, so re-read current state.
-- **WebMCP** (only when named): fresh Chrome 150+ with `--enableFeatures WebMCP`, then `WEBMCP_ACTION=list|invoke`. `WEBMCP_NO_TOOLS` is common; fall back to DOM. Mutating tools fall under the mutation gate.
+- **WebMCP**: fresh Chrome 150+ with `--enableFeatures WebMCP`, then `WEBMCP_ACTION=list|invoke`. `WEBMCP_NO_TOOLS` is common; fall back to DOM. Use it when the page declares a suitable tool. Mutating tools need the same authorization as DOM actions.
 - For an `octocode-scraping` corpus, CDP validates its graph actions and returns URLs/data to that corpus.
 
 ## Auth

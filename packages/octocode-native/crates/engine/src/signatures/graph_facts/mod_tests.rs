@@ -1083,3 +1083,37 @@ fn csharp_using_directives_are_imports() {
         ]
     );
 }
+
+/// A recovered parse names the 1-based line spans its syntax errors cover,
+/// so a consumer can tell whether a missing declaration could hide there.
+#[test]
+fn recovered_parse_reports_error_line_spans() {
+    let source = "int ok(void) { return 1; }\n\nint broken( {\n  return 2;\n}\nint tail(void) { return 3; }\n";
+    let facts = extract_graph_facts_with_metadata(source, "a.c")
+        .expect("graph facts")
+        .facts;
+    assert!(
+        facts
+            .diagnostics
+            .iter()
+            .any(|note| note.starts_with("tree-sitter recovered")),
+        "{facts:?}"
+    );
+    assert!(!facts.error_lines.is_empty(), "{facts:?}");
+    assert!(
+        facts.error_lines.iter().all(|[start, end]| *start >= 3 && start <= end),
+        "{:?}",
+        facts.error_lines
+    );
+    assert!(
+        !facts.error_lines.iter().any(|[start, end]| *start <= 1 && 1 <= *end),
+        "line 1 parses: {:?}",
+        facts.error_lines
+    );
+    let clean = extract_graph_facts_with_metadata("int ok(void) { return 1; }\n", "b.c")
+        .expect("graph facts")
+        .facts;
+    assert!(clean.error_lines.is_empty());
+    let json = serde_json::to_value(&clean).expect("json");
+    assert!(json.get("errorLines").is_none(), "{json}");
+}

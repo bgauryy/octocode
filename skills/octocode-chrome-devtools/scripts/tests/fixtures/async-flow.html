@@ -1,0 +1,20 @@
+<!doctype html><html><head><title>Async flow</title></head><body>
+<button id="load">Load content</button><button id="ready" disabled>Continue after loading</button>
+<div id="shadow-host"></div><div id="results"></div><output id="events"></output>
+<script>
+window.userEvents=[];
+const shadow=document.querySelector('#shadow-host').attachShadow({mode:'closed'});
+shadow.innerHTML='<input aria-label="Shadow search" id="shadow-search">';
+for(const type of ['keydown','keyup','input','change','focus','blur','click','pointerdown','pointerup']) document.addEventListener(type,e=>{
+ userEvents.push({type,target:e.target.id,trusted:e.isTrusted,at:performance.now()});
+ document.querySelector('#events').dataset.count=userEvents.length;
+},true);
+document.querySelector('#load').onclick=async()=>{
+ const result=await fetch('/redirect').then(r=>r.text());
+ document.querySelector('#results').textContent=result;
+ const field=document.createElement('input');field.id='dynamic-search';field.setAttribute('aria-label','Search collection');
+ document.querySelector('#results').append(field);
+};
+setTimeout(()=>document.querySelector('#ready').disabled=false,2200);
+document.querySelector('#ready').onclick=()=>{document.querySelector('#results').textContent='Progress complete';};
+</script></body></html>

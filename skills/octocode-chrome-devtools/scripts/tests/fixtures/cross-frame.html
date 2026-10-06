@@ -1,0 +1,4 @@
+<!doctype html><title>Cross frame</title><label>Card number <input id="card"></label><button id="pay">Pay now</button><output id="out"></output><script>
+for(const type of ['input','keydown','click'])document.addEventListener(type,e=>{document.querySelector('#out').dataset[type]=String(e.isTrusted);});
+document.querySelector('#pay').onclick=()=>setTimeout(()=>document.querySelector('#out').textContent='Paid in frame',150);
+</script>

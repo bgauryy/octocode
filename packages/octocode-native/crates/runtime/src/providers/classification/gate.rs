@@ -238,7 +238,8 @@ impl GateLease {
     }
 
     /// Whether the endpoint reported exhausted billing or quota within
-    /// [`QUOTA_MEMO`]: a call checks this before capturing any evidence.
+    /// [`QUOTA_MEMO`] (`acquire` refuses every permit meanwhile).
+    #[cfg(test)]
     pub(crate) fn quota_exhausted(&self) -> bool {
         self.gate.quota_exhausted(Instant::now())
     }

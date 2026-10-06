@@ -1,6 +1,6 @@
 ---
 name: octocode-documentation
-description: "Use when creating, repairing, or reviewing READMEs, API docs, guides, comments, ADRs for settled decisions, runbooks, or stale technical docs, or when explaining a system to an agent or a human in ASD-STE100-style text with flow diagrams. Not for deciding an open choice → octocode-rfc-generator; investigating code with no doc to write → octocode-research."
+description: "Use when creating, repairing, or reviewing READMEs, API docs, guides, comments, ADRs for settled decisions, runbooks, or stale technical docs, or when explaining a system to an agent or a human in ASD-STE100 with flow diagrams. Not for deciding an open choice → octocode-rfc-generator; investigating code with no doc to write → octocode-research."
 ---
 
 # Octocode Documentation
@@ -18,7 +18,7 @@ flowchart LR
   R -. "before WRITE, for repo facts" .-> E["references/evidence-research.md"]
   C -. "when mode or page type unclear; ADR; AGENTS.md" .-> M["references/modes.md"]
   G -. "for outline gate, write pass, checks" .-> WV["references/write-verify.md"]
-  W -. "for explanation, runbook, procedure, handoff" .-> STE["references/style-ste80.md"]
+  W -. "when writing the document in ASD-STE100" .-> STE["references/style-ste80.md"]
   S -. "for any style pass, review report, disputed rule" .-> SP["references/style-pass.md"]
   S -. "for word, abbreviation, inclusive term" .-> SW["references/style-words.md"]
   S -. "for tone, voice, tense, grammar, global readers" .-> SR["references/style-prose.md"]
@@ -60,18 +60,18 @@ A single-word question: quote its row of `assets/google-word-list.tsv` and stop.
 - Edit only within the approved scope. Approval lasts for the session.
 - Targets not yet authorized: present mode, type, targets, outline, evidence, and risks; write after approval.
 - An existing target that is not yet authorized: ask Overwrite, Diff first, Rename, Skip, or Cancel.
-- Explanations, runbooks, procedures, troubleshooting, and handoffs use STE-80: one instruction per sentence, 20 words or fewer, active voice, condition first.
+- Write the document in ASD-STE100 (Issue 9): one instruction per sentence, 20 words or fewer in a procedure, active voice, condition first. Load `references/style-ste80.md`.
 - A stated flow, branch, loop, or state is a Mermaid diagram (12 nodes or fewer), not a dense paragraph.
 - Lead with the fact; link related pages with repo-relative paths; no code dumps. Put deep facts in the owning page.
 
 ## STYLE
 - A style pass changes wording, not claims. Name the rule when you change another writer's wording.
-- Precedence: the project's documented style → a convention the repo applies consistently → this pack. Report meaningful conflicts.
+- Precedence: the project's documented style → a consistent repo convention → this pack. In this pack, ASD-STE100 owns the sentence. Report a meaningful conflict.
 - Defaults: sentence-case headings, second person, active voice, present tense, serial comma, descriptive link text, alt text on every image.
 - Review for someone else: lint first, then structure, prose, and formatting. Report a repeated rule once as systemic. Never call unread sections clean.
 
-## Output and Verify
-- Drafts: `<output>/octocode-documentation/`; scratch: `<output>/tmp/octocode-documentation/`. Chat-only reviews stay in chat; approved edits keep their requested paths.
+## Output
+One document in chat, or at the approved path. Save a draft under `<output>/octocode-documentation/` only before that path exists. Scratch stays in `<output>/tmp/octocode-documentation/`.
 - Run `node scripts/style-lint.mjs <changed paths>`, then hand-check non-Markdown text. ERROR blocks completion; WARN needs a fix or explanation; INFO needs judgment.
 - Run `node scripts/style-lint.mjs --self-test` after a lint-rule change; `node scripts/refresh-word-list.mjs --dry-run` checks word-list drift without writing.
 - Check that named commands and linked paths exist and that no secrets or private URLs entered the doc.

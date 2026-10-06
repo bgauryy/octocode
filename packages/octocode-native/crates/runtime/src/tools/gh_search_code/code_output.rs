@@ -145,12 +145,40 @@ fn code_hit(path: &str) -> bool {
     ) && !crate::content::is_test_path(path)
 }
 
-/// Line hits for the top files of a repo-scoped `match:"file"` page, read at
-/// the requested `branch` or the default-branch HEAD.
+/// Line hits for the files of a `match:"file"` page: a repo-scoped page is
+/// read at the requested ref or the default-branch HEAD; an owner-wide page
+/// at each hit's indexed commit (from its `html_url`).
 pub(super) struct Resolution {
-    pub(super) sha: String,
+    /// The one commit every row was read at; `None` when rows differ (each
+    /// row then names its own `commitSha`).
+    pub(super) sha: Option<String>,
     reference: Option<String>,
-    hits: Vec<super::lines::FileHits>,
+    /// Per row: the commit it was read at, and its hits.
+    hits: Vec<(String, super::lines::FileHits)>,
+}
+
+/// The owner and repository a row's reads target: the query's when it is
+/// repo-scoped, else the row's own.
+fn row_repo<'a>(
+    query: &'a GhSearchCodeQuery,
+    row: &'a serde_json::Map<String, Value>,
+) -> Option<(&'a str, &'a str)> {
+    match query.repo.as_deref() {
+        Some(repo) => Some((query.owner.as_str(), repo.as_str())),
+        None => Some((row.get("owner")?.as_str()?, row.get("repo")?.as_str()?)),
+    }
+}
+
+/// `(owner, repo, commit)` an owner-wide row is read at.
+type RepoCommit = (String, String, String);
+
+/// The commit a code-search hit was indexed at: `html_url` is
+/// `…/blob/<sha>/<path>`.
+fn indexed_commit(html_url: &str) -> Option<String> {
+    let (_, rest) = html_url.split_once("/blob/")?;
+    let sha = rest.split('/').next()?;
+    (sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .then(|| sha.to_ascii_lowercase())
 }
 
 /// The ref hits are verified at; `None` is the default branch.
@@ -183,6 +211,7 @@ pub(super) async fn line_commit<
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn resolve_lines<
     R: CredentialResolver,
     C: crate::providers::github::ConditionalCache,
@@ -190,16 +219,20 @@ pub(super) async fn resolve_lines<
     provider: &crate::providers::github::GitHubProvider<R, C>,
     query: &GhSearchCodeQuery,
     items: &[Value],
+    found: &[CodeSearchItem],
     commit: Option<Result<String, ProviderError>>,
     context: &RequestContext,
     security: &impl ContentScan,
 ) -> Result<Option<Resolution>, ProviderError> {
-    let (Some(repo), Some(commit)) = (query.repo.as_deref(), commit) else {
-        return Ok(None);
-    };
     if items.is_empty() {
         return Ok(None);
     }
+    let Some(repo) = query.repo.as_deref() else {
+        return owner_wide_lines(provider, query, items, found, context, security).await;
+    };
+    let Some(commit) = commit else {
+        return Ok(None);
+    };
     let reference = requested_ref(query);
     let sha = match commit {
         Ok(sha) => sha,
@@ -229,8 +262,99 @@ pub(super) async fn resolve_lines<
     )
     .await?;
     Ok(Some(Resolution {
-        sha,
+        hits: hits.into_iter().map(|hits| (sha.clone(), hits)).collect(),
+        sha: Some(sha),
         reference: reference.map(str::to_owned),
+    }))
+}
+
+/// Line hits of an owner-wide `match:"file"` page: each row is read at the
+/// commit its hit was indexed at, one concurrent batch per repository and
+/// commit. A row without an indexed commit keeps its fragments.
+async fn owner_wide_lines<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
+    provider: &crate::providers::github::GitHubProvider<R, C>,
+    query: &GhSearchCodeQuery,
+    items: &[Value],
+    found: &[CodeSearchItem],
+    context: &RequestContext,
+    security: &impl ContentScan,
+) -> Result<Option<Resolution>, ProviderError> {
+    if query.match_ != GhSearchCodeQueryMatch::File || query.concise == Some(true) {
+        return Ok(None);
+    }
+    let commits: HashMap<(&str, &str), String> = found
+        .iter()
+        .filter_map(|item| {
+            let sha = indexed_commit(&item.html_url)?;
+            Some((
+                (item.repository.full_name.as_str(), item.path.as_str()),
+                sha,
+            ))
+        })
+        .collect();
+    // (owner, repo, sha) -> the rows (index, path) read there.
+    let mut groups: Vec<(RepoCommit, Vec<(usize, String)>)> = Vec::new();
+    for (index, row) in items.iter().enumerate() {
+        let (Some(owner), Some(repo), Some(path)) = (
+            row.get("owner").and_then(Value::as_str),
+            row.get("repo").and_then(Value::as_str),
+            row.get("path").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        let full_name = format!("{owner}/{repo}");
+        let Some(sha) = commits.get(&(full_name.as_str(), path)) else {
+            continue;
+        };
+        let key = (owner.to_owned(), repo.to_owned(), sha.clone());
+        match groups.iter_mut().find(|(group, _)| *group == key) {
+            Some((_, rows)) => rows.push((index, path.to_owned())),
+            None => groups.push((key, vec![(index, path.to_owned())])),
+        }
+    }
+    if groups.is_empty() {
+        return Ok(None);
+    }
+    let goal = query.main_goal.as_ref().map_or("", |goal| goal.as_str());
+    let reads = groups.iter().map(|((owner, repo, sha), rows)| async move {
+        let paths = rows
+            .iter()
+            .map(|(_, path)| path.clone())
+            .collect::<Vec<_>>();
+        super::lines::resolve_files(
+            provider,
+            owner,
+            repo,
+            sha,
+            &paths,
+            &query.keywords,
+            goal,
+            context,
+            security,
+        )
+        .await
+    });
+    let resolved = futures_util::future::join_all(reads).await;
+    let mut hits: Vec<Option<(String, super::lines::FileHits)>> =
+        (0..items.len()).map(|_| None).collect();
+    for (((_, _, sha), rows), result) in groups.iter().zip(resolved) {
+        for ((index, _), file) in rows.iter().zip(result?) {
+            hits[*index] = Some((sha.clone(), file));
+        }
+    }
+    let hits: Vec<(String, super::lines::FileHits)> = hits
+        .into_iter()
+        .map(|hit| hit.unwrap_or_else(|| (String::new(), super::lines::FileHits::Unavailable)))
+        .collect();
+    let mut shas = hits
+        .iter()
+        .map(|(sha, _)| sha.as_str())
+        .filter(|sha| !sha.is_empty());
+    let first = shas.next().map(str::to_owned);
+    let uniform = first.filter(|sha| shas.all(|other| other == sha));
+    Ok(Some(Resolution {
+        sha: uniform,
+        reference: None,
         hits,
     }))
 }
@@ -277,12 +401,21 @@ pub(super) async fn disclose_index_ref<
         Some(warnings) => warnings.push(json!(warning)),
         None => value["warnings"] = json!([warning]),
     }
-    let listing = json!({
+    let mut listing = json!({
         "owner": owner,
         "repo": repo.as_str(),
         "path": query.path.as_deref().map_or("", |path| path.as_str()),
         "ref": at_ref.as_deref().unwrap_or(reference),
     });
+    // Rows not at the ref were moved or renamed there: search their names
+    // across the whole tree (a moved file may leave the searched path).
+    let moved = moved_names(value);
+    if !moved.is_empty() {
+        listing["include"] = json!(moved);
+        if let Some(listing) = listing.as_object_mut() {
+            listing.shift_remove("path");
+        }
+    }
     let lead = Continuation::new(ToolId::GhStructure, listing)
         .why("List the requested ref; the code index covers only the default branch.")
         .build();
@@ -293,6 +426,26 @@ pub(super) async fn disclose_index_ref<
         next.shift_insert(0, "viewRepo".to_owned(), lead);
     }
     Ok(())
+}
+
+/// File names of the rows absent at the requested ref (`atRef:false`),
+/// once each, within the input array limit.
+fn moved_names(value: &Value) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for row in value["files"].as_array().into_iter().flatten() {
+        if row.get("atRef") != Some(&json!(false)) {
+            continue;
+        }
+        let Some(path) = row.get("path").and_then(Value::as_str) else {
+            continue;
+        };
+        let name = path.rsplit('/').next().unwrap_or(path).to_owned();
+        if !name.is_empty() && !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    names.truncate(crate::tools::id::MAX_INPUT_ARRAY_ITEMS);
+    names
 }
 
 /// The commit `reference` (`None`: the default-branch head) names, or
@@ -357,11 +510,20 @@ pub(super) fn shape_files(
     let fragment = items.first().cloned();
     let mut top = None;
     if let Some(resolution) = &resolution {
-        value["commitSha"] = json!(resolution.sha);
-        for (row, hits) in items.iter_mut().zip(&resolution.hits) {
+        if let Some(sha) = &resolution.sha {
+            value["commitSha"] = json!(sha);
+        }
+        for (row, (sha, hits)) in items.iter_mut().zip(&resolution.hits) {
             let Some(row) = row.as_object_mut() else {
                 continue;
             };
+            // Rows read at different commits each name theirs.
+            if resolution.sha.is_none()
+                && !sha.is_empty()
+                && matches!(hits, super::lines::FileHits::Lines { .. })
+            {
+                row.insert("commitSha".into(), json!(sha));
+            }
             match hits {
                 super::lines::FileHits::Lines {
                     lines,
@@ -381,20 +543,14 @@ pub(super) fn shape_files(
                         row.insert("hitCount".into(), json!(total));
                     }
                     if (*total > lines.len() || *clipped)
-                        && let Some(read) = hits_read(query, row, &resolution.sha)
+                        && let Some(read) = hits_read(query, row, sha)
                     {
                         hit_reads.push(read);
                     }
                     if top.is_none() {
                         top = Some(match declaration {
-                            Some(head) => declaration_read(query, row, head, &resolution.sha),
-                            None => line_read(
-                                query,
-                                row,
-                                (*first, *last, *best),
-                                *line_count,
-                                &resolution.sha,
-                            ),
+                            Some(head) => declaration_read(query, row, head, sha),
+                            None => line_read(query, row, (*first, *last, *best), *line_count, sha),
                         });
                     }
                 }
@@ -411,7 +567,7 @@ pub(super) fn shape_files(
                     // lead to the keyword lines at the ref.
                     row.shift_remove("matches");
                     row.insert("lineResolved".into(), json!(false));
-                    if let Some(read) = hits_read(query, row, &resolution.sha) {
+                    if let Some(read) = hits_read(query, row, sha) {
                         hit_reads.push(read);
                     }
                 }
@@ -492,7 +648,7 @@ fn hits_read(
     sha: &str,
 ) -> Option<Value> {
     let path = row.get("path")?.as_str()?;
-    let repo = query.repo.as_deref()?;
+    let (owner, repo) = row_repo(query, row)?;
     let keywords: Vec<&str> = query
         .keywords
         .iter()
@@ -501,8 +657,8 @@ fn hits_read(
         .collect();
     let max = crate::tools::id::query_limits::gh_get_file_content::MATCH_STRING_MAX_ITEMS;
     let mut read = json!({
-        "owner": query.owner.as_str(),
-        "repo": repo.as_str(),
+        "owner": owner,
+        "repo": repo,
         "path": path,
         "ref": sha,
         "contextLines": 0,
@@ -542,15 +698,19 @@ fn scoped_fragment_read(
     let mut read = read?;
     let branch = match resolution {
         Some(resolution) => match resolution.hits.first() {
-            Some(super::lines::FileHits::Missing) => return None,
+            Some((_, super::lines::FileHits::Missing)) => return None,
             // At a ref, an unmatched or unread top file has no fragment read:
             // its fragment is default-branch text.
-            Some(super::lines::FileHits::Unmatched | super::lines::FileHits::Unavailable)
+            Some((_, super::lines::FileHits::Unmatched | super::lines::FileHits::Unavailable))
                 if resolution.reference.is_some() =>
             {
                 return None;
             }
-            _ => resolution.sha.as_str(),
+            // An owner-wide row without an indexed commit reads the
+            // default branch.
+            Some((sha, _)) if sha.is_empty() => return Some(read),
+            Some((sha, _)) => sha.as_str(),
+            None => return Some(read),
         },
         None => match requested_ref(query) {
             Some(reference) => reference,
@@ -573,13 +733,13 @@ fn declaration_read(
     sha: &str,
 ) -> Option<Value> {
     let path = row.get("path")?.as_str()?;
-    let repo = query.repo.as_deref()?;
+    let (owner, repo) = row_repo(query, row)?;
     if !code_hit(path) {
         return None;
     }
     let read = json!({
-        "owner": query.owner.as_str(),
-        "repo": repo.as_str(),
+        "owner": owner,
+        "repo": repo,
         "path": path,
         "matchString": head,
         "block": true,
@@ -604,7 +764,7 @@ fn line_read(
     sha: &str,
 ) -> Option<Value> {
     let path = row.get("path")?.as_str()?;
-    let repo = query.repo.as_deref()?;
+    let (owner, repo) = row_repo(query, row)?;
     let anchor = if best == 0 { first } else { best };
     let start = anchor.saturating_sub(5).max(1);
     let mut end = anchor.saturating_add(17);
@@ -616,8 +776,8 @@ fn line_read(
         return None;
     }
     let read = json!({
-        "owner": query.owner.as_str(),
-        "repo": repo.as_str(),
+        "owner": owner,
+        "repo": repo,
         "path": path,
         // The published line-span spelling (startLine/endLine are accepted
         // but not published).

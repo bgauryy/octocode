@@ -132,6 +132,11 @@ fn respond(
     if !query.debug() {
         artifacts.iter_mut().for_each(drop_repository_homepage);
     }
+    let exact = query.package_name().is_some();
+    for artifact in &mut artifacts {
+        leads::label_release_source(artifact, exact);
+        artifact.dedupe_dependency_count();
+    }
     // An exact lookup whose source lives on GitHub continues to its tree
     // and manifest. Registry metadata can point at a fork or stale repo, so
     // these are leads, not proof.
@@ -423,16 +428,20 @@ mod npm_auth_tests {
                 json!({"owner": "o", "repo": "r", "path": "packages/x", "ref": sha}),
                 "{data}"
             );
-            // An unchecked ref carries no label: only provenance is stated.
+            // AR2: an unchecked registry ref is labeled as the registry's
+            // claim, on the row (the one source) and on every lead.
             assert!(release.get("source").is_none(), "{data}");
-            assert!(release.get("verification").is_none(), "{data}");
+            assert_eq!(release["verification"], "registryRef", "{data}");
+            assert_eq!(
+                next["readManifest"]["verification"], "registryRef",
+                "{data}"
+            );
             let why = release["why"].as_str().expect("why");
             assert!(why.contains("omit ref"), "{data}");
             let row = data["artifacts"][0].as_object().expect("row");
-            assert!(
-                row.keys().all(|key| key != "gitHead" && key != "sourceRef"),
-                "{data}"
-            );
+            assert_eq!(row["sourceRef"], sha, "{data}");
+            assert_eq!(row["verification"], "registryRef", "{data}");
+            assert!(row.keys().all(|key| key != "gitHead"), "{data}");
             assert_eq!(
                 row.keys().next().map(String::as_str),
                 Some("name"),

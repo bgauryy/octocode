@@ -1,5 +1,5 @@
 /**
- * Smart performance measure: navigation/paint/LCP/CLS/long-tasks/resources.
+ * Performance measure: navigation/paint/LCP/CLS/long-tasks/resources.
  * Hermetic: navigates a local fixture. Live: set MEASURE_URL or attach to current tab
  * (MEASURE_EXISTING=1 skips navigate when page is already loaded).
  */
@@ -32,17 +32,18 @@ async function collect(cdp) {
     awaitPromise: true,
     returnByValue: true,
     expression: `(async () => {
+      const supportedTypes = globalThis.PerformanceObserver?.supportedEntryTypes || [];
       const nav = performance.getEntriesByType('navigation')[0];
       const paints = Object.fromEntries(
         performance.getEntriesByType('paint').map(p => [p.name, Math.round(p.startTime)])
       );
       const resources = performance.getEntriesByType('resource').map(r => ({
-        name: String(r.name).slice(0, 300),
+        name: String(r.name),
         initiatorType: r.initiatorType,
         duration: Math.round(r.duration),
         transferSize: r.transferSize || 0,
         encodedBodySize: r.encodedBodySize || 0,
-      })).sort((a,b) => b.duration - a.duration).slice(0, 100);
+      })).sort((a,b) => b.duration - a.duration);
 
       const longTasks = [];
       try {
@@ -62,7 +63,6 @@ async function collect(cdp) {
           }
         }
       } catch {}
-      for (const e of (globalThis.__octocodeLongTasks || [])) longTasks.push(e);
 
       // LCP, layout-shift and event timing are not in the performance timeline buffer:
       // getEntriesByType() returns [] for them. Only a buffered observer sees them.
@@ -84,11 +84,12 @@ async function collect(cdp) {
       const [lcpEntries, shifts, events] = await Promise.all([
         buffered('largest-contentful-paint'), buffered('layout-shift'), buffered('event'),
       ]);
+      for (const e of (globalThis.__octocodeLongTasks || [])) longTasks.push(e);
       let lcp = null;
       if (lcpEntries.length) {
         const last = lcpEntries[lcpEntries.length - 1];
         lcp = { startTime: Math.round(last.startTime || last.renderTime || last.loadTime), size: last.size || 0,
-          element: describe(last.element), url: last.url ? String(last.url).slice(0, 200) : null };
+          element: describe(last.element), url: last.url ? String(last.url) : null };
       }
       // CLS = largest session window (gap <1s, window <=5s), excluding shifts after input.
       let cls = null;
@@ -102,18 +103,18 @@ async function collect(cdp) {
         }
         cls = Number(best.toFixed(4));
       } else {
-        cls = 0;
+        cls = supportedTypes.includes('layout-shift') ? 0 : null;
       }
       // Headless paints lazily, so e.duration (until next paint) is inflated by idle frames;
       // score input delay + handler time, keep the presented duration as context.
       const interactions = events.filter(e => e.interactionId);
-      const inp = interactions.length ? interactions.reduce((m, e) => Math.max(m, Math.round(e.processingEnd - e.startTime)), 0) : null;
-      const inpPresented = interactions.length ? interactions.reduce((m, e) => Math.max(m, Math.round(e.duration)), 0) : null;
+      const inputHandlerMax = interactions.length ? interactions.reduce((m, e) => Math.max(m, Math.round(e.processingEnd - e.startTime)), 0) : null;
+      const interactionLatencyMax = interactions.length ? interactions.reduce((m, e) => Math.max(m, Math.round(e.duration)), 0) : null;
       const visibility = document.visibilityState;
 
       const measures = performance.getEntriesByType('measure').map(m => ({
         name: m.name, duration: Math.round(m.duration), startTime: Math.round(m.startTime),
-      })).slice(0, 20);
+      }));
 
       return {
         url: location.href,
@@ -131,10 +132,11 @@ async function collect(cdp) {
         fcp: paints['first-contentful-paint'] ?? paints['first-paint'] ?? null,
         lcp,
         cls,
-        inp,
-        inpPresented,
+        inputHandlerMax,
+        interactionLatencyMax,
+        supportedTypes,
         visibility,
-        longTasks: longTasks.slice(-50),
+        longTasks,
         resources,
         measures,
         memoryUsed: performance.memory?.usedJSHeapSize ?? null,
@@ -154,9 +156,9 @@ function score(snap, slowMs) {
   if (fcp != null && fcp > 2000) findings.push({ code: 'SLOW_FCP', ms: fcp });
   if (lcp != null && lcp > 2500) findings.push({ code: 'SLOW_LCP', ms: lcp });
   if ((snap.cls ?? 0) > 0.1) findings.push({ code: 'HIGH_CLS', cls: snap.cls });
-  if ((snap.inp ?? 0) > 200) findings.push({ code: 'SLOW_INP', ms: snap.inp });
+  if ((snap.interactionLatencyMax ?? 0) > 200) findings.push({ code: 'SLOW_INTERACTION', ms: snap.interactionLatencyMax });
   if (longTaskTotal > 100) findings.push({ code: 'LONG_TASKS', totalMs: longTaskTotal, count: snap.longTasks.length });
-  if (slowResources.length) findings.push({ code: 'SLOW_RESOURCES', count: slowResources.length, top: slowResources.slice(0, 5) });
+  if (slowResources.length) findings.push({ code: 'SLOW_RESOURCES', count: slowResources.length, top: slowResources });
 
   // Health score 0–100 (heuristic, not lab Lighthouse)
   let health = 100;
@@ -167,42 +169,14 @@ function score(snap, slowMs) {
   health -= Math.min(15, slowResources.length * 3);
   health = Math.max(0, Math.round(health));
 
-  return { health, findings, slowResources: slowResources.slice(0, 10), longTaskTotal };
+  const missing = ['fcp', 'lcp', 'cls'].filter(k => snap[k] == null);
+  return { health: missing.length ? null : health, missing, findings, slowResources, longTaskTotal };
 }
 
 export async function run(cdp) {
   await cdp.send('Runtime.enable');
   await cdp.send('Page.enable');
   await cdp.send('Network.enable');
-
-  // Install observers before navigation when we control the load.
-  await cdp.send('Runtime.evaluate', {
-    expression: `(() => {
-      globalThis.__octocodeLongTasks = [];
-      try {
-        if ('PerformanceObserver' in globalThis) {
-          const lt = new PerformanceObserver(list => {
-            for (const e of list.getEntries()) {
-              globalThis.__octocodeLongTasks.push({
-                startTime: Math.round(e.startTime),
-                duration: Math.round(e.duration),
-                name: e.name,
-              });
-            }
-          });
-          lt.observe({ type: 'longtask', buffered: true });
-          try {
-            const lcpObs = new PerformanceObserver(() => {});
-            lcpObs.observe({ type: 'largest-contentful-paint', buffered: true });
-          } catch {}
-          try {
-            const clsObs = new PerformanceObserver(() => {});
-            clsObs.observe({ type: 'layout-shift', buffered: true });
-          } catch {}
-        }
-      } catch {}
-    })()`,
-  });
 
   const existing = process.env.MEASURE_EXISTING === '1';
   const measureUrl = process.env.MEASURE_URL || (existing ? null : FIXTURE);
@@ -220,17 +194,20 @@ export async function run(cdp) {
     await new Promise(r => setTimeout(r, 300));
   }
 
-  const raw = await collect(cdp);
-  await cdp.send('Page.stopScreencast').catch(() => {});
-  cdp.off?.('Page.screencastFrame', ackFrame);
-  const snap = raw.result?.value || { resources: [], longTasks: [], paints: {} };
+  let raw;
+  try { raw = await collect(cdp); } finally {
+    await cdp.send('Page.stopScreencast').catch(() => {});
+    cdp.off?.('Page.screencastFrame', ackFrame);
+  }
+  if (raw.exceptionDetails || !raw.result?.value || typeof raw.result.value !== 'object') throw new Error('Performance evaluation unavailable: ' + (raw.exceptionDetails?.text || 'no result'));
+  const snap = raw.result.value;
   const scored = score(snap, SLOW_RESOURCE_MS);
   const payload = { ...snap, score: scored, collectedAt: new Date().toISOString() };
 
   const artifact = join(cdp.outputDir, 'performance-measure.json');
   writeFileSync(artifact, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
 
-  console.log(`[METRIC] PERF health=${scored.health} fcp=${snap.fcp ?? 'n/a'} lcp=${snap.lcp?.startTime ?? 'n/a'} cls=${snap.cls ?? 'n/a'} inp=${snap.inp ?? 'n/a'} longTasks=${snap.longTasks?.length ?? 0} resources=${snap.resources?.length ?? 0}`);
+  console.log(`[METRIC] PERF health=${scored.health ?? 'unavailable'} fcp=${snap.fcp ?? 'n/a'} lcp=${snap.lcp?.startTime ?? 'n/a'} cls=${snap.cls ?? 'n/a'} interactionLatencyMax=${snap.interactionLatencyMax ?? 'n/a'} longTasks=${snap.longTasks?.length ?? 0} resources=${snap.resources?.length ?? 0}`);
   if (snap.lcp?.element) console.log(`[METRIC] LCP element=${snap.lcp.element} size=${snap.lcp.size}${snap.lcp.url ? ` url=${snap.lcp.url}` : ''}`);
   if (snap.visibility && snap.visibility !== 'visible') console.log(`[FINDING] PERF_TAB_HIDDEN visibility=${snap.visibility}; browsers skip LCP for hidden tabs`);
   for (const f of scored.findings.slice(0, 8)) {
@@ -239,5 +216,6 @@ export async function run(cdp) {
   if (snap.navigation) {
     console.log(`[METRIC] NAV dcl=${snap.navigation.domContentLoaded} load=${snap.navigation.load} ttfb≈${snap.navigation.responseStart}`);
   }
+  if (scored.missing.length) console.log(`[FINDING] PERF_INCOMPLETE missing=${scored.missing.join(',')}`);
   console.log(`[ARTIFACT] PERFORMANCE ${artifact}`);
 }

@@ -4,15 +4,44 @@ use crate::tools::id::ToolId;
 use crate::tools::result::Continuation;
 use serde_json::{Map, Value, json};
 
+/// Labels a row's release source, the one place the label is decided: a
+/// repository URL naming this version's tag (rubygems `…/tree/v8.1.4`)
+/// becomes the ref when the registry gave none; a provenance-attested ref
+/// and an upstream tag checked to exist say so; every other ref is the
+/// registry's unchecked claim (npm `gitHead`, Go/Composer/NuGet refs, crates
+/// VCS info). An exact row on GitHub without a ref reads the default branch.
+pub(super) fn label_release_source(artifact: &mut ArtifactItem, exact: bool) {
+    if artifact.source_ref.is_none() {
+        artifact.source_ref = artifact
+            .repository
+            .as_deref()
+            .zip(artifact.version.as_deref())
+            .and_then(|(url, version)| version_ref(url, version));
+    }
+    artifact.verification = if artifact.source_ref.is_none() {
+        (exact
+            && artifact
+                .repository
+                .as_deref()
+                .and_then(github_repo)
+                .is_some())
+        .then_some("defaultBranch")
+    } else if artifact.source_attested {
+        Some("provenance")
+    } else if artifact.source_tag {
+        Some("tag")
+    } else {
+        Some("registryRef")
+    };
+}
+
 /// The leads of an exact row whose repository is on GitHub: the
 /// ghStructure tree at the package's directory (plus its entry directory
 /// when the registry names one), and with a release ref the package
 /// manifest at that ref. With a release ref the tree lead is
 /// `viewReleaseSource`; the default-branch tree is that lead without `ref`,
-/// so no second tree lead restates it. A provenance-attested ref and an
-/// upstream tag that was checked to exist are labeled; every other ref is
-/// the registry's unchecked lead (npm `gitHead`, Go/Composer/NuGet refs,
-/// crates VCS info).
+/// so no second tree lead restates it. Every lead carries the row's
+/// `verification` (leads are copied out of context).
 pub(super) fn source_leads(artifact: &ArtifactItem) -> Map<String, Value> {
     let mut leads = Map::new();
     let Some((owner, repo)) = artifact.repository.as_deref().and_then(github_repo) else {
@@ -32,58 +61,40 @@ pub(super) fn source_leads(artifact: &ArtifactItem) -> Map<String, Value> {
     if let Some(path) = path {
         query["path"] = json!(path);
     }
-    // A repository URL that names this version's tag (rubygems
-    // `…/tree/v8.1.4`) pins the lead when the registry gave no ref.
-    let url_ref = artifact
-        .source_ref
-        .is_none()
-        .then(|| {
-            artifact
-                .repository
-                .as_deref()
-                .zip(artifact.version.as_deref())
-        })
-        .flatten()
-        .and_then(|(url, version)| version_ref(url, version));
-    let Some(reference) = artifact.source_ref.as_deref().or(url_ref.as_deref()) else {
-        leads.insert(
-            "viewRepo".into(),
-            Continuation::new(ToolId::GhStructure, query)
-                .why("Default-branch code; not release evidence.")
-                .build(),
-        );
-        return leads;
-    };
-    query["ref"] = json!(reference);
-    let verification = if artifact.source_attested {
-        Some("provenance")
-    } else if artifact.source_tag {
-        Some("tag")
-    } else {
-        None
-    };
-    let tree = Continuation::new(ToolId::GhStructure, query)
-        .why(match verification {
-            Some("provenance") => "Release commit attested by npm provenance.",
-            Some(_) => "Upstream tag of this version.",
-            None => "Registry release-ref lead; if unpushed, omit ref.",
-        })
-        .build();
-    leads.insert("viewReleaseSource".into(), tree);
-    if let Some(file) = manifest_file(artifact.artifact_type) {
-        let path = directory.map_or_else(|| file.to_owned(), |dir| format!("{dir}/{file}"));
-        leads.insert(
-            "readManifest".into(),
-            Continuation::new(
-                ToolId::GhGetFileContent,
-                json!({ "owner": owner, "repo": repo, "path": path, "ref": reference }),
-            )
-            .why("Dependency names at the release ref.")
-            .build(),
-        );
+    match artifact.source_ref.as_deref() {
+        None => {
+            leads.insert(
+                "viewRepo".into(),
+                Continuation::new(ToolId::GhStructure, query)
+                    .why("Default-branch code; not release evidence.")
+                    .build(),
+            );
+        }
+        Some(reference) => {
+            query["ref"] = json!(reference);
+            let tree = Continuation::new(ToolId::GhStructure, query)
+                .why(match artifact.verification {
+                    Some("provenance") => "Release commit attested by npm provenance.",
+                    Some("tag") => "Upstream tag of this version.",
+                    _ => "Registry release-ref lead; if unpushed, omit ref.",
+                })
+                .build();
+            leads.insert("viewReleaseSource".into(), tree);
+            if let Some(file) = manifest_file(artifact) {
+                let path = directory.map_or_else(|| file.to_owned(), |dir| format!("{dir}/{file}"));
+                leads.insert(
+                    "readManifest".into(),
+                    Continuation::new(
+                        ToolId::GhGetFileContent,
+                        json!({ "owner": owner, "repo": repo, "path": path, "ref": reference }),
+                    )
+                    .why("Dependency names at the release ref.")
+                    .build(),
+                );
+            }
+        }
     }
-    // Every lead at the release ref says how that ref was checked.
-    if let Some(verification) = verification {
+    if let Some(verification) = artifact.verification {
         for lead in leads.values_mut() {
             lead["verification"] = json!(verification);
         }
@@ -91,17 +102,17 @@ pub(super) fn source_leads(artifact: &ArtifactItem) -> Map<String, Value> {
     leads
 }
 
-/// The manifest that names a package's dependencies, for ecosystems whose
-/// manifest file name is fixed.
-fn manifest_file(artifact_type: ArtifactType) -> Option<&'static str> {
-    match artifact_type {
+/// The manifest that names a package's dependencies: the one the release
+/// was checked to declare them in, else the ecosystem's fixed file name.
+fn manifest_file(artifact: &ArtifactItem) -> Option<&'static str> {
+    artifact.manifest.or(match artifact.artifact_type {
         ArtifactType::Npm => Some("package.json"),
         ArtifactType::Crates => Some("Cargo.toml"),
         ArtifactType::Go => Some("go.mod"),
         ArtifactType::Packagist => Some("composer.json"),
         ArtifactType::Pypi => Some("pyproject.toml"),
         _ => None,
-    }
+    })
 }
 
 /// The ref of a `/tree/<ref>` or `/blob/<ref>` repository URL when it names
@@ -155,7 +166,7 @@ fn github_repo_dir(url: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{github_repo, github_repo_dir, source_leads};
+    use super::{github_repo, github_repo_dir, label_release_source, source_leads};
     use crate::providers::artifact::{ArtifactItem, ArtifactType};
     use serde_json::json;
 
@@ -165,15 +176,24 @@ mod tests {
         item
     }
 
+    /// The leads of an exact row, labeled the way `respond` labels it.
+    fn leads_of(row: &ArtifactItem) -> serde_json::Map<String, serde_json::Value> {
+        let mut row = row.clone();
+        label_release_source(&mut row, true);
+        source_leads(&row)
+    }
+
     #[test]
     fn a_row_without_a_release_ref_leads_to_the_default_branch_only() {
-        let leads = source_leads(&item(ArtifactType::Pypi, "https://github.com/psf/requests"));
+        let leads = leads_of(&item(ArtifactType::Pypi, "https://github.com/psf/requests"));
         assert_eq!(leads.keys().collect::<Vec<_>>(), vec!["viewRepo"]);
         assert_eq!(
             leads["viewRepo"]["query"]["queries"][0],
             json!({"owner":"psf","repo":"requests"})
         );
-        assert!(source_leads(&item(ArtifactType::Npm, "https://gitlab.com/o/r")).is_empty());
+        // AR2: the default branch is labeled as such, never as a release.
+        assert_eq!(leads["viewRepo"]["verification"], "defaultBranch");
+        assert!(leads_of(&item(ArtifactType::Npm, "https://gitlab.com/o/r")).is_empty());
     }
 
     #[test]
@@ -181,7 +201,7 @@ mod tests {
         let mut row = item(ArtifactType::Pypi, "https://github.com/o/r");
         row.source_ref = Some("v1.2.3".into());
         row.entry_directory = Some("src".into());
-        let leads = source_leads(&row);
+        let leads = leads_of(&row);
         // PyPI declares its dependencies in pyproject.toml.
         assert_eq!(
             leads.keys().collect::<Vec<_>>(),
@@ -197,40 +217,34 @@ mod tests {
         );
         row.repository_directory = Some("packages/x".into());
         row.source_attested = true;
-        let lead = &source_leads(&row)["viewReleaseSource"];
+        let lead = &leads_of(&row)["viewReleaseSource"];
         assert_eq!(lead["query"]["queries"][0]["path"], "packages/x/src");
         assert_eq!(lead["verification"], "provenance");
     }
 
-    /// Every lead at the release ref states how that ref was checked, so an
-    /// unlabeled `readManifest` is as clearly a guess as its tree lead.
+    /// Every lead at the release ref states how that ref was checked: an
+    /// npm `gitHead` without attestation is the registry's claim.
     #[test]
     fn the_manifest_lead_carries_the_release_refs_label() {
         let mut row = item(ArtifactType::Npm, "https://github.com/o/r");
         row.source_ref = Some("abc123".into());
-        assert!(
-            source_leads(&row)["readManifest"]
-                .get("verification")
-                .is_none()
-        );
+        for lead in leads_of(&row).values() {
+            assert_eq!(lead["verification"], "registryRef", "{lead}");
+        }
         row.source_attested = true;
-        assert_eq!(
-            source_leads(&row)["readManifest"]["verification"],
-            "provenance"
-        );
+        assert_eq!(leads_of(&row)["readManifest"]["verification"], "provenance");
     }
 
     #[test]
-    fn an_upstream_tag_is_labeled_and_an_unchecked_ref_is_not() {
+    fn an_upstream_tag_and_an_unchecked_ref_are_labeled_apart() {
         let mut row = item(ArtifactType::Pypi, "https://github.com/psf/requests");
         row.source_ref = Some("v2.31.0".into());
-        assert!(
-            source_leads(&row)["viewReleaseSource"]
-                .get("verification")
-                .is_none()
+        assert_eq!(
+            leads_of(&row)["viewReleaseSource"]["verification"],
+            "registryRef"
         );
         row.source_tag = true;
-        let lead = &source_leads(&row)["viewReleaseSource"];
+        let lead = &leads_of(&row)["viewReleaseSource"];
         assert_eq!(lead["verification"], "tag");
         assert!(
             lead["why"].as_str().is_some_and(|why| why.contains("tag")),
@@ -243,7 +257,7 @@ mod tests {
         let mut row = item(ArtifactType::Crates, "https://github.com/serde-rs/serde");
         row.source_ref = Some("b6a77c4".into());
         row.repository_directory = Some("serde".into());
-        let leads = source_leads(&row);
+        let leads = leads_of(&row);
         assert_eq!(
             leads.keys().collect::<Vec<_>>(),
             vec!["viewReleaseSource", "readManifest"]
@@ -259,7 +273,7 @@ mod tests {
         npm.source_ref = Some("abc".into());
         npm.entry_directory = Some("lib".into());
         assert_eq!(
-            source_leads(&npm)["readManifest"]["query"]["queries"][0]["path"],
+            leads_of(&npm)["readManifest"]["query"]["queries"][0]["path"],
             "package.json"
         );
     }
@@ -273,22 +287,16 @@ mod tests {
             "https://github.com/rails/rails/tree/v8.1.4",
         );
         row.version = Some("8.1.4".into());
-        let leads = source_leads(&row);
+        let leads = leads_of(&row);
         let tree = &leads["viewReleaseSource"]["query"]["queries"][0];
         assert_eq!(
             tree,
             &json!({"owner":"rails","repo":"rails","ref":"v8.1.4"})
         );
         row.repository = Some("https://github.com/rails/rails/tree/main".into());
-        assert_eq!(
-            source_leads(&row).keys().collect::<Vec<_>>(),
-            vec!["viewRepo"]
-        );
+        assert_eq!(leads_of(&row).keys().collect::<Vec<_>>(), vec!["viewRepo"]);
         row.repository = Some("https://github.com/rails/rails/tree/v8.1.3".into());
-        assert_eq!(
-            source_leads(&row).keys().collect::<Vec<_>>(),
-            vec!["viewRepo"]
-        );
+        assert_eq!(leads_of(&row).keys().collect::<Vec<_>>(), vec!["viewRepo"]);
     }
 
     #[test]
@@ -325,5 +333,64 @@ mod tests {
         }
         assert_eq!(github_repo("https://gitlab.com/o/r"), None);
         assert_eq!(github_repo("https://github.com/o"), None);
+    }
+
+    /// AR2: the row is the one source of the label; a discovery row
+    /// without a ref gets none, and a rubygems tag URL is a registry ref.
+    #[test]
+    fn the_row_states_its_release_source_and_label() {
+        let mut row = item(ArtifactType::Npm, "https://github.com/o/r");
+        row.source_ref = Some("abc".into());
+        label_release_source(&mut row, true);
+        let encoded = serde_json::to_value(&row).expect("row");
+        assert_eq!(encoded["sourceRef"], "abc");
+        assert_eq!(encoded["verification"], "registryRef");
+        let mut discovery = item(ArtifactType::Npm, "https://github.com/o/r");
+        label_release_source(&mut discovery, false);
+        assert!(
+            serde_json::to_value(&discovery)
+                .expect("row")
+                .get("verification")
+                .is_none()
+        );
+        let mut gem = item(
+            ArtifactType::Rubygems,
+            "https://github.com/rails/rails/tree/v8.1.4",
+        );
+        gem.version = Some("8.1.4".into());
+        label_release_source(&mut gem, true);
+        assert_eq!(gem.source_ref.as_deref(), Some("v8.1.4"));
+        assert_eq!(gem.verification, Some("registryRef"));
+    }
+
+    /// AR4: a release checked to declare its dependencies in setup.py
+    /// points the manifest lead there.
+    #[test]
+    fn a_checked_manifest_points_the_manifest_lead() {
+        let mut row = item(ArtifactType::Pypi, "https://github.com/psf/requests");
+        row.source_ref = Some("v2.32.3".into());
+        row.source_tag = true;
+        row.manifest = Some("setup.py");
+        assert_eq!(
+            leads_of(&row)["readManifest"]["query"]["queries"][0]["path"],
+            "setup.py"
+        );
+    }
+
+    /// AR5: a complete dependency list replaces its own count; an absent
+    /// list keeps the count (zero dependencies is evidence).
+    #[test]
+    fn a_complete_dependency_list_drops_its_count() {
+        let mut row = item(ArtifactType::Npm, "https://github.com/o/r");
+        row.dependency_list = vec!["a@1".into(), "b@2".into()];
+        row.dependencies = Some(2);
+        row.dedupe_dependency_count();
+        let encoded = serde_json::to_value(&row).expect("row");
+        assert!(encoded.get("dependencies").is_none(), "{encoded}");
+        assert_eq!(encoded["dependencyList"], json!(["a@1", "b@2"]));
+        let mut none = item(ArtifactType::Npm, "https://github.com/o/r");
+        none.dependencies = Some(0);
+        none.dedupe_dependency_count();
+        assert_eq!(serde_json::to_value(&none).expect("row")["dependencies"], 0);
     }
 }

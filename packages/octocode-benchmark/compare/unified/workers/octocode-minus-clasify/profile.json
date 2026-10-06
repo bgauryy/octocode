@@ -11,7 +11,7 @@
         "${REPO_ROOT}/packages/octocode-mcp/dist/index.js"
       ],
       "env": {
-        "ENABLE_LOCAL": "true",
+        "OCTOCODE_ENABLE_LOCAL": "true",
         "WORKSPACE_ROOT": "${CORPUS_ROOT}",
         "ALLOWED_PATHS": "${CORPUS_PATHS}",
         "DISABLE_TOOLS": "clasify"

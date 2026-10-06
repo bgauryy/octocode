@@ -29,16 +29,16 @@ async function readConfig(file: string, key: ConfigKey) {
 }
 
 /**
- * OCTOCODE_TOKEN has token priority 0, so the signed-in token wins over an
- * inherited GH_TOKEN/GITHUB_TOKEN. GITHUB_TOKEN is the key earlier extension
- * versions wrote; drop it so a stale copy cannot linger.
+ * GH_TOKEN has token priority 0, so the signed-in token wins over an inherited
+ * GITHUB_TOKEN. Earlier extension versions wrote GITHUB_TOKEN and then
+ * OCTOCODE_TOKEN; drop both so a stale secret cannot linger.
  */
-export const MCP_TOKEN_ENV = 'OCTOCODE_TOKEN';
-const LEGACY_TOKEN_ENV = 'GITHUB_TOKEN';
+export const MCP_TOKEN_ENV = 'GH_TOKEN';
+const EARLIER_TOKEN_ENVS = ['GITHUB_TOKEN', 'OCTOCODE_TOKEN'];
 
 function setToken(server: JsonObject, token: string | undefined) {
   const env = { ...(server.env as JsonObject | undefined) };
-  delete env[LEGACY_TOKEN_ENV];
+  for (const name of EARLIER_TOKEN_ENVS) delete env[name];
   if (token) env[MCP_TOKEN_ENV] = token;
   else delete env[MCP_TOKEN_ENV];
   if (Object.keys(env).length) server.env = env;

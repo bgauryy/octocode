@@ -80,10 +80,11 @@ pub(super) fn validate(
     }
     // Each branch pins its selector fields to distinct literals, so any single
     // branch's const/enum issue names only that branch's value(s). Collect the
-    // allowed literals for every field across all branches before one branch is
-    // chosen, so the surfaced error can list the full set instead of one
-    // arbitrary literal (parity: validation/unionIssues.ts).
-    let allowed = aggregate_allowed_literals(&failures);
+    // allowed literals for every field across the branches the value selects
+    // (all branches when its selectors match none) before one branch is
+    // chosen, so the surfaced error lists the full set for the chosen form,
+    // never another form's literals (parity: validation/unionIssues.ts).
+    let allowed = aggregate_allowed_literals(&selected_failures(&failures, path));
     let Some(mut selected) = failures
         .into_iter()
         .min_by_key(|issues| score(issues, path.len()))
@@ -101,6 +102,34 @@ pub(super) fn validate(
     // Branch scoring may group key errors for parity, but the selected branch
     // must retain individual paths and schemas for precise diagnostics.
     Err(ContractValidationError { issues: selected })
+}
+
+/// The failed branches whose selector fields (`operation`, `type`, …) all
+/// accept the value: their enum issues are the value's own. When no branch's
+/// selectors match, every branch competes and all of them count.
+fn selected_failures(
+    failures: &[Vec<ValidationIssue>],
+    path: &[String],
+) -> Vec<Vec<ValidationIssue>> {
+    let selector_mismatch = |item: &ValidationIssue| {
+        matches!(item.rule_id.as_str(), "schema.const" | "schema.enum")
+            && item.path.len() == path.len() + 1
+            && item.path.starts_with(path)
+            && item
+                .path
+                .last()
+                .is_some_and(|field| SELECTORS.contains(&field.as_str()))
+    };
+    let matched = failures
+        .iter()
+        .filter(|issues| !issues.iter().any(selector_mismatch))
+        .cloned()
+        .collect::<Vec<_>>();
+    if matched.is_empty() {
+        failures.to_vec()
+    } else {
+        matched
+    }
 }
 
 /// Collects the allowed literal values for each field path across every failed
@@ -640,6 +669,47 @@ mod tests {
             "{projected}"
         );
         assert!(!details.contains("Unknown field"), "{projected}");
+    }
+
+    /// HI5: an enum error lists the values of the branch the selector
+    /// chose, not every branch's merged enum (compare has no issue sections).
+    #[test]
+    fn enum_error_lists_only_the_selected_branch_values() {
+        let error = prepare_many_and_validate(
+            "ghGetHistoryItem",
+            json!({"queries":[{
+                "mainGoal":"g","reasoning":"r","operation":"compare",
+                "owner":"o","repo":"r","base":"v1","head":"v2","sections":["bogus"]
+            }]}),
+            PrepareOptions::default(),
+        )
+        .expect_err("bogus section");
+        let message = error
+            .issues
+            .iter()
+            .map(|issue| issue.message.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        assert!(message.contains("patches"), "{message}");
+        for foreign in ["body", "comments", "reviews"] {
+            assert!(!message.contains(foreign), "{foreign}: {message}");
+        }
+        // A selector that matches no branch still lists every branch's value.
+        let error = prepare_many_and_validate(
+            "ghGetHistoryItem",
+            json!({"queries":[{"mainGoal":"g","reasoning":"r","operation":"bogus","owner":"o","repo":"r"}]}),
+            PrepareOptions::default(),
+        )
+        .expect_err("bogus operation");
+        let message = error
+            .issues
+            .iter()
+            .map(|issue| issue.message.as_str())
+            .collect::<Vec<_>>()
+            .join(" | ");
+        for operation in ["pullRequest", "issue", "commit", "compare"] {
+            assert!(message.contains(operation), "{operation}: {message}");
+        }
     }
 
     #[test]

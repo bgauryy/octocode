@@ -261,7 +261,7 @@ mod tests {
         assert!(validate_env_value("REQUEST_TIMEOUT", "12ms").is_err());
         assert!(validate_env_value("REQUEST_TIMEOUT", "4").is_err());
         assert!(validate_env_value("REQUEST_TIMEOUT", "6000").is_ok());
-        assert!(validate_env_value("ENABLE_LOCAL", "perhaps").is_err());
+        assert!(validate_env_value("OCTOCODE_ENABLE_LOCAL", "perhaps").is_err());
         assert!(validate_env_value("CUSTOM_PROVIDER_KEY", "anything").is_ok());
     }
     #[test]
@@ -310,7 +310,7 @@ mod tests {
         let cwd = root.join("workspace");
         std::fs::create_dir_all(&home).unwrap();
         std::fs::create_dir_all(cwd.join(".octocode")).unwrap();
-        std::fs::write(home.join(".env"), "ENABLE_LOCAL=true\n").unwrap();
+        std::fs::write(home.join(".env"), "OCTOCODE_ENABLE_LOCAL=true\n").unwrap();
         std::fs::write(
             home.join(".octocoderc"),
             r#"{"local":{"enabled":false},"network":{"maxRetries":2.5}}"#,
@@ -320,7 +320,7 @@ mod tests {
             let input = super::super::acquire_config_input(
                 std::collections::BTreeMap::from([
                     ("OCTOCODE_HOME".into(), home.to_string_lossy().into_owned()),
-                    ("ENABLE_LOCAL".into(), raw.into()),
+                    ("OCTOCODE_ENABLE_LOCAL".into(), raw.into()),
                 ]),
                 cwd.clone(),
                 root.clone(),

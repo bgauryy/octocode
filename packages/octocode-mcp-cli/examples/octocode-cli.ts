@@ -14,7 +14,7 @@ if (!existsSync(server)) {
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) env[key] = value;
   }
-  env.ENABLE_LOCAL = 'true';
+  env.OCTOCODE_ENABLE_LOCAL = 'true';
   env.OCTOCODE_BETA = 'true';
   env.OCTOCODE_STORAGE_MODE = 'persistent';
   const transport = createStdioTransport({

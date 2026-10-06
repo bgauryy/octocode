@@ -258,10 +258,15 @@ pub struct ArtifactItem {
     /// npm discovery: downloads in the last month.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub downloads_monthly: Option<u64>,
-    /// Commit or tag the registry says this version was published from; it
-    /// pins the `viewReleaseSource` lead and is not a public row field.
-    #[serde(skip)]
+    /// Commit or tag this version was published from; it pins the
+    /// `viewReleaseSource` lead. `verification` says how it was checked.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub source_ref: Option<String>,
+    /// How the release source is known: `provenance` (attested), `tag`
+    /// (upstream tag checked to exist), `registryRef` (the registry said so,
+    /// unchecked), or `defaultBranch` (no release ref; default-branch code).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification: Option<&'static str>,
     /// `source_ref` came from a provenance attestation bound to this
     /// tarball and repository, not from an unchecked registry field.
     #[serde(skip)]
@@ -269,6 +274,11 @@ pub struct ArtifactItem {
     /// `source_ref` is an upstream release tag checked to exist.
     #[serde(skip)]
     pub source_tag: bool,
+    /// The file this release declares its dependencies in, when the
+    /// release was checked (a setuptools sdist: `setup.py`); it points the
+    /// `readManifest` lead and is not a public row field.
+    #[serde(skip)]
+    pub manifest: Option<&'static str>,
     /// Directory of the published entry point inside the package directory,
     /// when it is shipped source (npm `main` without a build step); it
     /// points the source lead and is not a public row field.
@@ -277,6 +287,15 @@ pub struct ArtifactItem {
 }
 
 impl ArtifactItem {
+    /// Drops a dependency count that restates a complete `dependencyList`
+    /// (its length); the count stays when the list is absent.
+    pub(crate) fn dedupe_dependency_count(&mut self) {
+        if !self.dependency_list.is_empty() && self.dependencies == Some(self.dependency_list.len())
+        {
+            self.dependencies = None;
+        }
+    }
+
     pub(crate) fn new(artifact_type: ArtifactType, name: String, registry_url: String) -> Self {
         Self {
             artifact_type,
@@ -301,8 +320,10 @@ impl ArtifactItem {
             rust_version: None,
             downloads_monthly: None,
             source_ref: None,
+            verification: None,
             source_attested: false,
             source_tag: false,
+            manifest: None,
             entry_directory: None,
         }
     }

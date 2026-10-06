@@ -81,7 +81,7 @@ Date: 2026-09-30.
 - **Silent recall loss:** D1–D4.
 
 ## Defects
-Repros use `cd octocode-local-testing/repos` or `fixtures/edge/proj` with `ENABLE_LOCAL=true`. Topology and rewrite also need `OCTOCODE_BETA=1`.
+Repros use `cd octocode-local-testing/repos` or `fixtures/edge/proj` with `OCTOCODE_ENABLE_LOCAL=true`. Topology and rewrite also need `OCTOCODE_BETA=1`.
 
 - **D1. astSearch match is stricter than ast-grep and than astRewrite.**
   - Repro: `new Error($MSG)` on tsx `elbowArrow.ts`.

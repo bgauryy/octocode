@@ -24,7 +24,7 @@ const env = {
   OCTOCODE_HOME: join(home, '.octocode'),
   GH_CONFIG_DIR: join(home, '.config/gh'),
   OCTOCODE_STORAGE_MODE: 'ephemeral',
-  ENABLE_LOCAL: 'true',
+  OCTOCODE_ENABLE_LOCAL: 'true',
 };
 const goal = 'Verify installed plugin behavior against isolated fixtures';
 const query = (extra: Record<string, unknown>) => ({

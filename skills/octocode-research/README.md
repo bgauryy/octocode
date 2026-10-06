@@ -11,7 +11,7 @@ Installed tool schemas control accepted fields. Re-verify sources when behavior 
 
 | Claim area | Primary source |
 |---|---|
-| Octocode fields, limits, availability | `scheme`, `scheme <name> --view query --compact`, then implementation + tests |
+| Octocode fields, limits, availability | `schema`, `schema <name> --view query --compact`, then implementation + tests |
 | GitHub search scope, caps | [REST search](https://docs.github.com/en/rest/search/search) |
 | Refs, pagination, rate limits | [Contents](https://docs.github.com/en/rest/repos/contents), [pagination](https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api), [best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api) |
 | PRs, commits | [Pull requests](https://docs.github.com/en/rest/pulls/pulls), [Commits](https://docs.github.com/en/rest/commits/commits) |

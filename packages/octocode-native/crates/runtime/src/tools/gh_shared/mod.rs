@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 
 /// Hints are rendered whole only up to the response guidance limit (120
 /// chars); keep every GitHub recovery hint within it.
-pub(crate) const GITHUB_AUTH_RECOVERY_HINT: &str = "Run octocode auth login or set OCTOCODE_TOKEN/GH_TOKEN/GITHUB_TOKEN; an invalid env token overrides stored login.";
+pub(crate) const GITHUB_AUTH_RECOVERY_HINT: &str = "Run octocode auth login or set GH_TOKEN/GITHUB_TOKEN; an invalid env token overrides stored login.";
 
 /// A repository that did not resolve: GitHub answers a private repository
 /// the token cannot see exactly like a missing one.
@@ -129,6 +129,115 @@ pub(crate) fn search_failure(error: ProviderError, window_hint: &str) -> GhFailu
         Some(hint) => failure.hint(hint),
         None => failure,
     }
+}
+
+/// The hint of a ref that did not resolve; `hints.viewStructure` lists the
+/// repository's branches and tags.
+pub(crate) const REF_RECOVERY_HINT: &str = "Verify the branch, tag, or SHA (hints.viewStructure lists refs), or omit ref for the default branch.";
+
+/// A ref that did not resolve: ghStructure `operation:"refs"` lists the
+/// branches and tags it could name.
+pub(crate) fn ref_recovery(owner: &str, repo: &str) -> Value {
+    Continuation::new(
+        ToolId::GhStructure,
+        json!({"owner": owner, "repo": repo, "operation": "refs"}),
+    )
+    .confidence("high")
+    .build()
+}
+
+/// A missing ref's failure gets the runnable refs listing and its hint;
+/// any other failure is returned unchanged.
+pub(crate) fn with_ref_recovery(mut failure: GhFailure, owner: &str, repo: &str) -> GhFailure {
+    if failure.error.reason != Some(ProviderErrorReason::RefNotFound) {
+        return failure;
+    }
+    let mut next = failure.next.take().unwrap_or_else(|| json!({}));
+    next["viewStructure"] = ref_recovery(owner, repo);
+    failure.next = Some(next);
+    failure.hint(REF_RECOVERY_HINT)
+}
+
+/// The memo of a repository's canonical `owner/repo` (volatile cache class).
+fn canonical_key(owner: &str, repo: &str) -> String {
+    format!("repo-canonical:{owner}/{repo}").to_ascii_lowercase()
+}
+
+/// `full_name` split into owner and repository when it names another
+/// repository than `owner/repo` (case-insensitive).
+fn renamed_to(owner: &str, repo: &str, full_name: &str) -> Option<(String, String)> {
+    let (to_owner, to_repo) = full_name.split_once('/')?;
+    let same = to_owner.eq_ignore_ascii_case(owner) && to_repo.eq_ignore_ascii_case(repo);
+    (!same && !to_owner.is_empty() && !to_repo.is_empty())
+        .then(|| (to_owner.to_owned(), to_repo.to_owned()))
+}
+
+/// Remember `owner/repo`'s canonical `full_name` (from repository metadata
+/// a tool already read) for later calls and processes.
+pub(crate) async fn remember_canonical<R: CredentialResolver, C: ConditionalCache>(
+    provider: &GitHubProvider<R, C>,
+    owner: &str,
+    repo: &str,
+    full_name: &str,
+    context: &RequestContext,
+) {
+    if let Ok(partition) = provider.transport.cache_partition(context, None).await {
+        provider
+            .cache
+            .put(
+                &partition,
+                canonical_key(owner, repo),
+                crate::providers::github::CachedContent {
+                    etag: None,
+                    bytes: full_name.as_bytes().to_vec(),
+                    resolved_ref: full_name.to_owned(),
+                },
+            )
+            .await;
+    }
+}
+
+/// The canonical name of a renamed repository, `None` when `owner/repo`
+/// stands. Costs no request for a repository GitHub never redirected: the
+/// memo answers first, then a followed rename redirect triggers one
+/// metadata read, which is memoized.
+pub(crate) async fn canonical_repo<R: CredentialResolver, C: ConditionalCache>(
+    provider: &GitHubProvider<R, C>,
+    owner: &str,
+    repo: &str,
+    context: &RequestContext,
+) -> Option<(String, String)> {
+    let partition = provider
+        .transport
+        .cache_partition(context, None)
+        .await
+        .ok()?;
+    if let Some(cached) = provider
+        .cache
+        .get(&partition, &canonical_key(owner, repo))
+        .await
+    {
+        return renamed_to(owner, repo, std::str::from_utf8(&cached.bytes).ok()?);
+    }
+    if !provider.transport.followed_rename(owner, repo) {
+        return None;
+    }
+    let full_name = provider
+        .transport
+        .repository_metadata(owner, repo, context)
+        .await
+        .ok()?
+        .full_name?;
+    remember_canonical(provider, owner, repo, &full_name, context).await;
+    renamed_to(owner, repo, &full_name)
+}
+
+/// The one warning a read states for a renamed repository.
+pub(crate) fn renamed_warning(owner: &str, repo: &str, to: &(String, String)) -> String {
+    format!(
+        "Repository {owner}/{repo} was renamed to {}/{}; leads use the canonical name.",
+        to.0, to.1
+    )
 }
 
 /// Results GitHub search reaches for one query, however many match.

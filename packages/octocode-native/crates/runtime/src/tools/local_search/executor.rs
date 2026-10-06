@@ -108,7 +108,7 @@ pub fn execute_local_search(
     let stats = search_stats(&scanned_stats, total_files);
     let (mut files, shown_redacted) = project_files(query, &layout, scanned, &redacted);
     let symbol = searched_symbol(query, &layout);
-    let definition = annotate_enclosing(
+    let (definition, enclosing_note) = annotate_enclosing(
         &mut files,
         symbol,
         symbol.filter(|_| super::enclosing::declaration_search(&query.match_string)),
@@ -119,6 +119,7 @@ pub fn execute_local_search(
     );
     let coverage = Coverage::of(query, &stats, &scanned_stats, root, output_root, &skipped);
     let mut warnings = coverage.warnings(&files, &layout, shown_redacted, unverified, empty);
+    warnings.extend(enclosing_note);
     let capped = stats.capped.unwrap_or(false);
     let (status, terminal_limit) = settle(
         query,
@@ -147,6 +148,11 @@ pub fn execute_local_search(
         empty,
     }
     .add_leads(&mut next, &mut hints, &mut warnings, probe_options, cancel);
+    if coverage.scope_miss
+        && let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut()
+    {
+        map.insert("viewStructure".into(), scope_listing(query));
+    }
     Ok(LocalSearchResult {
         status,
         stats,
@@ -349,23 +355,35 @@ pub(super) fn scan_query(
 }
 
 /// The search root under the path policy; a missing one is not-found
-/// (exit 3), not an I/O failure.
+/// (exit 3), not an I/O failure, and leads to a tree of its nearest
+/// existing parent, where a typo's siblings show.
 pub(super) fn search_root(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
 ) -> Result<crate::policy::path::ValidatedPath, LocalSearchError> {
-    paths
-        .validate(query.path.as_str())
-        .map_err(|error| LocalSearchError {
-            code: if error.code == crate::policy::PolicyErrorCode::NotFound {
+    paths.validate(query.path.as_str()).map_err(|error| {
+        let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
+        let next = missing
+            .then(|| paths.nearest_existing_dir(query.path.as_str()))
+            .flatten()
+            .map(|parent| {
+                Box::new(json!({"viewTree": crate::tools::result::Continuation::new(
+                    crate::tools::id::ToolId::StructureSearch,
+                    json!({"operation": "tree", "path": parent}),
+                )
+                .build()}))
+            });
+        LocalSearchError {
+            code: if missing {
                 "pathNotFound"
             } else {
                 error.local_error_code("fileAccessFailed")
             },
             message: error.message,
             hints: vec![],
-            next: None,
-        })
+            next,
+        }
+    })
 }
 
 /// The engine walk the query asks for.

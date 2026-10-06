@@ -33,7 +33,7 @@ const fixture = values.fixture
   : await createLocalAcceptanceFixture(acceptanceCwd);
 const acceptanceEnv = {
   ...process.env,
-  ENABLE_LOCAL: 'true',
+  OCTOCODE_ENABLE_LOCAL: 'true',
   OCTOCODE_BETA: 'true',
   OCTOCODE_STORAGE_MODE: 'persistent',
 };
@@ -298,7 +298,7 @@ try {
       const cli = JSON.parse(
         execFileSync(
           values.node,
-          [path.resolve(values.cli), 'scheme', tool.name],
+          [path.resolve(values.cli), 'schema', tool.name],
           { encoding: 'utf8', timeout: 10_000, cwd: acceptanceCwd, env: acceptanceEnv }
         )
       );

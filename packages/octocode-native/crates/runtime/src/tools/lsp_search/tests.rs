@@ -345,7 +345,7 @@ fn document_symbols_are_compact_outline_rows() {
     // Rust `impl` blocks are `object` symbols; their members are listed.
     let mut implementation = symbol("impl Greeter", 19, (16, 20), (16, 5));
     implementation["children"] = serde_json::json!([symbol("new", 12, (17, 19), (17, 7))]);
-    // A function's locals are not listed, only counted.
+    // A function's locals are listed under it like any member.
     let mut outer = symbol("outer", 12, (22, 30), (22, 3));
     outer["children"] = serde_json::json!([symbol("x", 13, (23, 23), (23, 8))]);
     let raw = serde_json::json!([
@@ -374,13 +374,52 @@ fn document_symbols_are_compact_outline_rows() {
                 "17-21 object impl Greeter",
                 "  18-20 function new",
                 "23-31 function outer",
+                "  24 variable x",
                 "33 constant a col 6; 33 b col 13"
-            ],
-            "unlistedNested": 1
+            ]
         })
     );
     crate::contracts::validate_output("lspSearch", &public_row(&envelope))
         .expect("outline rows satisfy the output contract");
+}
+
+#[test]
+fn type_aliases_are_named_from_their_declaring_line() {
+    let range = |line: u64| serde_json::json!({"start": {"line": line, "character": 0}, "end": {"line": line, "character": 1}});
+    let symbol = |name: &str, line: u64| serde_json::json!({"name": name, "kind": 13, "range": range(line), "selectionRange": range(line)});
+    let mut outer = symbol("holder", 3);
+    outer["children"] = serde_json::json!([symbol("Inner", 4)]);
+    let mut symbols = serde_json::json!([
+        symbol("Alias", 0),
+        symbol("Exported", 1),
+        symbol("value", 2),
+        outer,
+        symbol("Typed", 5),
+    ]);
+    let content = "type Alias = string;\nexport declare type Exported<T> = T;\nconst value = 1;\nconst holder = () => {\n  type Inner = number;\ntype TypedLonger = 1;\n";
+    super::render::name_type_aliases(&mut symbols, content);
+    let kinds: Vec<_> = [
+        &symbols[0],
+        &symbols[1],
+        &symbols[2],
+        &symbols[3],
+        &symbols[3]["children"][0],
+        &symbols[4],
+    ]
+    .iter()
+    .map(|symbol| symbol["kind"].clone())
+    .collect();
+    assert_eq!(
+        kinds,
+        [
+            serde_json::json!("type"),
+            serde_json::json!("type"),
+            serde_json::json!(13),
+            serde_json::json!(13),
+            serde_json::json!("type"),
+            serde_json::json!(13)
+        ]
+    );
 }
 
 #[test]
@@ -820,7 +859,8 @@ fn a_capped_alias_scan_is_disclosed_with_a_text_search() {
         "type": "references",
         "payload": {"kind": "references", "coverage": {"scope": "languageServer", "exhaustive": false}}
     });
-    super::recovery::disclose_alias_cap(&mut row, &q, "/repo");
+    let scope = super::scope::Scope::new("/repo".into(), vec!["*.ts".into()]);
+    super::recovery::disclose_alias_cap(&mut row, &q, &scope);
     assert_eq!(row["payload"]["coverage"]["aliasScan"], "capped", "{row}");
     assert_eq!(row["isPartial"], true);
     assert_eq!(
@@ -2295,12 +2335,15 @@ fn typescript_builtin_lib_declarations_are_recognized_only_under_typescript_lib(
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn hierarchy_walk_omits_builtin_lib_items_and_discloses_the_count() {
-    let mut graph = graph(&[("root", &["toUpperCase", "map"])]);
+async fn builtin_lib_callees_are_listed_not_counted() {
+    let mut graph = graph(&[("root", &["toUpperCase", "map", "map"])]);
     graph.uri = Some("file:///repo/node_modules/typescript/lib/lib.es5.d.ts".into());
     let walk = walk(&graph, 1).await;
     assert!(walk.edges.is_empty());
-    assert_eq!(walk.builtin_lib, 2);
+    assert_eq!(
+        walk.builtin_lib,
+        vec!["toUpperCase".to_owned(), "map".to_owned()]
+    );
     assert_eq!(walk.out_of_policy, 0, "built-ins are not policy failures");
     let q = query(serde_json::json!({
         "operation": "callees", "mainGoal": "test", "reasoning": "test",
@@ -2310,10 +2353,15 @@ async fn hierarchy_walk_omits_builtin_lib_items_and_discloses_the_count() {
     let mut row =
         serde_json::json!({"status": "hasResults", "payload": {"kind": "callees", "items": []}});
     mark_truncation(&mut row, &q, &[(Expansion::OutgoingCalls, &walk)]);
+    assert!(row.get("warnings").is_none(), "{row}");
     assert_eq!(
-        row["warnings"],
-        serde_json::json!(["2 TypeScript built-in library items (lib.*.d.ts) were omitted."])
+        row["payload"]["builtinLib"],
+        serde_json::json!(["toUpperCase", "map"])
     );
+    // A container (`detail`) qualifies the name.
+    let mut node = node_at("toUpperCase", Some("file:///x/typescript/lib/lib.es5.d.ts"));
+    node["detail"] = serde_json::json!("String");
+    assert_eq!(builtin_name(&node), "String.toUpperCase");
 }
 
 #[test]
@@ -2456,7 +2504,7 @@ fn call_edges_compact_to_per_file_call_rows() {
         recovered,
         other,
     ]}});
-    compact_calls(&mut row, &[]);
+    compact_calls(&mut row, &[], &repo_policy());
     assert!(row["payload"].get("matches").is_none(), "{row}");
     assert_eq!(
         row["payload"]["files"],
@@ -2484,7 +2532,7 @@ fn call_edges_compact_to_per_file_call_rows() {
     callee["to"] = callee["from"].take();
     callee.as_object_mut().expect("item").remove("from");
     // Two listed nodes share a name and line: the via names its file,
-    // relative to the row's file.
+    // relative to the workspace like every row path.
     let mut ambiguous = caller("/repo/sub/z.ts", "z", "function", 40, 44, &[(41, 2)]);
     ambiguous["level"] = serde_json::json!(2);
     ambiguous["via"] = via("walk", "/repo/y.ts", 281);
@@ -2498,7 +2546,7 @@ fn call_edges_compact_to_per_file_call_rows() {
     ]);
     let mut deep =
         serde_json::json!({"payload": {"kind": "callHierarchy", "matches": items.clone()}});
-    compact_calls(&mut deep, items.as_array().expect("items"));
+    compact_calls(&mut deep, items.as_array().expect("items"), &repo_policy());
     assert_eq!(
         deep["payload"]["files"],
         serde_json::json!([
@@ -2506,7 +2554,7 @@ fn call_edges_compact_to_per_file_call_rows() {
             {"path": "/repo/x.ts", "matches": ["285:1 in function walk 281-290"]},
             {"path": "/repo/y.ts", "matches": ["290:1 in function walk 281-299"]},
             {"path": "/repo/b.ts", "matches": ["6:3 in function b 5-9 via a@1"]},
-            {"path": "/repo/sub/z.ts", "matches": ["41:2 in function z 40-44 via walk@../y.ts:281"]},
+            {"path": "/repo/sub/z.ts", "matches": ["41:2 in function z 40-44 via walk@y.ts:281"]},
             {"path": "/repo/c.ts", "matches": ["2:5 to function c 10-12"]}
         ]),
         "{deep}"
@@ -2518,7 +2566,7 @@ fn call_edges_compact_to_per_file_call_rows() {
         {"name": "Base", "kind": "class", "uri": "file:///repo/a.ts", "level": 1}
     ]}});
     let before = types.clone();
-    compact_calls(&mut types, &[]);
+    compact_calls(&mut types, &[], &repo_policy());
     assert_eq!(types, before);
 }
 
@@ -2660,7 +2708,7 @@ fn outgoing_call_sites_are_filed_under_the_caller() {
         "level-1 edges name no parent: {items:?}"
     );
     let mut row = serde_json::json!({"payload": {"kind": "callHierarchy", "matches": items}});
-    compact_calls(&mut row, &[]);
+    compact_calls(&mut row, &[], &repo_policy());
     let helper_line = name_line("helper") + 1;
     let boot_line = name_line("boot") + 1;
     assert_eq!(
@@ -2751,7 +2799,7 @@ fn signatures_are_kept_only_for_callers_that_share_a_name() {
         caller("/repo/a.rs", "fn render(ctx: &Ctx) -> Svg", 10, 12),
         caller("/repo/b.rs", "fn render(page: &Page)", 20, 22)
     ]}});
-    compact_calls(&mut row, &[]);
+    compact_calls(&mut row, &[], &repo_policy());
     assert_eq!(
         row["payload"]["files"],
         serde_json::json!([
@@ -2811,4 +2859,335 @@ fn class_callers_narrow_to_the_member_holding_the_call_site() {
     // A site outside every member keeps the class.
     let field = serde_json::json!({"start": {"line": 0, "character": 0}, "end": {"line": 0, "character": 1}});
     assert!(super::walk::narrowed_class_caller(&class, &[field]).is_none());
+}
+
+/// The workspace policy of the `/repo` fixtures.
+fn repo_policy() -> crate::policy::path::PathPolicy {
+    crate::tools::test_support::workspace_policy(std::path::Path::new("/repo"))
+}
+
+#[test]
+fn declared_in_paths_are_workspace_relative() {
+    let root = node_at("main", Some("file:///repo/src/deep/a.ts"));
+    let mut callee = node_at("map", Some("file:///repo/node_modules/x/index.d.ts"));
+    callee["kind"] = serde_json::json!(12);
+    let mut outside = node_at("ext", Some("file:///elsewhere/lib.d.ts"));
+    outside["kind"] = serde_json::json!(12);
+    let edge = |node: serde_json::Value, line: u64| HierarchyEdge {
+        node,
+        parent: Some(root.clone()),
+        level: 1,
+        sites: vec![
+            serde_json::json!({"start": {"line": line, "character": 2}, "end": {"line": line, "character": 8}}),
+        ],
+    };
+    let items = vec![
+        public_edge(Expansion::OutgoingCalls, &edge(callee, 10)),
+        public_edge(Expansion::OutgoingCalls, &edge(outside, 11)),
+    ];
+    let mut row = serde_json::json!({"payload": {"kind": "callees", "matches": items}});
+    compact_calls(&mut row, &[], &repo_policy());
+    let calls = row["payload"]["files"][0]["matches"]
+        .as_array()
+        .expect("calls");
+    let map_line = name_line("map") + 1;
+    let ext_line = name_line("ext") + 1;
+    assert_eq!(
+        calls,
+        &vec![
+            serde_json::json!(format!(
+                "11:3 to function map node_modules/x/index.d.ts:{map_line}-{}",
+                map_line + 3
+            )),
+            serde_json::json!(format!(
+                "12:3 to function ext /elsewhere/lib.d.ts:{ext_line}-{}",
+                ext_line + 3
+            )),
+        ],
+        "{row}"
+    );
+}
+
+#[test]
+fn file_level_partial_clears_when_text_files_match() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("canonical");
+    std::fs::write(root.join("a.ts"), "export function foo() {}\n").expect("a");
+    std::fs::write(root.join("b.ts"), "import { foo } from './a';\nfoo();\n").expect("b");
+    let scope = super::scope::Scope::new(root.to_string_lossy().into_owned(), vec!["*.ts".into()]);
+    let paths = crate::tools::test_support::workspace_policy(&root);
+    tokio::runtime::Runtime::new()
+        .expect("rt")
+        .block_on(scope.text_files("foo", &paths, &crate::tools::cancel::NeverCancel))
+        .expect("scan");
+    let q = query(serde_json::json!({
+        "operation": "references", "path": root.join("a.ts").to_string_lossy(),
+        "symbolName": "foo", "lineHint": 1
+    }));
+    let row = || {
+        serde_json::json!({"payload": {"kind": "references",
+        "coverage": {"scope": "languageServer", "exhaustive": false}}})
+    };
+    // One file only the text scan sees: flagged, and the lead lists it.
+    scope.answer([root.join("a.ts").to_string_lossy()]);
+    let mut partial = row();
+    flag_partial(&mut partial, &q, "importerScanCapped", "capped", &scope);
+    assert_eq!(partial["isPartial"], true, "{partial}");
+    assert_eq!(
+        partial["payload"]["coverage"]["textOnlyFiles"], 1,
+        "{partial}"
+    );
+    let lead = &partial["next"]["textSearch"]["query"]["queries"];
+    assert_eq!(lead.as_array().map(Vec::len), Some(1), "{partial}");
+    assert_eq!(
+        lead[0]["path"],
+        root.join("b.ts").to_string_lossy().as_ref()
+    );
+    // Every file that spells the name is in the answer: the file-level
+    // reason is moot.
+    scope.answer([root.join("b.ts").to_string_lossy()]);
+    let mut agreed = row();
+    flag_partial(&mut agreed, &q, "importerScanCapped", "capped", &scope);
+    assert!(agreed.get("isPartial").is_none(), "{agreed}");
+    assert!(agreed.get("next").is_none(), "{agreed}");
+    assert_eq!(
+        agreed["payload"]["coverage"]["textOnlyFiles"], 0,
+        "{agreed}"
+    );
+    assert!(
+        agreed["payload"]["coverage"].get("reason").is_none(),
+        "{agreed}"
+    );
+}
+
+#[test]
+fn site_level_partial_survives_matching_counts() {
+    let dir = tempfile::tempdir().expect("dir");
+    let root = dir.path().canonicalize().expect("canonical");
+    std::fs::write(root.join("a.py"), "def get():\n    pass\nget()\n").expect("a");
+    let scope = super::scope::Scope::new(root.to_string_lossy().into_owned(), vec!["*.py".into()]);
+    let paths = crate::tools::test_support::workspace_policy(&root);
+    tokio::runtime::Runtime::new()
+        .expect("rt")
+        .block_on(scope.text_files("get", &paths, &crate::tools::cancel::NeverCancel))
+        .expect("scan");
+    scope.answer([root.join("a.py").to_string_lossy()]);
+    let q = query(serde_json::json!({
+        "operation": "references", "path": root.join("a.py").to_string_lossy(),
+        "symbolName": "get", "lineHint": 1
+    }));
+    let mut row = serde_json::json!({"payload": {"kind": "references"}});
+    flag_partial(&mut row, &q, "dynamicDispatch", "dynamic", &scope);
+    assert_eq!(row["isPartial"], true, "{row}");
+    assert_eq!(row["payload"]["coverage"]["textOnlyFiles"], 0, "{row}");
+    assert_eq!(row["payload"]["coverage"]["reason"], "dynamicDispatch");
+    // No file to list: the lead searches the whole scope.
+    assert_eq!(
+        row["next"]["textSearch"]["query"]["queries"][0]["path"],
+        root.to_string_lossy().as_ref()
+    );
+}
+
+#[test]
+fn first_pages_of_incoming_walks_reuse_responses_keyed_by_scope_fingerprint() {
+    let callers = query(serde_json::json!({
+        "operation": "callers", "path": "/repo/a.ts", "symbolName": "f", "lineHint": 1
+    }));
+    let reused = response_scope(&callers, "content".into(), Some("fp"));
+    assert!(reused.reuse);
+    assert_ne!(reused.generation, "content");
+    // Another fingerprint (any file edit) is another generation.
+    assert_ne!(
+        response_scope(&callers, "content".into(), Some("fp2")).generation,
+        reused.generation
+    );
+    // No fingerprint (walk past its bounds): first pages ask the server.
+    let unbounded = response_scope(&callers, "content".into(), None);
+    assert!(!unbounded.reuse);
+    assert_eq!(unbounded.generation, "content");
+    // Hover always asks; its continuation keying is unchanged.
+    let hover = query(serde_json::json!({
+        "operation": "hover", "path": "/repo/a.ts", "symbolName": "f", "lineHint": 1
+    }));
+    assert!(!response_scope(&hover, "content".into(), Some("fp")).reuse);
+    // A continuation page still reuses.
+    let page_two = requery(
+        &callers,
+        serde_json::json!({"page": 2, "snapshot": "lsp-v1:x"}),
+    );
+    assert!(response_scope(&page_two, "content".into(), None).reuse);
+}
+
+#[test]
+fn workspace_symbol_next_page_keeps_relative_root() {
+    let mut row = serde_json::json!({"next": {"nextPage": {"tool": "lspSearch", "query": {"queries": [
+        {"operation": "workspaceSymbol", "symbolName": "f", "workspaceRoot": "/abs/repo/packages", "page": 2}
+    ]}}, "read": {"tool": "localFetch", "query": {"queries": [{"path": "/abs/repo/packages"}]}}}});
+    restore_root_spelling(&mut row, Some("/abs/repo/packages"), Some("packages"));
+    assert_eq!(
+        row["next"]["nextPage"]["query"]["queries"][0]["workspaceRoot"],
+        "packages"
+    );
+    assert_eq!(
+        row["next"]["read"]["query"]["queries"][0]["path"],
+        "/abs/repo/packages"
+    );
+}
+
+#[test]
+fn workspace_symbol_accepts_directory_path() {
+    let (root, paths) = temp_workspace("ws-dir");
+    std::fs::create_dir_all(root.join("src")).expect("src");
+    let mut q = query(serde_json::json!({
+        "operation": "workspaceSymbol", "symbolName": "f",
+        "path": root.join("src").to_string_lossy()
+    }));
+    let resolved = q
+        .resolve_paths(&paths)
+        .expect("a directory path is the root");
+    let src = root.join("src").canonicalize().expect("canonical");
+    assert_eq!(resolved, src.to_string_lossy());
+    assert_eq!(q.workspace_root(), Some(src.to_string_lossy().as_ref()));
+    // Other operations still need a file.
+    let mut refs = query(serde_json::json!({
+        "operation": "references", "symbolName": "f", "lineHint": 1,
+        "path": root.join("src").to_string_lossy()
+    }));
+    assert!(refs.resolve_paths(&paths).is_err());
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn incoming_walk_answers_level_one_before_importer_roots_join() {
+    let (root, paths) = temp_workspace("walk-order");
+    let file = root.join("a.ts");
+    std::fs::write(&file, "x\n").expect("file");
+    let uri = octocode_engine::lsp::uri::path_to_uri(&file.to_string_lossy()).expect("uri");
+    let mut graph = graph(&[
+        ("target", &["a", "b"]),
+        ("importer", &["c", "a"]),
+        ("a", &["d"]),
+    ]);
+    graph.uri = Some(uri.clone());
+    let at = |name: &str| node_at(name, Some(&uri));
+    let cancel = crate::tools::cancel::NeverCancel;
+    let mut walk = Walk::new(&paths, &[at("target")], Expansion::IncomingCalls, 2);
+    assert!(walk.step(&graph, &cancel).await.expect("level 1"));
+    // The level-1 answer names its files before any importer is verified.
+    let canonical = file.canonicalize().expect("canonical");
+    assert!(
+        walk.answered_files()
+            .contains(canonical.to_string_lossy().as_ref())
+    );
+    let before = graph.requests.get();
+    walk.add_roots(&graph, vec![at("importer"), at("target")], &cancel)
+        .await
+        .expect("importer roots");
+    // Only the new root is expanded; the anchor root is not asked twice.
+    assert_eq!(graph.requests.get(), before + 1);
+    let finished = walk.finish(&graph, &cancel).await.expect("walk");
+    let summary = edge_summary(&finished);
+    // `c` joins at level 1 from the importer root; `a` is listed for both
+    // roots but expanded once; `d` is level 2.
+    assert!(
+        summary
+            .iter()
+            .any(|(name, level, _)| name == "c" && *level == 1),
+        "{summary:?}"
+    );
+    assert_eq!(
+        summary
+            .iter()
+            .filter(|(name, level, _)| name == "d" && *level == 2)
+            .count(),
+        1,
+        "{summary:?}"
+    );
+}
+
+#[test]
+fn unresolved_anchor_leads_to_real_symbol_lines() {
+    let q = query(serde_json::json!({
+        "operation": "callers", "path": "/repo/a.ts",
+        "symbolName": "render", "lineHint": 300
+    }));
+    let source = (1..=400)
+        .map(|line| match line {
+            40 => "  render();".to_owned(),
+            312 => "export function render(scene: Scene) {".to_owned(),
+            350 => "  return render(next);".to_owned(),
+            _ => format!("// line {line}"),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut row = failure(&q, "file:///repo/a.ts", "anchorUnresolved", "x", true);
+    anchor_recovery(&mut row, &q, Some(&source));
+    let lead = |key: &str| row["next"][key]["query"]["queries"][0].clone();
+    // The declaration line first, then the nearest uses.
+    assert_eq!(lead("didYouMean")["symbolName"], "render", "{row}");
+    assert_eq!(lead("didYouMean")["lineHint"], 312, "{row}");
+    assert_eq!(lead("didYouMean2")["lineHint"], 350, "{row}");
+    assert_eq!(lead("didYouMean3")["lineHint"], 40, "{row}");
+    assert!(row["next"].get("didYouMean4").is_none(), "{row}");
+    assert_eq!(row["next"]["didYouMean"]["confidence"], "high", "{row}");
+}
+
+#[test]
+fn builtin_lib_and_text_only_counts_satisfy_the_output_contract() {
+    let row = serde_json::json!({
+        "lsp": {"serverAvailable": true},
+        "payload": {
+            "kind": "callees",
+            "files": [{"path": "/repo/a.ts", "matches": ["2:3 to function f 10-12"]}],
+            "builtinLib": ["String.toUpperCase", "map"],
+            "coverage": {"scope": "languageServer", "exhaustive": false, "textOnlyFiles": 3, "reason": "importerScanCapped"}
+        }
+    });
+    crate::contracts::validate_output("lspSearch", &public_row(&row))
+        .expect("builtinLib and textOnlyFiles are contract-valid");
+}
+
+/// tsserver files calls made inside a top-level callback (`describe(() =>
+/// …)`, `it(…)`) under the whole module; each site is named by the
+/// innermost function symbol around it, as reference-derived callers are.
+#[test]
+fn module_callers_name_the_innermost_enclosing_callback() {
+    let range = |start: u64, end: u64| serde_json::json!({"start": {"line": start, "character": 0}, "end": {"line": end, "character": 2}});
+    let module = serde_json::json!({
+        "name": "\"/repo/a.test\"", "kind": 2, "uri": "file:///repo/a.test.ts",
+        "range": range(0, 40), "selectionRange": range(0, 40)
+    });
+    let site = |line: u64| serde_json::json!({"start": {"line": line, "character": 4}, "end": {"line": line, "character": 9}});
+    let edge = HierarchyEdge {
+        node: module,
+        parent: None,
+        level: 1,
+        sites: vec![site(3), site(10), site(30)],
+    };
+    let symbols = serde_json::json!([{
+        "name": "describe('x') callback", "kind": 12, "range": range(1, 12), "selectionRange": range(1, 1),
+        "children": [{"name": "it('y')   callback", "kind": 12, "range": range(2, 5), "selectionRange": range(2, 2)}]
+    }]);
+    let split = split_module_callers(&edge, &symbols);
+    let named = split
+        .iter()
+        .map(|edge| {
+            (
+                edge.node["name"].as_str().unwrap_or_default().to_owned(),
+                edge.sites.len(),
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        named,
+        vec![
+            ("it('y') callback".to_owned(), 1),
+            ("describe('x') callback".to_owned(), 1),
+            ("\"/repo/a.test\"".to_owned(), 1),
+        ]
+    );
+    assert_eq!(split[0].node["uri"], "file:///repo/a.test.ts");
+    // A function caller is kept as the server named it.
+    let mut function = edge;
+    function.node["kind"] = serde_json::json!(12);
+    assert_eq!(split_module_callers(&function, &symbols).len(), 1);
 }

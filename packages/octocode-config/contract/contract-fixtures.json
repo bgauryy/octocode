@@ -720,8 +720,7 @@
           "repo": "octocode",
           "path": "packages",
           "maxDepth": 2,
-          "page": 1,
-          "pageSize": 300
+          "page": 1
         }
       ]
     }
@@ -2619,8 +2618,7 @@
           "symbolName": "ToolRuntime",
           "lineHint": 58,
           "orderHint": 0,
-          "page": 1,
-          "pageSize": 40
+          "page": 1
         }
       ]
     }
@@ -2650,8 +2648,7 @@
           "lineHint": 10,
           "orderHint": 0,
           "includeDeclaration": false,
-          "page": 1,
-          "pageSize": 40
+          "page": 1
         }
       ]
     }
@@ -2674,8 +2671,7 @@
           "debug": false,
           "path": "/ABS/repo/packages/octocode-native/crates/runtime/src/runtime/engine.rs",
           "operation": "documentSymbols",
-          "page": 1,
-          "pageSize": 40
+          "page": 1
         }
       ]
     }
@@ -2698,8 +2694,7 @@
           "debug": false,
           "path": "/ABS/repo/src/index.ts",
           "operation": "diagnostic",
-          "page": 1,
-          "pageSize": 40
+          "page": 1
         }
       ]
     }
@@ -2727,8 +2722,7 @@
           "symbolName": "main",
           "lineHint": 1,
           "orderHint": 0,
-          "page": 1,
-          "pageSize": 40
+          "page": 1
         }
       ]
     }
@@ -2759,8 +2753,7 @@
             "line": 0,
             "character": 0
           },
-          "page": 1,
-          "pageSize": 40
+          "page": 1
         }
       ]
     }
@@ -2783,8 +2776,7 @@
           "debug": false,
           "path": "src/index.ts",
           "operation": "documentSymbols",
-          "page": 1,
-          "pageSize": 40
+          "page": 1
         }
       ]
     }
@@ -2809,8 +2801,7 @@
           "path": "src/index.ts",
           "operation": "workspaceSymbol",
           "symbolName": "Schema",
-          "page": 1,
-          "pageSize": 40
+          "page": 1
         }
       ]
     }
@@ -2835,7 +2826,6 @@
           "operation": "workspaceSymbol",
           "symbolName": "Schema",
           "page": 1,
-          "pageSize": 40,
           "workspaceRoot": "."
         }
       ]

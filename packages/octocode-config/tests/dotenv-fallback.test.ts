@@ -24,12 +24,9 @@ describe('trusted dotenv credential fallbacks', () => {
   afterEach(() => rmSync(root, { recursive: true, force: true }));
 
   it.each([
-    'OCTOCODE_TOKEN',
     'GH_TOKEN',
     'GITHUB_TOKEN',
-    'GITHUB_PERSONAL_ACCESS_TOKEN',
     'OCTOCODE_CLASSIFICATION_API',
-    'OCTOCODE_JEV_KEY',
     'OCTOCODE_CLASSIFICATION_TYPE',
   ])('%s uses process > trusted project > home per key', key => {
     writeFileSync(join(home, '.env'), `${key}=home-secret\nHOME_ONLY=home`);
@@ -93,14 +90,13 @@ describe('trusted dotenv credential fallbacks', () => {
   it('keeps existing token alias priority after applying file fallbacks', () => {
     writeFileSync(join(home, '.env'), 'GH_TOKEN=home-secret');
     writeFileSync(join(cwd, '.octocode', '.env'), 'GH_TOKEN=project-secret');
-    const env = { OCTOCODE_TOKEN: 'explicit-secret' };
+    const env = { GITHUB_TOKEN: 'explicit-secret' };
     propagateOctocodeEnv({ home, cwd, trusted: true, env });
     expect(resolveEnvToken(env)?.token).toBe('explicit-secret');
   });
 
   it.each([
     'GH_TOKEN',
-    'OCTOCODE_JEV_KEY',
     'TAVILY_API_KEY',
     'SERPER_API_KEY',
     'EXA_API_KEY',

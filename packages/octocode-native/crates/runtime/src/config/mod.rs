@@ -183,7 +183,7 @@ mod tests {
     #[test]
     fn dotenv_protection_and_trust() {
         let (mut map, sources) = merged_env(
-            Some("A=g\nPATH=/bad\nOCTOCODE_TOKEN=file"),
+            Some("A=g\nPATH=/bad\nGITHUB_TOKEN=file"),
             Some("A=p\nP=x"),
             true,
         );
@@ -202,17 +202,14 @@ mod tests {
             "x"
         );
         assert_eq!(r.skipped_protected, vec!["PATH"]);
-        assert_eq!(
-            target.get("OCTOCODE_TOKEN").map(String::as_str),
-            Some("file")
-        );
+        assert_eq!(target.get("GITHUB_TOKEN").map(String::as_str), Some("file"));
         map.clear()
     }
     #[test]
     fn token_is_redacted_and_storage_stats_are_explicit() {
         let env = BTreeMap::from([
-            ("OCTOCODE_TOKEN".into(), " synthetic ".into()),
-            ("GH_TOKEN".into(), "lower".into()),
+            ("GH_TOKEN".into(), " synthetic ".into()),
+            ("GITHUB_TOKEN".into(), "lower".into()),
         ]);
         let token = resolve_env_token(&env).expect("test fixture operation should succeed");
         assert_eq!(token.token(), "synthetic");
@@ -371,27 +368,18 @@ mod tests {
         assert!(!printed.contains("private-"));
     }
     #[test]
-    fn octocode_prefixed_enable_aliases_resolve_and_canonical_wins() {
-        let aliased = resolve_sections(
+    fn local_switch_has_one_env_name() {
+        let off = resolve_sections(
             &[],
             &BTreeMap::from([("OCTOCODE_ENABLE_LOCAL".into(), "false".into())]),
         );
-        assert!(aliased.is_ok());
-        let aliased = aliased.unwrap_or_default();
-        assert!(!aliased.local.enabled);
-        let both = resolve_sections(
+        assert!(!off.unwrap_or_default().local.enabled);
+        // The retired `ENABLE_LOCAL` spelling changes nothing.
+        let retired = resolve_sections(
             &[],
-            &BTreeMap::from([
-                ("ENABLE_LOCAL".into(), "true".into()),
-                ("OCTOCODE_ENABLE_LOCAL".into(), "false".into()),
-            ]),
+            &BTreeMap::from([("ENABLE_LOCAL".into(), "false".into())]),
         );
-        assert!(both.is_ok());
-        assert!(
-            both.unwrap_or_default().local.enabled,
-            "canonical spelling wins over the alias"
-        );
-        // Aliases count as env sources for source labeling.
+        assert!(retired.unwrap_or_default().local.enabled);
         let env = BTreeMap::from([("OCTOCODE_ENABLE_LOCAL".into(), "true".into())]);
         assert_eq!(resolve_config(&input(env, None)).source, ConfigSource::Env);
     }
@@ -426,12 +414,9 @@ mod tests {
     #[test]
     fn trusted_dotenv_credentials_use_process_then_project_then_home() {
         for key in [
-            "OCTOCODE_TOKEN",
             "GH_TOKEN",
             "GITHUB_TOKEN",
-            "GITHUB_PERSONAL_ACCESS_TOKEN",
             "OCTOCODE_CLASSIFICATION_API",
-            "OCTOCODE_JEV_KEY",
             "OCTOCODE_CLASSIFICATION_TYPE",
             "OCTOCODE_CLASSIFICATION_API_HOST",
         ] {
@@ -473,9 +458,7 @@ mod tests {
                         Some(expected)
                     );
                 }
-                if ENV_TOKEN_VARS.contains(&key)
-                    || matches!(key, "OCTOCODE_CLASSIFICATION_API" | "OCTOCODE_JEV_KEY")
-                {
+                if ENV_TOKEN_VARS.contains(&key) || key == "OCTOCODE_CLASSIFICATION_API" {
                     assert!(!format!("{out:?}").contains("-secret"));
                 }
                 let view = inspector_data(&i, &out);
@@ -582,25 +565,20 @@ mod tests {
     }
 
     #[test]
-    fn classification_alias_from_dotenv_beats_config_file_canonical_key() {
-        let mut i = input(
-            BTreeMap::new(),
-            Some(r#"{"classification":{"api":"config-secret"}}"#),
-        );
+    fn retired_classification_alias_is_not_a_credential() {
+        let mut i = input(BTreeMap::new(), None);
         i.project_env = FileInput::Read {
             path: "/workspace/.octocode/.env".into(),
             text: "OCTOCODE_JEV_KEY=workspace-secret".into(),
         };
         let out = resolve_config(&i);
         assert_eq!(out.env_value("OCTOCODE_CLASSIFICATION_API"), None);
-        assert_eq!(out.env_value("OCTOCODE_JEV_KEY"), Some("workspace-secret"));
     }
 
     #[test]
     fn whitespace_token_values_fall_back_without_leaking() {
         for key in [
             "GH_TOKEN",
-            "OCTOCODE_JEV_KEY",
             "TAVILY_API_KEY",
             "SERPER_API_KEY",
             "EXA_API_KEY",

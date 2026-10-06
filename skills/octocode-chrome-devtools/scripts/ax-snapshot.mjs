@@ -7,7 +7,6 @@ export const INTERACTIVE_ROLES = new Set([
   'tab', 'option', 'listbox', 'treeitem',
 ]);
 export const REGION_ROLES = new Set(['banner', 'navigation', 'main', 'complementary', 'contentinfo', 'search', 'form', 'region', 'dialog', 'alertdialog']);
-const NAV_ROLES = new Set(['navigation', 'banner', 'contentinfo', 'complementary', 'menu', 'menubar']);
 const CLICKABLE_SKIP_ROLES = new Set(['RootWebArea', 'Iframe', 'heading', 'img', 'StaticText', 'InlineTextBox', 'LineBreak', 'paragraph', 'list']);
 const MAX_NAME = 80;
 
@@ -34,6 +33,13 @@ async function axForest(cdp, depth, findings) {
   const children = [];
   const walk = (ft) => { for (const c of ft?.childFrames ?? []) { children.push(c.frame); walk(c); } };
   walk(tree?.frameTree);
+  const targets = await cdp.send('Target.getTargets').catch(() => null);
+  if (targets) {
+    for (const target of targets.targetInfos || []) {
+      if (target.type === 'iframe' && target.parentId === cdp.targetInfo?.id) findings.push(`FRAME_TARGET ${target.url} target=${target.targetId} (isolated process; inspect with --target ${target.targetId})`);
+    }
+  } else findings.push('FRAME_TARGET_COVERAGE_UNAVAILABLE target discovery failed; isolated frames may require --list-targets');
+
   for (const [i, frame] of children.entries()) {
     try {
       const owner = await cdp.send('DOM.getFrameOwner', { frameId: frame.id });
@@ -120,9 +126,7 @@ export async function collectRefs(cdp, { rootBackendId = null, viewport = null, 
 
   const useful = [];
   const regions = [];
-  const seen = new Set();
-  let duplicatesDropped = 0;
-  const stack = [...starts].reverse().map((node) => ({ node, inNav: false, inControl: false }));
+  const stack = [...starts].reverse().map((node) => ({ node, inControl: false }));
   const visited = new Set();
   while (stack.length) {
     const item = stack.pop();
@@ -142,20 +146,13 @@ export async function collectRefs(cdp, { rootBackendId = null, viewport = null, 
     const interactive = INTERACTIVE_ROLES.has(role);
     if (!node.ignored && id && visible) {
       if (REGION_ROLES.has(role) && (role !== 'region' || name)) {
-        const region = { role, name: clip(name, 60), backendDOMNodeId: id, start: useful.length, end: useful.length };
+        const region = { role, name, backendDOMNodeId: id, start: useful.length, end: useful.length };
         regions.push(region);
         stack.push({ exit: true, region });
       }
       if (interactive || (name && ['heading', 'img'].includes(role))) {
-        // Responsive layouts duplicate nav/footer blocks: keep the first same role+name there.
-        // Content repeats (a "hide" link per row) stay: each one acts on a different item.
-        const dupKey = name && (item.inNav || NAV_ROLES.has(role)) ? `${role}|${name}` : null;
-        if (dupKey && seen.has(dupKey)) duplicatesDropped++;
-        else {
-          if (dupKey) seen.add(dupKey);
-          const level = role === 'heading' ? node.properties?.find((p) => p.name === 'level')?.value?.value : undefined;
-          useful.push({ role, name: clip(name, MAX_NAME), fullName: name, backendDOMNodeId: id, interactive, level, frame: node.frameUrl });
-        }
+        const level = role === 'heading' ? node.properties?.find((p) => p.name === 'level')?.value?.value : undefined;
+        useful.push({ role, name: clip(name, MAX_NAME), fullName: name, backendDOMNodeId: id, interactive, level, frame: node.frameUrl });
       }
     }
     // Non-semantic clickables (div with a click handler and cursor:pointer): Chrome often marks
@@ -173,11 +170,10 @@ export async function collectRefs(cdp, { rootBackendId = null, viewport = null, 
         useful.push({ role: 'clickable', name: clip(name, MAX_NAME), fullName: name, backendDOMNodeId: id, interactive: true, frame: node.frameUrl });
       }
     }
-    const inNav = item.inNav || (!node.ignored && NAV_ROLES.has(role));
     const inControl = item.inControl || interactive || isClickable;
     const kids = [...(node.childIds ?? [])];
     const frameKids = id ? frameRoots.get(id) ?? [] : [];
-    for (const child of [...kids.map((k) => byId.get(k)), ...frameKids].reverse()) stack.push({ node: child, inNav, inControl });
+    for (const child of [...kids.map((k) => byId.get(k)), ...frameKids].reverse()) stack.push({ node: child, inControl });
   }
 
   // Drop wrappers removed above and re-index region spans.
@@ -186,5 +182,5 @@ export async function collectRefs(cdp, { rootBackendId = null, viewport = null, 
   useful.forEach((u) => { remap.push(keep.length); if (u) keep.push(u); });
   remap.push(keep.length);
   for (const r of regions) { r.start = remap[r.start]; r.end = remap[r.end]; }
-  return { useful: keep, regions, totalNodes: all.length, duplicatesDropped, findings };
+  return { useful: keep, regions, totalNodes: all.length, findings };
 }

@@ -12,7 +12,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { parseBooleanEnv } from './config/resolverSections.js';
+import { resolveConfigFields } from './config/resolverSections.js';
+import type { OctocodeConfig } from './config/types.js';
 import {
   CONFIG_FIELDS,
   ENV_TOKEN_VARS,
@@ -57,7 +58,6 @@ export type {
   RequiredLspConfig,
   RequiredOutputConfig,
   RequiredOutputPaginationConfig,
-  RequiredSessionConfig,
   RequiredStorageConfig,
   MinifyMode,
 } from './config/types.js';
@@ -76,7 +76,6 @@ export {
   MAX_RETRIES,
   MIN_OUTPUT_DEFAULT_CHAR_LENGTH,
   MAX_OUTPUT_DEFAULT_CHAR_LENGTH,
-  DEFAULT_SESSION_CONFIG,
   DEFAULT_STORAGE_CONFIG,
 } from './config/defaults.js';
 export {
@@ -116,7 +115,6 @@ export {
   resolveNetwork,
   resolveLsp,
   resolveOutput,
-  resolveSession,
   resolveStorage,
 } from './config/resolverSections.js';
 export type { TokenSource } from './tokens/types.js';
@@ -363,18 +361,17 @@ export function propagateOctocodeEnv({
 }
 
 /**
- * True when stats.json writes are enabled via OCTOCODE_ENABLE_STATS=1|true.
- * Stats are always tracked in memory; this flag controls disk persistence only.
- * Keeping it off (the default) eliminates one write per 60-second flush cycle.
+ * True when stats.json writes are enabled (`storage.stats`, env
+ * OCTOCODE_ENABLE_STATS). Stats are always tracked in memory; this flag
+ * controls disk persistence only, and needs persistent storage.
  */
 export function isStatsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  // Stats persistence requires persistent storage (same layers as native).
   if (!isPersistentStorageEnabled(env)) return false;
-  return (
-    parseBooleanEnv(
-      effectiveEnv(env, process.cwd())['OCTOCODE_ENABLE_STATS']
-    ) ?? false
-  );
+  const cwd = process.cwd();
+  return resolveConfigFields(
+    loadOctocodercLayers({ env, cwd }) as OctocodeConfig[],
+    effectiveEnv(env, cwd)
+  ).storage.stats;
 }
 
 /** `env` with the workspace and home `.env` layers applied (native rules). */

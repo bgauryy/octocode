@@ -967,10 +967,10 @@ fn small_pages_name_enclosing_declarations_and_lead_to_references() {
     );
     let rows = &body["files"][0]["matches"];
     assert_eq!(rows[0]["line"], 4, "{body}");
-    assert_eq!(rows[0]["in"], "method try_read_output@3", "{body}");
+    assert_eq!(rows[0]["in"], "method try_read_output@3-5", "{body}");
     assert_eq!(rows[1]["line"], 8, "{body}");
     assert!(rows[1].get("in").is_none(), "{body}");
-    assert_eq!(rows[2]["in"], "fn caller@10", "{body}");
+    assert_eq!(rows[2]["in"], "fn caller@10-12", "{body}");
     let lead = &body["next"]["verifyReferences"];
     let declared_at = body["files"][0]["path"].as_str().expect("path").to_owned();
     let server = crate::tools::lsp_search::verify_query(
@@ -1045,7 +1045,7 @@ fn small_pages_name_enclosing_declarations_and_lead_to_references() {
         ),
     );
     let rows = &body["files"][0]["matches"];
-    assert_eq!(rows[0]["in"], "impl Harness@1", "{body}");
+    assert_eq!(rows[0]["in"], "impl Harness@1-3", "{body}");
     assert_eq!(rows[1]["line"], 5, "{body}");
     assert!(rows[1].get("in").is_none(), "{body}");
 
@@ -1054,8 +1054,14 @@ fn small_pages_name_enclosing_declarations_and_lead_to_references() {
         &[("src/b.rs", &sweep)],
         ls_query(serde_json::json!({"matchString": "helper"}), None),
     );
-    let text = wide.to_string();
-    assert!(!text.contains("\"in\""), "{text}");
+    // A sweep names its owner too: once, on the first row of the run.
+    let rows = wide["files"][0]["matches"].as_array().expect("rows");
+    assert_eq!(rows.len(), 60, "{wide}");
+    assert_eq!(rows[0]["in"], "fn many@1-62", "{wide}");
+    assert!(
+        rows[1..].iter().all(|row| row.get("in").is_none()),
+        "{wide}"
+    );
 }
 
 /// A result within the page budget is shown whole with no paging
@@ -1560,13 +1566,22 @@ fn binary_prefix_matches_mark_a_search_partial_and_terminal() {
     );
     assert_eq!(body["isPartial"], true, "{body}");
     assert_eq!(body["terminalLimit"], true, "{body}");
-    assert!(body.get("next").is_none_or(|next| next.is_null()), "{body}");
+    assert!(body["next"].get("nextPage").is_none(), "{body}");
     assert_eq!(body["stats"]["capReason"], "binaryQuit");
     // capped agrees with capReason instead of contradicting it.
     assert_eq!(body["stats"]["capped"], true, "{body}");
-    // localFetch rejects binary files, so it is never the recovery route.
-    let text = body.to_string();
-    assert!(!text.contains("localFetch"), "{body}");
+    // localFetch rejects binary files, so a binary file is never the read:
+    // the read takes the shown text hit.
+    let read = &body["next"]["read"];
+    assert_eq!(read["tool"], "localFetch", "{body}");
+    assert_eq!(
+        read["query"]["queries"][0]["path"]
+            .as_str()
+            .map(|path| path.ends_with("a.txt")),
+        Some(true),
+        "{body}"
+    );
+    assert!(!body.to_string().contains("bin.dat\",\"ranges"), "{body}");
 }
 
 #[test]
@@ -2493,7 +2508,7 @@ fn leading_nul_binaries_are_counted_with_a_listing_continuation() {
     assert_eq!(
         result.warnings,
         [
-            "binarySkipped: 31 binary files not searched (.woff2 30, .png 1); structureSearch operation:\"files\" with these extensions (or hints.binarySkipped) lists them."
+            "binarySkipped: 31 binary files not searched (.woff2 30, .png 1); structureSearch operation:\"files\" with these extensions lists them."
         ],
         "{body}"
     );
@@ -2572,7 +2587,7 @@ fn opaque_binary_files_in_scope_do_not_make_a_search_partial() {
     assert_eq!(
         body["warnings"],
         serde_json::json!([
-            "binarySkipped: 1 binary file not searched (.node 1); structureSearch operation:\"files\" with these extensions (or hints.binarySkipped) lists it."
+            "binarySkipped: 1 binary file not searched (.node 1); structureSearch operation:\"files\" with these extensions lists it."
         ]),
         "{body}"
     );
@@ -2796,7 +2811,8 @@ fn an_unset_regex_reads_operator_free_text_literally() {
     assert_eq!(lines(&group), 2, "{group}");
     let alternation = run(serde_json::json!({"matchString": "unwrap_or|foo_"}));
     assert_eq!(lines(&alternation), 2, "{alternation}");
-    assert!(warned(&alternation, "ran as a regex"), "{alternation}");
+    // An obvious regex ran as one: no inferred-regex note.
+    assert!(!warned(&alternation, "ran as a regex"), "{alternation}");
     let explicit = run(serde_json::json!({"matchString": ".unwrap()", "regex": "rust"}));
     assert_eq!(lines(&explicit), 2, "{explicit}");
     let exact = run(serde_json::json!({"matchString": "unwrap_or|foo_", "regex": "literal"}));
@@ -3061,4 +3077,204 @@ fn a_workspace_relative_replay_of_an_absolute_search_walks_every_page_once() {
         let expected = if relative == "." { 401 } else { 400 };
         assert_eq!(seen.len(), expected, "{relative}");
     }
+}
+
+/// N4: a page cut by a binary file (`binaryQuit`) is partial, but its shown
+/// text hits stay one read away.
+#[test]
+fn partial_binary_cut_page_keeps_read_lead() {
+    let body = search_fixture(
+        &[
+            (
+                "a.rs",
+                "fn a() {}\nlet needle = 1;\nlet needle2 = needle;\n",
+            ),
+            ("blob.dat", "needle\u{0}needle\n"),
+        ],
+        ls_query(serde_json::json!({"matchString": "needle"}), None),
+    );
+    assert_eq!(body["isPartial"], true, "{body}");
+    assert_eq!(body["next"]["read"]["tool"], "localFetch", "{body}");
+    assert!(
+        body["next"]["read"]["query"]["queries"][0]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("a.rs")),
+        "{body}"
+    );
+}
+
+/// N4/D7: a warning never names a lead the lead cap may drop.
+#[test]
+fn binary_warning_never_names_a_capped_lead() {
+    let body = search_fixture(
+        &[
+            ("a.rs", "fn needle() {}\nneedle();\n"),
+            ("img.png", "\u{0}\u{1}needle"),
+        ],
+        ls_query(serde_json::json!({"matchString": "needle"}), None),
+    );
+    assert!(
+        !body["warnings"].to_string().contains("hints.binarySkipped"),
+        "{body}"
+    );
+}
+
+/// Q5: the inferred-regex note is kept for texts whose literal reading is
+/// plausible, and dropped for obvious regexes.
+#[test]
+fn inferred_regex_note_only_when_ambiguous() {
+    use super::leads::unambiguous_regex;
+    for text in [
+        "register.*Tool",
+        "a|b",
+        "\\bfoo",
+        "x.+y",
+        "fn read|struct",
+        "pub fn [a-z_]+\\(",
+        "^use ",
+        "id_[0-9]",
+    ] {
+        assert!(unambiguous_regex(text), "{text}");
+    }
+    for text in [
+        "a?.b",
+        "$scope",
+        "arr[0]",
+        "x + y",
+        "*ptr",
+        "a || b",
+        "list[i]?",
+        "read(path)?",
+    ] {
+        assert!(!unambiguous_regex(text), "{text}");
+    }
+    let obvious = search_fixture(
+        &[("a.rs", "register_x_Tool\n")],
+        ls_query(serde_json::json!({"matchString": "register.*Tool"}), None),
+    );
+    assert!(
+        !obvious["warnings"].to_string().contains("ran as a regex"),
+        "{obvious}"
+    );
+}
+
+/// N8a: the withheld notice lives once, in warnings; the empty hint does
+/// not repeat it and gives no spelling advice.
+#[test]
+fn withheld_notice_appears_once_on_empty_rows() {
+    let body = search_fixture(
+        &[
+            ("src/secrets/a.ts", "export const ISecretX = 1;\n"),
+            ("src/b.ts", "export const other = 1;\n"),
+        ],
+        ls_query(serde_json::json!({"matchString": "ISecretX"}), None),
+    );
+    assert_eq!(body["stats"]["totalMatches"], 0, "{body}");
+    let text = body.to_string();
+    assert_eq!(text.matches("withheld by path policy").count(), 1, "{body}");
+    let hint = body["hints"][0].as_str().expect("empty hint");
+    assert!(hint.starts_with("No matches"), "{hint}");
+    assert!(!hint.contains("shorter term"), "{hint}");
+    assert!(hint.chars().count() <= 120, "{hint}");
+}
+
+/// LS6: a missing path leads to a tree of its nearest existing parent.
+#[test]
+fn missing_path_leads_to_nearest_parent_tree() {
+    let root = tempfile::tempdir().expect("fixture");
+    fs::create_dir_all(root.path().join("src/native")).expect("dirs");
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": root.path().join("src/nativ").to_string_lossy(), "matchString": "x"}),
+        None,
+    );
+    let error = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+        .expect_err("missing path");
+    assert_eq!(error.code, "pathNotFound");
+    let next = error.next.expect("viewTree lead");
+    assert_eq!(next["viewTree"]["tool"], "structureSearch", "{next}");
+    assert_eq!(
+        next["viewTree"]["query"]["queries"][0]["path"], "src",
+        "{next}"
+    );
+}
+
+/// LS7: a scope-miss row leads to a listing with the same globs.
+#[test]
+fn scope_miss_leads_to_files_listing_with_same_globs() {
+    let body = search_fixture(
+        &[("a.rs", "needle\n")],
+        ls_query(
+            serde_json::json!({"matchString": "needle", "include": ["*.zzz"]}),
+            None,
+        ),
+    );
+    assert_eq!(body["stats"]["filesScanned"], 0, "{body}");
+    let lead = &body["next"]["viewStructure"];
+    assert_eq!(lead["tool"], "structureSearch", "{body}");
+    let listing = &lead["query"]["queries"][0];
+    assert_eq!(listing["operation"], "files", "{body}");
+    assert_eq!(listing["include"], serde_json::json!(["*.zzz"]), "{body}");
+}
+
+/// X7: a bare word include also searches inside directories named by it.
+#[test]
+fn bare_word_include_searches_inside_named_dir() {
+    let body = search_fixture(
+        &[
+            ("tools/local_fetch/a.rs", "needle\n"),
+            ("tools/other/b.rs", "needle\n"),
+        ],
+        ls_query(
+            serde_json::json!({"matchString": "needle", "include": ["local_fetch"]}),
+            None,
+        ),
+    );
+    let text = body["files"].to_string();
+    assert!(text.contains("local_fetch/a.rs"), "{body}");
+    assert!(!text.contains("other/b.rs"), "{body}");
+}
+
+/// LS3 stage 1: a large page keeps every run's owner, with its last line.
+#[test]
+fn large_page_keeps_enclosing_labels() {
+    let source: String = (0..6)
+        .map(|f| format!("fn f{f}() {{\n{}}}\n", "    helper();\n".repeat(10)))
+        .collect();
+    let body = search_fixture(
+        &[("src/m.rs", &source)],
+        ls_query(serde_json::json!({"matchString": "helper"}), None),
+    );
+    let rows = body["files"][0]["matches"].as_array().expect("rows");
+    assert_eq!(rows.len(), 60, "{body}");
+    let label = regex::Regex::new(r"^\w+ \w+@\d+-\d+$").expect("regex");
+    for (index, row) in rows.iter().enumerate() {
+        if index % 10 == 0 {
+            let name = row["in"].as_str().unwrap_or_default();
+            assert!(label.is_match(name), "row {index}: {body}");
+        } else {
+            assert!(row.get("in").is_none(), "row {index}: {body}");
+        }
+    }
+}
+
+/// LS2: declaration rows carry `declaration:true`; other rows carry nothing.
+#[test]
+fn declaration_rows_are_marked_sparsely() {
+    let body = search_fixture(
+        &[(
+            "m.rs",
+            "fn target() {}\n// target in prose\nfn caller() { target(); }\n",
+        )],
+        ls_query(serde_json::json!({"matchString": "target"}), None),
+    );
+    let rows = body["files"][0]["matches"].as_array().expect("rows");
+    let by_line = |line: u64| {
+        rows.iter()
+            .find(|row| row["line"] == line)
+            .unwrap_or_else(|| panic!("line {line}: {body}"))
+    };
+    assert_eq!(by_line(1)["declaration"], true, "{body}");
+    assert!(by_line(2).get("declaration").is_none(), "{body}");
+    assert!(by_line(3).get("declaration").is_none(), "{body}");
 }

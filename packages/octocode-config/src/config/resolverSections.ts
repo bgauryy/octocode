@@ -14,7 +14,6 @@ import type {
   RequiredLspConfig,
   RequiredNetworkConfig,
   RequiredOutputConfig,
-  RequiredSessionConfig,
   RequiredStorageConfig,
   RequiredToolsConfig,
 } from './types.js';
@@ -257,10 +256,6 @@ export function resolveOutput(
   fileConfig?: OctocodeConfig['output']
 ): RequiredOutputConfig {
   return resolveConfigFields({ output: fileConfig }).output;
-}
-
-export function resolveSession(): RequiredSessionConfig {
-  return resolveConfigFields().session;
 }
 
 export function resolveStorage(

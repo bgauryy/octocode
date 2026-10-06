@@ -1,17 +1,21 @@
 export async function applyStealthPatches(cdp, opts = {}) {
+  const browser = await cdp.send('Browser.getVersion');
+  const version = browser.product?.split('/')[1];
+  if (!version || !/^\d+(?:\.\d+)+$/.test(version)) throw new Error('Browser version unavailable for emulation');
+  const major = version.split('.')[0];
   const ua = opts.userAgent ??
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+    `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Safari/537.36`;
 
   await cdp.send('Network.setUserAgentOverride', {
     userAgent: ua,
     platform: 'Win32',
     userAgentMetadata: {
       brands: [
-        { brand: 'Chromium',      version: '124' },
-        { brand: 'Google Chrome', version: '124' },
+        { brand: 'Chromium',      version: major },
+        { brand: 'Google Chrome', version: major },
         { brand: 'Not-A.Brand',   version: '99'  },
       ],
-      fullVersion: '124.0.0.0',
+      fullVersion: version,
       platform: 'Windows',
       platformVersion: '10.0.0',
       architecture: 'x86',
@@ -37,16 +41,12 @@ export async function applyStealthPatches(cdp, opts = {}) {
     accuracy: 100,
   });
 
-  await cdp.send('Browser.grantPermissions', {
-    permissions: ['geolocation', 'notifications', 'videoCapture', 'audioCapture'],
-    origin: opts.origin ?? undefined,
-  });
 
   await cdp.send('Network.setExtraHTTPHeaders', {
     headers: {
       'Accept-Language':    'en-US,en;q=0.9',
       'Accept-Encoding':    'gzip, deflate, br',
-      'sec-ch-ua':          '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+      'sec-ch-ua':          `"Chromium";v="${major}", "Google Chrome";v="${major}", "Not-A.Brand";v="99"`,
       'sec-ch-ua-mobile':   '?0',
       'sec-ch-ua-platform': '"Windows"',
     },
@@ -63,13 +63,7 @@ export async function applyStealthPatches(cdp, opts = {}) {
       try { Object.defineProperty(obj, prop, { get: fn, configurable: true, enumerable: true }); } catch (_) {}
     }
 
-    // Real browsers expose webdriver on Navigator.prototype (inherited), not
-    // as an own-property of the navigator instance. Detectors that check
-    // own-properties specifically (e.g. lodash _.has(navigator, 'webdriver'),
-    // used by bot.sannysoft.com's "WebDriver (New)" test) pass on a genuine
-    // browser for exactly that reason -- defining it on the instance instead
-    // creates the own-property the detector is looking for, even though the
-    // value itself reads as falsy either way.
+    // Keep webdriver inherited; an own property on navigator is a detector signal.
     def(Navigator.prototype, 'webdriver', () => undefined);
     def(navigator, 'vendor',              () => 'Google Inc.');
     def(navigator, 'platform',            () => 'Win32');
@@ -195,7 +189,7 @@ export async function applyStealthPatches(cdp, opts = {}) {
     }
   })();` });
 
-  console.log('[INJECT] Stealth patches applied (27 techniques)');
+  console.log('[INJECT] Stealth patches applied');
 }
 
 export async function verifyStealth(cdp) {
@@ -251,6 +245,6 @@ export async function verifyStealth(cdp) {
     if (ok) { console.log(`[INJECT] PASS: ${name}`); passed++; }
     else     { console.log(`[FINDING] STEALTH_FAIL: ${name} - ${msg}`); failed++; }
   }
-  console.log(`[INJECT] Stealth self-test: ${passed}/${checks.length} passed${failed > 0 ? ` - ${failed} FAILED` : ' - all clear'}`);
+  console.log(`[INJECT] Stealth self-test: ${passed}/${checks.length} passed${failed > 0 ? ` - ${failed} FAILED` : ' - patches verified'}`);
   return { passed, failed, total: checks.length };
 }

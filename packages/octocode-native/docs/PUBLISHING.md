@@ -131,7 +131,7 @@ On every supported platform, install from the registry rather than from the work
 ```sh
 node -e "const n=require('@octocodeai/octocode-native/runtime'); const r=new n.NativeRuntime(); console.log(r.abiVersion); r.close()"
 npx @octocodeai/octocode-native@next --version
-npx @octocodeai/octocode-native@next scheme --compact
+npx @octocodeai/octocode-native@next catalog
 ```
 
 Also start the packaged regex worker and run direct CLI, Node launcher, and real stdio MCP smoke paths.

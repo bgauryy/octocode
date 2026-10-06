@@ -49,11 +49,17 @@ pub(super) async fn default_branch<
     {
         return Ok(branch);
     }
-    let branch = provider
+    let metadata = provider
         .transport
         .repository_metadata(owner, repo, context)
-        .await?
-        .default_branch;
+        .await?;
+    // The same read names the repository's canonical name: a renamed
+    // repository costs no further request.
+    if let Some(full_name) = metadata.full_name.as_deref() {
+        crate::tools::gh_shared::remember_canonical(provider, owner, repo, full_name, context)
+            .await;
+    }
+    let branch = metadata.default_branch;
     if let Some(partition) = &partition {
         provider
             .cache
@@ -83,8 +89,12 @@ pub(super) struct ListingPage<'a> {
 impl<'a> ListingPage<'a> {
     pub(super) fn of(query: &GhStructureQuery, all: &'a [TreeEntry]) -> Self {
         let current = crate::tools::num::usize_of(query.page);
-        let per_page =
-            crate::tools::num::usize_of(query.page_size).clamp(1, max_entries_per_page());
+        let per_page = crate::tools::num::usize_of(
+            query
+                .page_size
+                .map_or(DEFAULT_ENTRIES_PER_PAGE, std::num::NonZeroU64::get),
+        )
+        .clamp(1, max_entries_per_page());
         let total_entries = all.len();
         let total_pages = total_entries.div_ceil(per_page).max(1);
         let start = current
@@ -182,39 +192,33 @@ pub(super) fn disclose_limits(traversal: &Traversal, value: &mut Value, output: 
     }
 }
 
-/// The read a listing leads to on its first page: a small listing's first
-/// source or doc file, else the listed directory's entry file (package
-/// init, index, module root, main, then README or a manifest). Source and
-/// docs are outlined (`minify:"symbols"`).
+/// The read a listing leads to on its first page: the best-ranked listed
+/// file ([`read_rank`]): a source file a bare-word `include` names, else the
+/// shallowest code entry file, other source, a manifest, then a README. A
+/// small listing falls back to its first file. Source and docs are outlined
+/// (`minify:"symbols"`).
 pub(super) fn entry_read(
     query: &GhStructureQuery,
     entries: &[TreeEntry],
-    root: &str,
     commit_sha: &str,
 ) -> Option<Value> {
     let files = entries
         .iter()
         .filter(|entry| entry.kind == EntryKind::File)
         .collect::<Vec<_>>();
-    let path = if files.len() <= crate::tools::OUTLINE_LEAD_MAX_FILES {
-        files
-            .iter()
-            .find(|entry| crate::tools::outlines(&entry.path))
-            .or(files.first())?
-            .path
-            .clone()
-    } else {
-        let direct = files
-            .iter()
-            .filter(|entry| parent_of(&entry.path) == root)
-            .collect::<Vec<_>>();
-        ENTRY_FILES.iter().find_map(|wanted| {
-            direct
-                .iter()
-                .find(|entry| entry_matches(file_name(&entry.path), wanted))
-                .map(|entry| entry.path.clone())
-        })?
-    };
+    let words = bare_words(query.include.iter().map(|word| word.as_str()));
+    let small = files.len() <= crate::tools::OUTLINE_LEAD_MAX_FILES;
+    let path = files
+        .iter()
+        .filter_map(|entry| {
+            let rank = read_rank(&entry.path, &words).or(small.then_some(RANK_ANY))?;
+            Some((
+                (rank, entry.path.matches('/').count(), entry.path.as_str()),
+                entry,
+            ))
+        })
+        .min_by(|left, right| left.0.cmp(&right.0))
+        .map(|(_, entry)| entry.path.clone())?;
     let mut read = json!({
         "owner": query.owner.as_str(),
         "repo": query.repo.as_str(),
@@ -231,19 +235,61 @@ pub(super) fn entry_read(
     )
 }
 
-/// Entry files in the order a reader opens them; `*` matches any extension.
-pub(super) const ENTRY_FILES: &[&str] = &[
-    "__init__.py",
-    "index.*",
-    "mod.rs",
-    "lib.rs",
-    "main.*",
-    "readme*",
-    "package.json",
-    "cargo.toml",
-    "pyproject.toml",
-    "go.mod",
-];
+/// Rank of a file no tier names; only a small listing reads it.
+const RANK_ANY: u8 = 5;
+
+/// `include` entries that are bare words (no glob metacharacter or `/`),
+/// lowercased: a file whose stem equals one is the file the caller named.
+fn bare_words<'a>(include: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    include
+        .into_iter()
+        .map(str::trim)
+        .filter(|word| !word.is_empty() && !word.contains(['/', '*', '?', '[', '{']))
+        .map(str::to_lowercase)
+        .collect()
+}
+
+/// A listed file's read rank (lower reads first): 0 a non-test source file
+/// whose stem a bare-word `include` names; 1 a code entry file (package
+/// init, index, mod/lib root, main); 2 other non-test source; 3 a manifest;
+/// 4 a README. `None` for anything else (tests, data, config).
+fn read_rank(path: &str, words: &[String]) -> Option<u8> {
+    let name = file_name(path);
+    let lower = name.to_ascii_lowercase();
+    let code = matches!(
+        crate::content::classify_file_type(path),
+        Some(crate::content::FileType::Code)
+    ) && !crate::content::is_test_path(path);
+    let stem = lower
+        .rsplit_once('.')
+        .map_or(lower.as_str(), |(stem, _)| stem);
+    if code && words.iter().any(|word| word == stem) {
+        return Some(0);
+    }
+    if code
+        && CODE_ENTRY_FILES
+            .iter()
+            .any(|wanted| entry_matches(name, wanted))
+    {
+        return Some(1);
+    }
+    if code {
+        return Some(2);
+    }
+    if MANIFEST_FILES.contains(&lower.as_str()) {
+        return Some(3);
+    }
+    if lower.starts_with("readme") {
+        return Some(4);
+    }
+    None
+}
+
+/// Code entry files: package init, index, module root, main.
+const CODE_ENTRY_FILES: &[&str] = &["__init__.py", "index.*", "mod.rs", "lib.rs", "main.*"];
+
+/// Package manifests a read can lead to when a listing has no source.
+const MANIFEST_FILES: &[&str] = &["package.json", "cargo.toml", "pyproject.toml", "go.mod"];
 
 pub(super) fn entry_matches(name: &str, wanted: &str) -> bool {
     let name = name.to_ascii_lowercase();
@@ -257,15 +303,13 @@ pub(super) fn file_name(path: &str) -> &str {
     path.rsplit('/').next().unwrap_or(path)
 }
 
-pub(super) fn parent_of(path: &str) -> &str {
-    path.rsplit_once('/').map_or("", |(dir, _)| dir)
-}
-
-pub(super) fn build_structure(entries: &[TreeEntry], root: &str) -> Vec<Value> {
+/// Listing rows grouped by directory. `dir` is repo-relative (the same base
+/// as `path` and `include`), `"."` only for the repository root.
+pub(super) fn build_structure(entries: &[TreeEntry]) -> Vec<Value> {
     let mut dirs = Map::<String, Value>::new();
     for entry in entries {
-        let path = relative(&entry.path, root);
-        let (parent, name) = path.rsplit_once('/').unwrap_or((".", &path));
+        let path = entry.path.as_str();
+        let (parent, name) = path.rsplit_once('/').unwrap_or((".", path));
         let bucket = dirs
             .entry(parent.to_owned())
             .or_insert_with(|| json!({"files": [], "folders": []}));
@@ -412,4 +456,58 @@ pub(super) fn structure_is_empty(value: &Value) -> bool {
         .get("entries")
         .and_then(Value::as_array)
         .is_none_or(Vec::is_empty)
+}
+
+#[cfg(test)]
+mod read_lead_tests {
+    use super::*;
+
+    fn lead(paths: &[&str], include: &[&str]) -> Option<String> {
+        let query: GhStructureQuery = serde_json::from_value(json!({
+            "owner": "o", "repo": "r", "include": include
+        }))
+        .expect("query");
+        let entries = paths
+            .iter()
+            .map(|path| TreeEntry {
+                path: (*path).to_owned(),
+                kind: EntryKind::File,
+                size: Some(1),
+            })
+            .collect::<Vec<_>>();
+        entry_read(&query, &entries, "s").map(|read| {
+            read["query"]["queries"][0]["path"]
+                .as_str()
+                .unwrap_or_default()
+                .to_owned()
+        })
+    }
+
+    /// GS4: the read lead lands on source: the file a bare-word `include`
+    /// names over its test, and a code entry over README and other files.
+    #[test]
+    fn the_read_lead_prefers_source_over_tests_and_docs() {
+        assert_eq!(
+            lead(
+                &["__tests__/X-test.js", "client/X.js", "client/XFB.js"],
+                &["X"]
+            )
+            .as_deref(),
+            Some("client/X.js")
+        );
+        assert_eq!(
+            lead(&["README.md", "benches/b.rs", "src/lib.rs"], &[]).as_deref(),
+            Some("src/lib.rs")
+        );
+        // Without source, a manifest before a README.
+        assert_eq!(
+            lead(&["README.md", "Cargo.toml"], &[]).as_deref(),
+            Some("Cargo.toml")
+        );
+        // A large listing never leads to a file no tier names.
+        let data = (0..8).map(|n| format!("data/{n}.csv")).collect::<Vec<_>>();
+        let data = data.iter().map(String::as_str).collect::<Vec<_>>();
+        assert_eq!(lead(&data, &[]), None);
+        assert_eq!(lead(&data[..2], &[]).as_deref(), Some("data/0.csv"));
+    }
 }

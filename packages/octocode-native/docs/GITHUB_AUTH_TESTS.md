@@ -10,7 +10,7 @@ The packaged acceptance test deletes only its unique fictional OS-store hostname
 | Flow | Test location | Check |
 |---|---|---|
 | Process, workspace, global `.env` | `src/config/mod.rs`; `packages/octocode-config/tests/dotenv-fallback.test.ts` | Source precedence across aliases, blank fallback, classification opt-out, bootstrap protection, redaction |
-| Outgoing credential selection through CLI/MCP | `packages/octocode-config/tests/token-precedence.acceptance.mjs` | Synthetic GitHub/Jev aliases reach a loopback provider from the winning source |
+| Outgoing credential selection through CLI/MCP | `packages/octocode-config/tests/token-precedence.acceptance.mjs` | Synthetic GitHub token names and the classification key reach a loopback provider from the winning source |
 | Explicit token and host selection | `auth/resolver/tests.rs` | Override wins; environment token is host-scoped; no storage or subprocess work when environment wins |
 | Stored credential selection | `auth/resolver/tests.rs`; `auth/credential_store.rs` | Home wins over OS store; OS compatibility fallback remains; read-only inspection does not refresh |
 | No usable credentials | `auth/resolver/tests.rs` | Anonymous selection with absent sources; storage errors remain visible when no fallback succeeds |

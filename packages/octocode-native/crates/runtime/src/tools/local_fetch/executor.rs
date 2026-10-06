@@ -71,6 +71,7 @@ pub fn execute_local_fetch(
     let display_path = validated.display;
     let meta = match fs::metadata(&path) {
         Ok(m) if m.is_file() => m,
+        Ok(m) if m.is_dir() => return not_a_file(q),
         Ok(_) => {
             return LocalFetchResult::error(
                 q.path.to_string(),
@@ -132,8 +133,50 @@ pub fn execute_local_fetch(
     result
 }
 
+/// A directory named as a file: say so, and lead to its tree.
+fn not_a_file(q: &LocalFetchQuery) -> LocalFetchResult {
+    let mut result = LocalFetchResult::error(
+        q.path.to_string(),
+        "notAFile",
+        format!(
+            "{} is a directory, not a file; list it with structureSearch, then read a file in it.",
+            q.path
+        ),
+    );
+    result.next = Some(NextCalls {
+        view_tree: Some(
+            crate::tools::result::Continuation::new(
+                ToolId::StructureSearch,
+                serde_json::json!({"operation": "tree", "path": q.path.as_str()}),
+            )
+            .build(),
+        ),
+        ..NextCalls::default()
+    });
+    result
+}
+
+/// A missing file's listing by its stem (the name without its
+/// extension) under its closest existing directory: a moved file or a
+/// changed extension shows at any depth.
+fn missing_file_listing(q: &LocalFetchQuery, nearest: &str) -> Option<serde_json::Value> {
+    let name = Path::new(q.path.as_str()).file_name()?.to_string_lossy();
+    let stem = name.split_once('.').map_or(name.as_ref(), |(stem, _)| stem);
+    (!stem.is_empty()).then(|| {
+        crate::tools::result::Continuation::new(
+            ToolId::StructureSearch,
+            serde_json::json!({"operation": "files", "path": nearest, "include": [stem]}),
+        )
+        .why("Find the file by its name under its closest existing directory.")
+        .build()
+    })
+}
+
 /// The row for a path the policy refused or could not resolve.
 fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
+    if failure.directory {
+        return not_a_file(q);
+    }
     let display = failure.safe_path.as_deref().unwrap_or(&q.path);
     let message = if failure.sparse_checkout {
         format!(
@@ -160,6 +203,17 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
     };
     let mut result = LocalFetchResult::error(q.path.to_string(), code, message);
     result.resource_missing = failure.resource_missing;
+    if failure.resource_missing
+        && let Some(listing) = failure
+            .nearest_dir
+            .as_deref()
+            .and_then(|nearest| missing_file_listing(q, nearest))
+    {
+        result.next = Some(NextCalls {
+            view_structure: Some(listing),
+            ..NextCalls::default()
+        });
+    }
     result
 }
 
@@ -287,6 +341,11 @@ pub fn process_fetched_content(
         } else {
             vec![]
         };
+    let blocks = if out_of_range {
+        vec![]
+    } else {
+        std::mem::take(&mut ext.blocks)
+    };
     let mut matched_lines = std::mem::take(&mut ext.matched_lines);
     matched_lines.retain(|n| source_ranges.iter().any(|r| *n >= r.start && *n <= r.end));
     let (chars, ret_bytes, ret_lines) = result_counts(&pg.text);
@@ -303,6 +362,7 @@ pub fn process_fetched_content(
         source_line_ranges: source_ranges,
         match_ranges: ext.match_ranges,
         matched_lines,
+        blocks,
         selected_match_count: ext.count,
         modified: (view.mode != MinifyMode::Symbols)
             .then(|| facts.modified.clone())
@@ -441,11 +501,34 @@ fn no_match(q: &LocalFetchQuery, source: &Source) -> LocalFetchResult {
             ToolId::LocalSearch.as_str(),
         )
     };
+    // The text may live in another file of this directory: one localSearch
+    // there finds it (not offered when redactions hide the text).
+    let search = (!(source.match_redacted || source.key_blocks_redacted))
+        .then(|| q.match_strings().first().map(|text| (*text).to_owned()))
+        .flatten()
+        .map(|text| {
+            let dir = Path::new(q.path.as_str())
+                .parent()
+                .map(|dir| dir.to_string_lossy().into_owned())
+                .filter(|dir| !dir.is_empty())
+                .unwrap_or_else(|| ".".to_owned());
+            let mut row = serde_json::json!({"path": dir, "matchString": text});
+            if q.is_regex() {
+                row["regex"] = serde_json::json!("rust");
+            }
+            crate::tools::result::Continuation::new(ToolId::LocalSearch, row)
+                .why("Search the file's directory for the text.")
+                .build()
+        });
     LocalFetchResult {
         path: q.path.to_string(),
         source_sha256: Some(source.sha256.clone()),
         content: Some(String::new()),
         content_view: Some(MinifyMode::None),
+        next: search.map(|search| NextCalls {
+            search_content: Some(search),
+            ..NextCalls::default()
+        }),
         hints: vec![hint],
         total_lines: Some(source.total_lines),
         selected_match_count: Some(0),
@@ -506,14 +589,22 @@ fn select_view(
                 let outline =
                     octocode_engine::portable::apply_content_view_minification(&s, &q.path);
                 view(
-                    crate::tools::numbered::tab_gutter(&outline),
+                    declaration_ranges(
+                        crate::tools::numbered::tab_gutter(&outline),
+                        &selected,
+                        &q.path,
+                    ),
                     MinifyMode::Symbols,
                 )
             } else if let Some(outline) =
                 crate::content::markdown_heading_outline(&selected, &q.path)
             {
                 view(
-                    crate::tools::numbered::tab_gutter(&outline),
+                    declaration_ranges(
+                        crate::tools::numbered::tab_gutter(&outline),
+                        &selected,
+                        &q.path,
+                    ),
                     MinifyMode::Symbols,
                 )
             } else {
@@ -530,6 +621,36 @@ fn select_view(
             }
         }
     }
+}
+
+/// An outline whose declaration heads carry their line span: the gutter
+/// of a multi-line declaration's first shown line reads `start-end`, so a
+/// body is one `ranges` read away. The gutter is metadata, not source text;
+/// the TAB still separates the source.
+fn declaration_ranges(outline: String, source: &str, path: &str) -> String {
+    let Some(spans) = super::block::declaration_spans(source, path) else {
+        return outline;
+    };
+    let mut ends = std::collections::HashMap::<usize, usize>::new();
+    for (start, end) in spans {
+        let entry = ends.entry(start).or_insert(end);
+        *entry = (*entry).max(end);
+    }
+    let mut out = String::with_capacity(outline.len() + ends.len() * 6);
+    for record in outline.split_inclusive('\n') {
+        let head = record
+            .split_once(crate::tools::numbered::SEPARATOR)
+            .and_then(|(number, _)| number.parse::<usize>().ok())
+            .and_then(|line| Some((line, ends.remove(&line)?)));
+        match head {
+            Some((line, end)) => {
+                out.push_str(&format!("{line}-{end}"));
+                out.push_str(&record[line.to_string().len()..]);
+            }
+            None => out.push_str(record),
+        }
+    }
+    out
 }
 
 /// One returned page after the secret scan.

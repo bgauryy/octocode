@@ -1,6 +1,6 @@
 import { writeFileSync, readFileSync } from 'fs';
-import { join, resolve } from 'path';
-import { pathToFileURL } from 'url';
+import { dirname, join, resolve } from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 
 const helper = (name) => import(pathToFileURL(resolve(process.cwd(), '.octocode', name)).href);
 const { waitForPageReady } = await helper('dom-actionability.mjs');
@@ -135,17 +135,18 @@ async function enrich(cdp, nodes) {
 }
 
 export async function run(cdp) {
-  const ready = await waitForPageReady(cdp);
-  if (!ready) console.log('[FINDING] PAGE_NOT_FULLY_LOADED document.readyState never reached "complete" within timeout — snapshot may be incomplete');
+  const ready = await waitForPageReady(cdp, Number(process.env.SNAPSHOT_WAIT_MS || 8000), { selector: process.env.SNAPSHOT_WAIT_SELECTOR || '', text: process.env.SNAPSHOT_WAIT_TEXT || '' });
+  if (!ready && (process.env.SNAPSHOT_WAIT_SELECTOR || process.env.SNAPSHOT_WAIT_TEXT)) process.exitCode = 1;
+  if (!ready) console.log('[FINDING] PAGE_NOT_FULLY_LOADED document or requested content did not become ready within timeout — snapshot may be incomplete');
 
   const viewport = VIEWPORT ? (await cdp.send('Page.getLayoutMetrics')).cssVisualViewport : null;
-  const { useful, regions, totalNodes, duplicatesDropped, findings } = await collectRefs(cdp, {
+  const { useful, regions, totalNodes, findings } = await collectRefs(cdp, {
     rootBackendId: ROOT ? await rootBackendId(cdp) : null, viewport, clickable: CLICKABLE, depth: DEPTH,
   });
   for (const f of findings) console.log(`[FINDING] ${f}`);
 
   const refs = {};
-  useful.forEach((n, i) => { refs[`e${i + 1}`] = { backendDOMNodeId: n.backendDOMNodeId, role: n.role, name: n.fullName }; });
+  useful.forEach((n, i) => { refs[`e${i + 1}`] = { backendDOMNodeId: n.backendDOMNodeId, role: n.role, name: n.fullName, frame: n.frame }; });
   const regionRefs = {};
   regions.forEach((r, i) => { regionRefs[`r${i + 1}`] = { backendDOMNodeId: r.backendDOMNodeId, role: r.role, name: r.name }; });
 
@@ -154,7 +155,8 @@ export async function run(cdp) {
   const shown = useful.slice(first, first + MAX_REFS);
 
   const artifactPath = join(cdp.outputDir, 'page-snapshot.json');
-  writeFileSync(artifactPath, `${JSON.stringify({ url: cdp.targetInfo.url, root: ROOT || null, viewport: VIEWPORT, refs, regions: regionRefs }, null, 2)}\n`, { mode: 0o600 });
+  const snapshot = { targetId: cdp.targetInfo.id, url: cdp.targetInfo.url, root: ROOT || null, viewport: VIEWPORT, refs, regions: regionRefs, coverage: { totalAxNodes: totalNodes, findings } };
+  const continuation = (view) => JSON.stringify({ command: process.execPath, args: [join(dirname(fileURLToPath(import.meta.url)), 'snapshot-query.mjs'), '--file', artifactPath, '--page', String(PAGE + 1), '--limit', String(MAX_REFS), '--view', view] });
   cdp.upsertResourceMap?.('page-snapshot', {
     type: 'page-snapshot',
     targetUrl: cdp.targetInfo.url,
@@ -164,9 +166,10 @@ export async function run(cdp) {
   });
 
   const title = (await cdp.send('Runtime.evaluate', { expression: 'document.title', returnByValue: true }).catch(() => null))?.result?.value ?? '';
+  snapshot.title = String(title);
   console.log(`[PAGE] "${clip(String(title), 120)}" ${cdp.targetInfo.url}${ROOT ? ` root=${ROOT}` : ''}${VIEWPORT ? ' viewport' : ''}`);
   const span = shown.length && !OUTLINE ? ` showing=e${first + 1}-e${first + shown.length}` : '';
-  console.log(`[METRIC] SNAPSHOT refs=${useful.length}${span}${OUTLINE ? '' : ` page=${PAGE}/${pages}`} totalAxNodes=${totalNodes}${duplicatesDropped ? ` duplicatesDropped=${duplicatesDropped}` : ''}`);
+  console.log(`[METRIC] SNAPSHOT refs=${useful.length}${span}${OUTLINE ? '' : ` page=${PAGE}/${pages}`} totalAxNodes=${totalNodes}`);
 
   if (OUTLINE) {
     const items = [];
@@ -176,8 +179,9 @@ export async function run(cdp) {
       if (n.role === 'heading' && (n.level ?? 9) <= 3 && !regionNames.has(n.name)) items.push({ at: i, order: Infinity, line: `  h${n.level ?? ''} "${n.name}" e${i + 1}` });
     });
     items.sort((a, b) => a.at - b.at || a.order - b.order);
-    for (const it of items.slice(0, 50)) console.log(`[OUTLINE] ${it.line}`);
-    if (items.length > 50) console.log(`[OUTLINE] … ${items.length - 50} more`);
+    snapshot.outline = items;
+    for (const it of items.slice(first, first + MAX_REFS)) console.log(`[OUTLINE] ${it.line}`);
+    if (first + MAX_REFS < items.length) console.log(`[NEXT] ${continuation('outline')}`);
     console.log('[REASON] Narrow with SNAPSHOT_ROOT=rN (or a CSS selector), or page with SNAPSHOT_PAGE.');
   } else if (!SUMMARY) {
     const extra = CONTEXT || URLS ? await enrich(cdp, shown) : [];
@@ -202,8 +206,9 @@ export async function run(cdp) {
       const url = URLS && e?.href && n.role === 'link' ? ` → ${e.href}` : '';
       console.log(`[SNAPSHOT] [e${first + i + 1}] ${role}${label}${url}`);
     });
-    if (PAGE < pages) console.log(`[NEXT] SNAPSHOT_PAGE=${PAGE + 1} (${useful.length - first - shown.length} more refs), SNAPSHOT_OUTLINE=1 for regions, or SNAPSHOT_ROOT=<css|rN>`);
+    if (PAGE < pages) console.log(`[NEXT] ${continuation('refs')}`);
   }
+  writeFileSync(artifactPath, `${JSON.stringify(snapshot, null, 2)}\n`, { mode: 0o600 });
   console.log(`[ARTIFACT] PAGE_SNAPSHOT ${artifactPath}`);
 
   if (TEXT_CHARS > 0) {

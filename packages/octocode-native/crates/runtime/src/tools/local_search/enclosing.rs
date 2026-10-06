@@ -6,9 +6,9 @@
 //! commonest kinds), `<line>` being the declaration's name line, so a caller
 //! can cite or address the function a hit sits in without reading it. A hit
 //! on a declaration's own name line names the declaration around that one.
-//! Consecutive hits in one declaration name it once, on the first, as
-//! `name@<line>-<end>`. A declaration search (`fn foo`) names the owners of
-//! declaring hits only. A searched symbol whose declaration is among the
+//! Every name carries the declaration's last line, `name@<line>-<end>`.
+//! Consecutive hits in one declaration name it once, on the first. A
+//! declaration search (`fn foo`) names the owners of declaring hits only. A searched symbol whose declaration is among the
 //! hits also yields a ready lspSearch references lead.
 
 use serde_json::Value;
@@ -75,9 +75,10 @@ impl Outline {
             .map(|(index, _)| index)
     }
 
-    /// Declaration `owner` as `kind name@line`, or `kind name@line-end`
-    /// when the rows after it inside that range share it unnamed.
-    pub(super) fn label(&self, owner: usize, with_end: bool) -> Option<String> {
+    /// Declaration `owner` as `kind name@line-end` (`kind name@line` for
+    /// a one-line declaration): its name line and last line, so a read of
+    /// it needs no outline first.
+    pub(super) fn label(&self, owner: usize) -> Option<String> {
         let declaration = self.declarations.get(owner)?;
         let kind = match declaration.kind.as_str() {
             "function" => "fn",
@@ -86,7 +87,7 @@ impl Outline {
             "property" => "prop",
             kind => kind,
         };
-        Some(if with_end {
+        Some(if declaration.end > declaration.line {
             format!(
                 "{kind} {}@{}-{}",
                 declaration.name, declaration.line, declaration.end
@@ -97,10 +98,10 @@ impl Outline {
     }
 
     /// The innermost declaration spanning `line` other than one named on
-    /// `line` itself, as `kind name@line`.
+    /// `line` itself, as `kind name@line-end`.
     #[cfg(test)]
     pub(super) fn enclosing(&self, line: u32) -> Option<String> {
-        self.label(self.owner(line)?, false)
+        self.label(self.owner(line)?)
     }
 
     /// Whether `line` is the name line of a declaration named `name`.
@@ -182,10 +183,10 @@ fn free() {\n\
         let outline = Outline::of(SOURCE, "enclosing-test/a.rs").expect("rust outline");
         assert_eq!(
             outline.enclosing(5).as_deref(),
-            Some("method try_read_output@3")
+            Some("method try_read_output@3-6")
         );
-        assert_eq!(outline.enclosing(3).as_deref(), Some("impl Harness@2"));
-        assert_eq!(outline.enclosing(10).as_deref(), Some("fn free@9"));
+        assert_eq!(outline.enclosing(3).as_deref(), Some("impl Harness@2-7"));
+        assert_eq!(outline.enclosing(10).as_deref(), Some("fn free@9-11"));
         assert_eq!(outline.enclosing(8), None);
         assert!(outline.declares("try_read_output", 3));
         assert!(!outline.declares("try_read_output", 10));

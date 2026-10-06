@@ -53,6 +53,7 @@ Scale rigor to consequence. Do not invent layers, abstractions, findings, or ope
 - Preserve concurrent work. Inspect the working tree, coordinate overlapping paths, and never stash, reset, overwrite, or discard another contributor's changes.
 
 ## Output
-Chat-only output stays in chat. Requested source edits stay in their named repo; create planning artifacts only when asked. The decision record in `references/output-contracts.md` is the analysis; a decision that needs a saved proposal, review, and sign-off goes to `octocode-rfc-generator`, which takes this record as evidence. Write findings in STE-80 (owner: `octocode-documentation`). A Mermaid diagram of evidenced edges can replace a dense wiring paragraph. HTML explainers are for people on request, never agent context (`references/output-contracts.md`).
+One finding note in chat. Requested source edits stay in the repo.
+Save one record only when asked. A decision that needs review and sign-off goes to `octocode-rfc-generator`. An HTML page is a second file only when a person asks for it. Detail: `references/output-contracts.md`.
 
-Skill maintenance: run `node scripts/eval-architect.mjs --self-test` and `node scripts/eval-architect.mjs --json` after editing rules or `evals/cases.json`, then the `octocode-skills` review; `README.md` § Sources lists where these rules come from.
+After editing this skill, run `node scripts/eval-architect.mjs --self-test` and `node scripts/eval-architect.mjs --json`, then the `octocode-skills` review. `README.md` § Sources lists where these rules come from.

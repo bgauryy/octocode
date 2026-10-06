@@ -4,7 +4,7 @@
 
 ## Runtime boundary
 
-`src/cli/index.ts` owns catalog presentation, skill materialization, and the bare TTY install picker. Bare invocation and `scheme` compose core presentation with native availability. Root `--help`, `-h`, and `help` append canonical agent instructions after native help. `config view` starts the bundled local server with a fixed native JSON transport. Other argv is forwarded verbatim—parsing, subcommand help, version, and validation included—to the native binary. `src/cli/native-delegate.ts` resolves `@octocodeai/octocode-native/bin/octocode.cjs` and delegates with inherited stdio and environment. There is no TypeScript execution registry or fallback for native-owned commands.
+`src/cli/index.ts` owns catalog presentation, skill materialization, and the bare TTY install picker. Bare invocation and `schema` compose core presentation with native availability. Root `--help`, `-h`, and `help` append canonical agent instructions after native help. `config view` starts the bundled local server with a fixed native JSON transport. Other argv is forwarded verbatim—parsing, subcommand help, version, and validation included—to the native binary. `src/cli/native-delegate.ts` resolves `@octocodeai/octocode-native/bin/octocode.cjs` and delegates with inherited stdio and environment. There is no TypeScript execution registry or fallback for native-owned commands.
 
 ```text
 npx octocode → Node launcher → native CLI → Rust ToolRuntime
@@ -16,16 +16,18 @@ The native path is mandatory for public tools. If its platform package cannot be
 
 TypeScript remains only for:
 
-- `scheme`, which joins the core public catalog with native availability after
-  a fail-closed contract-fingerprint check; it presents contracts but does not
-  validate or execute tool requests;
-- bare output and root help, which expose the same core-owned agent instructions
-  once per output, scoped to CLI availability (including CLI-only `ghCloneRepo`);
+- `schema`, which joins the core public catalog with the native machine
+  `catalog` (availability, fields, fingerprint) after a fail-closed
+  contract-fingerprint check; it presents contracts but does not validate or
+  execute tool requests (`schema --help` is native);
+- a bare `octocode` on a pipe, which prints the `schema` catalog with the
+  core-owned agent instructions scoped to CLI availability (including CLI-only
+  `ghCloneRepo`); on a terminal it prints the native command reference;
 - `config view`, which lazily loads `src/cli/config-view/server.ts`; fixed native `config --manage` requests carry the expected contract fingerprint before any mutation;
 - `skill`, backed by the shared skill installer;
 - the TTY picker for `install` without `--ide`, which discovers client ids from `native install --list --json` and delegates the selected id back to native.
 
-Everything else—`showConfig`, other `config` operations, `auth`, `lsp-server`, tool invocations (`<toolName> '<json>'`), and non-interactive `install`—is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
+Everything else—`config` (except `view`), `auth`, `lsp-server`, tool invocations (`<toolName> '<json>'`), and non-interactive `install`—is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
 
 ## Build and packaging
 
@@ -41,7 +43,7 @@ Publish native platform packages, the native root, contract/config prerequisites
 ## Rules
 
 - Public tool behavior belongs in Rust.
-- Public contract content belongs in core (delivered via config); `scheme` only reconciles it
+- Public contract content belongs in core (delivered via config); `schema` only reconciles it
   with native availability and the enforcement fingerprint.
 - The Node launcher delegates or fails closed; it has no TypeScript tool fallback.
 - Keep management-only TypeScript paths explicit and small.

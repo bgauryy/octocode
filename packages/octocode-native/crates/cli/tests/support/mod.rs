@@ -15,7 +15,7 @@ impl Workspace {
             .env("OCTOCODE_HOME", &self.home)
             .env("WORKSPACE_ROOT", &self.workspace)
             .env("ALLOWED_PATHS", &self.workspace)
-            .env("ENABLE_LOCAL", "true")
+            .env("OCTOCODE_ENABLE_LOCAL", "true")
             .env("ENABLE_CLONE", "false")
             .env("NO_COLOR", "1")
             .env("OCTOCODE_ENABLE_STATS", "false");

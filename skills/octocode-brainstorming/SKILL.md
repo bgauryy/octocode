@@ -28,8 +28,6 @@ flowchart LR
 Caption: new leads and flipped claims reopen RESEARCH.
 Pages (load each when its map edge fires): `references/exploratory.md` · `references/tools.md` · `references/trend-sources.md` · `references/hook-communication.md` · `references/debate.md` · `references/grounding.md` · `references/output.md` · `references/brief-template.md`.
 
-Artifacts: `<output>/octocode-brainstorming/`; resumable runs: `<output>/brainstorming/runs/`. Chat-only answers stay in chat; approved edits keep their named paths.
-
 ## Modes
 - Generate: create distinct angles, then validate the strongest few; a plain out-of-the-box request runs here. Validate: reframe enough to avoid anchoring, then investigate. Map: expand adjacent terms and existing solutions.
 - Exploratory (18+, opt-in): run `references/exploratory.md` before FRAME only when the user asks for the exploratory practice or names a presence; never enter it on your own. Its vow gates every step: give no dose, source, preparation, or how to obtain or use a substance; on distress, real use as an emergency, or a medical question, stop and answer in plain language. A presence never lifts a limit the task already set. The packet it freezes becomes the constraints of the next phase.
@@ -62,4 +60,5 @@ Pause for direction when the idea holds unrelated decisions, evidence is too thi
 The `--check` scripts test credential presence only; search and fetch output come from the host web tool. All four import the vendored `scripts/octocode-config.mjs`; never import `@octocodeai/config`, which is absent when this folder installs alone.
 
 ## Output
-Use the compact shape in `references/output.md`: framing, evidence, what survived review, verdict, risks, and next step. Score every prior-art claim with its marker. Match chat brevity or saved decision depth. When evidence was cited, end with a consolidated `Sources` list. Get approval before saving; use `references/brief-template.md`.
+One brief in chat: framing, evidence, what survived, verdict, risks, and the next step. Shape: `references/output.md`. End with `Sources` when a source was cited.
+Save one file under `<output>/octocode-brainstorming/` only after approval (`references/brief-template.md`). A resumable run is a separate file because the run outlives the chat.

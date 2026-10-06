@@ -1,6 +1,6 @@
 # Write and verify
 
-Load for the outline gate, write pass, and post-write checks.
+Load for the outline gate, write pass, and post-write checks. Why: this page applies ASD-STE100 while drafting, then runs the checks.
 
 ## Outline gate
 
@@ -21,8 +21,9 @@ Then write, adjust, research more, or cancel, as the reply says.
 
 1. Load `references/evidence-research.md` § Agent-readable writing and the mode reference when the lobby rules do not settle a choice.
 2. Follow the approved outline; match existing terminology and heading style.
-3. Apply the `references/style-pass.md` defaults from the first draft.
-4. For each lint finding, load the reference its message names.
+3. Write each sentence in ASD-STE100. The rules are in `references/style-ste80.md`.
+4. Apply the `references/style-pass.md` defaults from the first draft.
+5. For each lint finding, load the reference its message names.
 
 ## Verify
 

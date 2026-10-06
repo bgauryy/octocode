@@ -92,10 +92,14 @@ pub struct SearchMatch {
     pub original_chars: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub returned_chars: Option<usize>,
-    /// The innermost declaration around the hit, `kind name@line` (its name
-    /// line); set on small result pages only.
+    /// The innermost declaration around the hit, `kind name@line-end` (its
+    /// name line and last line), on the first row of a run inside it.
     #[serde(rename = "in", skip_serializing_if = "Option::is_none")]
     pub enclosing: Option<String>,
+    /// `true` on a row whose hit line declares a name (the lspSearch
+    /// anchor among same-name hits); absent on every other row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub declaration: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]

@@ -196,8 +196,6 @@ export async function configViewCommand(
         );
         return 2;
       }
-    } else if (flag === '--no-color' || flag === '--json-errors') {
-      /* Global presentation flags. */
     } else {
       console.error(
         'Usage: octocode config view [--no-open] [--idle-timeout 30..3600]'

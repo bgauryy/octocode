@@ -1,6 +1,15 @@
 # Parsing & code transformation — tree-sitter, offsets, safe rewrites
 
-Load when parsing source (tree-sitter, oxc, syn), running structural queries, or rewriting code by byte range. Why: byte offsets, encodings, and grammar versions break rewrites silently.
+Load when generating tool contracts, parsing source (tree-sitter, oxc, syn), running structural queries, or rewriting code by byte range. Why: duplicated schemas and incorrect byte offsets break consumers silently.
+
+## Tool contract generation: Octocode
+- Author schemas, descriptions, instructions, and limits in `@octocodeai/octocode-core`; `@octocodeai/config` owns generation.
+- Build core, then run `yarn contracts:regen` from the repo root. Immediately rebuild native, then affected interfaces with `octocode-dev`.
+- Use generated Rust query/result types. Add accessor `impl` blocks when needed; do not mirror the wire format in serde or interface types.
+- Native `build.rs` embeds the generated contract in place and checks fingerprints. Regenerate and rebuild on drift; do not bypass the guard.
+- Implement each new field/discriminator and declare its native effect in `field-effect-coverage.json`. A declaration alone does not prove behavior.
+- Keep open payloads open. Strict input validation follows the authored schema; do not reject extension fields merely for uniformity.
+- Verify parity, field effects, and the actual CLI/fresh-MCP path. Generated files are outputs, not manual edit targets.
 
 ## Parser lifecycle
 - **Reuse the parser** per worker (`thread_local! { RefCell<Parser> }`), `reset()` + `set_language()` per file — never `Parser::new()` in a hot loop (see `references/performance-and-memory.md`).

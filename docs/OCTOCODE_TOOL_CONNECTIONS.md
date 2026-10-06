@@ -149,12 +149,12 @@ The native engine drops a lead whose target the current surface cannot run, afte
 | `astTopology` | MCP surface (CLI-only), and `OCTOCODE_BETA` / `local.beta` unset | Never a lead target; as a source it runs only on the CLI behind the same gate |
 | Any local tool | `local.enabled` is false | Every lead to localFetch, localSearch, structureSearch, lspSearch is dropped |
 | `clasify` | No classification key | `hints.clasify` is dropped silently |
-| Any tool | Removed by a tool list or family preset | Dropped; only family drops add a warning `Dropped N leads to X: outside <family>` |
+| Any tool | Removed by `tools.enabled` / `tools.disabled` | Dropped silently |
 
 Gaps:
 
 - A configured `clasify` key counts as available even when the provider refuses it. The live key returned HTTP 402 (`classificationQuotaExhausted`): the lead was emitted and its replay returned a valid but unjudged row.
-- User-disabled tools drop leads silently. Only a family preset discloses them.
+- User-disabled tools drop leads silently.
 
 ## Cycles
 
@@ -178,4 +178,4 @@ Every tool names a file or directory `path` and a revision `ref`.
 
 ## How this was checked
 
-Targets and fields come from the live `tools/list` and `octocode scheme <tool>`. Live probes replayed each edge verbatim (marks L and Lq); edges the probes did not trigger are marked S. The channel kinds come from `continuationChannels.ts` in core; the emitters are under `packages/octocode-native/crates/runtime/src`.
+Targets and fields come from the live `tools/list` and `octocode schema <tool>`. Live probes replayed each edge verbatim (marks L and Lq); edges the probes did not trigger are marked S. The channel kinds come from `continuationChannels.ts` in core; the emitters are under `packages/octocode-native/crates/runtime/src`.

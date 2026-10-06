@@ -194,8 +194,10 @@ impl DomainDispatcher {
         // enabling beta permits both preview and hash-guarded apply.
         let allow_apply = self.config.resolved.local.beta;
         let cargo = self.config.env_value("OCTOCODE_CARGO").map(str::to_owned);
-        let prewarm_query =
-            prewarm::enabled(self.config.env_value("OCTOCODE_LSP_PREWARM")).then(|| query.clone());
+        // `lsp.prewarm`: `targeted` warms the server an offered lspSearch
+        // call names; `all` also warms the file a read or search names.
+        let prewarm_mode = self.config.resolved.lsp.prewarm.clone();
+        let prewarm_query = (prewarm_mode == "all").then(|| query.clone());
         let lsp = self.lsp_execution_config.clone();
         let result = self.handle.block_on(async {
             tokio::task::spawn_blocking(move || {
@@ -221,7 +223,7 @@ impl DomainDispatcher {
         // Start a language server in the background so a following
         // lspSearch finds a warm pooled client: for the file an offered
         // lspSearch call names, or (opt-in) the file a read or search names.
-        let lead = prewarm::targeted_enabled(self.config.env_value("OCTOCODE_LSP_PREWARM"))
+        let lead = (prewarm_mode != "off")
             .then(|| prewarm::lead_file(&result.data))
             .flatten();
         if let Some(file) = lead

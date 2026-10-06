@@ -1,6 +1,6 @@
 /**
  * Development-only override gate shared by every interface that composes core
- * presentation with the native runtime (MCP server, CLI `scheme`). One rule,
+ * presentation with the native runtime (MCP server, CLI `schema`). One rule,
  * one message, so the surfaces cannot drift apart.
  */
 

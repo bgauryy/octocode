@@ -2,7 +2,59 @@
 
 ## [Unreleased]
 
+### Breaking — configuration
+- **One name per setting.** Removed `ENABLE_LOCAL` (use `OCTOCODE_ENABLE_LOCAL`)
+  and `OCTOCODE_JEV_KEY` (use `OCTOCODE_CLASSIFICATION_API`).
+- **GitHub token variables:** `GH_TOKEN`, then `GITHUB_TOKEN`. `OCTOCODE_TOKEN`
+  and `GITHUB_PERSONAL_ACCESS_TOKEN` are no longer read; `GH_HOST` is no longer
+  declared (`github.apiUrl` selects the host).
+- **Language servers:** the nine `OCTOCODE_*_SERVER_PATH` variables are gone; an
+  `lsp-servers.json` entry (home, `lsp.configPath`, or a trusted project) replaces
+  a built-in server, e.g. `".ts": {"command":"tsgo","args":["--lsp","-stdio"],"languageId":"typescript"}`.
+  Assembly servers come only from that file.
+- **`tools.family` / `OCTOCODE_TOOL_FAMILY` removed;** use `tools.enabled` /
+  `tools.disabled`.
+- **Now config keys (same env names):** `lsp.autoInstall` (`prompt` default,
+  `off`, `auto`), `lsp.cacheDir`, `lsp.trustProjectConfig` (home-trusted), and
+  `lsp.prewarm` (`targeted` default, `all`, `off`; `OCTOCODE_LSP_PREWARM=1` is
+  no longer accepted, use `all`).
+- **Moved under `storage`:** `session.enableStats` → `storage.stats`;
+  `cloneCache.ttl` / `maxSize` / `maxClones` → `storage.cloneCache.*` (env names
+  unchanged).
+
+### Breaking — CLI
+- **`scheme` is now `schema`** (`octocode schema`, `octocode schema <tool> --view query [--select F=V]`).
+  Indented JSON on a terminal, one line on a pipe; `--compact` and `--pretty` are gone.
+- **Output follows the terminal.** Tool commands print the rendered text MCP
+  clients read on a terminal and single-line JSON on a pipe; `--json` forces
+  JSON. Errors follow the output: the `octocode.toolError` envelope on stdout
+  in JSON mode (mistyped commands included, with did-you-mean names), text on
+  stderr otherwise. `--input -` reads the query from stdin.
+- **Removed duplicates:** `showConfig` (use `config`), `--json-errors` (use
+  `--json` or a pipe), `--redact-emails` (use `OCTOCODE_REDACT_EMAILS` or
+  `output.redactEmails`), `--no-color` (use `NO_COLOR`), `--pretty`, bare
+  `auth` and `auth --json` (use `auth status [--json]`), install ids `claude`
+  and `vscode` (use exact ids from `install --list`), skill platforms
+  `claude-desktop`, `shared`, `common`, `agents`, `codex-native`, `skill help`,
+  and `lsp-server remove`.
+- **`config` subcommands:** `config set KEY VALUE` / `set KEY --stdin`,
+  `config unset KEY`, `config check KEY` replace `--add`, `--value-stdin`,
+  `--remove`, and `--check`. `config` now lists config warnings; unknown config
+  keys no longer warn on every command.
+- **`auth status --json`** is `{authenticated, verification, username, hostname, tokenSource}`.
+- **Bare `octocode`** prints the command reference on a terminal and the
+  `schema` catalog on a pipe; root help no longer appends agent instructions.
+
 ### Changed
+- **Warm `lspSearch` across CLI calls.** The first call of a workspace starts a
+  private per-workspace server (`<home>/run`, owner-only socket, 10-minute idle
+  exit); later calls skip the language server cold start (TS hover ~3 s → ~0.1 s).
+- **`lspSearch documentSymbols`** lists every nested symbol (no
+  `unlistedNested` count), pages 100 symbol rows by default (`pageSize` default
+  is 40 for locations), and names TypeScript `type` aliases `type`.
+- **`skill list` and `skill check`** share one status (`ok`, `not-installed`,
+  `stale`, `broken`); a link into a source checkout is the user's and is never
+  marked stale; a stored or `gh` GitHub login satisfies the token hint.
 - **Minimal responses by default.** Rows carry the answer, open pagination,
   `next.*` continuations, warnings, and errors; `debug:true` adds scan stats,
   provider receipts, snapshots, `cache`, and fields such as `data.lsp`.

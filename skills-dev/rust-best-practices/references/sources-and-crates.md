@@ -27,6 +27,8 @@ Load when an idiom or API claim needs an authoritative anchor, or when you choos
 
 ## The vetted crate stack
 
+These are candidates when the repository has no established choice. Reuse the existing dependency and error/config conventions first.
+
 | Need | Default | Notes |
 |------|---------|-------|
 | Errors in a **library** | `thiserror` | Typed variants callers can `match` |
@@ -46,5 +48,19 @@ Load when an idiom or API claim needs an authoritative anchor, or when you choos
 | Iterator tools | `itertools` | `chunk_by`, `dedup`, `cartesian_product` |
 
 - Check transitive weight with `cargo tree`. Log why a canon default did not fit.
+
+## Repository evidence
+When this skill runs inside Octocode, recheck these owners before applying a local example. `<repo>` is the checkout root.
+
+| Practice | Source under `<repo>` | Deciding evidence |
+|---|---|---|
+| Crate boundaries and host ownership | `packages/octocode-native/ARCHITECTURE.md`; `packages/octocode-native/scripts/check-crate-boundaries.cjs` | Runtime is an `rlib`; hosts own conversion, not tool execution |
+| Resolver, LTO, codegen units, shared metadata | `packages/octocode-native/Cargo.toml` | Explicit resolver 2; thin LTO; engine regression note |
+| Request admission and cleanup | `packages/octocode-native/crates/runtime/src/runtime/lifecycle.rs` | `RequestAdmission`, `RequestGuard`, cancellation and blocking-task join |
+| Contract generation and field effects | `packages/octocode-native/ARCHITECTURE.md`; `packages/octocode-native/crates/runtime/tests/contract_field_effects.rs` | One generator; generated wire types; effect coverage |
+| Native artifact staging | `packages/octocode-native/scripts/native-addon-utils.cjs` | `stageFile`, signing before rename, subprocess load check |
+| Test selection and page replay | `packages/octocode-native/package.json`; `packages/octocode-native/crates/runtime/tests/runtime_page_replay.rs` | Test-only features; snapshots and source-edit replay |
+
+Manifest timing notes are historical observations, not new benchmark results. Verify the current toolchain and rerun the relevant workload before claiming a gain.
 
 Next: how the error crate shapes signatures → `references/idioms.md`.

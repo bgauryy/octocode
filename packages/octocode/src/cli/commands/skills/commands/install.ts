@@ -38,12 +38,10 @@ export interface InstallOptions {
   upgrade: boolean;
   dryRun: boolean;
   json: boolean;
-  jsonErrors?: boolean;
 }
 
-const fail = (message: string, json: boolean, jsonErrors = false): void =>
-  reportFailure(message, json, jsonErrors, {
-    okKey: 'ok',
+const fail = (message: string, json: boolean): void =>
+  reportFailure(message, json, {
     human: `\n  ${c('red', '✗')}  ${message}\n`,
   });
 
@@ -57,18 +55,14 @@ function resolveSkills(
         opts.all
           ? '--add cannot be combined with --all.'
           : '--add accepts at most one name override.',
-        opts.json,
-        opts.jsonErrors
-      );
+        opts.json);
       return null;
     }
     const resolved = getSkillFromPath(opts.sourcePath, skillNames[0]);
     if (!resolved.skill) {
       fail(
         resolved.error ?? 'Unable to load local skill.',
-        opts.json,
-        opts.jsonErrors
-      );
+        opts.json);
       return null;
     }
     return [resolved.skill];
@@ -77,14 +71,14 @@ function resolveSkills(
   if (opts.all) {
     const skills = listSkills();
     if (skills.length === 0) {
-      fail('No bundled skills found.', opts.json, opts.jsonErrors);
+      fail('No bundled skills found.', opts.json);
       return null;
     }
     return skills;
   }
 
   if (skillNames.length === 0) {
-    fail('Specify a skill name or use --all.', opts.json, opts.jsonErrors);
+    fail('Specify a skill name or use --all.', opts.json);
     return null;
   }
 
@@ -98,9 +92,7 @@ function resolveSkills(
   if (missing.length > 0) {
     fail(
       `Skill(s) not found: ${missing.map(name => `"${name}"`).join(', ')}.${missing.map(retiredHint).join('')}`,
-      opts.json,
-      opts.jsonErrors
-    );
+      opts.json);
     return null;
   }
   return skills;
@@ -111,9 +103,7 @@ function resolveTargets(opts: InstallOptions): SkillInstallTarget[] | null {
     if (opts.global || opts.projectDir) {
       fail(
         '--global and --project-dir require --platform.',
-        opts.json,
-        opts.jsonErrors
-      );
+        opts.json);
       return null;
     }
     return [];
@@ -121,15 +111,13 @@ function resolveTargets(opts: InstallOptions): SkillInstallTarget[] | null {
   if (opts.global === Boolean(opts.projectDir)) {
     fail(
       'Choose exactly one scope for --platform: --global or --project-dir <dir>.',
-      opts.json,
-      opts.jsonErrors
-    );
+      opts.json);
     return null;
   }
 
   const parsed = parseSkillPlatforms(opts.platform);
   if (parsed.error) {
-    fail(parsed.error, opts.json, opts.jsonErrors);
+    fail(parsed.error, opts.json);
     return null;
   }
 
@@ -138,9 +126,7 @@ function resolveTargets(opts: InstallOptions): SkillInstallTarget[] | null {
     if (!existsSync(projectDir) || !statSync(projectDir).isDirectory()) {
       fail(
         `Project directory does not exist: ${projectDir}`,
-        opts.json,
-        opts.jsonErrors
-      );
+        opts.json);
       return null;
     }
     return parsed.platforms.map(platform => ({
@@ -247,17 +233,13 @@ export function runInstall(skillNames: string[], opts: InstallOptions): void {
   if (opts.workspace) {
     fail(
       '--workspace is only valid for skill check; use --platform codex --project-dir <dir> for installation.',
-      opts.json,
-      opts.jsonErrors
-    );
+      opts.json);
     return;
   }
   if (opts.customPath && opts.platform) {
     fail(
       '--path cannot be combined with --platform.',
-      opts.json,
-      opts.jsonErrors
-    );
+      opts.json);
     return;
   }
   const skills = resolveSkills(skillNames, opts);

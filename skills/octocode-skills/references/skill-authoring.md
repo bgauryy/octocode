@@ -15,7 +15,7 @@ Start from real expertise: completed task sequences, user corrections, I/O examp
 
 ## Prose style
 
-STE-80 is "80% of the way to" ASD-STE100: one idea per sentence (about 20 words), active voice, imperative steps, one term per concept, no rationale beyond the evidence. Full profile: the `octocode-documentation` skill, `style-ste80`.
+Write in ASD-STE100: one idea per sentence (about 20 words), active voice, imperative steps, one term per concept. The writing rules live in the octocode-documentation skill (style-ste80).
 
 ## Patterns that work
 
@@ -30,7 +30,7 @@ STE-80 is "80% of the way to" ASD-STE100: one idea per sentence (about 20 words)
 
 ## Lobby header
 
-`tools:` names actual commands or host tools; `output:` names the artifact or state destination. `related-skill:` grants no install authority.
+`tools:` names actual commands or host tools; `output:` names the artifact root. `## Output` in the lobby states the one document and any file that has its own lifecycle. `related-skill:` grants no install authority.
 
 ## Machine-readable contracts
 

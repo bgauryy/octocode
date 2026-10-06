@@ -114,10 +114,20 @@ export function checkSkill(
   return result;
 }
 
-/** Compare each present location of a bundled skill against its source. */
+/**
+ * Compare each Octocode-managed location of a bundled skill against its
+ * source. A link resolving outside the skills home (a checkout the user
+ * linked by hand) is theirs: it is neither compared nor repaired.
+ */
 function annotateFreshness(result: SkillCheckResult): void {
   const bundled = getSkill(result.skillName);
   if (!bundled) return;
+  let skillsHome: string;
+  try {
+    skillsHome = fs.realpathSync(getSkillsHome());
+  } catch {
+    skillsHome = path.resolve(getSkillsHome());
+  }
   const compared = new Map<string, Freshness | undefined>();
   for (const location of [result.home, ...result.platforms, result.workspace]) {
     if (location.status !== 'installed' && location.status !== 'linked') {
@@ -127,6 +137,12 @@ function annotateFreshness(result: SkillCheckResult): void {
     try {
       real = fs.realpathSync(location.path);
     } catch {
+      continue;
+    }
+    if (
+      location.status === 'linked' &&
+      !real.startsWith(skillsHome + path.sep)
+    ) {
       continue;
     }
     if (!compared.has(real))
@@ -146,9 +162,12 @@ export function checkSkills(
 
 // ─── Derived helpers ──────────────────────────────────────────────────────────
 
-/** True when the skill is present at home (real copy or valid symlink). */
-export function isInstalledAtHome(r: SkillCheckResult): boolean {
-  return r.home.status === 'installed' || r.home.status === 'linked';
+const present = (location: CheckedLocation): boolean =>
+  location.status === 'installed' || location.status === 'linked';
+
+/** True when the skill is present anywhere: home, a platform, or the workspace. */
+export function isInstalled(r: SkillCheckResult): boolean {
+  return [r.home, ...r.platforms, r.workspace].some(present);
 }
 
 /** Platform labels where the skill is linked or installed. */
@@ -174,12 +193,11 @@ export function hasStale(r: SkillCheckResult): boolean {
   );
 }
 
-/** Overall health: ok | broken | stale | not-installed */
-export function overallStatus(
-  r: SkillCheckResult
-): 'ok' | 'broken' | 'stale' | 'not-installed' {
+export type SkillStatus = 'ok' | 'broken' | 'stale' | 'not-installed';
+
+/** One status for `skill list` and `skill check`: broken > stale > ok > not-installed. */
+export function overallStatus(r: SkillCheckResult): SkillStatus {
   if (hasBroken(r)) return 'broken';
-  if (!isInstalledAtHome(r)) return 'not-installed';
   if (hasStale(r)) return 'stale';
-  return 'ok';
+  return isInstalled(r) ? 'ok' : 'not-installed';
 }

@@ -24,7 +24,7 @@ const env = {
   OCTOCODE_HOME: join(home, '.octocode'),
   GH_CONFIG_DIR: join(home, '.config/gh'),
   OCTOCODE_STORAGE_MODE: 'ephemeral',
-  ENABLE_LOCAL: 'true',
+  OCTOCODE_ENABLE_LOCAL: 'true',
   npm_config_userconfig: join(home, '.npmrc'),
 };
 let archive = Buffer.alloc(0);

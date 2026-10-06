@@ -34,7 +34,7 @@ Acceptance checks: the deciding regression cases fail for the audited reasons be
 
 ### Results (2026-10-02)
 
-- Baseline: branch `codex/preproduction-hardening` @ `81530d26c` plus uncommitted lane edits. Contract fingerprint `a86125b5…` → `8a00aee8…` after this change's core regen. `yarn workspace @octocodeai/config check:tool-contract` exits 0. The CLI `scheme`/`config --json` both exit 0.
+- Baseline: branch `codex/preproduction-hardening` @ `81530d26c` plus uncommitted lane edits. Contract fingerprint `a86125b5…` → `8a00aee8…` after this change's core regen. `yarn workspace @octocodeai/config check:tool-contract` exits 0. The CLI `schema`/`config --json` both exit 0.
 - Re-verified on the current source and a rebuilt CLI (probes are in the session scratchpad under `gh-p0/`):
   - F1 GraphQL `isMerged`: **open → fixed**. A live `gh api graphql` call returned `undefinedField` for PullRequest.isMerged.
   - F2 archived routing: **open → fixed**. Live: `archived:true` returned open PR #11371 through `/pulls`.

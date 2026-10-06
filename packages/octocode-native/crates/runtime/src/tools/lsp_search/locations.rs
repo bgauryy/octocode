@@ -607,7 +607,12 @@ pub(super) fn items_payload(query: &LspSearchQuery, kind: &str, value: Value) ->
     if snapshot_mismatch(query, &snapshot) {
         return snapshot_changed(query);
     }
-    let (page, mut pagination) = paginate(&raw_items, query.page().unwrap_or(1), query.page_size());
+    let page_size = if kind == "workspaceSymbol" {
+        query.page_size_or(super::SYMBOLS_PER_PAGE)
+    } else {
+        query.page_size()
+    };
+    let (page, mut pagination) = paginate(&raw_items, query.page().unwrap_or(1), page_size);
     pagination["snapshot"] = json!(snapshot);
     json!({
         "lsp": { "serverAvailable": true },
@@ -631,21 +636,16 @@ fn document_symbols_payload(query: &LspSearchQuery, raw_items: &[Value]) -> Valu
     if snapshot_mismatch(query, &snapshot) {
         return snapshot_changed(query);
     }
-    let (page, mut pagination) = paginate(&symbols, query.page().unwrap_or(1), query.page_size());
+    let (page, mut pagination) = paginate(
+        &symbols,
+        query.page().unwrap_or(1),
+        query.page_size_or(super::SYMBOLS_PER_PAGE),
+    );
     pagination["snapshot"] = json!(snapshot);
-    let mut payload = json!({
+    let payload = json!({
         "kind": "documentSymbols",
         "symbols": document_symbol_rows(&page, &symbols),
     });
-    // Members of non-container symbols (a function's locals) are counted,
-    // not listed.
-    let unlisted = symbols
-        .iter()
-        .filter_map(|symbol| symbol.get("unlisted").and_then(Value::as_u64))
-        .sum::<u64>();
-    if unlisted > 0 {
-        payload["unlistedNested"] = json!(unlisted);
-    }
     json!({
         "lsp": {
             "serverAvailable": true,

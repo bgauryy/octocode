@@ -48,9 +48,6 @@ use crate::tools::id::clasify_policy::{
 };
 /// Lines on each side of a hit that one hydrated window reads.
 pub(super) const HYDRATED_LINE_RADIUS: u64 = 60;
-/// Why a matrix read nothing while a 402 is remembered.
-const QUOTA_MEMO_LIMITATION: &str =
-    "No context was read: the provider reported exhausted quota within the last minute.";
 mod provider;
 use provider::assess_page;
 
@@ -65,8 +62,7 @@ use capture::capture_resource;
 use evidence::relativize_local_paths;
 pub(super) use hydrate::densest_match_line;
 use render::{
-    Rendered, literal_route, literal_routes, matrix_output, render_captured, shared_kind,
-    unjudged_matrix,
+    Rendered, literal_route, matrix_output, render_captured, shared_kind, unjudged_matrix,
 };
 
 mod budget;
@@ -364,23 +360,6 @@ fn execute_query_verbose(
     };
     if let Some(output) = literal_route(query) {
         return Ok((dispatch::value_result(output), Vec::new()));
-    }
-    // A recent 402 answers before any capture: the reads would only feed a
-    // request the provider refuses.
-    if gate.quota_exhausted() {
-        let error = clasify::transport::quota_exhausted();
-        let mut result = unjudged_matrix(query, &error, QUOTA_MEMO_LIMITATION);
-        let (tips, search) = literal_routes(
-            query,
-            query["resources"].as_array().map_or(&[], Vec::as_slice),
-        );
-        if let Some(tips) = tips {
-            result.data[crate::response::channels::HINTS_KEY] = tips;
-        }
-        if let Some(search) = search {
-            result.data["next"]["textSearch"] = search;
-        }
-        return Ok((result, Vec::new()));
     }
     let questions = query["questions"]
         .as_array()

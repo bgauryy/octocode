@@ -78,12 +78,11 @@ fn largest_array(value: &Value, pointer: &str) -> Option<(String, usize)> {
 
 /// Empty every remaining array of `skeleton` large enough (over a quarter
 /// of `budget`) to matter if repeated per fragment. Returns, when any was
-/// emptied, the split's rest: the skeleton as it was, holding them, with the
-/// lists beside the paged array at `pointer` emptied, since the split's first
-/// slice delivers those.
+/// emptied, the split's rest: the skeleton as it was, holding them and the
+/// lists beside the paged array at `pointer`. The rest is the split's first
+/// part, so its slices carry those lists emptied.
 fn lean_skeleton(skeleton: &mut Value, budget: usize, pointer: &str) -> Option<Value> {
     let mut rest = None;
-    let mut leaned = Vec::new();
     while let Some((relative, chars)) = skeleton
         .get("data")
         .and_then(|data| largest_array(data, ""))
@@ -97,11 +96,29 @@ fn lean_skeleton(skeleton: &mut Value, budget: usize, pointer: &str) -> Option<V
             Some(items) => items.clear(),
             None => break,
         }
-        leaned.push(path);
     }
-    let mut rest = rest?;
-    empty_secondary_lists(&mut rest, pointer, &leaned);
-    Some(rest)
+    if rest.is_some() {
+        empty_secondary_lists(skeleton, pointer);
+    }
+    rest
+}
+
+/// The outermost array element a paged array at `pointer` lies in (reached
+/// through single-element arrays), as (array pointer, element index).
+fn enclosing_element(pointer: &str) -> Option<(String, usize)> {
+    let mut prefix = String::new();
+    for segment in pointer.trim_start_matches('/').split('/') {
+        if let Ok(index) = segment.parse::<usize>() {
+            return Some((prefix, index));
+        }
+        prefix = format!("{prefix}/{segment}");
+    }
+    None
+}
+
+/// Serialized length a `rowPart.continues` marker adds.
+fn continues_chars(array: &str, index: usize) -> usize {
+    json_chars(&json!({"continues": {"array": array, "index": index}})) - 1
 }
 
 /// Move the largest array out of `row`'s data, as (JSON pointer, items).
@@ -136,6 +153,13 @@ enum Fragment {
         split: usize,
         before: Range<usize>,
         after: Range<usize>,
+    },
+    /// `inner` is a later part of element `index` of the array at `array`,
+    /// shown at position 0 of that array: its `rowPart.continues` marker.
+    Continues {
+        inner: Box<Fragment>,
+        array: String,
+        index: usize,
     },
 }
 
@@ -172,6 +196,12 @@ impl FragmentArena {
         // carry it emptied, and the row minus this array follows as its own
         // fragments, so each item is delivered exactly once.
         let rest = lean_skeleton(&mut row, budget, &pointer);
+        // The rest (the row's other lists and fields) is the split's first
+        // part, so the actionable records lead and its slices follow.
+        let first = out.len();
+        if let Some(rest) = rest {
+            self.plan(rest, head, budget, out);
+        }
         let base = json_chars(&row);
         // Every fragment repeats the skeleton (stats, pagination, ...). When
         // the skeleton nearly fills the budget, one item per fragment would
@@ -181,16 +211,26 @@ impl FragmentArena {
         let budget = budget.max(base.saturating_mul(2));
         let head = head.max(base.saturating_mul(2)).min(budget);
         let item_chars: Vec<usize> = items.iter().map(json_chars).collect();
-        let mut slicer = Slicer {
-            split: self.splits.len(),
-            first: out.len(),
-            head,
-            budget,
-            base,
-            open: Open::Chunk {
+        let open = match out.len() {
+            // Items join the rest's last part while they fit.
+            planned if planned > first => Open::Tail {
+                at: planned - 1,
+                start: 0,
+                chars: out[planned - 1].1,
+            },
+            _ => Open::Chunk {
                 start: 0,
                 chars: base,
             },
+        };
+        let mut slicer = Slicer {
+            split: self.splits.len(),
+            pointer: pointer.clone(),
+            first,
+            head,
+            budget,
+            base,
+            open,
         };
         self.splits.push(RowSplit {
             skeleton: row,
@@ -200,7 +240,7 @@ impl FragmentArena {
         for (index, chars) in item_chars.iter().enumerate() {
             slicer.push(self, index, chars + 1, out);
         }
-        slicer.finish(self, item_chars.len(), rest, out);
+        slicer.close(item_chars.len(), out);
     }
 
     /// Build one planned fragment, moving its data out of the arena.
@@ -220,7 +260,7 @@ impl FragmentArena {
                     .collect();
                 let mut value = row_split.skeleton.clone();
                 if *start > 0 {
-                    empty_secondary_lists(&mut value, &row_split.pointer, &[]);
+                    empty_secondary_lists(&mut value, &row_split.pointer);
                 }
                 if let Some(slot) = value.pointer_mut(&row_split.pointer) {
                     *slot = Value::Array(items);
@@ -249,6 +289,16 @@ impl FragmentArena {
                 }
                 value
             }
+            Fragment::Continues {
+                inner,
+                array,
+                index,
+            } => {
+                let mut value = self.build(inner);
+                // The outermost element wins over a nested one's marker.
+                value["rowPart"] = json!({"continues": {"array": array, "index": index}});
+                value
+            }
         }
     }
 }
@@ -271,6 +321,8 @@ enum Open {
 /// by `head`, every later one by `budget`.
 struct Slicer {
     split: usize,
+    /// The paged array's pointer.
+    pointer: String,
     first: usize,
     head: usize,
     budget: usize,
@@ -345,6 +397,7 @@ impl Slicer {
             arena.plan(self.single(arena, index, at), head, self.budget, &mut trial);
             if trial[0].1 + pending <= limit {
                 out.extend(trial);
+                self.mark_continuations(arena, at, index, out);
                 self.join_before(at, start..index, pending, out);
             } else {
                 // The trial's arena entries are never built.
@@ -356,6 +409,7 @@ impl Slicer {
                     self.budget,
                     out,
                 );
+                self.mark_continuations(arena, at, index, out);
             }
         } else {
             self.close(index, out);
@@ -366,6 +420,7 @@ impl Slicer {
                 self.budget,
                 out,
             );
+            self.mark_continuations(arena, at, index, out);
         }
         let last = out.len() - 1;
         self.open = Open::Tail {
@@ -375,51 +430,39 @@ impl Slicer {
         };
     }
 
+    /// Every part of item `index` after its first (planned from `at`)
+    /// continues that element of this split's array.
+    fn mark_continuations(
+        &self,
+        arena: &FragmentArena,
+        at: usize,
+        index: usize,
+        out: &mut [Planned],
+    ) {
+        let array = &arena.splits[self.split].pointer;
+        for (fragment, size) in out.iter_mut().skip(at + 1) {
+            let inner = std::mem::replace(fragment, Fragment::Whole(0));
+            *fragment = Fragment::Continues {
+                inner: Box::new(inner),
+                array: array.clone(),
+                index,
+            };
+            *size += continues_chars(array, index);
+        }
+    }
+
     /// Item `index` as a one-item row planned at position `at`; after the
     /// split's first fragment it carries the secondary lists emptied.
     fn single(&self, arena: &FragmentArena, index: usize, at: usize) -> Value {
         let row_split = &arena.splits[self.split];
         let mut single = row_split.skeleton.clone();
         if at != self.first {
-            empty_secondary_lists(&mut single, &row_split.pointer, &[]);
+            empty_secondary_lists(&mut single, &row_split.pointer);
         }
         if let Some(slot) = single.pointer_mut(&row_split.pointer) {
             *slot = Value::Array(vec![row_split.items[index].clone()]);
         }
         single
-    }
-
-    /// Close the open items, then plan the split's rest (its other large
-    /// arrays) after them. An open slice joins the rest when both fit the
-    /// bound; the rest carries the split's secondary lists emptied, so the
-    /// slice that delivers them (the first) never joins it.
-    fn finish(
-        mut self,
-        arena: &mut FragmentArena,
-        end: usize,
-        rest: Option<Value>,
-        out: &mut Vec<Planned>,
-    ) {
-        let Some(rest) = rest else {
-            self.close(end, out);
-            return;
-        };
-        let at = out.len();
-        let rest_chars = json_chars(&rest);
-        match self.open {
-            Open::Chunk { start, chars }
-                if end > start
-                    && at != self.first
-                    && rest_chars + chars - self.base <= self.limit(at) =>
-            {
-                arena.plan(rest, rest_chars, self.budget, out);
-                self.join_before(at, start..end, chars - self.base, out);
-            }
-            _ => {
-                self.close(end, out);
-                arena.plan(rest, self.limit(out.len()), self.budget, out);
-            }
-        }
     }
 
     fn close(&mut self, end: usize, out: &mut Vec<Planned>) {
@@ -433,11 +476,32 @@ impl Slicer {
         };
     }
 
+    /// Push the slice of items `start..end`. A slice after the split's
+    /// first part continues the element its array lies in, if any.
     fn flush(&self, start: usize, end: usize, chars: usize, out: &mut Vec<Planned>) {
-        if end > start {
-            let split = self.split;
-            out.push((Fragment::Chunk { split, start, end }, chars - 1));
+        if end <= start {
+            return;
         }
+        let split = self.split;
+        let chunk = Fragment::Chunk { split, start, end };
+        let element = (out.len() > self.first)
+            .then(|| enclosing_element(&self.pointer))
+            .flatten();
+        out.push(match element {
+            Some((array, index)) => {
+                let size = chars - 1 + continues_chars(&array, index);
+                let inner = Box::new(chunk);
+                (
+                    Fragment::Continues {
+                        inner,
+                        array,
+                        index,
+                    },
+                    size,
+                )
+            }
+            None => (chunk, chars - 1),
+        });
     }
 
     /// Items `before` precede the one element part of fragment `at`.
@@ -480,14 +544,13 @@ impl Slicer {
 /// A later slice of a split row repeats its skeleton; the lists of records
 /// beside the paged array, at each level of its `pointer` (diagnostics
 /// beside the paged files, a cycle's edges beside its files), were delivered
-/// with the first slice, so later slices carry them emptied: each record
-/// once. Arrays at or above a `keep` pointer stay.
-fn empty_secondary_lists(skeleton: &mut Value, pointer: &str, keep: &[String]) {
+/// with the first part, so later slices carry them emptied: each record
+/// once.
+fn empty_secondary_lists(skeleton: &mut Value, pointer: &str) {
     let mut segments = pointer.trim_start_matches('/').split('/');
     if segments.next() != Some("data") {
         return;
     }
-    let mut level = String::from("/data");
     let mut node = skeleton.get_mut("data");
     for segment in segments {
         let key = segment.replace("~1", "/").replace("~0", "~");
@@ -496,21 +559,18 @@ fn empty_secondary_lists(skeleton: &mut Value, pointer: &str, keep: &[String]) {
         };
         if let Some(map) = current.as_object_mut() {
             for (name, value) in map.iter_mut() {
-                let path = format!("{level}/{}", escape_pointer(name));
-                let kept = keep
-                    .iter()
-                    .any(|kept| *kept == path || kept.starts_with(&format!("{path}/")));
-                if *name == key || kept {
+                if *name == key {
                     continue;
                 }
+                // Records (objects, or tuples such as a runtime cycle's
+                // members), not descriptor lists of scalars.
                 if let Some(items) = value.as_array_mut()
-                    && items.iter().all(Value::is_object)
+                    && items.iter().all(|item| item.is_object() || item.is_array())
                 {
                     items.clear();
                 }
             }
         }
-        level = format!("{level}/{segment}");
         node = match current {
             Value::Object(map) => map.get_mut(&key),
             Value::Array(items) => key.parse::<usize>().ok().and_then(|at| items.get_mut(at)),
@@ -814,8 +874,15 @@ impl RowPlan {
                     data.extend(fields);
                 }
                 keep_row_next(&mut value, PartShare::of(p.part, p.of));
+                let continues = value
+                    .as_object_mut()
+                    .and_then(|row| row.shift_remove("rowPart"))
+                    .and_then(|mut marker| marker.get_mut("continues").map(Value::take));
                 if p.of > 1 {
                     value["rowPart"] = json!({"part": p.part, "of": p.of});
+                    if let Some(continues) = continues {
+                        value["rowPart"]["continues"] = continues;
+                    }
                 }
                 value
             })
@@ -1339,6 +1406,126 @@ mod lazy_page_tests {
         assert!(seen.len() > 2, "{seen:?}");
         for (part, listed) in seen {
             assert_eq!(listed, usize::from(part == 1), "part {part}");
+        }
+    }
+
+    /// An astTopology `cycles` cycle: `files` module paths, `runtime` runtime
+    /// cycles of `members` paths each, and its edge records.
+    fn topology_cycle(cycle: usize, files: usize, runtime: usize, members: usize) -> Value {
+        let edges = |kind: &str, count: usize| {
+            (0..count)
+                .map(|n| {
+                    json!({"from": format!("c{cycle}/{kind}/from_{n}.ts"),
+                           "to": format!("c{cycle}/{kind}/to_{n}.ts"),
+                           "edgeKinds": ["static-import"]})
+                })
+                .collect::<Vec<_>>()
+        };
+        json!({
+            "runtimeCycleCount": runtime,
+            "runtimeCycles": (0..runtime)
+                .map(|r| (0..members)
+                    .map(|n| format!("packages/c{cycle}/runtime_{r}/member_{n:03}.ts"))
+                    .collect::<Vec<_>>())
+                .collect::<Vec<_>>(),
+            "cycleEdges": edges("cycle", 4),
+            "runtimeCycleEdges": edges("runtime", 7),
+            "edgeKinds": ["static-import", "type-import"],
+            "files": (0..files)
+                .map(|n| format!("excalidraw-app/c{cycle}/components/Module_{n:04}.tsx"))
+                .collect::<Vec<_>>(),
+        })
+    }
+
+    /// Every part of row 0 across `pages`, in order: (rowPart, cycles).
+    fn topology_parts(
+        pages: &[(Map<String, Value>, ResponsePagination)],
+    ) -> Vec<(Value, Vec<Value>)> {
+        pages
+            .iter()
+            .flat_map(|(page, _)| page["results"].as_array().cloned().unwrap_or_default())
+            .filter(|row| row["index"] == 0)
+            .map(|row| {
+                let cycles = row["data"]["results"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                (row["rowPart"].clone(), cycles)
+            })
+            .collect()
+    }
+
+    /// Whether `cycle` holds evidence of cycle number `id`.
+    fn is_cycle(cycle: &Value, id: usize) -> bool {
+        let text = cycle.to_string();
+        text.contains(&format!("/c{id}/"))
+    }
+
+    /// N6: an element too large for a page splits into parts. Its secondary
+    /// lists (the actionable runtime cycles and edges) ride its first part,
+    /// before any `files` slice, and every later part names the element it
+    /// continues on `rowPart.continues`, at position 0 of the paged array.
+    #[test]
+    fn split_element_later_parts_carry_continues_marker() {
+        for (cycles, huge) in [
+            (
+                vec![topology_cycle(1, 4, 1, 2), topology_cycle(2, 349, 5, 30)],
+                1usize,
+            ),
+            (vec![topology_cycle(2, 349, 5, 30)], 0),
+        ] {
+            let structured = json!({"results": [{"index": 0, "data": {
+                "path": "tsx",
+                "results": cycles,
+                "summary": {"cycleCount": 2},
+            }}]})
+            .as_object()
+            .cloned()
+            .expect("object");
+            let pages = walk(&structured, 20_000);
+            let parts = topology_parts(&pages);
+            let pieces: Vec<_> = parts
+                .iter()
+                .filter(|(_, cycles)| cycles.iter().any(|cycle| is_cycle(cycle, 2)))
+                .collect();
+            assert!(pieces.len() > 1, "the huge cycle is split: {parts:?}");
+            let (first_part, first_cycles) = pieces[0];
+            assert!(first_part.get("continues").is_none(), "{first_part}");
+            let head = first_cycles
+                .iter()
+                .find(|cycle| is_cycle(cycle, 2))
+                .expect("cycle 2");
+            assert_eq!(
+                head["runtimeCycles"].as_array().map(Vec::len),
+                Some(5),
+                "runtime cycles ride the first part: {head}"
+            );
+            assert_eq!(head["cycleEdges"].as_array().map(Vec::len), Some(4));
+            for (part, cycles) in &pieces[1..] {
+                assert_eq!(
+                    part["continues"],
+                    json!({"array": "/data/results", "index": huge}),
+                    "{part}"
+                );
+                assert!(is_cycle(&cycles[0], 2), "{cycles:?}");
+                assert!(
+                    cycles[0]["runtimeCycles"]
+                        .as_array()
+                        .is_none_or(Vec::is_empty),
+                    "{part}"
+                );
+            }
+            let mut files: Vec<String> = parts
+                .iter()
+                .flat_map(|(_, cycles)| cycles.iter())
+                .filter(|cycle| is_cycle(cycle, 2))
+                .flat_map(|cycle| cycle["files"].as_array().cloned().unwrap_or_default())
+                .map(|file| file.to_string())
+                .collect();
+            let all = files.len();
+            files.sort();
+            files.dedup();
+            assert_eq!((all, files.len()), (349, 349), "every file once");
         }
     }
 

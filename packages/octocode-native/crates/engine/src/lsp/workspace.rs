@@ -1,4 +1,4 @@
-use crate::error::{Error, Result};
+use crate::error::Result;
 use std::path::{Path, PathBuf};
 
 const MARKERS: [&str; 12] = [
@@ -16,22 +16,19 @@ const MARKERS: [&str; 12] = [
     "Makefile",
 ];
 
+/// The nearest ancestor of `file_path` holding a project marker; with no
+/// marker anywhere, the file's own directory. Never the process cwd: a
+/// server rooted there would analyze an unrelated tree.
 pub fn resolve_workspace_root_for_file(file_path: String) -> Result<String> {
-    let mut current = Path::new(&file_path)
+    let directory = Path::new(&file_path)
         .parent()
-        .map(Path::to_path_buf)
-        .unwrap_or_else(|| PathBuf::from(&file_path));
-    loop {
-        if MARKERS.iter().any(|marker| current.join(marker).exists()) {
-            return Ok(current.to_string_lossy().into_owned());
-        }
-        if !current.pop() {
-            break;
-        }
-    }
-    std::env::current_dir()
-        .map(|path| path.to_string_lossy().into_owned())
-        .map_err(|err| Error::new(err.to_string()))
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map_or_else(|| PathBuf::from(&file_path), Path::to_path_buf);
+    let root = directory
+        .ancestors()
+        .find(|dir| MARKERS.iter().any(|marker| dir.join(marker).exists()))
+        .unwrap_or(&directory);
+    Ok(root.to_string_lossy().into_owned())
 }
 
 #[cfg(test)]
@@ -94,19 +91,23 @@ mod tests {
     }
 
     #[test]
-    fn falls_back_to_cwd_when_no_marker_present() {
-        // A temp directory with no marker files — resolver must not panic and
-        // must return *something* (cwd fallback).
+    fn falls_back_to_file_dir_not_cwd() {
+        // A temp directory with no marker anywhere above it resolves to the
+        // file's own directory, never the process cwd.
         let root = temp_dir("no_marker");
         let file = root.join("orphan.ts");
         fs::write(&file, b"// nothing").expect("write file");
+        let has_marker_above = root
+            .ancestors()
+            .any(|dir| MARKERS.iter().any(|marker| dir.join(marker).exists()));
 
-        let result = resolve_workspace_root_for_file(file.to_string_lossy().into_owned());
+        let result = resolve_workspace_root_for_file(file.to_string_lossy().into_owned())
+            .expect("resolve must not error");
         let _ = fs::remove_dir_all(&root);
-        // The resolver may return an ancestor that has a marker (the real workspace
-        // root of octocode-mcp itself), or fall back to cwd.  Either way it must
-        // succeed and return a non-empty string.
-        let path = result.expect("resolve must not error");
-        assert!(!path.is_empty());
+        let cwd = std::env::current_dir().expect("cwd");
+        assert_ne!(PathBuf::from(&result), cwd);
+        if !has_marker_above {
+            assert_eq!(PathBuf::from(&result), root);
+        }
     }
 }

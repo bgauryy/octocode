@@ -36,12 +36,19 @@ async fn resolve_auth(
         .flatten()
 }
 
+/// Where the active GitHub token comes from, without verifying it.
+pub(super) async fn active_token_source(runtime: &ToolRuntime) -> Option<String> {
+    let host = configured_github_host(runtime);
+    resolve_auth(runtime, &host)
+        .await
+        .map(|selection| selection.source_label().to_owned())
+}
+
 pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
     use octocode_native::providers::github::login::{TokenCheck, verify_token};
     let api_base = &runtime.config().resolved.github.api_url;
     let hostname = configured_github_host(runtime);
     let selection = resolve_auth(runtime, &hostname).await;
-    let token_present = selection.is_some();
     let source = selection.as_ref().map_or("none", |s| s.source_label());
     // A present token proves nothing: GitHub must accept it. A rejected token
     // is not authenticated; one GitHub could not be asked about is unverified.
@@ -70,15 +77,11 @@ pub async fn auth_status(runtime: &ToolRuntime, json_out: bool) -> u8 {
     if json_out {
         return write_json(
             &json!({
-                "success": true,
                 "authenticated": authenticated,
                 "verification": verification,
                 "username": username,
                 "hostname": hostname,
-                "tokenPresent": token_present,
-                "tokenConfigured": token_present,
                 "tokenSource": source,
-                "publicGitHubAccess": if authenticated { "authenticated" } else { "unauthenticated" }
             }),
             true,
         );

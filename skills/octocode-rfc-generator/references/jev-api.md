@@ -1,13 +1,13 @@
 # `clasify` through Octocode (Jev provider)
 
-Load when an admitted `clasify` review needs request mechanics. `clasify` is the public Octocode tool; Jev is the configured classification provider. The provider evaluates typed questions over supplied evidence; the host owns admission and every later action.
+Load when an admitted `clasify` review needs request mechanics. Why: the host must send a valid matrix and must not treat a judgment as closed evidence. `clasify` is the public Octocode tool; Jev is the configured classification provider. The provider evaluates typed questions over supplied evidence; the host owns admission and every later action.
 
 ## Availability
 
 Inspect the live catalog and query schema first. Inside this repository, substitute `node packages/octocode/out/octocode.js` for `octocode`.
 
 ```sh
-octocode scheme clasify --view query --compact
+octocode schema clasify --view query
 octocode clasify --input /absolute/review/request.json
 ```
 

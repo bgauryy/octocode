@@ -1,14 +1,5 @@
 #!/usr/bin/env node
-// TDD grader for the webmcp intent (scripts/cdp-checks/webmcp-tools.mjs).
-// Deterministic, no LLM judgment: launches an isolated headless Chrome with
-// WebMCP enabled, points it at the fixture in fixtures/webmcp-fixture.html,
-// and asserts exact prefixed stdout lines the intent script must produce.
-//
-// Usage: node webmcp-tools.check.mjs [--port 9245]
-//
-// Exit 0 = all assertions passed. Exit 1 = red (missing script or assertion
-// failure) — expected before scripts/cdp-checks/webmcp-tools.mjs exists.
-
+// Regression checks against an isolated Chrome session and local WebMCP fixture.
 import { spawnSync } from 'child_process';
 import { dirname, join, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -22,6 +13,10 @@ const FIXTURE_URL = `file://${join(__dir, 'fixtures', 'webmcp-fixture.html')}`;
 
 const argv = process.argv.slice(2);
 const getArg = (flag, def) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : def; };
+if (argv.includes('--help') || argv.includes('-h')) {
+  console.log('Usage: webmcp-tools.check.mjs [--port 9245]');
+  process.exit(0);
+}
 const PORT = getArg('--port', '9245');
 
 const results = [];

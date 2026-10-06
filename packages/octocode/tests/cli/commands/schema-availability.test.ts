@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getNativeContractFingerprint } from '@octocodeai/config/schema';
-import {
-  runScheme,
-  printAgentInstructions,
-} from '../../../src/cli/commands/scheme.js';
+import { runSchema } from '../../../src/cli/commands/schema.js';
 
 const machine = vi.hoisted(() => ({
   fingerprint: '',
@@ -27,7 +24,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-describe('scheme contract-drift gate', () => {
+describe('schema contract-drift gate', () => {
   it.each([
     ['development', 0],
     ['production', 1],
@@ -42,10 +39,10 @@ describe('scheme contract-drift gate', () => {
       vi.stubEnv('NODE_ENV', nodeEnv);
       const output = vi.spyOn(console, 'log').mockImplementation(() => {});
       vi.spyOn(console, 'error').mockImplementation(() => {});
-      const code = await runScheme({
-        command: 'scheme',
+      const code = await runSchema({
+        command: 'schema',
         args: [],
-        options: { compact: true, 'json-errors': true },
+        options: {},
       });
       expect(code === 0 ? 0 : 1).toBe(exit);
       const printed = JSON.parse(String(output.mock.calls[0]?.[0]));
@@ -59,7 +56,7 @@ describe('scheme contract-drift gate', () => {
   );
 });
 
-describe('scheme availability-scoped guidance', () => {
+describe('schema availability-scoped guidance', () => {
   it('restricts Clasify delegated reads to enabled tools in the query schema', async () => {
     machine.fingerprint = getNativeContractFingerprint();
     machine.tools = ['clasify', 'ghSearchCode', 'ghGetFileContent'].map(
@@ -70,10 +67,10 @@ describe('scheme availability-scoped guidance', () => {
     );
     const output = vi.spyOn(console, 'log').mockImplementation(() => {});
     expect(
-      await runScheme({
-        command: 'scheme',
+      await runSchema({
+        command: 'schema',
         args: ['clasify'],
-        options: { view: 'query', compact: true },
+        options: { view: 'query' },
       })
     ).toBe(0);
     const schema = JSON.stringify(
@@ -107,10 +104,10 @@ describe('scheme availability-scoped guidance', () => {
       }));
       const output = vi.spyOn(console, 'log').mockImplementation(() => {});
       await expect(
-        runScheme({
-          command: 'scheme',
+        runSchema({
+          command: 'schema',
           args: [tool],
-          options: { view, compact: true },
+          options: { view },
         })
       ).resolves.toBe(0);
       const result = JSON.parse(String(output.mock.calls[0]?.[0]));
@@ -122,9 +119,9 @@ describe('scheme availability-scoped guidance', () => {
   );
 });
 
-describe('root help instructions', () => {
+describe('catalog instructions', () => {
   it.each([false, true])(
-    'matches catalog instructions with clasify enabled=%s',
+    'name clasify only when it is enabled (enabled=%s)',
     async enabled => {
       machine.fingerprint = getNativeContractFingerprint();
       machine.tools = ['localSearch', 'localFetch', 'clasify'].map(name => ({
@@ -132,21 +129,16 @@ describe('root help instructions', () => {
         availability: { enabled: name !== 'clasify' || enabled },
       }));
       const output = vi.spyOn(console, 'log').mockImplementation(() => {});
-      expect(
-        await runScheme({
-          command: 'scheme',
-          args: [],
-          options: { compact: true },
-        })
-      ).toBe(0);
-      const catalog = JSON.parse(String(output.mock.calls[0]?.[0]));
-      expect(catalog.commands.schema).toBe('scheme <name> --view query');
-      expect(catalog.commands.fullContract).toBe('scheme <name> --view full');
-      output.mockClear();
-      expect(await printAgentInstructions()).toBe(0);
-      expect(output).toHaveBeenCalledWith(
-        `\nAgent instructions:\n${catalog.instructions}`
+      expect(await runSchema({ command: 'schema', args: [], options: {} })).toBe(
+        0
       );
+      const catalog = JSON.parse(String(output.mock.calls[0]?.[0]));
+      expect(catalog.commands).toEqual({
+        run: "octocode <tool> '<json>' (or --input FILE|-)",
+        query: 'octocode schema <tool> --view query [--select FIELD=VALUE]',
+        variants: 'octocode schema <tool> --view variants',
+        full: 'octocode schema <tool>',
+      });
       expect(catalog.instructions.includes('clasify')).toBe(enabled);
     }
   );
@@ -161,30 +153,16 @@ describe('root help instructions', () => {
       }));
       const output = vi.spyOn(console, 'log').mockImplementation(() => {});
       vi.spyOn(console, 'error').mockImplementation(() => {});
-      await runScheme({
-        command: 'scheme',
-        args: [],
-        options: { compact: true },
-      });
+      await runSchema({ command: 'schema', args: [], options: {} });
       const printed = String(output.mock.calls[0]?.[0]);
       expect(printed.includes('clasify')).toBe(enabled);
       expect(JSON.parse(printed).toolCount).toBe(enabled ? 3 : 2);
       output.mockClear();
-      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-      await runScheme({ command: 'scheme', args: ['nope'], options: {} });
-      expect(String(error.mock.calls[0]?.[0]).includes('clasify')).toBe(
-        enabled
-      );
+      // Not a terminal: the error is the JSON envelope on stdout.
+      await runSchema({ command: 'schema', args: ['nope'], options: {} });
+      const error = JSON.parse(String(output.mock.calls[0]?.[0]));
+      expect(error.kind).toBe('octocode.toolError');
+      expect(String(error.error).includes('clasify')).toBe(enabled);
     }
   );
-
-  it('refuses drifted help instructions in production', async () => {
-    machine.fingerprint = 'f'.repeat(64);
-    vi.stubEnv('NODE_ENV', 'production');
-    vi.stubEnv('OCTOCODE_ALLOW_CONTRACT_DRIFT', '1');
-    const output = vi.spyOn(console, 'log').mockImplementation(() => {});
-    vi.spyOn(console, 'error').mockImplementation(() => {});
-    expect(await printAgentInstructions()).toBe(5);
-    expect(output).not.toHaveBeenCalled();
-  });
 });

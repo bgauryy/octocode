@@ -315,3 +315,56 @@ impl Filters {
         Ok(filters)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::contracts::query_schema_value;
+    use crate::tools::id::ToolId;
+    use serde_json::Value;
+
+    /// The contract's key list of one operation's `qualifiers`: the
+    /// declared `x-qualifierKeys`, else the key alternation of its pattern.
+    fn contract_keys(operation: &str) -> Vec<String> {
+        let declared = query_schema_value(
+            ToolId::GhSearchHistory,
+            Some(operation),
+            "qualifiers",
+            "x-qualifierKeys",
+        );
+        if let Some(keys) = declared.and_then(Value::as_array) {
+            return keys
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect();
+        }
+        let pattern = query_schema_value(
+            ToolId::GhSearchHistory,
+            Some(operation),
+            "qualifiers",
+            "pattern",
+        )
+        .and_then(Value::as_str)
+        .expect("qualifiers pattern");
+        let end = pattern.find("):").expect("key group");
+        let start = pattern[..end].rfind("(?:").expect("key group start") + 3;
+        pattern[start..end].split('|').map(str::to_owned).collect()
+    }
+
+    /// SH4 drift: native `QUALIFIER_KEYS` is the contract's key list, per
+    /// operation (pull-request-only keys only on pull requests).
+    #[test]
+    fn native_qualifier_keys_match_the_contract() {
+        for (operation, pull_request) in [("pullRequest", true), ("issue", false)] {
+            let mut native = super::QUALIFIER_KEYS
+                .iter()
+                .filter(|(_, _, pr_only)| pull_request || !pr_only)
+                .map(|(name, _, _)| (*name).to_owned())
+                .collect::<Vec<_>>();
+            let mut contract = contract_keys(operation);
+            native.sort();
+            contract.sort();
+            assert_eq!(native, contract, "{operation}");
+        }
+    }
+}

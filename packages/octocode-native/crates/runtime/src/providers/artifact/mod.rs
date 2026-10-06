@@ -57,12 +57,13 @@ pub async fn execute_artifact(
                 | ArtifactType::Crates
                 | ArtifactType::Go
                 | ArtifactType::Nuget
+                | ArtifactType::Maven
         )
     {
         return Err(ArtifactError::new(
             "unsupported_capability",
             format!(
-                "version is supported for npm, pypi, crates, go, and nuget; {} lookups return the latest release.",
+                "version is supported for npm, pypi, crates, go, nuget, and maven; {} lookups return the latest release.",
                 query.artifact_type().as_str()
             ),
         )

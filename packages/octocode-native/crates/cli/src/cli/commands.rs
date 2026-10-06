@@ -6,30 +6,47 @@
 use clap::{ArgMatches, Args, FromArgMatches, Subcommand};
 use octocode_native::tools::id::ToolId;
 
-/// Shared arguments for every tool sub-command: a raw JSON query (inline or
-/// from a file) executed against the tool's contract.
+/// Shared arguments for every tool sub-command: a raw JSON query (inline,
+/// from a file, or from stdin) executed against the tool's contract.
 #[derive(Args, Debug)]
 pub(super) struct ToolArgs {
-    /// Raw JSON query object, e.g. '{"queries":[…]}'. See `octocode scheme <tool>`.
+    /// Raw JSON query object, e.g. '{"queries":[…]}'. See `octocode schema <tool>`.
     pub query: Option<String>,
-    /// Read the JSON query from a file instead of inline shell-quoted JSON.
-    #[arg(long, value_name = "FILE", conflicts_with = "query")]
+    /// Read the JSON query from a file, or from stdin with `-`.
+    #[arg(long, value_name = "FILE|-", conflicts_with = "query")]
     pub input: Option<std::path::PathBuf>,
-    /// Emit indented JSON for humans (costs 25–55% more bytes for agents).
+    /// Print JSON even on a terminal (pipes always get JSON).
     #[arg(long)]
-    pub pretty: bool,
+    pub json: bool,
 }
 
+/// Largest JSON query read from `--input` (a file or stdin).
+const MAX_QUERY_BYTES: u64 = 8 * 1024 * 1024;
+
 impl ToolArgs {
-    /// Resolve the JSON query text from `--input FILE` or the positional
+    /// Resolve the JSON query text from `--input FILE|-` or the positional
     /// argument. `Ok(None)` means no query was supplied.
     pub fn query_text(&self) -> Result<Option<String>, String> {
-        if let Some(path) = &self.input {
-            return std::fs::read_to_string(path)
-                .map(Some)
-                .map_err(|error| format!("Cannot read --input {}: {error}", path.display()));
+        use std::io::Read;
+        let Some(path) = &self.input else {
+            return Ok(self.query.clone());
+        };
+        let mut text = String::new();
+        let read = if path.as_os_str() == "-" {
+            std::io::stdin()
+                .take(MAX_QUERY_BYTES + 1)
+                .read_to_string(&mut text)
+                .map_err(|error| format!("Cannot read the query from stdin: {error}"))
+        } else {
+            std::fs::File::open(path)
+                .and_then(|file| file.take(MAX_QUERY_BYTES + 1).read_to_string(&mut text))
+                .map_err(|error| format!("Cannot read --input {}: {error}", path.display()))
+        };
+        read?;
+        if text.len() as u64 > MAX_QUERY_BYTES {
+            return Err(format!("The JSON query exceeds {} MiB.", MAX_QUERY_BYTES >> 20));
         }
-        Ok(self.query.clone())
+        Ok(Some(text))
     }
 }
 
@@ -106,7 +123,7 @@ impl Subcommand for ToolCommand {
 
 #[derive(Subcommand)]
 pub(super) enum AuthCommand {
-    /// Show GitHub authentication status (token presence and source; no secrets printed).
+    /// Show whether GitHub accepts the active token, and its source (never the token).
     Status {
         /// Emit JSON output.
         #[arg(long)]
@@ -138,75 +155,52 @@ pub(super) enum Command {
     Tool(ToolCommand),
 
     // ── System commands ──────────────────────────────────────────────────────
-    /// Print a tool contract; without a name, list tools, availability, and canonical agent instructions.
-    Scheme {
-        /// Tool name, e.g. `localSearch`. Omit to list all tools with availability.
+    /// List tools with agent instructions, or print one tool's input contract.
+    #[command(long_about = SCHEMA_HELP)]
+    Schema {
+        /// Tool name, e.g. `localSearch`. Omit to list every enabled tool.
         tool: Option<String>,
-        /// Schema view: the public tool contract (default) or the self-contained query schema.
-        #[arg(long, value_enum, requires = "tool")]
-        view: Option<super::schema::SchemeView>,
-        /// Select one union branch by a const field, e.g. `operation=code`. Requires `--view query`.
+        /// Contract view of one tool.
+        #[arg(long, value_parser = ["query", "variants", "full"], requires = "tool")]
+        view: Option<String>,
+        /// Narrow the query view to one branch by a const field, e.g. `operation=symbols`.
         #[arg(long, value_name = "FIELD=VALUE", requires = "tool")]
         select: Option<String>,
-        /// Emit compact single-line JSON instead of indented JSON.
-        #[arg(long)]
-        compact: bool,
     },
-    /// Print the global .env path (defaults to <HOME>/.octocode/.env).
-    #[command(name = "showConfig")]
-    ShowConfig {
-        /// Emit the path and file existence as JSON.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Inspect configuration, edit keys, or open the local configuration view.
-    #[command(args_conflicts_with_subcommands = true)]
+    /// Show configuration files and loaded keys (never values), or edit the global .env.
+    #[command(args_conflicts_with_subcommands = true, disable_help_subcommand = true)]
     Config {
         #[command(subcommand)]
         command: Option<ConfigCommand>,
         /// Private JSON management transport used by the local config view.
-        #[arg(long, hide = true, conflicts_with_all = ["check", "add", "remove", "value_stdin"])]
+        #[arg(long, hide = true)]
         manage: bool,
-        /// Test whether a specific configuration key is set (prints set/unset, never the value). Exit 0 means set; exit 1 means unset.
-        #[arg(long, value_name = "KEY", conflicts_with_all = ["add", "remove"])]
-        check: Option<String>,
-        /// Add or replace a global .env key: --add KEY VALUE (or --add KEY --value-stdin).
-        #[arg(long, num_args = 1..=2, value_names = ["KEY", "VALUE"], conflicts_with = "remove")]
-        add: Vec<String>,
-        /// Read the --add value from stdin, keeping secrets out of shell history.
-        #[arg(long, requires = "add")]
-        value_stdin: bool,
-        /// Remove every assignment for a key from the global .env only.
-        #[arg(long, value_name = "KEY")]
-        remove: Option<String>,
-        /// Emit JSON output.
+        /// Print JSON.
         #[arg(long)]
         json: bool,
     },
-    /// GitHub authentication: `status` (default), `login`, or `logout`.
+    /// GitHub authentication: `status`, `login`, or `logout`.
+    #[command(disable_help_subcommand = true)]
     Auth {
         #[command(subcommand)]
-        command: Option<AuthCommand>,
-        /// Emit JSON output (status only).
-        #[arg(long)]
-        json: bool,
+        command: AuthCommand,
     },
     /// Build (`ingest <path>`) or query (`query <op>`) a persisted code graph in <workspace>/.octocode/graph.
-    #[command(long_about = super::graph::GRAPH_HELP)]
+    #[command(long_about = super::graph::GRAPH_HELP, disable_help_subcommand = true)]
     Graph {
         #[command(subcommand)]
         command: super::graph::GraphCommand,
     },
-    /// Manage bundled Octocode skills (`list`, `install`, `remove`, `check`, `info`); runs the npm launcher's `octocode skill`.
+    /// Install, remove, or check bundled Octocode skills (`octocode skill --help`).
     Skill {
-        /// Arguments forwarded verbatim to the npm launcher's `octocode skill` (e.g. `list --json`, `check --fix`, `info octocode-research`).
+        /// Arguments for the npm launcher's `octocode skill`.
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
-    /// Install the Octocode MCP server into an IDE (Cursor, Windsurf, Claude Desktop, …).
+    /// Add the Octocode MCP server to an agent client's configuration.
     Install {
-        /// Target IDE: `cursor`, `windsurf`, `claude` (= `claude-desktop`), `vscode` (= `vscode-cline`), `zed`, or another id from `--list`.
-        #[arg(long)]
+        /// Client id from `--list`, e.g. `claude-code`, `cursor`, `claude-desktop`.
+        #[arg(long, value_name = "ID")]
         ide: Option<String>,
         /// Overwrite an existing MCP server entry.
         #[arg(long)]
@@ -217,10 +211,10 @@ pub(super) enum Command {
         /// Verify that the MCP config already contains a valid Octocode entry.
         #[arg(long)]
         check: bool,
-        /// List all supported IDE targets.
+        /// List supported client ids.
         #[arg(long)]
         list: bool,
-        /// Emit JSON output.
+        /// Print JSON.
         #[arg(long)]
         json: bool,
         /// Override whether local (filesystem) tools are enabled in the MCP server.
@@ -229,15 +223,25 @@ pub(super) enum Command {
         /// Pass through additional environment variables to the MCP server process.
         #[arg(long)]
         pass_env: bool,
-        /// Installation runner: "npx" (default), "bunx", or "pnpm".
+        /// Installation runner (default npx).
         #[arg(long, value_parser = ["npx", "bunx", "pnpm"])]
         method: Option<String>,
-        /// Restore an agent config from the .bak backup an earlier install left beside it.
-        #[arg(long)]
+        /// Restore a client config from the `.bak` file an earlier install left beside it.
+        #[arg(long, value_name = "FILE")]
         rollback: Option<String>,
     },
 
-    // ── Hidden maintenance commands (not part of the agent surface) ──────────
+    // ── Hidden commands (not part of the agent surface) ──────────────────────
+    /// Machine tool catalog for the npm launcher's `schema`: availability, fields, fingerprint.
+    #[command(hide = true)]
+    Catalog,
+    /// Serve warm lspSearch calls for one workspace over a private socket.
+    #[command(hide = true)]
+    Serve {
+        /// Socket path.
+        #[arg(long)]
+        socket: std::path::PathBuf,
+    },
     /// Show the cache home directory (`status`) or delete all cached GitHub responses (`clear`).
     #[command(hide = true)]
     Cache {
@@ -245,11 +249,11 @@ pub(super) enum Command {
         #[arg(value_parser = ["status", "clear"])]
         action: String,
     },
-    /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `remove`, `clean`, `status`, `which`).
+    /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `clean`, `status`, `which`).
     #[command(name = "lsp-server", hide = true)]
     LspServer {
-        /// Subcommand: `list`, `install <name...>`, `uninstall <name...>` (alias `remove`), `clean`, `status [file]`, or `which [file]`.
-        #[arg(value_parser = ["list", "install", "uninstall", "remove", "clean", "status", "which"])]
+        /// Subcommand: `list`, `install <name...>`, `uninstall <name...>`, `clean`, `status [file]`, or `which [file]`.
+        #[arg(value_parser = ["list", "install", "uninstall", "clean", "status", "which"])]
         action: String,
         /// Server names for install/uninstall (e.g. `rust-analyzer`, `clangd`).
         names: Vec<String>,
@@ -262,11 +266,22 @@ pub(super) enum Command {
         /// Skip the auto-install prompt policy for this run.
         #[arg(long)]
         force: bool,
-        /// Emit JSON output.
+        /// Print JSON.
         #[arg(long)]
         json: bool,
     },
 }
+
+const SCHEMA_HELP: &str = "List tools with agent instructions, or print one tool's input contract.
+
+  octocode schema                                  enabled tools, fields, agent instructions
+  octocode schema <tool>                           variants, usage, then the full contract
+  octocode schema <tool> --view query              the self-contained query schema
+  octocode schema <tool> --view query --select operation=symbols
+                                                   one branch of the query schema
+  octocode schema <tool> --view variants           branch names, selectors, examples
+
+A terminal gets indented JSON; a pipe gets one line.";
 
 #[derive(Subcommand, Debug)]
 pub(super) enum ConfigCommand {
@@ -278,5 +293,30 @@ pub(super) enum ConfigCommand {
         /// Close the local server after this many seconds without an authenticated request.
         #[arg(long, default_value_t = 900, value_parser = clap::value_parser!(u64).range(30..=3600))]
         idle_timeout: u64,
+    },
+    /// Set a key in the global .env: `set KEY VALUE`, or `set KEY --stdin` to keep secrets out of shell history.
+    Set {
+        key: String,
+        value: Option<String>,
+        /// Read the value from stdin.
+        #[arg(long, conflicts_with = "value")]
+        stdin: bool,
+        /// Print JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Remove every assignment of a key from the global .env.
+    Unset {
+        key: String,
+        /// Print JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Exit 0 when a key is set (from the environment or a .env file), 1 when unset; never prints the value.
+    Check {
+        key: String,
+        /// Print JSON.
+        #[arg(long)]
+        json: bool,
     },
 }

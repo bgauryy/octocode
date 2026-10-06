@@ -422,10 +422,11 @@ fn merge_comments(
 /// A later page already holds the header and the menu from page one, and a
 /// file inventory or patch read is read for its files: both carry only the
 /// identity fields every page must re-prove, plus the fields the output
-/// contract requires of every pull-request row. A patch read re-proves only
-/// the head it read; a list page also keeps the merge commit and file count,
-/// and a first inventory page the diff size it lists. Merge state rides
-/// every row; labels ride the first page.
+/// contract requires of every pull-request row. Every view keeps the three
+/// commits that name the change (`sourceSha`, `targetSha`, and a merged
+/// PR's `mergeCommitSha`); a list page also keeps the file count, and a
+/// first inventory page the diff size it lists. Merge state rides every
+/// row; labels ride the first page.
 fn slim_row(row: &mut Value, query: &HistoryItemRequest, patches: bool) {
     let Some(fields) = row.as_object_mut() else {
         return;
@@ -441,11 +442,13 @@ fn slim_row(row: &mut Value, query: &HistoryItemRequest, patches: bool) {
                 | "author"
                 | "createdAt"
                 | "sourceSha"
+                | "targetSha"
+                | "mergeCommitSha"
                 | "mergedAt"
                 | "closedAt"
                 | "targetBranch"
         ) || (first_page && key == "labels")
-            || (!patches && matches!(key.as_str(), "mergeCommitSha" | "changedFilesCount"))
+            || (!patches && key == "changedFilesCount")
             || (totals && matches!(key.as_str(), "additions" | "deletions"))
     });
 }
@@ -489,15 +492,20 @@ fn shape_files_section(
     // Both sides of the numbered diff for its top file: the head (a merged
     // PR's merge read stands for its new side) and the base, whose old-side
     // numbers match while the base has not moved past the diff's merge base.
+    // A file GitHub sent without a patch comes first: no merge read covers
+    // it, so its head read stays.
     let side_reads = if query.later_page() || wants.patch_mode == "none" {
         Vec::new()
     } else {
+        let unpatched =
+            super::pr_menu::first_unpatched(&loaded.items, |file| file_filter.matches(file))
+                .is_some();
         super::pr_menu::change_reads(
             query.owner(),
             query.repo(),
             &loaded.items,
             &super::pr_menu::ChangeSides {
-                new_ref: str_at(raw, "/head/sha").filter(|_| merge_read.is_none()),
+                new_ref: str_at(raw, "/head/sha").filter(|_| merge_read.is_none() || unpatched),
                 old_ref: str_at(raw, "/base/sha").filter(|sha| !sha.is_empty()),
                 old_confidence: "medium",
             },
@@ -1079,6 +1087,9 @@ fn pr_metadata(raw: &Value, query: &HistoryItemRequest) -> Value {
         "targetBranch": str_at(raw,"/base/ref").filter(|v|!v.is_empty()),
         "sourceBranch": str_at(raw,"/head/ref").filter(|v|!v.is_empty()),
         "sourceSha": str_at(raw,"/head/sha").filter(|v|!v.is_empty()),
+        // The target-branch tip GitHub recorded for the PR: not the diff's
+        // old side (that is the merge base, which `readParent` reads).
+        "targetSha": str_at(raw,"/base/sha").filter(|v|!v.is_empty()),
         "createdAt": string(raw.get("created_at")),
         "updatedAt": open.then(|| string(raw.get("updated_at"))).filter(|v| !v.is_empty()),
         "closedAt": (!merged).then(|| raw.get("closed_at").filter(|v|!v.is_null())).flatten(),
@@ -1087,6 +1098,10 @@ fn pr_metadata(raw: &Value, query: &HistoryItemRequest) -> Value {
         // test-merge SHA, which is not on the base branch).
         "mergeCommitSha": merged.then(|| str_at(raw,"/merge_commit_sha")).flatten().filter(|v|!v.is_empty()),
         "commentsCount": nonzero(raw.get("comments")),
+        "commitsCount": nonzero(raw.get("commits")),
+        // Review threads (GraphQL only): REST counts review comments, a
+        // different unit, so a REST read leaves this out.
+        "reviewThreadsCount": nonzero(raw.get("review_threads")),
         "changedFilesCount": nonzero(raw.get("changed_files")),
         "additions": nonzero(raw.get("additions")),
         "deletions": nonzero(raw.get("deletions")),
@@ -1172,5 +1187,51 @@ mod tests {
         );
         assert_eq!(debug["closedAt"], "2026-01-04T00:00:01Z", "{debug}");
         assert_eq!(debug["updatedAt"], "2026-01-05T00:00:00Z", "{debug}");
+    }
+
+    /// HI4: every PR view names the change's three commits: the head
+    /// (`sourceSha`), the recorded target-branch tip (`targetSha`) and a
+    /// merged PR's merge commit, patch and later pages included.
+    #[test]
+    fn every_pr_view_keeps_source_target_and_merge_commits() {
+        let raw = json!({"number":1,"title":"t","user":{"login":"a"},"state":"closed",
+            "merged_at":"2026-01-04T00:00:00Z","merge_commit_sha":"m1",
+            "head":{"sha":"h1","ref":"feat"},"base":{"sha":"b1","ref":"main"},
+            "created_at":"2026-01-01T00:00:00Z","changed_files":3,"additions":5,"deletions":1,
+            "commits":4,"review_threads":2});
+        let row = summary(raw.clone(), false);
+        assert_eq!(
+            (&row["sourceSha"], &row["targetSha"], &row["mergeCommitSha"]),
+            (&json!("h1"), &json!("b1"), &json!("m1")),
+            "{row}"
+        );
+        assert_eq!(row["commitsCount"], 4, "{row}");
+        assert_eq!(row["reviewThreadsCount"], 2, "{row}");
+        for fields in [
+            json!({"sections":["patches"]}),
+            json!({"sections":["files"]}),
+            json!({"sections":["patches"],"matchString":"x"}),
+            json!({"sections":["patches"],"filePage":2}),
+        ] {
+            let query = HistoryItemRequest::from_row(merge(
+                json!({"operation":"pullRequest","owner":"o","repo":"r","number":1}),
+                fields.clone(),
+            ))
+            .expect("query");
+            let mut row = pr_metadata(&raw, &query);
+            slim_row(&mut row, &query, fields["sections"] == json!(["patches"]));
+            for key in ["sourceSha", "targetSha", "mergeCommitSha"] {
+                assert!(row.get(key).is_some(), "{key} {fields}: {row}");
+            }
+        }
+        // An open PR has no merge commit; REST has no review-thread total.
+        let open = summary(
+            json!({"number":1,"state":"open","head":{"sha":"h1"},"base":{"sha":"b1"},
+                "merge_commit_sha":"test-merge","review_comments":9}),
+            false,
+        );
+        assert!(open.get("mergeCommitSha").is_none(), "{open}");
+        assert!(open.get("reviewThreadsCount").is_none(), "{open}");
+        assert_eq!(open["targetSha"], "b1", "{open}");
     }
 }

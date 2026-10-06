@@ -119,7 +119,16 @@ pub(super) fn promote_pr_continuations(out: &mut Value, q: &HistoryItemRequest) 
                 }
             }
         }
-        next.insert(name.into(), menu_read(nq));
+        let lead = menu_read(nq);
+        let patch_read = q
+            .content_value()
+            .is_some_and(|content| content.get("patches").is_some());
+        let lead = if axis == "files" && patch_read {
+            patch_walk_file_page(lead, q)
+        } else {
+            lead
+        };
+        next.insert(name.into(), lead);
     }
     if partial {
         out["isPartial"] = json!(true);
@@ -251,6 +260,101 @@ mod tests {
         let next = &out["next"]["continuePatch"]["query"]["queries"][0];
         assert_eq!(next["offset"], 10, "{out}");
         assert_eq!(next["length"], 10);
+    }
+
+    /// HI9b: the hop that leaves a walk's first patch window asks for twice
+    /// the call's page (capped at the contract maximum); later hops keep the
+    /// page they ran with; a caller's explicit `length` keeps its page.
+    #[test]
+    fn history_b_continue_patch_hops_double_the_first_page_only() {
+        let lead = |fields: Value, page: Option<usize>| {
+            let mut row = json!({
+                "operation":"pullRequest","mainGoal":"test","reasoning":"test",
+                "owner":"a","repo":"b","number":1,"sections":["patches"]
+            });
+            for (key, value) in fields.as_object().into_iter().flatten() {
+                row[key] = value.clone();
+            }
+            let mut query = HistoryItemRequest::from_row(row).expect("query");
+            query.auto_page_chars = page;
+            let mut out = json!({"pullRequests":[{"contentPagination":{
+                "patches":{"hasMore":true,"nextOffset":900}
+            }}]});
+            promote_pr_continuations(&mut out, &query);
+            out["next"]["continuePatch"]["query"].clone()
+        };
+        assert_eq!(lead(json!({}), Some(20_000))["responseLength"], 40_000);
+        assert_eq!(lead(json!({}), Some(40_000))["responseLength"], 50_000);
+        assert_eq!(
+            lead(json!({"offset":5}), Some(40_000))["responseLength"],
+            40_000
+        );
+        // A file page a walk opens names offset 0: it keeps the page.
+        assert_eq!(
+            lead(json!({"offset":0}), Some(40_000))["responseLength"],
+            40_000
+        );
+        assert_eq!(
+            lead(json!({"length":900}), Some(20_000))["responseLength"],
+            20_000
+        );
+        assert!(lead(json!({}), None).get("responseLength").is_none());
+        let hop = lead(json!({}), Some(5_000));
+        assert_eq!(hop["responseLength"], 10_000);
+        assert!(hop["queries"][0].get("length").is_none(), "{hop}");
+        crate::contracts::validate("ghGetHistoryItem", hop).expect("a valid hop");
+
+        let mut commit = HistoryItemRequest::from_row(json!({
+            "operation":"commit","mainGoal":"test","reasoning":"test","owner":"a","repo":"b",
+            "ref":"abc","sections":["patches"]
+        }))
+        .expect("commit query");
+        commit.auto_page_chars = Some(20_000);
+        let mut out =
+            json!({"filePagination":{"currentPage":1,"hasMore":false,"nextPatchOffset":10}});
+        let cursors = DiffCursors::of_file_page(&out["filePagination"], true);
+        attach_diff_continuations(
+            &mut out,
+            &commit,
+            ItemOperation::Commit,
+            Some("abc"),
+            false,
+            cursors,
+        );
+        assert_eq!(
+            out["next"]["continuePatch"]["query"]["responseLength"], 40_000,
+            "{out}"
+        );
+
+        // The next file page of a patch walk opens at offset 0 and keeps
+        // the walk's page; an inventory's next file page asks for neither.
+        let file_page = |sections: Value, offset: Option<u64>| {
+            let mut row = json!({
+                "operation":"pullRequest","mainGoal":"test","reasoning":"test",
+                "owner":"a","repo":"b","number":1,"sections":sections
+            });
+            if let Some(offset) = offset {
+                row["offset"] = json!(offset);
+            }
+            let mut query = HistoryItemRequest::from_row(row).expect("query");
+            query.auto_page_chars = Some(40_000);
+            let mut out = json!({"pullRequests":[{"contentPagination":{
+                "files":{"hasMore":true,"nextPage":2}
+            }}]});
+            promote_pr_continuations(&mut out, &query);
+            out["next"]["nextFilePage"]["query"].clone()
+        };
+        let walk = file_page(json!(["patches"]), Some(31_000));
+        assert_eq!(walk["responseLength"], 40_000, "{walk}");
+        assert_eq!(walk["queries"][0]["offset"], 0, "{walk}");
+        assert_eq!(walk["queries"][0]["filePage"], 2, "{walk}");
+        crate::contracts::validate("ghGetHistoryItem", walk).expect("a valid hop");
+        let inventory = file_page(json!(["files"]), None);
+        assert!(inventory.get("responseLength").is_none(), "{inventory}");
+        assert!(
+            inventory["queries"][0].get("offset").is_none(),
+            "{inventory}"
+        );
     }
 
     #[test]
@@ -515,7 +619,7 @@ mod tests {
                 "pkg/cmd/pr/view.go",
                 1,
                 0,
-                "@@ -9,1 +9,2 @@\n x\n+count := 1",
+                "@@ -9,1 +9,2 @@\n x\n+count := countItems(pr)",
             ),
             file(
                 "pkg/cmd/pr/merge/merge.go",
@@ -533,11 +637,13 @@ mod tests {
         let all = |_: &Value| true;
         let read = read_at_merge(&query, &merged, &files, all).expect("offer");
         assert_eq!(read["tool"], "ghGetFileContent");
+        // HI11: the diff numbers `sourceSha`; the merge commit is searched
+        // for one distinctive added line per hunk, never read by number.
         assert_eq!(
             read["query"],
             json!({"queries":[{"owner":"cli","repo":"cli","ref":"8fcd6a6",
                 "path":"pkg/cmd/pr/merge/merge.go",
-                "ranges":["579-612","890-910"]}]})
+                "matchString":["crossRepoPR:        pr.IsCrossRepository,"]}]})
         );
         // An `include` read offers only a file it selected.
         let view = |file: &Value| file["filename"] == "pkg/cmd/pr/view.go";
@@ -558,6 +664,13 @@ mod tests {
         assert!(read_at_merge(&query, &merged, &patchless, all).is_none());
         let removed = [file("a.go", 0, 1, "@@ -1 +0,0 @@\n-x := 1")];
         assert!(read_at_merge(&query, &merged, &removed, all).is_none());
+        // A fix of short lines only still locates them.
+        let short = [file("a.go", 1, 0, "@@ -1 +1 @@\n+\tok := true")];
+        let read = read_at_merge(&query, &merged, &short, all).expect("short offer");
+        assert_eq!(
+            read["query"]["queries"][0]["matchString"],
+            json!(["ok := true"])
+        );
         // Docs and tests are not the shipped fix: no code file, no offer.
         let no_code = [
             file(
@@ -604,11 +717,6 @@ mod tests {
             reads[1].1["query"],
             json!({"queries":[{"owner":"o","repo":"r","path":"src/lib.rs","ref":"parent1","ranges":["30-52"]}]})
         );
-        // The new side of the same hunk is 50-73: merge reads use it.
-        assert_eq!(
-            merge_windows("@@ -40,3 +60,4 @@ fn f\n a\n-b\n+c\n+d\n e"),
-            ["50-73"]
-        );
         // A rename reads its parent under the old path; an added file has
         // no parent side, a removed one no new side.
         let mut renamed = modified.clone();
@@ -641,31 +749,46 @@ mod tests {
         );
     }
 
-    /// Hunk spans merge where their padded windows touch, start at line 1,
-    /// skip pure deletions, and fit one read's range cap.
+    /// Old-side hunk spans merge where their padded windows touch, start at
+    /// line 1, skip pure additions, and fit one read's range cap.
     #[test]
-    fn merge_windows_fit_one_ranged_read() {
-        assert_eq!(merge_windows("@@ -1,3 +1,4 @@ fn a\n"), ["1-14"]);
-        assert_eq!(merge_windows("@@ -5 +5 @@\n@@ -40,2 +38,0 @@\n"), ["1-15"]);
+    fn parent_windows_fit_one_ranged_read() {
+        assert_eq!(parent_windows("@@ -1,4 +1,3 @@ fn a\n"), ["1-14"]);
+        assert_eq!(parent_windows("@@ -5 +5 @@\n@@ -38,0 +40,2 @@\n"), ["1-15"]);
         // A hunk with fewer trailing context lines than the diff keeps ends
         // at the end of the file: its span stops at its last line.
         assert_eq!(
-            merge_windows("@@ -10,4 +10,5 @@\n a\n b\n c\n+d\n e\n"),
+            parent_windows("@@ -10,5 +10,4 @@\n a\n b\n c\n-d\n e\n"),
             ["1-14"]
         );
         assert_eq!(
-            merge_windows("@@ -10,6 +10,7 @@\n a\n b\n c\n+d\n e\n f\n g\n"),
+            parent_windows("@@ -10,7 +10,6 @@\n a\n b\n c\n-d\n e\n f\n g\n"),
             ["1-26"]
         );
         let many = (0..15)
             .map(|i| format!("@@ -{0},1 +{0},1 @@\n", 100 * (i + 1) + i))
             .collect::<String>();
-        let ranges = merge_windows(&many);
-        assert_eq!(ranges.len(), MERGE_WINDOW_RANGES, "{ranges:?}");
+        let ranges = parent_windows(&many);
+        assert_eq!(ranges.len(), PARENT_WINDOW_RANGES, "{ranges:?}");
         assert!(ranges[0].starts_with("90-"), "{ranges:?}");
         assert!(
-            ranges[MERGE_WINDOW_RANGES - 1].ends_with("-1524"),
+            ranges[PARENT_WINDOW_RANGES - 1].ends_with("-1524"),
             "{ranges:?}"
+        );
+    }
+
+    /// HI11: one distinctive added line per hunk (the longest of at most
+    /// 200 chars, not punctuation, not a redaction; under 12 chars only when
+    /// no hunk has a longer one), duplicates once.
+    #[test]
+    fn distinctive_added_lines_pick_one_locator_per_hunk() {
+        let patch = "@@ -1,3 +1,4 @@\n a\n+  }\n+  const total = items.length;\n+  let x = 1;\n@@ -40 +41,2 @@\n+});\n+[REDACTED secret value here]\n@@ -90 +92 @@\n+  const total = items.length;\n@@ -99 +100 @@\n+    return computeTotal(items, options);";
+        assert_eq!(
+            distinctive_added_lines(patch),
+            [
+                "const total = items.length;",
+                "return computeTotal(items, options);"
+            ]
         );
     }
 
@@ -824,7 +947,7 @@ mod tests {
 
     /// One canonical query per page: a file page with unread patches offers
     /// only `continuePatch`; the window that finishes the page's patches
-    /// offers the next file page, without any patch offset.
+    /// offers the next file page at the patch stream's start.
     #[test]
     fn the_next_file_page_follows_the_last_patch_window() {
         let query: HistoryItemRequest = HistoryItemRequest::from_row(json!({
@@ -856,11 +979,13 @@ mod tests {
         assert_eq!(names, Some(vec!["nextFilePage".to_owned()]), "{last}");
         let page = &last["next"]["nextFilePage"]["query"]["queries"][0];
         assert_eq!(page["filePage"], 2, "{page}");
-        assert!(page.get("offset").is_none(), "{page}");
+        // The walk's next file page opens at the stream start (HI9b: an
+        // explicit 0 keeps the walk's page), never at the old cursor.
+        assert_eq!(page["offset"], 0, "{page}");
     }
 
     /// Compare: each page has one canonical query. The commit page drops
-    /// every file cursor; the file page drops the patch offset and follows
+    /// every file cursor; the file page restarts the patch offset and follows
     /// the last patch window; a patch hop re-offers neither.
     #[test]
     fn compare_pages_are_offered_once_with_their_own_cursor_only() {
@@ -920,7 +1045,7 @@ mod tests {
         assert_eq!(names, Some(vec!["nextFilePage".to_owned()]), "{last}");
         let files = &last["next"]["nextFilePage"]["query"]["queries"][0];
         assert_eq!(files["filePage"], 2, "{files}");
-        assert!(files.get("offset").is_none(), "{files}");
+        assert_eq!(files["offset"], 0, "{files}");
     }
 
     #[test]

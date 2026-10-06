@@ -17,7 +17,7 @@ const frozenTime = new Date('2020-09-13T12:26:40.443Z');
 await utimes(source, frozenTime, frozenTime);
 const env = {
   ...process.env,
-  ENABLE_LOCAL: 'true',
+  OCTOCODE_ENABLE_LOCAL: 'true',
   WORKSPACE_ROOT: fixture,
   ALLOWED_PATHS: fixture,
   NODE_ENV: 'development',

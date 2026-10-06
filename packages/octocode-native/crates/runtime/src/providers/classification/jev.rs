@@ -17,10 +17,6 @@ impl ClassificationProvider for Jev {
         "jev"
     }
 
-    fn key_env(&self) -> &'static str {
-        "OCTOCODE_JEV_KEY"
-    }
-
     fn default_host(&self) -> &'static str {
         "https://api.typesafe.ai"
     }

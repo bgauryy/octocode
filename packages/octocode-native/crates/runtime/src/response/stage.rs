@@ -375,7 +375,7 @@ mod tests {
             let rows = json!({"results":[
                 {"index":0,"data":{"path":"a.txt","content":"one\n".repeat(200),"totalLines":200}},
                 {"index":1,"status":"error","data":{"error":"Not found","errorCode":"notFound",
-                    "retryable":false,"httpStatus":404,"requestId":request_id,
+                    "httpStatus":404,"requestId":request_id,
                     "rateLimit":{"remaining":4999,"resetEpochSeconds":1_700_000_000}}}]});
             let outcome = finish(
                 StageInput {

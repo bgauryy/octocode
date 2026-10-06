@@ -65,21 +65,22 @@ describe('skill status output surfaces stale installs', () => {
   it('list marks a drifted install stale and points at check --fix', () => {
     runList({ json: false });
     const text = output();
-    expect(text).toMatch(/installed · 1 stale/);
-    expect(text).toContain(`${SKILL} [stale]`);
+    expect(text).toMatch(new RegExp(`⚠ ${SKILL} +stale`));
     expect(text).toContain('octocode skill check --fix');
+    // Descriptions live in `skill info`, not the list.
+    expect(text).not.toContain(getSkill(SKILL)?.description ?? '∅');
   });
 
-  it('list JSON exposes hasStale and staleCount', () => {
+  it('list JSON carries the same status as check', () => {
     runList({ json: true });
     const parsed = JSON.parse(output()) as {
-      staleCount: number;
-      skills: Array<{ name: string; hasStale: boolean }>;
+      installedCount: number;
+      skills: Array<{ name: string; status: string }>;
     };
-    expect(parsed.staleCount).toBe(1);
-    expect(parsed.skills.find(skill => skill.name === SKILL)?.hasStale).toBe(
-      true
+    expect(parsed.skills.find(skill => skill.name === SKILL)?.status).toBe(
+      'stale'
     );
+    expect(parsed.installedCount).toBeGreaterThanOrEqual(1);
   });
 
   it('check summary counts ok/stale separately and suggests --fix', () => {
@@ -93,10 +94,37 @@ describe('skill status output surfaces stale installs', () => {
       json: false,
     });
     const text = output();
-    expect(text).toContain(`${SKILL}: stale`);
-    expect(text).toContain('0/1 ok; 1 stale; 0 broken; 0 not installed');
-    expect(text).toContain('Repair with octocode skill check --fix');
+    expect(text).toContain(`${SKILL} stale`);
+    expect(text).toContain(
+      '0 ok, 0 not installed, 1 stale, 0 broken, 0 retired'
+    );
+    expect(text).toContain('Repair: octocode skill check --fix');
     expect(process.exitCode).toBe(1);
+  });
+
+  it('a link the user made to a checkout outside the skills home is theirs: ok, never stale', () => {
+    const checkout = path.join(sandbox.root, 'checkout', SKILL);
+    fs.cpSync(path.join(sandbox.root, 'home', 'skills', SKILL), checkout, {
+      recursive: true,
+    });
+    fs.rmSync(path.join(sandbox.root, 'home', 'skills', SKILL), {
+      recursive: true,
+      force: true,
+    });
+    const link = path.join(sandbox.root, 'platforms', 'claude', SKILL);
+    fs.mkdirSync(path.dirname(link), { recursive: true });
+    fs.symlinkSync(checkout, link);
+    runCheck({
+      names: [SKILL],
+      platform: null,
+      workspace: false,
+      fix: false,
+      dryRun: false,
+      noEnv: true,
+      json: false,
+    });
+    expect(output()).toContain(`${SKILL} ok`);
+    expect(process.exitCode).toBeUndefined();
   });
 
   it('check --fix refreshes only existing locations, never new platforms or workspace', () => {
@@ -109,7 +137,7 @@ describe('skill status output surfaces stale installs', () => {
       noEnv: true,
       json: false,
     });
-    expect(output()).toContain(`${SKILL}: ok`);
+    expect(output()).toContain(`${SKILL} ok`);
     expect(fs.existsSync(path.join(sandbox.root, 'platforms'))).toBe(false);
     expect(
       fs.existsSync(path.join(process.cwd(), '.agents', 'skills', SKILL))

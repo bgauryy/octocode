@@ -5,7 +5,7 @@ Raw outputs: `../probes/github/<name>.{cmd,out,err,meta}` (`.cmd` has the exact 
 Helper: `../probes/github/p.sh <name> <tool> '<json>'`. `G` below = `"goal":"validate feature","reasoning":"live probe of documented claim"`.
 Doc abbreviations: TOOLS = docs/OCTOCODE_TOOLS.md, TDC = docs/TOOL_DATA_CONTRACT.md, MCPD = docs/OCTOCODE_MCP.md, CLI = packages/octocode/docs/OCTOCODE_CLI.md.
 
-Environment note: during the run another agent's in-flight contract regen made `octocode scheme` exit 5 (`Contract drift: core 872ab3bb… != native 2a388c88…`) and the MCP server refuse to start with the same fingerprint mismatch. Tool commands kept working through the CLI. MCP parity was probed from code and docs, and live only if the server recovered (see MCP section).
+Environment note: during the run another agent's in-flight contract regen made `octocode schema` exit 5 (`Contract drift: core 872ab3bb… != native 2a388c88…`) and the MCP server refuse to start with the same fingerprint mismatch. Tool commands kept working through the CLI. MCP parity was probed from code and docs, and live only if the server recovered (see MCP section).
 
 ## Feature table
 

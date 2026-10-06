@@ -108,7 +108,7 @@ async fn native_cli_status_reports_a_rejected_token_as_invalid() {
             let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
             assert_eq!(value["authenticated"], false, "{value}");
             assert_eq!(value["verification"], "invalid", "{value}");
-            assert_eq!(value["tokenPresent"], true, "{value}");
+            assert_eq!(value["tokenSource"], "env", "{value}");
         } else {
             assert_eq!(output.status.code(), Some(1));
             assert!(

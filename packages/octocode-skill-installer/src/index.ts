@@ -27,7 +27,6 @@ export type SkillDestinationStatus =
 
 export interface SkillPlatformDescriptor {
   readonly platform: SkillPlatform;
-  readonly aliases: readonly string[];
   readonly autoMode: 'symlink' | 'copy';
   readonly globalRelativePath: string;
   readonly projectRelativePath: string;
@@ -53,49 +52,42 @@ export interface SkillPlatformDescriptor {
 export const SKILL_PLATFORMS: readonly SkillPlatformDescriptor[] = [
   {
     platform: 'pi',
-    aliases: [],
     autoMode: 'symlink',
     globalRelativePath: '.pi/agent/skills',
     projectRelativePath: '.pi/skills',
   },
   {
     platform: 'cursor',
-    aliases: [],
     autoMode: 'symlink',
     globalRelativePath: '.cursor/skills',
     projectRelativePath: '.cursor/skills',
   },
   {
     platform: 'claude',
-    aliases: ['claude-desktop'],
     autoMode: 'symlink',
     globalRelativePath: '.claude/skills',
     projectRelativePath: '.claude/skills',
   },
   {
     platform: 'codex',
-    aliases: ['shared', 'common', 'agents', 'codex-native'],
     autoMode: 'symlink',
     globalRelativePath: '.agents/skills',
     projectRelativePath: '.agents/skills',
   },
   {
     platform: 'opencode',
-    aliases: [],
     autoMode: 'symlink',
     globalRelativePath: '.config/opencode/skills',
     projectRelativePath: '.opencode/skills',
   },
   {
     platform: 'copilot',
-    aliases: [],
     autoMode: 'symlink',
     globalRelativePath: '.copilot/skills',
     projectRelativePath: '.github/skills',
   },
   {
     platform: 'gemini',
-    aliases: [],
     autoMode: 'symlink',
     globalRelativePath: '.gemini/skills',
     projectRelativePath: '.gemini/skills',
@@ -103,15 +95,12 @@ export const SKILL_PLATFORMS: readonly SkillPlatformDescriptor[] = [
 ] as const;
 
 export const VALID_SKILL_PLATFORM_VALUES = [
-  ...SKILL_PLATFORMS.flatMap(({ platform, aliases }) => [platform, ...aliases]),
+  ...SKILL_PLATFORMS.map(({ platform }) => platform),
   'all',
 ] as const;
 
 const PLATFORM_BY_VALUE = new Map<string, SkillPlatform>(
-  SKILL_PLATFORMS.flatMap(({ platform, aliases }) => [
-    [platform, platform] as const,
-    ...aliases.map(alias => [alias, platform] as const),
-  ])
+  SKILL_PLATFORMS.map(({ platform }) => [platform, platform] as const)
 );
 
 const PLATFORM_DESCRIPTOR_BY_NAME = new Map<
@@ -120,19 +109,7 @@ const PLATFORM_DESCRIPTOR_BY_NAME = new Map<
 >(SKILL_PLATFORMS.map(descriptor => [descriptor.platform, descriptor]));
 
 export function formatSkillPlatformHelp(): string {
-  const canonical = [
-    ...SKILL_PLATFORMS.map(({ platform }) => platform),
-    'all',
-  ].join(' | ');
-  const aliases = SKILL_PLATFORMS.filter(
-    ({ aliases: platformAliases }) => platformAliases.length > 0
-  )
-    .map(
-      ({ platform, aliases: platformAliases }) =>
-        `${platformAliases.join(', ')} -> ${platform}`
-    )
-    .join('; ');
-  return aliases ? `${canonical} (aliases: ${aliases})` : canonical;
+  return VALID_SKILL_PLATFORM_VALUES.join(', ');
 }
 
 export function parseSkillPlatforms(raw: string): {

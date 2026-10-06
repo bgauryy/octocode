@@ -4,7 +4,7 @@ Load when you shape errors, ownership, conversions, control flow, or a public AP
 
 ## Errors
 - A fallible function returns `Result<T, E>` and propagates with `?`. No `.unwrap()`/`.expect()` in production paths; `expect` only for a true invariant, with a message that says why it cannot fail.
-- Library: one `thiserror` enum per crate, one variant per failure mode, `#[from]` for source errors. Never `Result<T, String>`, `Box<dyn Error>`, or `anyhow::Error` in a library API: `anyhow` forces the collapse on every consumer.
+- Library: typed failure variants callers can inspect. Use an existing error type first; `thiserror` is useful when already available or a dependency is authorized. Preserve machine-readable reasons through host conversion.
 - Binary: `anyhow::Result`, with `.context("what we were doing")` at each boundary.
 - Convert at boundaries with `From`/`TryFrom` so `?` lifts the error; no `match` ladders that only remap errors.
 - Combine `Option` with `?`, `ok_or`, `unwrap_or`, `map`, `and_then`.
@@ -36,6 +36,14 @@ Load when you shape errors, ownership, conversions, control flow, or a public AP
 3. **`Mutex` guard across `.await`**: other tasks stall, worst case forever. Keep `std::sync::Mutex` sections short and await-free. Use the heavier `tokio::sync::Mutex` only when you must hold across an await.
 
 Also: `select!` can cancel a future mid-operation (cancellation safety); a dropped `JoinHandle` loses the panic/result.
+
+## Request lifetime: Octocode example
+- Admit requests synchronously before scheduling asynchronous work. Reject closed runtimes, duplicate IDs, and a full pending queue at admission.
+- An RAII guard owns request registration; a semaphore permit bounds running work. Dropping unstarted admission releases its registration.
+- Pass cancellation and deadline through an execution context. Check them in long loops and before returning results.
+- A started blocking task cannot be stopped by dropping its future. Signal cancellation and join it before reporting resource cleanup complete.
+- Closing rejects new work, cancels existing requests, and waits for their guards to release. Keep mutex sections short and await-free.
+- Test dropping admission, queue saturation, duplicate IDs, cancellation, timeout, and close while work still owns resources.
 
 ## API surface
 - `Display` for user-facing text, `Debug` for developers.

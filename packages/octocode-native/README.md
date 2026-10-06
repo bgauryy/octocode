@@ -11,10 +11,10 @@ or `./runtime`.
 $ octocode --version
 octocode 20.0.0
 
-$ octocode scheme
+$ octocode schema
 {"kind":"octocode.toolCatalog","toolCount":16,"tools":[…]}      # availability + compact fields per tool
 
-$ octocode scheme localSearch
+$ octocode schema localSearch
 {"name":"localSearch","shortDescription":"…","querySchema":{…},"run":"…"}  # complete tool contract
 
 $ octocode localSearch '{"queries":[{"matchString":"ToolRuntime","path":"src/","resultView":"matchOnly","reasoning":"Locate the runtime entry."}]}'
@@ -23,12 +23,11 @@ $ octocode localSearch '{"queries":[{"matchString":"ToolRuntime","path":"src/","
 
 Every tool is a first-class command under its canonical name — the same name
 and the same JSON query contract as the MCP server. There are no per-tool flag
-wrappers and no aliases. `scheme` is a machine catalog: it carries
-availability, contract fields, and schemas, but no agent workflow instructions,
-full descriptions, or examples — those ship with the `octocode` npm launcher and
-the MCP server. The catalog renders each core-owned `shortDescription` as
-`tools[].description`; a tool-specific scheme returns the `shortDescription`,
-the complete contract, and the concrete `run` invocation.
+wrappers and no aliases. `octocode schema` (tool contracts, descriptions,
+examples, agent instructions) is served by the `octocode` npm launcher, which
+joins the core-owned presentation with this binary's hidden machine `catalog`
+(availability, field lists, enforcement fingerprint); the binary embeds no
+presentation of its own.
 
 ## Install
 
@@ -157,9 +156,9 @@ yarn workspace @octocodeai/octocode-native platforms:check
 
 ```sh
 # discover availability + canonical workflow, then one tool's contract
-octocode scheme
-octocode scheme localFetch
-octocode scheme ghSearchHistory --view query --select operation=commit   # workflow + one union branch
+octocode schema
+octocode schema localFetch
+octocode schema ghSearchHistory --view query --select operation=commit   # workflow + one union branch
 
 # local file read (paginated; exit 6 + a re-runnable next.* continuation in the JSON)
 octocode localFetch '{"queries":[{"path":"src/cli/mod.rs","ranges":["1-50"],"reasoning":"Read the dispatch entry."}]}'
@@ -196,16 +195,17 @@ octocode artifactSearch '{"queries":[{"type":"crates","packageName":"clap","reas
 octocode clasify --input query.json
 ```
 
-Exact field names per tool come from `octocode scheme <tool>` — the examples
+Exact field names per tool come from `octocode schema <tool>` — the examples
 above elide required fields for brevity.
 
 ## Commands
 
 ### Tools — one command per tool
 
-Each command takes one positional raw JSON query (or `--input <file>`) and
-prints single-line JSON (`--pretty` indents). The JSON
-contract is identical to the MCP server tool of the same name.
+Each command takes one JSON query (positional, `--input <file>`, or `--input -`
+for stdin). On a terminal it prints the rendered text MCP clients read; on a
+pipe, single-line JSON (`--json` forces JSON). The JSON contract is identical to
+the MCP server tool of the same name.
 
 | Command | What it does |
 |---|---|
@@ -224,16 +224,16 @@ contract is identical to the MCP server tool of the same name.
 | `ghGetHistoryItem` | Read one PR, issue, commit, or comparison. |
 | `ghCloneRepo` | Clone into the local cache for offline analysis. |
 | `artifactSearch` | Package lookup/discovery across 8 registries. |
-| `clasify` | Apply Noul, Choice, or Score questions to one resource matrix or a batch of independent matrices. Requires a classification key (`OCTOCODE_CLASSIFICATION_API`, `OCTOCODE_JEV_KEY`, or `classification.api` in `.octocoderc`); CLI calls without one report the missing key. |
+| `clasify` | Apply Noul, Choice, or Score questions to one resource matrix or a batch of independent matrices. Requires a classification key (`OCTOCODE_CLASSIFICATION_API` or `classification.api` in `.octocoderc`); CLI calls without one report the missing key. |
 
 ### System
 
 | Command | What it does |
 |---|---|
-| `scheme [tool]` | No name: compact catalog of every tool with availability. With a name: the complete contract. `--view query` for the self-contained query schema; `--select FIELD=VALUE` to keep one union branch. |
-| `config` | Show config file paths and set key names — values are never printed. `--check <key>` tests one key; `--json`. |
-| `auth` | Auth status (default). `auth login` (device flow; `--refresh`, `--force`, `--hostname`), `auth logout`. |
-| `install` | Install the MCP server into an IDE. `claude` aliases `claude-desktop`; `vscode` aliases `vscode-cline`. |
+| `schema [tool]` | Served by the npm launcher (see above); the binary prints where to run it. |
+| `config` | Config paths, loaded key names, and warnings — values are never printed (`--json`). `set KEY VALUE` / `set KEY --stdin`, `unset KEY`, `check KEY`, `view`. |
+| `auth` | `status` (`--json`), `login` (device flow; `--refresh`, `--force`, `--hostname`), `logout`. |
+| `install` | Add the MCP server to an agent client: `--ide <id>` with an exact id from `--list`. |
 | `skill <args…>` | Pass-through to the `octocode skill` Node CLI. |
 | `help` | Print help. |
 
@@ -246,11 +246,11 @@ Hidden maintenance commands (not part of the agent surface, still available):
 |---|---|
 | `0` | Success |
 | `1` | Empty result / no matches |
-| `2` | Invalid input, including any rejected batch row (also clap argument errors) |
+| `2` | Invalid input, including any rejected batch row |
 | `3` | Not found |
 | `4` | Auth required |
 | `5` | Execution error |
-| `6` | Partial result — the response carries a re-runnable `next.*` continuation |
+| `6` | Partial result: the response carries a re-runnable `next.*` continuation |
 | `7` | Rate limited |
 | `130` | Interrupted (Ctrl-C) |
 
@@ -263,8 +263,8 @@ Hidden maintenance commands (not part of the agent surface, still available):
 | **Startup (help/auth)** | ~8 ms | ~120 ms |
 | **Startup (tool call)** | ~160 ms | ~330 ms |
 | **Binary size** | ~50 MB release | 1 KB entry + node_modules |
-| **Query interface** | Raw JSON per tool (`octocode <tool> '<json>'`), schemas via `scheme` | Delegates to the native binary |
-| **Output** | Single-line JSON (`--pretty` indents) | Same — the Node CLI is a launcher |
+| **Query interface** | Raw JSON per tool (`octocode <tool> '<json>'`) | Same, plus `schema` views |
+| **Output** | Text on a terminal, single-line JSON on a pipe | Same — the Node CLI is a launcher |
 | **Environments without Node** | ✓ Standalone | ✗ Node required |
 | **Interactive UI** | Plain text | Menus, spinners, colored headers |
 | **Auth flow** | Native GitHub device flow with keychain storage | Native interactive OAuth with keychain |

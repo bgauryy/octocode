@@ -25,6 +25,8 @@ pub(super) fn needs_issue_search_qualifiers(q: &HistorySearch) -> bool {
         || f.reactions.is_some()
         || f.comments.is_some()
         || f.created.is_some()
+        || q.since().is_some()
+        || q.until().is_some()
         || f.updated.is_some()
         || f.closed.is_some()
         || !f.match_kinds.is_empty()
@@ -92,7 +94,7 @@ fn validate_history_scope(q: &HistorySearch) -> Result<(), ProviderError> {
 
 /// Resolves `since`/`until`, rejecting an unparseable value or an inverted
 /// window (since after until) as a validation error: a dropped bound would
-/// list unfiltered commits as if they matched.
+/// list unfiltered rows as if they matched.
 pub(super) fn resolve_commit_window(
     q: &GhSearchHistoryQuery,
     warnings: &mut Vec<String>,
@@ -177,17 +179,59 @@ fn commit_terms(
         }
     }
     let (since, until) = resolve_commit_window(q, warnings)?;
-    match (since.as_deref(), until.as_deref()) {
-        (Some(since), Some(until)) => out.push(format!("committer-date:{since}..{until}")),
-        (Some(since), None) => out.push(format!("committer-date:>={since}")),
-        (None, Some(until)) => out.push(format!("committer-date:<={until}")),
-        (None, None) => {}
+    if let Some(range) = window_range(since.as_deref(), until.as_deref()) {
+        out.push(format!("committer-date:{range}"));
     }
     Ok(())
 }
 
-fn issue_terms(q: &HistorySearch, out: &mut Vec<String>) -> Result<(), ProviderError> {
+/// A resolved `since`/`until` window as one search range value.
+pub(super) fn window_range(since: Option<&str>, until: Option<&str>) -> Option<String> {
+    match (since, until) {
+        (Some(since), Some(until)) => Some(format!("{since}..{until}")),
+        (Some(since), None) => Some(format!(">={since}")),
+        (None, Some(until)) => Some(format!("<={until}")),
+        (None, None) => None,
+    }
+}
+
+/// The `created:` range a pull-request or issue `since`/`until` window
+/// maps to. Search has no generic date, so the window is the creation date
+/// and a warning names the mapping (never a guessed `merged:`); a
+/// `created:` qualifier set too is a conflict, never silently overridden.
+fn created_window(
+    q: &HistorySearch,
+    warnings: &mut Vec<String>,
+) -> Result<Option<String>, ProviderError> {
+    if q.since().is_none() && q.until().is_none() {
+        return Ok(None);
+    }
+    if q.filters().created.is_some() {
+        return Err(ProviderError::new(
+            ProviderErrorKind::Validation,
+            "since/until set the created: window; remove created: from qualifiers, or drop since/until.",
+        ));
+    }
+    let (since, until) = resolve_commit_window(q, warnings)?;
+    let range = window_range(since.as_deref(), until.as_deref());
+    if let Some(range) = &range {
+        warnings.push(format!(
+            "since/until → created:{range}; for the merge date use qualifiers merged:{range}"
+        ));
+    }
+    Ok(range)
+}
+
+fn issue_terms(
+    q: &HistorySearch,
+    out: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) -> Result<(), ProviderError> {
     let f = q.filters();
+    let created = match created_window(q, warnings)? {
+        Some(range) => Some(range),
+        None => f.created.clone(),
+    };
     if !f.match_kinds.is_empty() {
         push_qualifier(out, "in", Some(&f.match_kinds.join(",")))?;
     }
@@ -213,7 +257,7 @@ fn issue_terms(q: &HistorySearch, out: &mut Vec<String>) -> Result<(), ProviderE
         .chain([
             ("head", q.head()),
             ("base", q.base()),
-            ("created", f.created.as_deref()),
+            ("created", created.as_deref()),
             ("updated", f.updated.as_deref()),
             ("merged", f.merged_at.as_deref()),
             ("closed", f.closed.as_deref()),
@@ -255,7 +299,9 @@ pub(super) fn build_query_with_warnings(
         .collect::<Vec<_>>();
     match q.operation() {
         HistoryOperation::Commit => commit_terms(q, &mut out, &mut warnings)?,
-        HistoryOperation::PullRequest | HistoryOperation::Issue => issue_terms(q, &mut out)?,
+        HistoryOperation::PullRequest | HistoryOperation::Issue => {
+            issue_terms(q, &mut out, &mut warnings)?;
+        }
     }
     Ok((out.join(" "), warnings))
 }

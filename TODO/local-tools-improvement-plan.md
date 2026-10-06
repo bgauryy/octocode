@@ -38,7 +38,7 @@ Evidence: [fresh MCP reproduction](../.octocode/tmp/local-tools-audit-20261001/f
 
 ### Results (2026-10-02)
 
-- Baseline: HEAD 81530d26c, clean native tree; artifacts built 2026-10-01 23:15; `scheme` exit 0 (no drift); full lib suite green before changes except a load-sensitive GitHub credential-discovery timeout that passed on rerun.
+- Baseline: HEAD 81530d26c, clean native tree; artifacts built 2026-10-01 23:15; `schema` exit 0 (no drift); full lib suite green before changes except a load-sensitive GitHub credential-discovery timeout that passed on rerun.
 - Re-verified on that build in a fresh persistent MCP (`node .octocode/tmp/local-tools-impl-20261001/repro-cache-identity.mjs …/phase0-before.json`): the `alpha` cursor reused with `searchText`, `include`, `defaultExcludes`, or `caseMode` changed still returned `other.ts:2 alpha(3)`; fresh control → empty. Receipts: `.octocode/tmp/local-tools-impl-20261001/phase0-before.json`.
 - Re-verified source defects still open: importer scan `cancel.check().is_err()` captured once (`lsp_search/importers.rs`), prefix-retaining `read_leading_lines`, process-wide `APPLY_LOCK` on preview.
 
@@ -226,7 +226,7 @@ Why this helps: coverage labels and valid schemas prove structure, not behavior.
 - Behavioral cases added per risky interaction: cursor×query identity (Phase 1 test + live), cancellation×worker launch (Phase 2 tests), source change×redaction (Phase 3 shrunk-source/late-key tests), source change×continuation (`continuations_reuse_their_scan_until_a_matched_file_changes`), selection×hash guards (below). `contract_field_effects` unchanged and green.
 - `node .octocode/tmp/local-tools-impl-20261001/phase7.mjs` with `P7_FIX=<scratchpad>/p7root/p7` (outside the repo so ignore rules don't hide it; `ALLOWED_PATHS` set) through a fresh MCP + CLI: 15/15 (`…/phase7-results.json`). Covers structureSearch → localSearch → localFetch → lspSearch references (aliased `renamed` import found; same-spelled local `alpha` in c.ts excluded); astTopology deadCode (`unused.ts`, `basis: syntactic`) → lspSearch (no refs, `exhaustive:false`); 30-file page walk (each file once); old cursor + changed `searchText` → `staleSnapshot`; clasify with a delegated `localFetch` resource; astRewrite preview → edit after preview → apply rejected, apply with failing `remainingMatches` postcondition rejected and file unchanged, fresh preview → apply committed.
 - Shared extraction: CLI `ghGetFileContent` (prometheus@ea954809, `cmd/prometheus/main.go`, `matchString:"func main()"`, `contextLines:2`) and `localFetch` on the pinned clone return identical numbered content (`374`–`378`), `matchedLines:[376]`, `totalLines:2296`.
-- Rebuilt interfaces (`dev.mjs build:dev` exit 0, 148.8 s): `config --json` 0, `scheme` 0. Harness (`OCTOCODE_BETA=true node octocode-local-testing/harness/run-all.mjs workflows,grammar,navigate,rewrite,large-files,perf`): 27/133/90/16/49/2 passed, 0 failed. `dev.mjs docs:verify` passed.
+- Rebuilt interfaces (`dev.mjs build:dev` exit 0, 148.8 s): `config --json` 0, `schema` 0. Harness (`OCTOCODE_BETA=true node octocode-local-testing/harness/run-all.mjs workflows,grammar,navigate,rewrite,large-files,perf`): 27/133/90/16/49/2 passed, 0 failed. `dev.mjs docs:verify` passed.
 - Rust (2026-10-02, after all changes): `cargo test --locked -p octocode-native -p octocode-github -p octocode-cli --no-default-features` all green (runtime lib 1116 passed), `cargo test --locked -p octocode-engine --all-features` 877 passed, `cargo clippy --workspace --all-targets -- -D warnings` exit 0, rustfmt clean on touched files. Earlier full runs saw one load-sensitive `providers::github::auth::discovery` timeout that passed on rerun; `cargo test -p octocode-engine` without `--all-features` fails to link `graph_benchmark` (napi symbols), pre-existing and unrelated.
 
 ## Build and handoff gates
@@ -239,7 +239,7 @@ Follow the [development skill](../skills-dev/octocode-dev/SKILL.md) for the comm
 | Engine behavior | Engine and runtime regressions; rebuild native and affected interfaces; run real tool calls |
 | Tool schema, limits, or guidance | Author in sibling `octocode-core`, build core, run `yarn contracts:regen`, immediately rebuild native, then rebuild affected consumers |
 | Configuration | Follow the single config pipeline; verify defaults, environment behavior, and docs |
-| Each completed phase | Run CLI `config --json`, `scheme`, and its affected cases; restart MCP and repeat relevant persistent-session cases |
+| Each completed phase | Run CLI `config --json`, `schema`, and its affected cases; restart MCP and repeat relevant persistent-session cases |
 | Change spanning packages | Run `node skills-dev/octocode-dev/scripts/dev.mjs verify` and `docs:verify` |
 
 Use `build:dev` for ordinary local validation and release artifacts for performance experiments. Preserve coverage floors. Record commands, exit codes, source/artifact identity, and remaining limitations. Update this checklist from actual results; do not mark a phase complete because a registry or compilation check passed.

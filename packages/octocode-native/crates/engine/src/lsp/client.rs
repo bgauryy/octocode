@@ -366,15 +366,18 @@ struct NativeLspClientInner {
     /// macOS: the RSS watchdog enforcing `max_memory_mb` (no `RLIMIT_AS`
     /// there). Dropped (aborted) by `stop` before the child is reaped.
     memory_watchdog: StdMutex<Option<spawn_limits::AbortOnDrop>>,
-    /// Query responses (anchor generation + `method` + params) from this
-    /// server, reused only inside [`RESPONSE_SCOPE`] continuation pages.
+    /// Query responses (generation + `method` + params) from this server,
+    /// reused only inside a [`RESPONSE_SCOPE`] that allows it.
     responses: moka::sync::Cache<String, Arc<Value>>,
 }
 
-/// Response reuse for one lspSearch call. `generation` (the anchor
-/// document's content hash) is part of every cached key, so an edited anchor
-/// never reuses; `reuse` is set only on continuation pages (page > 1 with the
-/// walk's snapshot). First pages always reach the server and refresh the cache.
+/// Response reuse for one lspSearch call. `generation` is part of every
+/// cached key: the anchor document's content hash, and for incoming walks
+/// also a fingerprint of every project file the answer can depend on, so an
+/// edited anchor or project never reuses. `reuse` lets a request read the
+/// cache (continuation pages, and first pages whose generation carries the
+/// project fingerprint); without it requests reach the server and refresh
+/// the cache. An empty generation bypasses the cache.
 #[derive(Clone, Debug, Default)]
 pub struct ResponseScope {
     pub reuse: bool,

@@ -19,6 +19,8 @@ describe('skill env params come from the config contract', () => {
   beforeEach(() => {
     home = mkdtempSync(path.join(tmpdir(), 'octocode-env-params-'));
     vi.stubEnv('OCTOCODE_HOME', home);
+    // Keep the developer's own `gh` login out of the token checks.
+    vi.stubEnv('GH_CONFIG_DIR', path.join(home, 'gh'));
     for (const key of allKeys) vi.stubEnv(key, '');
   });
 
@@ -27,16 +29,29 @@ describe('skill env params come from the config contract', () => {
     rmSync(home, { recursive: true, force: true });
   });
 
-  it('lists every GitHub token name and classification key alias', () => {
+  it('lists every GitHub token name and the classification key', () => {
     const keys = SKILL_ENV_PARAMS['octocode-rfc-generator']!.map(p => p.key);
     expect(keys).toEqual(allKeys);
-    expect(classificationKeys.length).toBeGreaterThan(1);
+    expect(classificationKeys).toEqual(['OCTOCODE_CLASSIFICATION_API']);
     expect(groupLabel('github-token')).toContain(ENV_TOKEN_VARS.join(', '));
   });
 
-  it('accepts any token alias, including OCTOCODE_TOKEN', () => {
+  it('accepts each GitHub token name', () => {
+    for (const name of ENV_TOKEN_VARS) {
+      for (const key of ENV_TOKEN_VARS) vi.stubEnv(key, '');
+      expect(getSkillEnvStatus('octocode-research').readiness).toBe('partial');
+      vi.stubEnv(name, 'token');
+      expect(getSkillEnvStatus('octocode-research').readiness).toBe('ready');
+    }
+  });
+
+  it('counts a stored `octocode auth login` or `gh` login as the GitHub token', () => {
     expect(getSkillEnvStatus('octocode-research').readiness).toBe('partial');
-    vi.stubEnv(ENV_TOKEN_VARS[0], 'token');
+    writeFileSync(path.join(home, 'credentials.json'), '{}');
+    expect(getSkillEnvStatus('octocode-research').readiness).toBe('ready');
+    rmSync(path.join(home, 'credentials.json'));
+    mkdirSync(path.join(home, 'gh'), { recursive: true });
+    writeFileSync(path.join(home, 'gh', 'hosts.yml'), 'github.com: {}\n');
     expect(getSkillEnvStatus('octocode-research').readiness).toBe('ready');
   });
 

@@ -1,14 +1,17 @@
 //! Test doubles shared by the GitHub tool tests: a provider aimed at a mock
 //! server and one-line JSON routes.
 use crate::providers::github::{
-    CredentialSource, GitHubEndpoint, GitHubProvider, GitHubTransport, NoCache, RetryPolicy,
-    StaticCredentialResolver,
+    CredentialSource, GitHubBudget, GitHubEndpoint, GitHubProvider, GitHubTransport, NoCache,
+    RetryPolicy, StaticCredentialResolver,
 };
 use std::sync::Arc;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// A provider whose GitHub API is `server`, with a fixed override credential.
+/// A provider whose GitHub API is `server`, with a fixed override credential
+/// and its own unthrottled budget: tests in one process never wait on each
+/// other's search spacing (the process-wide budget is the github crate's
+/// subject).
 pub(crate) fn mock_provider(
     server: &MockServer,
     retry: RetryPolicy,
@@ -17,13 +20,14 @@ pub(crate) fn mock_provider(
         GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
             .expect("endpoint");
     GitHubProvider {
-        transport: GitHubTransport::new(
+        transport: GitHubTransport::with_budget(
             endpoint,
             Arc::new(StaticCredentialResolver::new(
                 "fixture",
                 CredentialSource::Override,
             )),
             retry,
+            GitHubBudget::relaxed(),
         )
         .expect("transport"),
         cache: NoCache,

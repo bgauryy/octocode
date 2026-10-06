@@ -112,6 +112,75 @@ fn archive_entry(archive: &[u8], wanted: &str) -> Option<Vec<u8>> {
     }
 }
 
+/// Largest sdist read to find where a release declares its dependencies.
+const MAX_SDIST_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Where a PyPI release declares its dependencies, read from its sdist:
+/// `setup.py` when the sdist's `pyproject.toml` declares no
+/// `[project] dependencies` (absent, or only tool settings) and a
+/// `setup.py` ships; `pyproject.toml` when it declares them. `None` (the
+/// caller's default) without a readable `.tar.gz` sdist.
+pub(crate) async fn pypi_sdist_manifest(
+    name: &str,
+    version: &str,
+    files: &[Value],
+    client: &RegistryClient<'_>,
+) -> Option<&'static str> {
+    let resource = format!("pypi:{name}@{version}:manifest");
+    if let Some(fact) = client.fact(&resource) {
+        return manifest_name(fact.as_str()?);
+    }
+    let sdist = files.iter().find(|file| {
+        file.get("packagetype").and_then(Value::as_str) == Some("sdist")
+            && file
+                .get("size")
+                .and_then(Value::as_u64)
+                .is_some_and(|size| size <= MAX_SDIST_BYTES)
+    })?;
+    let url = sdist.get("url").and_then(Value::as_str)?;
+    let root = url.rsplit('/').next()?.strip_suffix(".tar.gz")?.to_owned();
+    let archive = client
+        .bytes(ArtifactType::Pypi, parse_url(url).ok()?)
+        .await
+        .ok()
+        .flatten()?;
+    let pyproject = archive_entry(&archive, &format!("{root}/pyproject.toml"));
+    let declared = pyproject
+        .as_deref()
+        .is_some_and(|text| declares_project_dependencies(&String::from_utf8_lossy(text)));
+    let manifest = if !declared && archive_entry(&archive, &format!("{root}/setup.py")).is_some() {
+        "setup.py"
+    } else {
+        "pyproject.toml"
+    };
+    client.remember_fact(&resource, &Value::from(manifest));
+    manifest_name(manifest)
+}
+
+fn manifest_name(name: &str) -> Option<&'static str> {
+    ["setup.py", "pyproject.toml"]
+        .into_iter()
+        .find(|known| *known == name)
+}
+
+/// A `pyproject.toml` whose `[project]` table lists `dependencies` (not
+/// as `dynamic`, which defers them to the build backend's setup.py).
+fn declares_project_dependencies(pyproject: &str) -> bool {
+    let mut in_project = false;
+    for line in pyproject.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_project = line == "[project]";
+        } else if in_project
+            && line
+                .strip_prefix("dependencies")
+                .is_some_and(|rest| rest.trim_start().starts_with('='))
+        {
+            return true;
+        }
+    }
+    false
+}
+
 /// A pending release-tag check.
 pub type TagFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Option<bool>> + 'a>>;
 
@@ -269,6 +338,61 @@ mod tests {
         assert_eq!(crate_vcs(&name, "1.0.0", &client).await, expected);
         assert_eq!(crate_vcs(&name, "1.0.0", &client).await, expected);
         assert_eq!(http.downloads.load(std::sync::atomic::Ordering::Relaxed), 1);
+    }
+
+    /// AR4: a setuptools sdist (tool-only pyproject.toml, setup.py ships)
+    /// declares its dependencies in setup.py; a `[project] dependencies`
+    /// pyproject.toml keeps pyproject.toml; a dynamic list defers to setup.py.
+    #[tokio::test]
+    async fn the_sdist_names_the_file_that_declares_dependencies() {
+        let budget = super::super::types::test_budget();
+        let files = |name: &str| {
+            vec![
+                serde_json::json!({"packagetype":"bdist_wheel","size":10,"url":"https://files/x.whl"}),
+                serde_json::json!({"packagetype":"sdist","size":100,
+                    "url":format!("https://files.pythonhosted.org/p/{name}-1.0.tar.gz")}),
+            ]
+        };
+        for (pyproject, expected) in [
+            (&b"[tool.black]\nline-length = 88\n"[..], "setup.py"),
+            (
+                &b"[project]\nname = \"x\"\ndependencies = [\"a>=1\"]\n"[..],
+                "pyproject.toml",
+            ),
+            (
+                &b"[project]\nname = \"x\"\ndynamic = [\"dependencies\"]\n"[..],
+                "setup.py",
+            ),
+        ] {
+            let name = format!("sdist-{}", std::process::id());
+            let root = format!("{name}-1.0");
+            let http = ArchiveOnce {
+                archive: test_archive(&[
+                    (format!("{root}/pyproject.toml").as_str(), pyproject, b'0'),
+                    (format!("{root}/setup.py").as_str(), b"setup()", b'0'),
+                ]),
+                downloads: std::sync::atomic::AtomicUsize::new(0),
+            };
+            let client = RegistryClient::uncached(&http, &budget);
+            assert_eq!(
+                pypi_sdist_manifest(&name, "1.0", &files(&name), &client).await,
+                Some(expected)
+            );
+        }
+        // No sdist: the caller's default.
+        let http = ArchiveOnce {
+            archive: Vec::new(),
+            downloads: std::sync::atomic::AtomicUsize::new(0),
+        };
+        let client = RegistryClient::uncached(&http, &budget);
+        let wheel_only = [
+            serde_json::json!({"packagetype":"bdist_wheel","size":10,"url":"https://files/x.whl"}),
+        ];
+        assert_eq!(
+            pypi_sdist_manifest("x", "1.0", &wheel_only, &client).await,
+            None
+        );
+        assert_eq!(http.downloads.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
 
     #[test]

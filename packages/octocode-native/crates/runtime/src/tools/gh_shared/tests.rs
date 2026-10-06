@@ -641,6 +641,11 @@ mod provider_backed {
             data.pointer("/next/readTopMatch").is_none(),
             "no read outside the requested ref: {data}"
         );
+        // GC4: the ref listing searches the moved file's name tree-wide.
+        let listing = &data["next"]["viewRepo"]["query"]["queries"][0];
+        assert_eq!(listing["include"], json!(["app.rs"]), "{data}");
+        assert_eq!(listing["ref"], TREE_SHA, "{data}");
+        assert!(listing.get("path").is_none(), "{data}");
 
         // The file exists at the ref but no line holds the keyword.
         let unmatched = MockServer::start().await;
@@ -1389,6 +1394,8 @@ mod provider_backed {
             [
                 "/api/v3/repos/a/b/commits/main".to_owned(),
                 format!("/api/v3/repos/a/b/git/trees/{TREE_SHA}"),
+                // The page's last-commit dates.
+                "/api/graphql".to_owned(),
             ],
             "no speculative tree request"
         );
@@ -1860,8 +1867,7 @@ mod provider_backed {
         assert_eq!(row["minify"], "symbols", "{}", out.data);
     }
 
-    /// A materialized listing points at the listed directory on disk and
-    /// leads into it with the local tools.
+    /// A materialized listing points at the listed directory on disk.
     #[tokio::test]
     async fn materialize_leads_into_the_local_copy_of_the_listed_directory() {
         let server = MockServer::start().await;
@@ -1884,9 +1890,12 @@ mod provider_backed {
             .to_owned();
         assert!(local.ends_with("/src"), "{}", out.data);
         assert!(std::path::Path::new(&local).join("lib.rs").exists());
-        let explore = &out.data["next"]["exploreClone"];
-        assert_eq!(explore["tool"], "structureSearch", "{}", out.data);
-        assert_eq!(explore["query"]["queries"][0]["path"], local.as_str());
+        // GS4: no lead re-lists the tree this response just returned.
+        assert!(
+            out.data.pointer("/next/exploreClone").is_none(),
+            "{}",
+            out.data
+        );
         let _ = std::fs::remove_dir_all(&local);
     }
 
@@ -2068,10 +2077,11 @@ mod provider_backed {
         assert_eq!(lead["query"]["queries"][0]["repo"], "b", "{}", out.data);
     }
 
-    /// The top repository leads into its code with the same keywords, and an
-    /// empty filtered search leads to the same keywords without filters.
+    /// The top repository leads to its tree (not a code search of the
+    /// discovery words), and an empty filtered search leads to the same
+    /// keywords without filters.
     #[tokio::test]
-    async fn repositories_lead_into_code_and_an_empty_search_broadens() {
+    async fn repositories_lead_to_the_tree_and_an_empty_search_broadens() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/api/v3/search/repositories"))
@@ -2100,11 +2110,15 @@ mod provider_backed {
         )
         .await
         .expect("search");
-        let code = &out.data["next"]["searchContent"];
-        assert_eq!(code["tool"], "ghSearchCode", "{}", out.data);
+        // GR4: repo-discovery words are not code keywords; the top
+        // repository leads to its tree only.
+        assert!(
+            out.data["next"].get("searchContent").is_none(),
+            "{}",
+            out.data
+        );
         assert_eq!(
-            code["query"]["queries"][0],
-            json!({"owner":"o","repo":"top","keywords":["needle"]}),
+            out.data["next"]["viewRepo"]["tool"], "ghStructure",
             "{}",
             out.data
         );

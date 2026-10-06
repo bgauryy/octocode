@@ -1,6 +1,6 @@
 # Diagrams in RFCs
 
-Load when an RFC or plan section explains a flow, structure, comparison, proportion, lifecycle, or schedule. Mermaid makes the shape explicit: humans see it, and agents read nodes and edges as facts. Prose carries the why and the evidence.
+Load when a section explains a flow, structure, comparison, proportion, lifecycle, or schedule. Why: the diagram type and the section heading must name the same fact. Prose carries the evidence.
 
 ## Rules
 - **One message per diagram.** If you cannot state the message, drop the diagram.
@@ -11,22 +11,22 @@ Load when an RFC or plan section explains a flow, structure, comparison, proport
 - **No decoration:** no diagram that restates one sentence, no meaningless colors.
 
 ## Type per purpose
-| Type (keyword) | Use for | Section |
+| Type (keyword) | Use for | Section heading |
 |---|---|---|
-| `flowchart` (`subgraph`) | decision trees, data/control flow, plan-step DAG, boundaries | Rationale, Reference, Plan |
-| `sequenceDiagram` (`zenuml` if the team uses it) | protocols, retries, handoffs, continuation walks | Reference |
-| `stateDiagram-v2` | lifecycles, legal vs illegal transitions | Reference |
-| `classDiagram` / `erDiagram` | types and ownership / storage entities, keys, migrations | Reference, Migration |
-| `C4Context` / `C4Container` / `C4Component` / `architecture-beta` | system, container, and service topology | Motivation, Reference |
-| `block-beta` / `packet-beta` | layered layouts / wire and bit formats | Reference |
-| `requirementDiagram` | requirement → design → test traceability | KPI |
-| `xychart-beta` | before/after metrics, trends, a target line | Motivation, KPI, Results |
-| `pie` / `sankey-beta` / `treemap-beta` | one total's composition / split-and-merge flows / hierarchical size | Motivation |
-| `quadrantChart` / `radar-beta` | options on 2 criteria / on 4–8 criteria | Alternatives |
-| `gantt` | only with committed dates or durations; otherwise a flowchart DAG | Plan |
-| `timeline` / `gitGraph` | incident or decision history / branch, release, rollback strategy | Prior Art, Rollout |
-| `journey` / `mindmap` | user or agent steps with friction scores / scope and non-goals | Motivation, Goals |
-| `kanban` | status snapshot (rare; prefer the plan table) | Plan |
+| `flowchart` (`subgraph`) | decision trees, data or control flow, plan-step DAG, boundaries | Rationale and Alternatives; Reference-Level Explanation; Steps |
+| `sequenceDiagram` (`zenuml` if the team uses it) | protocols, retries, handoffs, continuation walks | Reference-Level Explanation |
+| `stateDiagram-v2` | lifecycles, legal and illegal transitions | Reference-Level Explanation |
+| `classDiagram` / `erDiagram` | types and ownership / storage entities, keys, migrations | Reference-Level Explanation |
+| `C4Context` / `C4Container` / `C4Component` / `architecture-beta` | system, container, and service topology | Motivation and Current State; Reference-Level Explanation |
+| `block-beta` / `packet-beta` | layered layouts / wire and bit formats | Reference-Level Explanation |
+| `requirementDiagram` | requirement to design to test traceability | Traceability |
+| `xychart-beta` | before and after metrics, trends, a target line | Motivation and Current State; Success Metrics |
+| `pie` / `sankey-beta` / `treemap-beta` | one total's composition / split-and-merge flows / hierarchical size | Motivation and Current State |
+| `quadrantChart` / `radar-beta` | options on 2 criteria / on 4–8 criteria | Rationale and Alternatives |
+| `gantt` | only with committed dates or durations; otherwise a flowchart DAG | Steps |
+| `timeline` / `gitGraph` | incident or decision history / branch, release, rollback strategy | Prior Art; Rollout, Migration, and Rollback |
+| `journey` / `mindmap` | user or agent steps with friction scores / scope and non-goals | Motivation and Current State; Goals and Non-Goals |
+| `kanban` | status snapshot (rare; prefer the plan table) | Steps |
 
 ## Starter shapes
 Replace every label and number with the RFC's own names and data. Plan steps as a DAG that mirrors each step's `Depends on:` field:

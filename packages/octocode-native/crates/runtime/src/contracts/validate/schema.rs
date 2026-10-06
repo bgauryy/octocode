@@ -364,7 +364,8 @@ fn pattern_message(value: &str, path: &[String], regex: &Regex, schema: &Value) 
                 "\"{term}\": negation is not supported for this filter; drop the leading -."
             ),
             _ => format!(
-                "\"{term}\" is not an allowed key:value filter; put free text in keywords and scope in owner/repo."
+                "\"{term}\" is not an allowed key:value filter; {}put free text in keywords and scope in owner/repo.",
+                qualifier_keys_note(schema)
             ),
         };
     }
@@ -378,6 +379,23 @@ fn pattern_message(value: &str, path: &[String], regex: &Regex, schema: &Value) 
         };
     }
     "is empty; give non-blank text.".into()
+}
+
+/// The allowed keys a `qualifiers` field declares (`x-qualifierKeys`, a
+/// contract keyword the published view drops): `allowed keys: a, b; e.g.
+/// "a:x"; `, empty when the field declares none.
+fn qualifier_keys_note(schema: &Value) -> String {
+    let keys = schema
+        .get("x-qualifierKeys")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>();
+    match keys.first() {
+        Some(first) => format!("allowed keys: {}; e.g. \"{first}:x\"; ", keys.join(", ")),
+        None => String::new(),
+    }
 }
 
 /// A split qualifier term as it was written: a value with spaces is quoted.
@@ -557,5 +575,32 @@ mod tests {
         assert!(pattern_cached(pattern));
         let mut bad = json!("cache-probe-ab");
         assert!(validate_schema(&schema, &schema, &mut bad, &mut vec![]).is_err());
+    }
+
+    /// SH4: a rejected qualifier term lists the keys the field declares.
+    #[test]
+    fn rejected_qualifier_lists_the_declared_keys() {
+        let schema = json!({"type":"string","pattern":"^\\s*(?:(?:author|label):(?:\"[^\"]+\"|[^\\s\"]+)\\s*)+$",
+            "x-qualifierKeys":["author","label"]});
+        let message = |schema: &Value| {
+            validate_schema(
+                schema,
+                schema,
+                &mut json!("linked:issue"),
+                &mut vec!["qualifiers".into()],
+            )
+            .unwrap_err()
+            .issues[0]
+                .message
+                .clone()
+        };
+        let listed = message(&schema);
+        assert!(listed.contains("allowed keys: author, label"), "{listed}");
+        assert!(listed.contains("\"linked:issue\""), "{listed}");
+        let mut bare = schema.clone();
+        bare.as_object_mut()
+            .expect("schema")
+            .remove("x-qualifierKeys");
+        assert!(!message(&bare).contains("allowed keys"));
     }
 }

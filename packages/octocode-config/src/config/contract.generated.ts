@@ -15,10 +15,9 @@ export interface GitHubConfigOptions {
 
 export interface LocalConfigOptions {
   /** Enable local filesystem tools on every runtime surface. */
-  /** ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias. */
   enabled?: boolean;
 
-  /** Enable beta features and tools; off by default on every surface. `octocode scheme` reports which tools the gate withholds. */
+  /** Enable beta features and tools; off by default on every surface. `octocode schema` reports which tools the gate withholds. */
   beta?: boolean;
 
   /** Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME). */
@@ -35,9 +34,6 @@ export interface ToolsConfigOptions {
 
   /** Tools removed from the default tool set. */
   disabled?: string[] | null;
-
-  /** Tool family preset (core tool policy families): local keeps the local and remote families, github keeps the GitHub and remote families. It only narrows tools.enabled/tools.disabled. */
-  family?: "all" | "local" | "github";
 }
 
 export interface McpConfigOptions {
@@ -60,6 +56,18 @@ export interface NetworkConfigOptions {
 export interface LspConfigOptions {
   /** Optional path to a custom lsp-servers.json. */
   configPath?: string;
+
+  /** Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto. */
+  autoInstall?: "prompt" | "off" | "auto";
+
+  /** Directory for managed language-server installs; default <octocode home>/lsp. */
+  cacheDir?: string;
+
+  /** Trust a project .octocode/lsp-servers.json. Security-sensitive: a trusted project config can launch server binaries. */
+  trustProjectConfig?: boolean;
+
+  /** Language-server prewarm: targeted starts the server an offered lspSearch call names; all also warms the file a read or search names; off disables it. */
+  prewarm?: "targeted" | "all" | "off";
 }
 
 export interface OutputConfigOptions {
@@ -80,9 +88,14 @@ export interface OutputPaginationConfigOptions {
 export interface StorageConfigOptions {
   /** Whether caches and runtime state may persist on disk. */
   mode?: StorageMode;
+
+  /** Write stats.json on flush; stats remain in memory either way. */
+  stats?: boolean;
+
+  cloneCache?: StorageCloneCacheConfigOptions;
 }
 
-export interface CloneCacheConfigOptions {
+export interface StorageCloneCacheConfigOptions {
   /** Milliseconds a ghCloneRepo checkout stays fresh before it is re-fetched. */
   ttl?: number;
 
@@ -98,7 +111,7 @@ export interface ClassificationConfigOptions {
   type?: ClassificationVendor;
 
   /** Classification provider API key (bearer credential). */
-  /** Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY is the vendor-native alias for the jev provider. */
+  /** Never appears in ResolvedConfig; shell environment wins over the trusted home config file. */
   api?: string | null;
 
   /** Optional override of the selected vendor's default API root. */
@@ -131,8 +144,6 @@ export interface OctocodeConfig {
 
   storage?: StorageConfigOptions;
 
-  cloneCache?: CloneCacheConfigOptions;
-
   classification?: ClassificationConfigOptions;
 }
 
@@ -151,7 +162,6 @@ export interface RequiredLocalConfig {
 export interface RequiredToolsConfig {
   enabled: string[] | null;
   disabled: string[] | null;
-  family: "all" | "local" | "github";
 }
 
 export interface RequiredMcpConfig {
@@ -166,6 +176,10 @@ export interface RequiredNetworkConfig {
 
 export interface RequiredLspConfig {
   configPath: string | undefined;
+  autoInstall: "prompt" | "off" | "auto";
+  cacheDir: string | undefined;
+  trustProjectConfig: boolean;
+  prewarm: "targeted" | "all" | "off";
 }
 
 export interface RequiredOutputConfig {
@@ -180,9 +194,11 @@ export interface RequiredOutputPaginationConfig {
 
 export interface RequiredStorageConfig {
   mode: StorageMode;
+  stats: boolean;
+  cloneCache: RequiredStorageCloneCacheConfig;
 }
 
-export interface RequiredCloneCacheConfig {
+export interface RequiredStorageCloneCacheConfig {
   ttl: number;
   maxSize: number;
   maxClones: number;
@@ -191,10 +207,6 @@ export interface RequiredCloneCacheConfig {
 export interface RequiredClassificationConfig {
   type: ClassificationVendor;
   maxConcurrency: number;
-}
-
-export interface RequiredSessionConfig {
-  enableStats: boolean;
 }
 
 export interface ResolvedConfigData {
@@ -207,9 +219,7 @@ export interface ResolvedConfigData {
   lsp: RequiredLspConfig;
   output: RequiredOutputConfig;
   storage: RequiredStorageConfig;
-  cloneCache: RequiredCloneCacheConfig;
   classification: RequiredClassificationConfig;
-  session: RequiredSessionConfig;
 }
 
 export type ConfigFieldKind = 'boolean' | 'number' | 'string' | 'url' | 'path' | 'stringArray' | 'enum' | 'schemaVersion';
@@ -299,15 +309,10 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "resolved": true,
     "credential": false,
     "description": "Enable local filesystem tools on every runtime surface.",
-    "notes": "ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias.",
     "env": [
       {
-        "name": "ENABLE_LOCAL",
-        "priority": 0
-      },
-      {
         "name": "OCTOCODE_ENABLE_LOCAL",
-        "priority": 1
+        "priority": 0
       }
     ],
     "defaultValue": true
@@ -320,7 +325,7 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "file": true,
     "resolved": true,
     "credential": false,
-    "description": "Enable beta features and tools; off by default on every surface. `octocode scheme` reports which tools the gate withholds.",
+    "description": "Enable beta features and tools; off by default on every surface. `octocode schema` reports which tools the gate withholds.",
     "env": [
       {
         "name": "OCTOCODE_BETA",
@@ -402,30 +407,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
       }
     ],
     "defaultValue": null
-  },
-  {
-    "path": "tools.family",
-    "section": "tools",
-    "key": "family",
-    "type": "enum",
-    "file": true,
-    "resolved": true,
-    "credential": false,
-    "description": "Tool family preset (core tool policy families): local keeps the local and remote families, github keeps the GitHub and remote families. It only narrows tools.enabled/tools.disabled.",
-    "env": [
-      {
-        "name": "OCTOCODE_TOOL_FAMILY",
-        "priority": 0,
-        "normalize": "lower",
-        "invalid": "skip"
-      }
-    ],
-    "defaultValue": "all",
-    "values": [
-      "all",
-      "local",
-      "github"
-    ]
   },
   {
     "path": "mcp.deferred",
@@ -521,6 +502,92 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": null
   },
   {
+    "path": "lsp.autoInstall",
+    "section": "lsp",
+    "key": "autoInstall",
+    "type": "enum",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto.",
+    "env": [
+      {
+        "name": "OCTOCODE_LSP_AUTO_INSTALL",
+        "priority": 0,
+        "dotenv": "home",
+        "normalize": "lower",
+        "invalid": "skip"
+      }
+    ],
+    "defaultValue": "prompt",
+    "values": [
+      "prompt",
+      "off",
+      "auto"
+    ]
+  },
+  {
+    "path": "lsp.cacheDir",
+    "section": "lsp",
+    "key": "cacheDir",
+    "type": "path",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Directory for managed language-server installs; default <octocode home>/lsp.",
+    "env": [
+      {
+        "name": "OCTOCODE_LSP_CACHE_DIR",
+        "priority": 0,
+        "dotenv": "home",
+        "normalize": "trim"
+      }
+    ],
+    "defaultValue": null
+  },
+  {
+    "path": "lsp.trustProjectConfig",
+    "section": "lsp",
+    "key": "trustProjectConfig",
+    "type": "boolean",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Trust a project .octocode/lsp-servers.json. Security-sensitive: a trusted project config can launch server binaries.",
+    "env": [
+      {
+        "name": "OCTOCODE_TRUST_PROJECT_LSP_CONFIG",
+        "priority": 0,
+        "dotenv": "home"
+      }
+    ],
+    "defaultValue": false
+  },
+  {
+    "path": "lsp.prewarm",
+    "section": "lsp",
+    "key": "prewarm",
+    "type": "enum",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Language-server prewarm: targeted starts the server an offered lspSearch call names; all also warms the file a read or search names; off disables it.",
+    "env": [
+      {
+        "name": "OCTOCODE_LSP_PREWARM",
+        "priority": 0,
+        "normalize": "lower",
+        "invalid": "skip"
+      }
+    ],
+    "defaultValue": "targeted",
+    "values": [
+      "targeted",
+      "all",
+      "off"
+    ]
+  },
+  {
     "path": "output.format",
     "section": "output",
     "key": "format",
@@ -606,8 +673,25 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "enumStyle": "quotedOr"
   },
   {
-    "path": "cloneCache.ttl",
-    "section": "cloneCache",
+    "path": "storage.stats",
+    "section": "storage",
+    "key": "stats",
+    "type": "boolean",
+    "file": true,
+    "resolved": true,
+    "credential": false,
+    "description": "Write stats.json on flush; stats remain in memory either way.",
+    "env": [
+      {
+        "name": "OCTOCODE_ENABLE_STATS",
+        "priority": 0
+      }
+    ],
+    "defaultValue": false
+  },
+  {
+    "path": "storage.cloneCache.ttl",
+    "section": "storage.cloneCache",
     "key": "ttl",
     "type": "number",
     "file": true,
@@ -625,8 +709,8 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "maximum": 2592000000
   },
   {
-    "path": "cloneCache.maxSize",
-    "section": "cloneCache",
+    "path": "storage.cloneCache.maxSize",
+    "section": "storage.cloneCache",
     "key": "maxSize",
     "type": "number",
     "file": true,
@@ -644,8 +728,8 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "maximum": 1099511627776
   },
   {
-    "path": "cloneCache.maxClones",
-    "section": "cloneCache",
+    "path": "storage.cloneCache.maxClones",
+    "section": "storage.cloneCache",
     "key": "maxClones",
     "type": "number",
     "file": true,
@@ -695,17 +779,11 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "resolved": false,
     "credential": true,
     "description": "Classification provider API key (bearer credential).",
-    "notes": "Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY is the vendor-native alias for the jev provider.",
+    "notes": "Never appears in ResolvedConfig; shell environment wins over the trusted home config file.",
     "env": [
       {
         "name": "OCTOCODE_CLASSIFICATION_API",
         "priority": 0,
-        "dotenv": "all",
-        "normalize": "trim"
-      },
-      {
-        "name": "OCTOCODE_JEV_KEY",
-        "priority": 1,
         "dotenv": "all",
         "normalize": "trim"
       }
@@ -750,24 +828,6 @@ export const CONFIG_FIELDS: readonly ConfigFieldSpec[] = [
     "defaultValue": 10,
     "minimum": 1,
     "maximum": 64
-  },
-  {
-    "path": "session.enableStats",
-    "section": "session",
-    "key": "enableStats",
-    "type": "boolean",
-    "file": false,
-    "resolved": true,
-    "credential": false,
-    "description": "Write stats.json on flush; stats remain in memory either way.",
-    "notes": "Environment-only setting.",
-    "env": [
-      {
-        "name": "OCTOCODE_ENABLE_STATS",
-        "priority": 0
-      }
-    ],
-    "defaultValue": false
   }
 ];
 export const CONFIG_SCHEMA_VERSION = 1;
@@ -775,15 +835,15 @@ export const CONFIG_FILE_NAME = ".octocoderc";
 export const RUNTIME_SURFACES = ["mcp","cli"] as const;
 export type RuntimeSurface = (typeof RUNTIME_SURFACES)[number];
 export const DEFAULT_RUNTIME_SURFACE: RuntimeSurface = RUNTIME_SURFACES[0];
-export const ENV_TOKEN_VARS = ["OCTOCODE_TOKEN","GH_TOKEN","GITHUB_TOKEN","GITHUB_PERSONAL_ACCESS_TOKEN"] as const;
+export const ENV_TOKEN_VARS = ["GH_TOKEN","GITHUB_TOKEN"] as const;
 export type EnvTokenVar = (typeof ENV_TOKEN_VARS)[number];
-export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","GH_HOST","OCTOCODE_HOME","OCTOCODE_TS_SERVER_PATH","OCTOCODE_RUST_SERVER_PATH","OCTOCODE_GO_SERVER_PATH","OCTOCODE_PYTHON_SERVER_PATH","OCTOCODE_JAVA_SERVER_PATH","OCTOCODE_CLANGD_SERVER_PATH","OCTOCODE_CSHARP_SERVER_PATH","OCTOCODE_SCALA_SERVER_PATH","OCTOCODE_ASM_SERVER_PATH","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
-export const HOME_TRUSTED_ENV_KEYS = ["OCTOCODE_TS_SERVER_PATH","OCTOCODE_RUST_SERVER_PATH","OCTOCODE_GO_SERVER_PATH","OCTOCODE_PYTHON_SERVER_PATH","OCTOCODE_JAVA_SERVER_PATH","OCTOCODE_CLANGD_SERVER_PATH","OCTOCODE_CSHARP_SERVER_PATH","OCTOCODE_SCALA_SERVER_PATH","OCTOCODE_ASM_SERVER_PATH","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const PROTECTED_KEY_NAMES = ["PATH","HOME","SHELL","USER","LOGNAME","PWD","TMPDIR","NODE_OPTIONS","PYTHON","OCTOCODE_HOME","OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_LSP_CACHE_DIR","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
+export const HOME_TRUSTED_ENV_KEYS = ["OCTOCODE_CARGO","GITHUB_API_URL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_LSP_CACHE_DIR","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_STORAGE_MODE","OCTOCODE_CLASSIFICATION_API_HOST"] as const;
 /** Home-trusted switches a workspace may set only to this narrowing value. */
 export const WORKSPACE_NARROW_ONLY_ENV: Readonly<Record<string, string>> = {"OCTOCODE_STORAGE_MODE":"memory"};
-export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","ENABLE_LOCAL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","OCTOCODE_TOOL_FAMILY","OCTOCODE_DEFER_TOOLS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_CACHE_TTL_MS","OCTOCODE_MAX_CACHE_SIZE","OCTOCODE_MAX_CLONES","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_JEV_KEY","OCTOCODE_CLASSIFICATION_API_HOST","OCTOCODE_CLASSIFICATION_CONCURRENCY","OCTOCODE_ENABLE_STATS"] as const;
+export const CONFIG_SOURCE_ENV_KEYS = ["OCTOCODE_GITHUB_CLIENT_ID","GITHUB_API_URL","OCTOCODE_GITHUB_GRAPHQL","OCTOCODE_ENABLE_LOCAL","OCTOCODE_BETA","ALLOWED_PATHS","WORKSPACE_ROOT","TOOLS_TO_RUN","DISABLE_TOOLS","OCTOCODE_DEFER_TOOLS","REQUEST_TIMEOUT","MAX_RETRIES","OCTOCODE_ALLOW_PRIVATE_REGISTRY","OCTOCODE_LSP_CONFIG","OCTOCODE_LSP_AUTO_INSTALL","OCTOCODE_LSP_CACHE_DIR","OCTOCODE_TRUST_PROJECT_LSP_CONFIG","OCTOCODE_LSP_PREWARM","OCTOCODE_OUTPUT_FORMAT","OCTOCODE_REDACT_EMAILS","OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH","OCTOCODE_STORAGE_MODE","OCTOCODE_ENABLE_STATS","OCTOCODE_CACHE_TTL_MS","OCTOCODE_MAX_CACHE_SIZE","OCTOCODE_MAX_CLONES","OCTOCODE_CLASSIFICATION_TYPE","OCTOCODE_CLASSIFICATION_API","OCTOCODE_CLASSIFICATION_API_HOST","OCTOCODE_CLASSIFICATION_CONCURRENCY"] as const;
 export type ConfigSourceEnvKey = (typeof CONFIG_SOURCE_ENV_KEYS)[number];
-export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "version": 1, "github": { "apiUrl": "https://api.github.com", "graphqlEnabled": true }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined }, "tools": { "enabled": null, "disabled": null, "family": "all" }, "mcp": { "deferred": null }, "network": { "timeout": 30000, "maxRetries": 3, "allowPrivateRegistry": false }, "lsp": { "configPath": undefined }, "output": { "format": "yaml", "redactEmails": false, "pagination": { "defaultCharLength": 50000 } }, "storage": { "mode": "persistent" }, "cloneCache": { "ttl": 86400000, "maxSize": 2147483648, "maxClones": 50 }, "classification": { "type": "jev", "maxConcurrency": 10 }, "session": { "enableStats": false } };
+export const DEFAULT_CONFIG_VALUE: ResolvedConfigData = { "version": 1, "github": { "apiUrl": "https://api.github.com", "graphqlEnabled": true }, "local": { "enabled": true, "beta": false, "allowedPaths": [], "workspaceRoot": undefined }, "tools": { "enabled": null, "disabled": null }, "mcp": { "deferred": null }, "network": { "timeout": 30000, "maxRetries": 3, "allowPrivateRegistry": false }, "lsp": { "configPath": undefined, "autoInstall": "prompt", "cacheDir": undefined, "trustProjectConfig": false, "prewarm": "targeted" }, "output": { "format": "yaml", "redactEmails": false, "pagination": { "defaultCharLength": 50000 } }, "storage": { "mode": "persistent", "stats": false, "cloneCache": { "ttl": 86400000, "maxSize": 2147483648, "maxClones": 50 } }, "classification": { "type": "jev", "maxConcurrency": 10 } };
 export const DEFAULT_GITHUB_API_URL = "https://api.github.com" as const;
 export const DEFAULT_GITHUB_GRAPHQL_ENABLED = true as const;
 export const DEFAULT_LOCAL_ENABLED = true as const;
@@ -792,7 +852,6 @@ export const DEFAULT_LOCAL_ALLOWED_PATHS = [] as const;
 export const DEFAULT_LOCAL_WORKSPACE_ROOT = null;
 export const DEFAULT_TOOLS_ENABLED = null;
 export const DEFAULT_TOOLS_DISABLED = null;
-export const DEFAULT_TOOLS_FAMILY = "all" as const;
 export const DEFAULT_MCP_DEFERRED = null;
 export const DEFAULT_NETWORK_TIMEOUT = 30000 as const;
 export const MIN_TIMEOUT = 5000;
@@ -802,6 +861,10 @@ export const MIN_RETRIES = 0;
 export const MAX_RETRIES = 10;
 export const DEFAULT_NETWORK_ALLOW_PRIVATE_REGISTRY = false as const;
 export const DEFAULT_LSP_CONFIG_PATH = null;
+export const DEFAULT_LSP_AUTO_INSTALL = "prompt" as const;
+export const DEFAULT_LSP_CACHE_DIR = null;
+export const DEFAULT_LSP_TRUST_PROJECT_CONFIG = false as const;
+export const DEFAULT_LSP_PREWARM = "targeted" as const;
 export const DEFAULT_OUTPUT_FORMAT = "yaml" as const;
 export const OUTPUT_FORMATS = ["yaml","json"] as const;
 export const DEFAULT_OUTPUT_REDACT_EMAILS = false as const;
@@ -810,6 +873,7 @@ export const MIN_OUTPUT_DEFAULT_CHAR_LENGTH = 1000;
 export const MAX_OUTPUT_DEFAULT_CHAR_LENGTH = 50000;
 export const DEFAULT_STORAGE_MODE = "persistent" as const;
 export const STORAGE_MODES = ["persistent","memory"] as const;
+export const DEFAULT_STORAGE_STATS = false as const;
 export const DEFAULT_CLONE_CACHE_TTL = 86400000 as const;
 export const MIN_CLONE_CACHE_TTL = 60000;
 export const MAX_CLONE_CACHE_TTL = 2592000000;
@@ -824,4 +888,3 @@ export const CLASSIFICATION_VENDORS = ["jev"] as const;
 export const DEFAULT_CLASSIFICATION_MAX_CONCURRENCY = 10 as const;
 export const MIN_CLASSIFICATION_CONCURRENCY = 1;
 export const MAX_CLASSIFICATION_CONCURRENCY = 64;
-export const DEFAULT_SESSION_ENABLE_STATS = false as const;

@@ -14,6 +14,7 @@ Load for a Rust command-line tool (args, output, exit codes, config, errors, pro
 ## CLI: Output
 - **stdout = the result, stderr = everything else** (progress, logs, warnings, prompts); `app | jq` never gets a spinner.
 - Machine output is a contract: stable `--json` (serde), NDJSON for streams, no color.
+- In Octocode, shrink output by removing duplication, then paginate. Each page keeps all evidence and an executable `next.*`; disclose terminal limits. Do not clip rows, ranges, patches, or warnings.
 - Color only when stdout is a TTY (`std::io::IsTerminal`); honor `NO_COLOR`, `CLICOLOR_FORCE` and `--color auto|always|never`. `anstream`/`anstyle` (used by clap) strip ANSI off-terminal.
 - Hot output: `let mut out = BufWriter::new(io::stdout().lock()); writeln!(out, …)?;` (`println!` re-locks and line-flushes each call).
 - **Broken pipe:** Rust ignores SIGPIPE, so `println!` panics under `app | head`. Use `writeln!` and treat `ErrorKind::BrokenPipe` as success (exit 0), as `crates/cli/src/cli/mod.rs` does.
@@ -23,6 +24,7 @@ Load for a Rust command-line tool (args, output, exit codes, config, errors, pro
 - Apps: `anyhow` + `.context("reading config {path}")`; print `error: …` plus the cause chain, not `Debug`. `color-eyre`/`miette` for rich diagnostics (miette for source spans).
 - User mistakes never panic; a panic is a bug (`human-panic` for friendly release reports). `tracing` + `tracing-subscriber` to stderr, level from `-v` or `RUST_LOG`.
 - Precedence: flags > env > project config > user config > defaults. Paths from `directories`/`etcetera`; never hard-code `~/.app`.
+- Follow the application's declared config owner and precedence. Octocode uses `@octocodeai/config`; tools and host adapters must not add independent home/env/dotenv resolution.
 - Accept `PathBuf`/`OsString`, not `String` (paths needn't be UTF-8); resolve relative paths against the cwd once.
 - Ctrl-C: `ctrlc` or `tokio::signal::ctrl_c()` → flag/cancel token, clean up, exit `130`; a second Ctrl-C exits at once.
 - Startup time is UX: lazy-init heavy state, no network on `--help`/`--version`, lean dependency tree.

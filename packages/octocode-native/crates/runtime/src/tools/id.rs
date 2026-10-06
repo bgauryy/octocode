@@ -41,8 +41,7 @@ impl ToolId {
         matches!(self.family(), ToolFamily::GitHub)
     }
 
-    /// A semantic assessment tool (gated on a non-blank `OCTOCODE_CLASSIFICATION_API`
-    /// or the selected vendor's native key, e.g. `OCTOCODE_JEV_KEY`).
+    /// A semantic assessment tool (gated on a non-blank `OCTOCODE_CLASSIFICATION_API`).
     #[must_use]
     pub const fn is_clasify(self) -> bool {
         matches!(self, ToolId::Clasify)
@@ -229,10 +228,9 @@ mod tests {
                 assert!(vars.contains(&"OCTOCODE_BETA"), "{id}: {vars:?}");
             }
         }
-        assert!(
-            ToolId::Clasify
-                .availability_env_vars()
-                .contains(&"OCTOCODE_JEV_KEY")
+        assert_eq!(
+            ToolId::Clasify.availability_env_vars(),
+            ["OCTOCODE_CLASSIFICATION_API"]
         );
     }
 }

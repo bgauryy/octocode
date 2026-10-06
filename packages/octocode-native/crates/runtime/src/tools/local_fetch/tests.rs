@@ -47,6 +47,8 @@ impl PathAccess for Paths {
                 safe_path: None,
                 resource_missing: false,
                 sparse_checkout: false,
+                directory: false,
+                nearest_dir: None,
             })
     }
 }
@@ -932,7 +934,12 @@ fn symbols_view_uses_a_tab_gutter_everywhere() {
         let (number, _) = line
             .split_once('\t')
             .unwrap_or_else(|| panic!("tab gutter: {line:?} in {content:?}"));
-        assert!(number.parse::<u64>().is_ok(), "{line:?} in {content:?}");
+        // A declaration head reads `start-end`; every other line one number.
+        let mut bounds = number.splitn(2, '-');
+        assert!(
+            bounds.all(|bound| bound.parse::<u64>().is_ok()),
+            "{line:?} in {content:?}"
+        );
     }
 }
 
@@ -1132,11 +1139,11 @@ fn a_cut_declaration_inlines_a_short_rest_and_leads_to_a_long_one() {
     assert_eq!(r.source_line_ranges, vec![LineRange { start: 3, end: 3 }]);
 }
 
-/// Hits in several cut declarations lead to the top hit's declaration
-/// only (whole, as the window holds its head): one read of the likely
-/// answer, not every enclosing body at once.
+/// Hits in several cut declarations lead to one read of every cut
+/// declaration (each whole, as its window holds its head), within the
+/// lead's byte cap: no hit's declaration is left unreachable.
 #[test]
-fn read_block_reads_only_the_top_hits_declaration() {
+fn read_block_reads_every_cut_declaration() {
     let t = Temp::new();
     let p = t.0.join("m.py");
     let body = |name: &str, from: usize| -> String {
@@ -1171,7 +1178,7 @@ fn read_block_reads_only_the_top_hits_declaration() {
             .iter()
             .map(ToString::to_string)
             .collect::<Vec<_>>(),
-        vec!["1-41".to_owned()],
+        vec!["1-41".to_owned(), "43-83".to_owned()],
         "{lead:?}"
     );
 }
@@ -1546,4 +1553,245 @@ fn full_content_resumes_numbered_lines_after_one_oversized_line() {
         &text[at.saturating_sub(40)..(at + 80).min(text.len())],
         &view[at.saturating_sub(40)..(at + 80).min(view.len())]
     );
+}
+
+fn workspace_policy(root: &Path) -> crate::policy::path::PathPolicy {
+    crate::policy::path::PathPolicy::new(crate::policy::path::PathPolicyConfig {
+        workspace_root: Some(root.to_path_buf()),
+        ..Default::default()
+    })
+    .expect("policy")
+}
+
+/// LF4: a directory is `notAFile` and leads to its tree.
+#[test]
+fn directory_path_is_not_a_file_with_tree_lead() {
+    let t = Temp::new();
+    fs::create_dir_all(t.0.join("src")).expect("dir");
+    let mut req = LocalFetchQuery::test_default();
+    req.path = "src".parse().expect("path");
+    for result in [
+        fetch(&req, &workspace_policy(&t.0)),
+        fetch(&q(&t.0.join("src")), &Paths(t.0.clone())),
+    ] {
+        assert_eq!(result.error_code.as_deref(), Some("notAFile"), "{result:?}");
+        let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
+        assert_eq!(next["viewTree"]["tool"], "structureSearch", "{next}");
+        assert_eq!(
+            next["viewTree"]["query"]["queries"][0]["operation"], "tree",
+            "{next}"
+        );
+    }
+}
+
+/// LF4: a missing file leads to a listing by its stem under the closest
+/// existing directory.
+#[test]
+fn missing_file_leads_to_files_by_stem() {
+    let t = Temp::new();
+    fs::create_dir_all(t.0.join("src/b")).expect("dirs");
+    fs::write(t.0.join("src/b/blok.ts"), "x\n").expect("moved");
+    let mut req = LocalFetchQuery::test_default();
+    req.path = "src/a/blok.rs".parse().expect("path");
+    let result = fetch(&req, &workspace_policy(&t.0));
+    assert_eq!(
+        result.error_code.as_deref(),
+        Some("pathNotFound"),
+        "{result:?}"
+    );
+    let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
+    let listing = &next["viewStructure"]["query"]["queries"][0];
+    assert_eq!(listing["operation"], "files", "{next}");
+    assert_eq!(listing["path"], "src", "{next}");
+    assert_eq!(listing["include"], serde_json::json!(["blok"]), "{next}");
+}
+
+/// LF4: a matchString miss leads to a localSearch of the file's directory.
+#[test]
+fn match_miss_leads_to_directory_search() {
+    let t = Temp::new();
+    let p = t.0.join("a.rs");
+    fs::write(&p, "fn a() {}\n").expect("fixture");
+    let result = fetch(
+        &qj(&p, serde_json::json!({"matchString": "nowhere_here"})),
+        &Paths(t.0.clone()),
+    );
+    let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
+    let search = &next["searchContent"];
+    assert_eq!(search["tool"], "localSearch", "{next}");
+    assert_eq!(
+        search["query"]["queries"][0]["matchString"], "nowhere_here",
+        "{next}"
+    );
+    assert_eq!(
+        search["query"]["queries"][0]["path"],
+        t.0.to_string_lossy().as_ref(),
+        "{next}"
+    );
+}
+
+const PY_TWO: &str = "import os\n\ndef first(a):\n    x = 1\n    return a\n\n\ndef second(b):\n    if b:\n        return first(1)\n    return 2\n";
+
+/// LF3: a symbols outline names each multi-line declaration's line span.
+#[test]
+fn symbols_view_heads_carry_line_ranges() {
+    let t = Temp::new();
+    let p = t.0.join("m.py");
+    fs::write(&p, PY_TWO).expect("fixture");
+    let content = fetch(
+        &qj(&p, serde_json::json!({"minify": "symbols"})),
+        &Paths(t.0.clone()),
+    )
+    .content
+    .expect("content");
+    assert!(content.contains("3-5\tdef first(a):"), "{content}");
+    assert!(content.contains("8-11\tdef second(b):"), "{content}");
+    assert!(content.contains("1\timport os"), "{content}");
+}
+
+/// LF1: with a declaration hit present, a call-site hit keeps its window
+/// instead of widening to its caller; the widened declaration is named.
+#[test]
+fn block_reports_widened_declarations() {
+    let t = Temp::new();
+    let p = t.0.join("m.py");
+    fs::write(&p, PY_TWO).expect("fixture");
+    let result = fetch(
+        &qj(
+            &p,
+            serde_json::json!({"matchString": "first", "block": true, "contextLines": 0}),
+        ),
+        &Paths(t.0.clone()),
+    );
+    let body = serde_json::to_value(&result).expect("json");
+    assert_eq!(
+        body["blocks"],
+        serde_json::json!([{"symbolName": "first", "line": 3, "endLine": 5}]),
+        "{body}"
+    );
+    let content = result.content.expect("content");
+    // The call on line 10 shows alone, not `second` (8-11) whole.
+    assert!(content.contains("def first(a):"), "{content}");
+    assert!(!content.contains("def second(b):"), "{content}");
+    assert!(content.contains("return first(1)"), "{content}");
+}
+
+/// N3: a long-line source's default window is bounded by bytes, with the
+/// full window one continuation away.
+#[test]
+fn minified_default_window_is_byte_bounded() {
+    let t = Temp::new();
+    let p = t.0.join("lodash.min.js");
+    let text: String = (1..=140)
+        .map(|n| {
+            let tag = if n == 126 { "HIT" } else { "abc" };
+            format!("var v{n:03}={tag};{}\n", "x".repeat(505))
+        })
+        .collect();
+    fs::write(&p, &text).expect("fixture");
+    let result = fetch(
+        &qj(&p, serde_json::json!({"matchString": "HIT"})),
+        &Paths(t.0.clone()),
+    );
+    let content = result.content.clone().expect("content");
+    assert!(content.len() <= 2600, "{} bytes", content.len());
+    assert!(content.contains("var v126=HIT;"), "{content}");
+    let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
+    assert_eq!(
+        next["expandContext"]["query"]["queries"][0]["contextLines"], 10,
+        "{next}"
+    );
+    // Short-line sources keep the full ±10 window and no lead.
+    let short = t.0.join("a.txt");
+    fs::write(&short, numbered(40).replace("l20\n", "l20 HIT\n")).expect("fixture");
+    let plain = fetch(
+        &qj(&short, serde_json::json!({"matchString": "HIT"})),
+        &Paths(t.0.clone()),
+    );
+    assert!(
+        plain
+            .next
+            .as_ref()
+            .is_none_or(|next| next.expand_context.is_none()),
+        "{plain:?}"
+    );
+    assert_eq!(plain.content.expect("content").lines().count(), 21);
+}
+
+/// N3: a cut-declaration lead never points at a minified bundle's IIFE.
+#[test]
+fn read_block_lead_is_byte_capped() {
+    let t = Temp::new();
+    let p = t.0.join("bundle.js");
+    let body: String = (1..=140)
+        .map(|n| {
+            let tag = if n == 70 { "HIT" } else { "abc" };
+            format!("  var v{n:03}={tag};{}\n", "x".repeat(505))
+        })
+        .collect();
+    fs::write(&p, format!("(function () {{\n{body}}})();\n")).expect("fixture");
+    let result = fetch(
+        &qj(&p, serde_json::json!({"matchString": "HIT"})),
+        &Paths(t.0.clone()),
+    );
+    let next = serde_json::to_value(&result.next).expect("json");
+    let ranges = next["readBlock"]["query"]["queries"][0]["ranges"].clone();
+    let lines: usize = ranges
+        .as_array()
+        .map(|all| {
+            all.iter()
+                .filter_map(|range| {
+                    let (a, b) = range.as_str()?.split_once('-')?;
+                    Some(b.parse::<usize>().ok()? + 1 - a.parse::<usize>().ok()?)
+                })
+                .sum()
+        })
+        .unwrap_or(0);
+    assert!(lines * 520 <= 32 * 1024, "{next}");
+}
+
+/// GF3: a plain read's readBlock covers every cut declaration, not just
+/// the first hit's.
+#[test]
+fn read_block_covers_every_cut_declaration() {
+    let t = Temp::new();
+    let p = t.0.join("two.js");
+    let fill = |name: &str| {
+        (0..30)
+            .map(|i| format!("  var {name}{i} = {i};\n"))
+            .collect::<String>()
+    };
+    let text = format!(
+        "function a(options) {{\n{}  var opts = options || {{}};\n{}}}\n\nfunction b(options) {{\n{}  var opts = options || {{}};\n{}}}\n",
+        fill("a"),
+        fill("p"),
+        fill("b"),
+        fill("q")
+    );
+    fs::write(&p, &text).expect("fixture");
+    let result = fetch(
+        &qj(
+            &p,
+            serde_json::json!({"matchString": "var opts = options || {}"}),
+        ),
+        &Paths(t.0.clone()),
+    );
+    let next = serde_json::to_value(&result.next).expect("json");
+    let ranges = next["readBlock"]["query"]["queries"][0]["ranges"]
+        .as_array()
+        .unwrap_or_else(|| panic!("readBlock ranges: {next}"))
+        .iter()
+        .filter_map(|range| range.as_str().map(str::to_owned))
+        .collect::<Vec<_>>();
+    // Lines of `a` (1-63) and `b` (65-127) outside the ±10 windows.
+    let covers = |line: usize| {
+        ranges.iter().any(|range| {
+            range
+                .split_once('-')
+                .and_then(|(a, b)| Some((a.parse::<usize>().ok()?, b.parse::<usize>().ok()?)))
+                .is_some_and(|(a, b)| a <= line && line <= b)
+        })
+    };
+    assert!(covers(2) && covers(62), "{ranges:?}");
+    assert!(covers(66) && covers(126), "{ranges:?}");
 }

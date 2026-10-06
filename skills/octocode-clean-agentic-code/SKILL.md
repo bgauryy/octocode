@@ -9,7 +9,7 @@ tools: `npx octocode` / `octocode-mcp`
 related-skill: `octocode-research`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 
-Remove dead weight and agent residue without changing observable behavior. Not for bug fixes. Reports: `<output>/octocode-clean-agentic-code/`; scratch: `<output>/tmp/octocode-clean-agentic-code/`. Chat-only findings stay in chat.
+Remove dead weight and agent residue without changing observable behavior. Not for bug fixes.
 
 Flow:
 ```mermaid
@@ -60,3 +60,6 @@ Caption: every batch loops through VERIFY; disguised failures and knots never en
 - Instruction cruft: name the target model first; cut for fit, never on character count. Keep trigger text, contracts, safety and policy rules, and strings a script or test matches.
 
 Related: `octocode-research` (symbol proof, callers, blast radius) · `octocode-agentic-prompts` (intent-changing instruction rewrites) · `octocode-roast` (smell inventory) · `octocode-architect` (structural untangles) · `octocode-eval-benchmark` (metrics) · `octocode-skills` (folder changes). No scripts.
+
+## Output
+One cleanup report in chat. Save one file under `<output>/octocode-clean-agentic-code/` only when the task asks to keep it. Scratch stays in `<output>/tmp/octocode-clean-agentic-code/`. Approved edits keep their paths.

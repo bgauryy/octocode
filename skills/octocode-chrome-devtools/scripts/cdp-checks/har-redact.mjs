@@ -4,7 +4,7 @@
  * Writes a new file; never prints secret values.
  *
  * Usage:
- *   node har-redact.mjs <in.har> [--out <out.har>] [--strip-bodies]
+ *   node har-redact.mjs <in.har> [--out <out.har>] [--keep-bodies] [--strip-bodies]
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'path';
@@ -17,9 +17,9 @@ const getArg = (flag, def) => {
 const hasFlag = (flag) => argv.includes(flag);
 const inPath = argv.find(a => !a.startsWith('--'));
 
-if (!inPath || hasFlag('--help')) {
-  console.error('Usage: node har-redact.mjs <in.har> [--out <out.har>] [--strip-bodies]');
-  process.exit(inPath ? 0 : 1);
+if (!inPath || hasFlag('--help') || hasFlag('-h')) {
+  console.error('Usage: node har-redact.mjs <in.har> [--out <out.har>] [--keep-bodies] [--strip-bodies]');
+  process.exit(hasFlag('--help') || hasFlag('-h') ? 0 : 1);
 }
 
 const workspaceOutputBase = resolve(process.cwd(), '.octocode');
@@ -30,7 +30,7 @@ if (outRelative.startsWith('..') || isAbsolute(outRelative)) {
   console.error(`--out must stay under ${workspaceOutputBase}`);
   process.exit(2);
 }
-const stripBodies = hasFlag('--strip-bodies');
+const stripBodies = !hasFlag('--keep-bodies') || hasFlag('--strip-bodies');
 const SECRET_HEADER = /^(cookie|set-cookie|authorization|proxy-authorization|x-api-key|x-auth-token|x-csrf-token)$/i;
 const SECRET_QUERY = /token|key|secret|session|auth|password|signature|jwt/i;
 
@@ -39,6 +39,7 @@ function redactUrl(raw) {
     const url = new URL(raw);
     url.username = '';
     url.password = '';
+    url.hash = '';
     for (const key of [...url.searchParams.keys()]) {
       if (SECRET_QUERY.test(key)) url.searchParams.set(key, '[REDACTED]');
     }
@@ -51,8 +52,8 @@ function redactUrl(raw) {
 function redactHeaders(headers = []) {
   return headers.map((h) => {
     const name = h.name || h.Name || '';
-    if (SECRET_HEADER.test(name)) return { name, value: '[REDACTED]' };
-    return { name, value: String(h.value ?? '') };
+    if (SECRET_HEADER.test(name) || SECRET_QUERY.test(name)) return { name, value: '[REDACTED]' };
+    return { name, value: /^(location|referer)$/i.test(name) ? redactUrl(h.value) : String(h.value ?? '') };
   });
 }
 
@@ -65,12 +66,8 @@ function redactCookies(list = []) {
 
 function redactPostData(postData) {
   if (!postData) return postData;
-  const text = String(postData.text ?? '');
-  if (!text) return { ...postData, text: '' };
-  if (/password|token|secret|authorization/i.test(text) || text.length > 4000) {
-    return { ...postData, text: '[REDACTED]', comment: 'body redacted' };
-  }
-  return postData;
+  if (stripBodies) return { mimeType: postData.mimeType, text: '', comment: 'body stripped' };
+  return { ...postData, text: '[REDACTED]', params: postData.params?.map(p => ({ ...p, value: '[REDACTED]', fileName: undefined })), comment: 'request body redacted' };
 }
 
 const har = JSON.parse(readFileSync(inPath, 'utf8'));
@@ -96,6 +93,7 @@ for (const entry of entries) {
     entry.request.postData = redactPostData(entry.request.postData);
   }
   if (entry.response) {
+    if (entry.response.redirectURL) entry.response.redirectURL = redactUrl(entry.response.redirectURL);
     entry.response.headers = redactHeaders(entry.response.headers || []);
     if (entry.response.cookies?.length) {
       redactedCookieCount += entry.response.cookies.length;
@@ -117,4 +115,4 @@ writeFileSync(outPath, `${JSON.stringify(har, null, 2)}\n`, { mode: 0o600 });
 
 console.log(`[METRIC] entries=${entries.length} headerRowsTouched=${redactedHeaderCount} cookiesRedacted=${redactedCookieCount}`);
 console.log(`[ARTIFACT] REDACTED_HAR ${outPath}`);
-console.log('[REASON] share only redacted HAR; keep originals local');
+console.log('[REASON] review before sharing; bodies stripped by default; originals stay local');

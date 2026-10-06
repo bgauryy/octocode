@@ -37,6 +37,7 @@ pub(super) fn project_match(
             original_chars: Some(matched.value.chars().count()),
             returned_chars: Some(chars),
             enclosing: None,
+            declaration: None,
         };
     }
     // Content-view path: the engine already clipped the assembled snippet to
@@ -53,6 +54,9 @@ pub(super) fn project_match(
         original_chars: matched.original_chars.map(|chars| chars as usize),
         returned_chars: truncated.then(|| matched.value.chars().count()),
         enclosing: None,
+        // The engine's lexical rank 3 is a declared name: the row an
+        // lspSearch anchor takes. Only those rows carry the mark.
+        declaration: (matched.rank == Some(3)).then_some(true),
     }
 }
 
@@ -142,6 +146,7 @@ pub(super) fn merge_context_windows(
                     .lines
                     .extend(lines.iter().skip(fresh).map(|l| (*l).to_owned()));
                 block.match_lines.push(row.line);
+                block.head.declaration = block.head.declaration.or(row.declaration);
                 continue;
             }
         }
@@ -176,6 +181,7 @@ mod merge_tests {
             original_chars: None,
             returned_chars: None,
             enclosing: None,
+            declaration: None,
         }
     }
 

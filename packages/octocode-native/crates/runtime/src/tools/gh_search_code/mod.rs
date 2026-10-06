@@ -14,6 +14,7 @@ use crate::providers::github::{
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::{
     GhFailure, SEARCH_RESULT_CAP, add_next, apply_partial, reject_window, search_failure,
+    with_ref_recovery,
 };
 use crate::tools::id::ToolId;
 use crate::tools::num::usize_of;
@@ -34,10 +35,14 @@ pub async fn run<R: CredentialResolver, C: ConditionalCache>(
         Err(error) => Err(error),
     };
     result.map_err(|error| {
-        search_failure(
+        let failure = search_failure(
             error,
             "Lower page, or narrow with path, extensions, or filename to reach deeper results.",
-        )
+        );
+        match query.repo.as_deref() {
+            Some(repo) => with_ref_recovery(failure, &query.owner, repo),
+            None => failure,
+        }
     })
 }
 
@@ -85,9 +90,19 @@ pub(crate) async fn execute<R: CredentialResolver, C: ConditionalCache>(
     let more = current < data.pages;
     let mut items = code_output::files(&data.items, query, security)?;
     let mut value = json!({});
-    let resolution =
-        code_output::resolve_lines(provider, query, &items, commit, context, security).await?;
-    let resolved_sha = resolution.as_ref().map(|resolution| resolution.sha.clone());
+    let resolution = code_output::resolve_lines(
+        provider,
+        query,
+        &items,
+        &data.items,
+        commit,
+        context,
+        security,
+    )
+    .await?;
+    let resolved_sha = resolution
+        .as_ref()
+        .and_then(|resolution| resolution.sha.clone());
     let reads = code_output::shape_files(&mut value, &mut items, query, resolution);
     code_output::merge_identical(&mut items);
     if !items.is_empty() {

@@ -1256,3 +1256,108 @@ fn open_documents_remember_the_synced_content() {
     docs.reserve("file:///c");
     assert_eq!(docs.unchanged("file:///a", 8), None, "evicted");
 }
+
+/// Counts `textDocument/references` requests and answers with the count as
+/// the reference line, so a reused (cached) answer is visible.
+#[cfg(unix)]
+const COUNTING_SERVER: &str = r#"#!/usr/bin/env node
+let buf = Buffer.alloc(0);
+let count = 0;
+function send(m) {
+  const s = JSON.stringify(m);
+  process.stdout.write('Content-Length: ' + Buffer.byteLength(s) + '\r\n\r\n' + s);
+}
+function handle(msg) {
+  if (msg.method === 'initialize') {
+    send({ jsonrpc: '2.0', id: msg.id, result: { capabilities: { referencesProvider: true, textDocumentSync: 1 } } });
+  } else if (msg.method === 'textDocument/references') {
+    count += 1;
+    const uri = msg.params.textDocument.uri;
+    send({ jsonrpc: '2.0', id: msg.id, result: [{ uri, range: { start: { line: count, character: 0 }, end: { line: count, character: 1 } } }] });
+  } else if (msg.method === 'exit') {
+    process.exit(0);
+  } else if (msg.id !== undefined && msg.method) {
+    send({ jsonrpc: '2.0', id: msg.id, result: null });
+  }
+}
+process.stdin.on('data', (d) => {
+  buf = Buffer.concat([buf, d]);
+  for (;;) {
+    const i = buf.indexOf('\r\n\r\n');
+    if (i < 0) return;
+    const m = /Content-Length: (\d+)/i.exec(buf.slice(0, i).toString());
+    const n = Number(m[1]);
+    if (buf.length < i + 4 + n) return;
+    const msg = JSON.parse(buf.slice(i + 4, i + 4 + n).toString());
+    buf = buf.slice(i + 4 + n);
+    handle(msg);
+  }
+});
+"#;
+
+#[cfg(unix)]
+#[test]
+fn first_page_reuses_responses_when_generation_matches() {
+    use std::os::unix::fs::PermissionsExt;
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let root = temp_file("octocode-engine-response-reuse");
+        std::fs::create_dir_all(&root).unwrap();
+        let script = root.join("fake-lsp.js");
+        std::fs::write(&script, COUNTING_SERVER).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let source = root.join("a.ts");
+        std::fs::write(&source, "function foo() {}\nfoo();\n".repeat(10)).unwrap();
+        let source_path = source.canonicalize().unwrap().to_string_lossy().into_owned();
+        let client = NativeLspClient::new(JsLanguageServerConfig {
+            command: script.to_string_lossy().into_owned(),
+            args: Some(Vec::new()),
+            workspace_root: root.canonicalize().unwrap().to_string_lossy().into_owned(),
+            language_id: Some("typescript".into()),
+            initialization_options: None,
+            env: None,
+            max_memory_mb: None,
+        });
+        client.start().await.expect("fake server starts");
+        let line = |scope: ResponseScope| {
+            let client = &client;
+            let source_path = source_path.clone();
+            RESPONSE_SCOPE.scope(std::cell::RefCell::new(scope), async move {
+                client
+                    .get_locations(
+                        LocationRequest::References {
+                            include_declaration: true,
+                        },
+                        source_path,
+                        0,
+                        9,
+                        &SnippetReadPolicy::default(),
+                    )
+                    .await
+                    .expect("references")[0]
+                    .range
+                    .start
+                    .line
+            })
+        };
+        let reuse = |generation: &str| ResponseScope {
+            reuse: true,
+            generation: generation.to_owned(),
+        };
+        let first = line(reuse("g1")).await;
+        // Same generation: served from the cache, no second request.
+        assert_eq!(line(reuse("g1")).await, first);
+        // Another generation (an edit anywhere in the fingerprint): asks.
+        let edited = line(reuse("g2")).await;
+        assert_ne!(edited, first);
+        // Without reuse a request always asks, and refreshes the cache.
+        let fresh = line(ResponseScope {
+            reuse: false,
+            generation: "g1".into(),
+        })
+        .await;
+        assert_ne!(fresh, edited);
+        assert_eq!(line(reuse("g1")).await, fresh);
+        client.stop().await.unwrap();
+        let _ = std::fs::remove_dir_all(root);
+    });
+}

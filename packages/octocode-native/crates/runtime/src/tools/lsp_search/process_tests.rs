@@ -251,7 +251,7 @@ fn nested_definition_failure_keeps_location_with_partial_provenance() {
                 snippet_policy: &policy,
                 cancel: &NeverCancel,
                 path: &path,
-                workspace_root: root.to_str().expect("root"),
+                scope: &super::scope::Scope::new(root.to_string_lossy().into_owned(), Vec::new()),
                 root_only: false,
                 line: 0,
                 character: 6,

@@ -15,6 +15,7 @@ Usage:
 Checks primary mode, required sections, decision-blocker closure, step dependency
 order, acceptance links, KPI traceability, rollback-threshold ownership, and
 mermaid diagram types (unknown type = error; an RFC with no diagram = warning).
+A plan may live in RFC.md under ## Steps. IMPLEMENTATION.md is the plan that has left the RFC.
 --draft checks an exploratory RFC's structure and explicit Draft/none declarations;
 it permits declared open blockers and rejects common covert recommendation or
 execution language. This bounded lint does not certify prose truth.`;
@@ -128,6 +129,17 @@ function validateFiles(files, { draft = false } = {}) {
   if (hasImplementation && !hasRfc) {
     errors.push('IMPLEMENTATION.md requires RFC.md; use PLAN.md for a standalone plan.');
   }
+  const planInsideRfc = hasRfc && heading(files['RFC.md'], 'Steps');
+  if (planInsideRfc && hasImplementation) {
+    errors.push('RFC.md contains ## Steps; keep the plan in that file or move it to IMPLEMENTATION.md, not both.');
+  }
+  if (planInsideRfc) {
+    for (const requiredHeading of REQUIRED['IMPLEMENTATION.md']) {
+      if (!heading(files['RFC.md'], requiredHeading)) {
+        errors.push(`RFC.md: a plan in the same file is missing "## ${requiredHeading}".`);
+      }
+    }
+  }
 
   for (const [name, requiredHeadings] of Object.entries(REQUIRED)) {
     const content = files[name];
@@ -186,6 +198,7 @@ function validateFiles(files, { draft = false } = {}) {
   }
 
   const stepDocuments = ['PLAN.md', 'IMPLEMENTATION.md'].filter((name) => names.has(name));
+  if (planInsideRfc) stepDocuments.push('RFC.md');
   const allStepIds = [];
   for (const name of stepDocuments) {
     const { errors: stepErrors, ids } = validateSteps(name, files[name]);
@@ -460,7 +473,41 @@ KPI.md owns the measurable rollback threshold.
       throw new Error(`Diagram self-test ${label}: ${JSON.stringify({ errors, warnings })}`);
     }
   }
-  console.log(JSON.stringify({ valid: true, selfTest: true, cases: 27 }));
+  const rfcWithPlan = `${validRfc}
+## Plan Context
+- Primary: §Summary
+## Execution Questions
+None.
+## Acceptance Contract
+| Requirement | Pass/fail acceptance | Guardrail or rollback threshold |
+|---|---|---|
+| R1 | command passes | error rate unchanged |
+## Approach
+Implement in order.
+## Steps
+- [ ] S1. Add contract — Depends on: none — Produces: contract — Acceptance: R1 — Verify: test contract
+## Files, APIs, and Contracts
+None.
+## Risk Mitigations
+None.
+## Test and Verification Plan
+Run tests.
+## Rollout, Migration, and Rollback
+Use the inline threshold.
+`;
+  const inFileErrors = validateFiles({ 'RFC.md': rfcWithPlan });
+  if (inFileErrors.length) throw new Error(`In-file plan failed: ${inFileErrors.join('; ')}`);
+  const splitErrors = validateFiles({ 'RFC.md': rfcWithPlan, 'IMPLEMENTATION.md': validImplementation });
+  if (!splitErrors.some((error) => error.includes('not both'))) {
+    throw new Error(`Split plan should fail: ${JSON.stringify(splitErrors)}`);
+  }
+  const forwardInRfc = validateFiles({
+    'RFC.md': rfcWithPlan.replace('Depends on: none', 'Depends on: S2'),
+  });
+  if (!forwardInRfc.some((error) => error.includes('forward or unknown dependency S2'))) {
+    throw new Error(`In-file forward dependency should fail: ${JSON.stringify(forwardInRfc)}`);
+  }
+  console.log(JSON.stringify({ valid: true, selfTest: true, cases: 30 }));
 }
 
 const args = process.argv.slice(2);

@@ -49,26 +49,60 @@ function runLauncher(args: string[], env: NodeJS.ProcessEnv = {}) {
 
 describe.skipIf(!ready)('launcher → native binary e2e', () => {
   it.each(['', 'discovery-only-test-key'])(
-    'shows identical catalog and root-help instructions with classification key %j',
+    'serves the schema catalog for a bare piped call, with classification key %j',
     key => {
       const env = { OCTOCODE_CLASSIFICATION_API: key };
       const main = runLauncher([], env);
-      const scheme = runLauncher(['scheme'], env);
+      const schema = runLauncher(['schema'], env);
       expect(main.status).toBe(0);
-      expect(scheme.status).toBe(0);
+      expect(schema.status).toBe(0);
       const instructions = JSON.parse(main.stdout).instructions as string;
       expect(instructions.length).toBeGreaterThan(0);
-      expect(JSON.parse(scheme.stdout).instructions).toBe(instructions);
+      expect(JSON.parse(schema.stdout).instructions).toBe(instructions);
       expect(/\bclasify\b/i.test(instructions)).toBe(Boolean(key));
-      for (const args of [['--help'], ['-h'], ['help']]) {
-        const help = runLauncher(args, env);
-        expect(help.status).toBe(0);
-        expect(help.stdout.split('Agent instructions:\n')[1]?.trim()).toBe(
-          instructions.trim()
-        );
-      }
     }
   );
+
+  it('prints native root help without agent instructions', () => {
+    for (const args of [['--help'], ['-h'], ['help']]) {
+      const help = runLauncher(args);
+      expect(help.status).toBe(0);
+      expect(help.stdout).toMatch(/^\s+schema\s/m);
+      expect(help.stdout).not.toContain('Agent instructions');
+      expect(help.stdout).not.toMatch(/\bscheme\b|showConfig|--json-errors/);
+    }
+    const schemaHelp = runLauncher(['schema', '--help']);
+    expect(schemaHelp.status).toBe(0);
+    expect(schemaHelp.stdout).toContain('Usage: octocode schema');
+  });
+
+  it('reports errors as the JSON envelope on a pipe', () => {
+    const typo = runLauncher(['lokalSearch', '{}']);
+    expect(typo.status).toBe(2);
+    expect(JSON.parse(typo.stdout)).toMatchObject({
+      kind: 'octocode.toolError',
+    });
+    const badJson = runLauncher(['localSearch', '{"queries":[']);
+    expect(badJson.status).toBe(2);
+    expect(JSON.parse(badJson.stdout).error).toContain('Invalid JSON query');
+  });
+
+  it('reads the query from stdin with --input -', () => {
+    const result = spawnSync(
+      process.execPath,
+      [launcher, 'localFetch', '--input', '-'],
+      {
+        encoding: 'utf8',
+        env: { ...process.env, NO_COLOR: '1' },
+        input: JSON.stringify({
+          queries: [{ path: launcher, ranges: ['1-1'] }],
+        }),
+        timeout: 60_000,
+      }
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout).results[0].index).toBe(0);
+  });
 
   it('serves --version as the one package version', () => {
     const result = runLauncher(['--version']);

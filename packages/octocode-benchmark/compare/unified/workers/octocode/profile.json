@@ -6,7 +6,7 @@
     "octocode": {
       "command": "node",
       "args": ["${REPO_ROOT}/packages/octocode-mcp/dist/index.js"],
-      "env": { "ENABLE_LOCAL": "true", "WORKSPACE_ROOT": "${CORPUS_ROOT}", "ALLOWED_PATHS": "${CORPUS_PATHS}" }
+      "env": { "OCTOCODE_ENABLE_LOCAL": "true", "WORKSPACE_ROOT": "${CORPUS_ROOT}", "ALLOWED_PATHS": "${CORPUS_PATHS}" }
     }
   },
   "addCorpusDirs": false,

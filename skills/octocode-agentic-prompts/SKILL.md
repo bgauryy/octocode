@@ -57,7 +57,7 @@ A goal skips RATE. Contain an active safety, permission, or production failure f
 - Precedence, higher wins: system and safety → developer or host policy → explicit user request → critical rules → skill default → soft preference. Record `Conflict: A vs B → priority N`; stop when authority is ambiguous.
 - Place each rule where its reader acts: types and limits in the schema, tool choice in the description, cross-tool order in server instructions.
 - Preserve intent, working branches, identifiers, commands, and required metadata. Verify technical claims before you rewrite them.
-- Write rewritten instructions in STE-80; show a flow as Mermaid (12 nodes or fewer) or an arrow chain.
+- Write rewritten instructions in ASD-STE100; show a flow as Mermaid (12 nodes or fewer) or an arrow chain.
 
 ## Agentic flows
 - Pick the smallest protocol that keeps ownership: typed local call, manager-as-tool, handoff, A2A, or MCP for a service call.
@@ -74,15 +74,15 @@ A goal skips RATE. Contain an active safety, permission, or production failure f
 - Wording judgment never proves reliability: measure with `octocode-eval-benchmark`, or report the claim as unmeasured.
 - A failed check returns to FIX, or to UNDERSTAND when intent changed.
 
-## OUTPUT
-- Mutate files only when authorized; otherwise return a patch-style delta in chat. Report only successful writes.
-- Request for prompt, description, or rule text: output the artifact only. Rewrite: full document plus a short summary. Minimal edit or review: delta (`Section | Before | After | Why`).
-- Reviews and drafts go to `<output>/octocode-agentic-prompts/`; scratch to `<output>/tmp/octocode-agentic-prompts/`.
+## Output
+One document. Return it in chat unless the task authorizes a write. Report only successful writes.
+Prompt or rule text: the document only. A rewrite: the full document plus a short summary. A small edit: one delta table (`Section | Before | After | Why`).
+Save one file under `<output>/octocode-agentic-prompts/` only when the task asks to keep a review. Scratch stays in `<output>/tmp/octocode-agentic-prompts/`.
 
 ## Routes
 Typed judgment or semantic location in unread files: load the `octocode-research` clasify gate, then verify the deciding source. Reliability claims and changes to this skill: `octocode-eval-benchmark`.
 
-Related owners: `octocode-skills` (skill folders), `octocode-research` (MCP/CLI verification), `octocode-subagent` (delegation topology), `octocode-documentation` `style-ste80` (STE-80 profile), `octocode-clean-agentic-code` (dated instruction cruft).
+Related owners: `octocode-skills` (skill folders), `octocode-research` (MCP/CLI verification), `octocode-subagent` (delegation topology), `octocode-documentation` `style-ste80` (ASD-STE100), `octocode-clean-agentic-code` (dated instruction cruft).
 
 ## Done
 This skill ships no scripts. Report only checks you ran; the deliverable, score, changed files, and deferrals must match reality.

@@ -108,15 +108,12 @@ export async function createSourceMapResolver(cdp) {
   await cdp.send('Debugger.setSkipAllPauses', { skip: true });
 
   const parsedMaps = new Map();
-  const scriptUrls = new Map();
 
   const stats = { withMap: 0, withoutMap: 0, loaded: 0, failed: 0 };
 
   const loadPromises = [];
 
   cdp.on('Debugger.scriptParsed', ({ scriptId, url, sourceMapURL }) => {
-    scriptUrls.set(scriptId, url);
-
     if (!sourceMapURL) {
       stats.withoutMap++;
       return;
@@ -176,13 +173,10 @@ export async function createSourceMapResolver(cdp) {
 
     printSummary() {
       const total = stats.withMap + stats.withoutMap;
-      const failNote = stats.failed > 0
-        ? ` (failed maps are likely on internal servers or require auth - expected for production sites)`
-        : '';
       console.log(
         `[SOURCEMAP] ${total} scripts: ` +
         `${stats.loaded} maps loaded, ` +
-        `${stats.failed} failed${failNote}, ` +
+        `${stats.failed} failed, ` +
         `${stats.withoutMap} had no map`
       );
     },

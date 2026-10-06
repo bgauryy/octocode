@@ -33,7 +33,7 @@ EVIDENCE
   Treat results as leads: confirm identity with lspSearch before deleting or renaming.
 
 OUTPUT
-  One JSON object on stdout (--pretty for humans). Lists carry total and results; a cut adds
+  One JSON object on stdout, indented on a terminal. Lists carry total and results; a cut adds
   truncated plus next, a paste-ready command. Exit: 0 ok, 1 empty, 2 bad input or ambiguous,
   3 no graph or node, 5 error, 6 more pages (run next).
 
@@ -91,9 +91,6 @@ pub(super) struct IngestArgs {
     /// unchanged tree reuses it and prints `reused: true`).
     #[arg(long)]
     force: bool,
-    /// Emit indented JSON.
-    #[arg(long)]
-    pretty: bool,
 }
 
 #[derive(Args)]
@@ -150,13 +147,10 @@ pub(super) struct QueryArgs {
     /// `impact`: git revision; files changed since it (plus untracked) are the change set.
     #[arg(long)]
     since: Option<String>,
-    /// Emit indented JSON.
-    #[arg(long)]
-    pretty: bool,
 }
 
 pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand) -> u8 {
-    let (output, pretty) = match command {
+    let output = match command {
         GraphCommand::Ingest(args) => {
             let IngestArgs {
                 path,
@@ -165,7 +159,6 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand) -> u8 {
                 max_files,
                 keep,
                 force,
-                pretty,
             } = *args;
             let options = IngestOptions {
                 path: std::path::absolute(&path).unwrap_or(path),
@@ -175,7 +168,7 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand) -> u8 {
                 keep,
                 force,
             };
-            (runtime.graph_ingest(&options), pretty)
+            runtime.graph_ingest(&options)
         }
         GraphCommand::Query(args) => {
             let QueryArgs {
@@ -197,7 +190,6 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand) -> u8 {
                 changed,
                 since,
                 min_tier,
-                pretty,
             } = *args;
             let options = QueryOptions {
                 op,
@@ -219,10 +211,10 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand) -> u8 {
                 since,
                 min_tier,
             };
-            (runtime.graph_query(&options), pretty)
+            runtime.graph_query(&options)
         }
     };
-    match super::write_json(&output.value, !pretty) {
+    match super::write_json(&output.value, super::machine_output(false)) {
         0 => output.exit,
         failed => failed,
     }

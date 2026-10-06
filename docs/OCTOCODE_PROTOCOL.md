@@ -72,7 +72,7 @@ flowchart LR
   - merges operation variants into one object, with each variant's extra required fields on one line;
   - keeps full descriptions on each tool's primary fields; other fields show only their type;
   - leaves out validation-only bounds and the page, snapshot, and offset fields that agents copy from `next.*` and `hints.*`.
-- The view accepts a superset of the contract and is never used to validate. The canonical schema still validates every call, and its errors list every valid field. `octocode scheme` shows the full contract.
+- The view accepts a superset of the contract and is never used to validate. The canonical schema still validates every call, and its errors list every valid field. `octocode schema` shows the full contract.
 - Budget: the instructions plus every default tool definition stay within 32,000 characters (about 8k tokens); a core test enforces it.
 - Why: agents learn one shape per tool, and drift is caught before it reaches a user.
 
@@ -98,7 +98,7 @@ Each layer is budgeted, and tests enforce the budgets:
   - The whole set is capped at **2,000 characters**, because hosts truncate longer instructions. They are scoped to the tools actually available: without a clasify key, clasify is never mentioned.
   - [OCTOCODE_WORKFLOWS.md](OCTOCODE_WORKFLOWS.md) is the long form, with one diagram per flow.
 - **Tool descriptions** are written as triggers: *use when…, not when…, continue with…*. An agent picks the right tool from the description alone.
-- **Schemas** stay lean: descriptions only where a field isn't self-explanatory, enums instead of prose, and examples that validate. `octocode scheme <tool>` shows the full contract on demand, so agents load it only after choosing a tool.
+- **Schemas** stay lean: descriptions only where a field isn't self-explanatory, enums instead of prose, and examples that validate. `octocode schema <tool>` shows the full contract on demand, so agents load it only after choosing a tool.
 
 ### 3.4 Batching
 - One call carries **1–5 independent queries** of the same tool; in research, each row states its own `mainGoal` and `reasoning`.
@@ -136,7 +136,7 @@ Every list and every large body can be paged, and every page is honest about wha
   - **`next.*` = pages.** More of the same result or coverage it still lacks: next page, continue a window or patch, restart a stale snapshot, list skipped binaries. The response is incomplete without them, so follow every relevant one.
   - **`hints.*` = optional guidance.** `hints.text` holds prose tips; every other entry is a lead such as read the top match, open the repo, read the fix PR, or run clasify on these candidates.
 - **Empty results** come with repair tips in `hints.text`: widen the scope, try a synonym, check the ref or index limits. An empty result is never an absence claim until scope, spelling, ref and index limits have been checked.
-- **Errors** are typed (`invalidInput`, `notFound`, `authentication`, `rateLimited`, …), carry `retryable`, and map to distinct CLI exit codes:
+- **Errors** are typed (`invalidInput`, `notFound`, `authentication`, `rateLimited`, …), carry `retryable: true` only when a retry can help, and map to distinct CLI exit codes:
   - 0 success;
   - 1 empty;
   - 2 invalid input;

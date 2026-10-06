@@ -88,14 +88,11 @@ fn clasify_failure(value: &Value, failure: Option<FailureKind>) -> Option<ExitCl
     for query in queries {
         codes.extend(error_code(query));
         for resource in query["resources"].as_array().into_iter().flatten() {
-            // A compact resource with one plain page carries its `error` or
-            // `answers` itself; it then has no `pages`.
-            let own = std::iter::once(resource).filter(|resource| resource.get("pages").is_none());
-            for page in resource["pages"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .chain(own)
+            // Compact output states a single page's `error`/`answers` on the
+            // resource, and hoists one error shared by every page there while
+            // the pages keep their reads: the resource always counts.
+            for page in
+                std::iter::once(resource).chain(resource["pages"].as_array().into_iter().flatten())
             {
                 codes.extend(error_code(page));
                 codes.extend(
@@ -244,6 +241,13 @@ mod tests {
             "a rejected request stays a caller error"
         );
         assert_eq!(clasify_failure(&json!({"queries":[]}), None), None);
+        // N13: compact output hoists one shared page error to the resource
+        // while pages keep their `next.read`; the resource error still counts.
+        let hoisted = json!({"queries":[{"id":"q","resources":[{"id":"s",
+            "error":{"errorCode":"classificationQuotaExhausted","error":"m"},
+            "pages":[{"lines":[1,9],"next":{"read":{"tool":"localFetch",
+                "query":{"queries":[{"path":"a.rs"}]}}}}]}]}]});
+        assert_eq!(clasify_failure(&hoisted, None), execution);
     }
 
     #[test]
@@ -266,6 +270,21 @@ mod tests {
         assert!(!has_row_continuation(ToolId::LocalSearch, &complete));
         let open = json!({"data":{"complete":false,"next":{"expandCaptures":call}}});
         assert!(has_row_continuation(ToolId::LocalSearch, &open));
+    }
+
+    /// LF4/P8: a directory given to a file read (or a file to a listing) is
+    /// the caller's mistake: exit 2, not an execution failure.
+    #[test]
+    fn not_a_file_and_not_a_directory_are_invalid_input() {
+        for code in ["notAFile", "notADirectory"] {
+            let row = json!({"results":[{"status":"error","data":{"errorCode":code}}]});
+            assert!(all_rows_invalid_input(&row), "{code}");
+            assert_eq!(
+                outcome(row, Some(FailureKind::Execution), true).exit_class(),
+                ExitClass::InvalidInput,
+                "{code}"
+            );
+        }
     }
 
     #[test]

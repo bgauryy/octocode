@@ -17,7 +17,7 @@ use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-/// Auto-install policy, from `OCTOCODE_LSP_AUTO_INSTALL`.
+/// Auto-install policy, from `lsp.autoInstall`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProvisionMode {
     Off,
@@ -486,7 +486,7 @@ fn run_status(
         if let Some(lang_id) = &language_id {
             println!(
                 "  No language server is available for this file (language: {lang_id}). \
-                 Install a matching language server or set OCTOCODE_*_SERVER_PATH."
+                 Install a matching language server or add an lsp-servers.json entry."
             );
         } else {
             println!("  Could not determine language for this file.");
@@ -523,11 +523,11 @@ pub async fn run(
             let mode = if yes || force {
                 ProvisionMode::Auto
             } else {
-                provision_mode(runtime.config().env_value("OCTOCODE_LSP_AUTO_INSTALL"))
+                provision_mode(Some(&runtime.config().resolved.lsp.auto_install))
             };
             run_install(&root, &platform, targets, mode, json, fetch_allowlisted).await
         }
-        "uninstall" | "remove" => run_uninstall(&root, &platform, names, json),
+        "uninstall" => run_uninstall(&root, &platform, names, json),
         "clean" => run_clean(&root, yes, json),
         "status" | "which" => run_status(
             &discovery,

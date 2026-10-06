@@ -33,6 +33,7 @@ mod patterns {
     pattern!(artifact_id, r"<artifactId>\s*([^<]+?)\s*</artifactId>");
     pattern!(release, r"<release>\s*([^<]+?)\s*</release>");
     pattern!(latest, r"<latest>\s*([^<]+?)\s*</latest>");
+    pattern!(version, r"<version>\s*([^<]+?)\s*</version>");
 
     /// The bounded set of `<tag>value</tag>` fields extracted from
     /// `maven-metadata.xml`. Unknown tags return `None` (the `regex` crate has
@@ -54,7 +55,7 @@ pub(crate) async fn maven(
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     if let Some(package_name) = query.package_name() {
-        return exact(package_name, client).await;
+        return exact(package_name, query.version(), client).await;
     }
     let offset = state.offset.unwrap_or(0);
     let size = query.page_size().unwrap_or(10);
@@ -119,6 +120,7 @@ pub(crate) async fn maven(
 
 async fn exact(
     package_name: &str,
+    version: Option<&str>,
     client: &RegistryClient<'_>,
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let parts = package_name.split(':').collect::<Vec<_>>();
@@ -166,9 +168,39 @@ async fn exact(
             super::util::encode_component(&returned_name)
         ),
     );
-    artifact.version = field("release").or_else(|| field("latest"));
-    if let Some(version) = artifact.version.as_deref() {
-        artifact.repository = repository_from_pom(&group_path, name, version, client).await?;
+    artifact.version = match version.filter(|version| *version != "latest") {
+        // An exact version is one the metadata lists (Maven has no ranges
+        // here: a bracketed range is not a published version).
+        Some(wanted) => {
+            let published = patterns::version()
+                .captures_iter(&clean)
+                .filter_map(|capture| capture.get(1))
+                .map(|value| value.as_str().trim().to_owned())
+                .collect::<Vec<_>>();
+            if !published.iter().any(|version| version == wanted) {
+                return Err(super::npm::version_not_found(
+                    &artifact.name,
+                    wanted,
+                    &published,
+                ));
+            }
+            Some(wanted.to_owned())
+        }
+        None => field("release").or_else(|| field("latest")),
+    };
+    if let Some(version) = artifact.version.clone() {
+        artifact.repository = repository_from_pom(&group_path, name, &version, client).await?;
+        // Maven names no commit; an upstream tag of this release pins the
+        // lead (a `-jre`/`-android` classifier is not part of the tag).
+        if let Some(repository) = artifact.repository.as_deref() {
+            artifact.source_ref = super::release_ref::github_release_tag(
+                repository,
+                release_version(&version),
+                client,
+            )
+            .await;
+            artifact.source_tag = artifact.source_ref.is_some();
+        }
     }
     Ok(ArtifactProviderPage {
         artifacts: vec![artifact],
@@ -177,6 +209,16 @@ async fn exact(
         terminal_limit: None,
         registry: None,
     })
+}
+
+/// The release a Maven version names without its variant classifier:
+/// `33.0.0-jre` and `33.0.0-android` are both release `33.0.0`. A
+/// pre-release qualifier (`2.0.0-rc1`, `1.0-SNAPSHOT`) stays.
+fn release_version(version: &str) -> &str {
+    version
+        .rsplit_once('-')
+        .filter(|(_, classifier)| matches!(*classifier, "jre" | "android"))
+        .map_or(version, |(release, _)| release)
 }
 
 /// Upstream source link for exact lookups, taken from the versioned POM's
@@ -359,6 +401,69 @@ mod tests {
             "{}",
             item.registry_url
         );
+    }
+
+    /// Answers a tag check for one tag only.
+    struct OneTag(&'static str);
+    impl super::super::ReleaseTags for OneTag {
+        fn exists<'a>(
+            &'a self,
+            _owner: &'a str,
+            _repo: &'a str,
+            tag: &'a str,
+        ) -> super::super::TagFuture<'a> {
+            let found = tag == self.0;
+            Box::pin(async move { Some(found) })
+        }
+    }
+
+    /// AR4: an exact Maven version reads that version's POM and pins the
+    /// upstream tag without the `-jre` classifier; an unlisted version is
+    /// `versionNotFound` with the nearest published versions.
+    #[tokio::test]
+    async fn maven_exact_version_reads_that_release_and_its_tag() {
+        let metadata = concat!(
+            "<metadata><groupId>com.google.guava</groupId><artifactId>guava</artifactId>",
+            "<versioning><release>33.7.1-jre</release><versions>",
+            "<version>32.1.3-jre</version><version>33.0.0-jre</version><version>33.7.1-jre</version>",
+            "</versions></versioning></metadata>"
+        );
+        let pom = "<project><url>https://github.com/google/guava</url></project>";
+        let query = artifact_query(
+            serde_json::json!({"type": ArtifactType::Maven,
+                "packageName": "com.google.guava:guava".to_string(), "version": "33.0.0-jre"}),
+            None,
+        );
+        let http = SequenceMock::new(vec![metadata, pom]);
+        let b = test_budget();
+        let tags = OneTag("v33.0.0");
+        let client = RegistryClient {
+            http: &http,
+            budget: &b,
+            cache: None,
+            tags: Some(&tags),
+        };
+        let page = maven(&query, &ArtifactProviderState::default(), &client)
+            .await
+            .expect("exact version");
+        let item = &page.artifacts[0];
+        assert_eq!(item.version.as_deref(), Some("33.0.0-jre"));
+        assert_eq!(item.source_ref.as_deref(), Some("v33.0.0"));
+        assert!(item.source_tag);
+
+        let missing = artifact_query(
+            serde_json::json!({"type": ArtifactType::Maven,
+                "packageName": "com.google.guava:guava".to_string(), "version": "33.0.1-jre"}),
+            None,
+        );
+        let http = SequenceMock::new(vec![metadata]);
+        let client = RegistryClient::uncached(&http, &b);
+        let error = maven(&missing, &ArtifactProviderState::default(), &client)
+            .await
+            .expect_err("unlisted version");
+        assert_eq!(error.code, "versionNotFound");
+        assert_eq!(release_version("33.0.0-android"), "33.0.0");
+        assert_eq!(release_version("2.0.0-rc1"), "2.0.0-rc1");
     }
 
     #[tokio::test]

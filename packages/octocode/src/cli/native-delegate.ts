@@ -17,14 +17,14 @@ const FORWARDED_SIGNALS: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
 /**
  * `skill` remains in Node because the native command intentionally invokes this
  * launcher for shared skill materialization. Delegating it would recurse.
- * `scheme` is Node-owned by design: it composes core-delivered presentation
+ * `schema` is Node-owned by design: it composes core-delivered presentation
  * (descriptions, examples, instructions) with the binary's machine catalog
- * (availability, enforcement fingerprint) — the binary itself no longer
- * embeds any presentation.
+ * (availability, enforcement fingerprint) — the binary itself embeds no
+ * presentation. The binary still owns `schema --help`.
  */
 export const NODE_OWNED_COMMANDS: ReadonlySet<string> = new Set([
   'skill',
-  'scheme',
+  'schema',
 ]);
 
 /**

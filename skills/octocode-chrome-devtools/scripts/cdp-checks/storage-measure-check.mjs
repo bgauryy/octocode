@@ -1,5 +1,5 @@
 /**
- * Smart storage measure: cookies (meta only), local/sessionStorage keys,
+ * Storage measure: cookies (meta only), local/sessionStorage keys,
  * IndexedDB, Cache Storage, service workers + risk score.
  * Never prints cookie/token values.
  */
@@ -70,9 +70,11 @@ export async function run(cdp) {
   }
 
   let cookies = [];
+  const errors = [];
   try {
     cookies = (await cdp.send('Network.getAllCookies')).cookies || [];
-  } catch {}
+    if (!Array.isArray(cookies)) throw new Error('Cookie inventory missing');
+  } catch (error) { cookies = []; errors.push({ area: 'cookies', error: error.message }); }
 
   const storageEval = await cdp.send('Runtime.evaluate', {
     awaitPromise: true,
@@ -119,6 +121,7 @@ export async function run(cdp) {
   });
 
   if (storageEval?.exceptionDetails) {
+    errors.push({ area: 'storage', error: storageEval.exceptionDetails.text || 'evaluation failed' });
     console.log(`[FINDING] STORAGE_EVAL_ERROR ${storageEval.exceptionDetails.text || storageEval.exceptionDetails.exception?.description || 'unknown'}`);
   }
   const storage = storageEval?.result?.value && typeof storageEval.result.value === 'object'
@@ -134,8 +137,9 @@ export async function run(cdp) {
         serviceWorkers: [],
         note: 'evaluate-returned-empty',
       };
+  if (storage.note) errors.push({ area: 'storage', error: storage.note });
   const pageHost = (() => {
-    try { return new URL(cdp.targetInfo?.url || storage.url || 'http://local').hostname; }
+    try { return new URL(storage.url || cdp.targetInfo?.url || 'http://local').hostname; }
     catch { return ''; }
   })();
 
@@ -149,7 +153,7 @@ export async function run(cdp) {
     secure: c.secure,
     sameSite: c.sameSite,
     session: !c.expires || c.expires <= 0,
-    thirdParty: pageHost ? !String(c.domain || '').includes(pageHost.replace(/^www\./, '')) : false,
+    thirdParty: pageHost ? !(pageHost === String(c.domain || '').replace(/^\./, '') || pageHost.endsWith('.' + String(c.domain || '').replace(/^\./, ''))) : null,
   }));
 
   const insecure = cookieRows.filter(c => !c.secure && !c.session);
@@ -158,13 +162,13 @@ export async function run(cdp) {
 
   const findings = [];
   if (insecure.length) findings.push({ code: 'INSECURE_COOKIES', count: insecure.length });
-  if (nonHttpOnlySessionish.length) findings.push({ code: 'SENSITIVE_COOKIE_NOT_HTTPONLY', count: nonHttpOnlySessionish.length, names: nonHttpOnlySessionish.map(c => c.name).slice(0, 10) });
+  if (nonHttpOnlySessionish.length) findings.push({ code: 'SENSITIVE_COOKIE_NOT_HTTPONLY', count: nonHttpOnlySessionish.length, names: nonHttpOnlySessionish.map(c => c.name) });
   if (thirdParty.length) findings.push({ code: 'THIRD_PARTY_COOKIES', count: thirdParty.length });
   if ((storage.suspiciousLocalKeys || []).length) {
-    findings.push({ code: 'SUSPICIOUS_LOCALSTORAGE_KEYS', keys: storage.suspiciousLocalKeys.slice(0, 10) });
+    findings.push({ code: 'SUSPICIOUS_LOCALSTORAGE_KEYS', keys: storage.suspiciousLocalKeys });
   }
   if ((storage.suspiciousSessionKeys || []).length) {
-    findings.push({ code: 'SUSPICIOUS_SESSIONSTORAGE_KEYS', keys: storage.suspiciousSessionKeys.slice(0, 10) });
+    findings.push({ code: 'SUSPICIOUS_SESSIONSTORAGE_KEYS', keys: storage.suspiciousSessionKeys });
   }
 
   let health = 100;
@@ -175,22 +179,26 @@ export async function run(cdp) {
   health = Math.max(0, Math.round(health));
 
   const payload = {
-    url: cdp.targetInfo?.url || storage.url || null,
+    url: storage.url || cdp.targetInfo?.url || null,
+    complete: errors.length === 0,
+    errors,
     cookies: {
       count: cookieRows.length,
       domains: [...new Set(cookieRows.map(c => c.domain))],
       rows: cookieRows,
     },
     storage,
-    score: { health, findings },
+    score: { health: errors.length ? null : health, findings },
     collectedAt: new Date().toISOString(),
   };
 
   const artifact = join(cdp.outputDir, 'storage-measure.json');
   writeFileSync(artifact, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
 
-  console.log(`[METRIC] STORAGE health=${health} cookies=${cookieRows.length} local=${storage.localStorageKeys?.length ?? 0} session=${storage.sessionStorageKeys?.length ?? 0} idb=${storage.indexedDBDatabases?.length ?? 0} caches=${storage.cacheNames?.length ?? 0} sw=${storage.serviceWorkers?.length ?? 0}`);
+  console.log(`[METRIC] STORAGE health=${payload.score.health ?? 'unavailable'} cookies=${cookieRows.length} local=${storage.localStorageKeys?.length ?? 0} session=${storage.sessionStorageKeys?.length ?? 0} idb=${storage.indexedDBDatabases?.length ?? 0} caches=${storage.cacheNames?.length ?? 0} sw=${storage.serviceWorkers?.length ?? 0}`);
   for (const f of findings.slice(0, 8)) console.log(`[FINDING] STORAGE_${f.code} ${JSON.stringify(f)}`);
   for (const row of cookieRows.slice(0, 10)) console.log(`[COOKIE_META] ${JSON.stringify(row)}`);
   console.log(`[ARTIFACT] STORAGE_MEASURE ${artifact}`);
+  for (const error of errors) console.log(`[FINDING] STORAGE_UNAVAILABLE ${JSON.stringify(error)}`);
+  if (errors.length) process.exitCode = 1;
 }

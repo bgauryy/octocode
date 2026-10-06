@@ -51,33 +51,12 @@ const VENDORS = {
     project: '.claude/skills',
     notes: 'Claude Code skill frontmatter hooks run here',
   },
-  'claude-desktop': {
-    id: 'claude-desktop',
-    label: 'Claude Desktop',
-    user: join(HOME, '.claude', 'skills'),
-    project: '.claude/skills',
-    notes: 'Alias: Claude Code Desktop reads Claude Code skill locations',
-  },
   cursor: {
     id: 'cursor',
     label: 'Cursor',
     user: join(HOME, '.cursor', 'skills'),
     project: '.cursor/skills',
     notes: 'Native Cursor skills; SKILL.md hooks frontmatter not executed',
-  },
-  agents: {
-    id: 'agents',
-    label: 'Codex (agents dir)',
-    user: join(HOME, '.agents', 'skills'),
-    project: '.agents/skills',
-    notes: 'Alias for the shared Codex Agent Skills location',
-  },
-  'codex-native': {
-    id: 'codex-native',
-    label: 'Codex native',
-    user: join(HOME, '.agents', 'skills'),
-    project: '.agents/skills',
-    notes: 'Legacy alias for the current Codex Agent Skills location',
   },
   opencode: {
     id: 'opencode',
@@ -120,13 +99,6 @@ const PRIMARY = [
   'gemini',
 ];
 const VENDOR_IDS = Object.keys(VENDORS);
-const PLATFORM_ALIASES = {
-  agents: 'codex',
-  shared: 'codex',
-  common: 'codex',
-  'codex-native': 'codex',
-  'claude-desktop': 'claude',
-};
 
 function usage() {
   return `skill-sync <skill-dir> [options]
@@ -192,13 +164,12 @@ function resolvePlatformIds(spec) {
   if (!raw || raw === 'top') return [...TOP];
   if (raw === 'all') return [...PRIMARY];
   const ids = raw.split(',').map((s) => s.trim()).filter(Boolean);
-  const validIds = [...VENDOR_IDS, ...Object.keys(PLATFORM_ALIASES)];
-  const bad = ids.filter((id) => !VENDORS[id] && !PLATFORM_ALIASES[id]);
+  const bad = ids.filter((id) => !VENDORS[id]);
   if (bad.length) {
-    console.error(`Unknown platform(s): ${bad.join(', ')}. Valid: ${validIds.join(', ')}, top, all`);
+    console.error(`Unknown platform(s): ${bad.join(', ')}. Valid: ${VENDOR_IDS.join(', ')}, top, all`);
     process.exit(1);
   }
-  return [...new Set(ids.map((id) => PLATFORM_ALIASES[id] || id))];
+  return [...new Set(ids)];
 }
 
 function readFrontmatterName(skillMdPath) {
@@ -271,11 +242,9 @@ function runSelfTest() {
   if (JSON.stringify(resolvePlatformIds('all')) !== JSON.stringify(PRIMARY)) {
     failures.push('all must expand to each canonical platform exactly once');
   }
-  const aliases = resolvePlatformIds(
-    'codex,codex-native,agents,shared,common,claude-desktop,claude'
-  );
-  if (JSON.stringify(aliases) !== JSON.stringify(['codex', 'claude'])) {
-    failures.push('platform aliases must normalize and de-duplicate');
+  const repeated = resolvePlatformIds('codex,claude,codex');
+  if (JSON.stringify(repeated) !== JSON.stringify(['codex', 'claude'])) {
+    failures.push('platform ids must de-duplicate');
   }
 
   return { ok: failures.length === 0, checks: 16, failures };
@@ -407,7 +376,6 @@ function printVendors(asJson) {
     const v = VENDORS[id];
     return {
       id,
-      canonical: PLATFORM_ALIASES[id] || id,
       label: v.label,
       user: v.user,
       userRelativePath: relative(HOME, v.user).split(sep).join('/'),
@@ -419,7 +387,7 @@ function printVendors(asJson) {
   if (asJson) {
     console.log(
       JSON.stringify(
-        { vendors: list, aliases: PLATFORM_ALIASES, top: TOP },
+        { vendors: list, top: TOP },
         null,
         2
       )

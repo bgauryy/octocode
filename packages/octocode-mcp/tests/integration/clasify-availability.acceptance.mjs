@@ -35,22 +35,22 @@ const cases = [
   },
   {
     name: 'home-local-off',
-    homeEnv: 'ENABLE_LOCAL=false\n',
+    homeEnv: 'OCTOCODE_ENABLE_LOCAL=false\n',
     enabled: false,
     localEnabled: false,
   },
   {
     name: 'workspace-local-overrides-home',
-    homeEnv: 'ENABLE_LOCAL=false\n',
-    projectEnv: 'ENABLE_LOCAL=true\n',
+    homeEnv: 'OCTOCODE_ENABLE_LOCAL=false\n',
+    projectEnv: 'OCTOCODE_ENABLE_LOCAL=true\n',
     enabled: false,
     localEnabled: true,
   },
   {
     name: 'process-local-overrides-workspace',
-    env: { ENABLE_LOCAL: 'false' },
-    homeEnv: 'ENABLE_LOCAL=false\n',
-    projectEnv: 'ENABLE_LOCAL=true\n',
+    env: { OCTOCODE_ENABLE_LOCAL: 'false' },
+    homeEnv: 'OCTOCODE_ENABLE_LOCAL=false\n',
+    projectEnv: 'OCTOCODE_ENABLE_LOCAL=true\n',
     enabled: false,
     localEnabled: false,
   },
@@ -89,9 +89,9 @@ const cases = [
     enabled: false,
   },
   {
-    name: 'home-alias',
+    name: 'retired-jev-alias',
     homeEnv: 'OCTOCODE_JEV_KEY=fixture-key\n',
-    enabled: true,
+    enabled: false,
   },
   {
     name: 'project-key-only',
@@ -105,17 +105,14 @@ const cases = [
   },
   {
     name: 'empty-overrides-fallbacks',
-    env: { OCTOCODE_CLASSIFICATION_API: '', OCTOCODE_JEV_KEY: 'fixture-alias' },
+    env: { OCTOCODE_CLASSIFICATION_API: '' },
     homeEnv: 'OCTOCODE_CLASSIFICATION_API=fixture-home\n',
     config: { classification: { api: 'fixture-config' } },
     enabled: false,
   },
   {
     name: 'whitespace-overrides-fallbacks',
-    env: {
-      OCTOCODE_CLASSIFICATION_API: '  ',
-      OCTOCODE_JEV_KEY: 'fixture-alias',
-    },
+    env: { OCTOCODE_CLASSIFICATION_API: '  ' },
     homeEnv: 'OCTOCODE_CLASSIFICATION_API=fixture-home\n',
     config: { classification: { api: 'fixture-config' } },
     enabled: false,
@@ -160,19 +157,18 @@ try {
           row.localEnabled,
           row.name
         );
-      const scheme = spawnSync(
+      const schema = spawnSync(
         process.execPath,
         [
           path.join(root, 'packages/octocode/out/octocode.js'),
-          'scheme',
+          'schema',
           'clasify',
-          '--compact',
         ],
         { env, cwd: project, encoding: 'utf8', timeout: 15000 }
       );
-      assert.equal(scheme.status, 0, row.name);
+      assert.equal(schema.status, 0, row.name);
       assert.equal(
-        JSON.parse(scheme.stdout).availability.enabled,
+        JSON.parse(schema.stdout).availability.enabled,
         row.enabled,
         `${row.name}: CLI discovery`
       );

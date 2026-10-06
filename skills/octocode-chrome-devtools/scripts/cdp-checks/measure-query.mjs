@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Smart filter/query over chrome-devtools measure artifacts (+ optional HAR).
- * Compact JSON only — never dump full files into agent context.
+ * Filter/query over chrome-devtools measure artifacts (+ optional HAR).
+ * Each list is paged; next.continue pins the source files and filters.
  *
  * Usage:
  *   measure-query.mjs --dir <cdp-run> [--view summary|findings|failures|slow|sample|resources|cookies|keys|all]
@@ -35,7 +35,8 @@ Filters:
   --name-regex <cookie|storage key>
   --min-ms <n>              slow threshold (default 1000)
   --min-health / --max-health <0-100>
-  --limit <n>               max rows per list (default 25)
+  --limit <n>               rows per page (default 25)
+  --page <n>                page number (default 1)
   --har                     also page/filter HAR in the same dir
   --filter <all|failures|slow|domain:<host>>   HAR filter when --har
 
@@ -53,6 +54,9 @@ const minMs = Math.max(0, Number.parseInt(getArg('--min-ms', '1000'), 10) || 100
 const minHealth = getArg('--min-health', null);
 const maxHealth = getArg('--max-health', null);
 const limit = Math.max(1, Math.min(200, Number.parseInt(getArg('--limit', '25'), 10) || 25));
+const page = Number(getArg('--page', '1'));
+if (!Number.isSafeInteger(page) || page < 1) throw new Error('--page must be a positive integer');
+const pagination = {};
 const includeHar = hasFlag('--har');
 const harFilter = getArg('--filter', 'all');
 
@@ -223,8 +227,10 @@ function collectFindings() {
   return out;
 }
 
-function slice(rows) {
-  return rows.slice(0, limit);
+function slice(rows, name) {
+  const totalPages = Math.max(1, Math.ceil(rows.length / limit));
+  pagination[name] = { page, pageSize: limit, totalRows: rows.length, totalPages, hasMore: page < totalPages };
+  return rows.slice((page - 1) * limit, page * limit);
 }
 
 function filterRows(rows) {
@@ -268,15 +274,15 @@ const want = (name) => view === 'all' || view === name || (view === 'summary' &&
 
 if (want('summary') && view === 'summary') {
   // summary already on result; add top findings
-  result.findings = slice(collectFindings());
+  result.findings = slice(collectFindings(), 'findings');
 }
 
 if (want('findings') && view !== 'summary') {
-  result.findings = slice(collectFindings());
+  result.findings = slice(collectFindings(), 'findings');
 }
 
 if (want('failures') || (view === 'all')) {
-  result.failures = slice(filterRows(net?.failures || []));
+  result.failures = slice(filterRows(net?.failures || []), 'failures');
 }
 
 if (want('slow') || view === 'all') {
@@ -286,13 +292,13 @@ if (want('slow') || view === 'all') {
     .filter((r) => (r.duration ?? r.ms ?? 0) >= minMs)
     .filter((r) => matchUrl(r.name || r.url));
   result.slow = {
-    network: slice(listedSlow.length ? listedSlow : fromSample),
-    resources: slice(slowPerf),
+    network: slice(listedSlow.length ? listedSlow : fromSample, 'slow.network'),
+    resources: slice(slowPerf, 'slow.resources'),
   };
 }
 
 if (want('sample') || view === 'all') {
-  result.sample = slice(filterRows(net?.sample || []));
+  result.sample = slice(filterRows(net?.sample || []), 'sample');
 }
 
 if (want('resources') || view === 'all') {
@@ -300,8 +306,9 @@ if (want('resources') || view === 'all') {
     (perf?.resources || [])
       .filter((r) => matchUrl(r.name || r.url))
       .filter((r) => !kindFilter || String(r.initiatorType || r.type || '').toLowerCase().includes(kindFilter)),
+    'resources',
   );
-  result.measures = slice(perf?.measures || []);
+  result.measures = slice(perf?.measures || [], 'measures');
   result.paints = perf?.paints ?? null;
   result.fcp = perf?.fcp ?? null;
   result.lcp = perf?.lcp ?? null;
@@ -315,6 +322,7 @@ if (want('cookies') || view === 'all') {
       if (domainFilter && !String(c.domain || '').toLowerCase().includes(domainFilter)) return false;
       return true;
     }),
+    'cookies',
   );
 }
 
@@ -326,12 +334,12 @@ if (want('keys') || view === 'all') {
     ...(storage?.storage?.suspiciousSessionKeys || []).map((k) => ({ scope: 'session', key: k })),
   ].filter((row) => !nameRe || nameRe.test(row.key));
   result.keys = {
-    local: slice(local),
-    session: slice(session),
-    suspicious: slice(suspicious),
-    indexedDB: storage?.storage?.indexedDBDatabases || [],
-    caches: storage?.storage?.cacheNames || [],
-    serviceWorkers: storage?.storage?.serviceWorkers || [],
+    local: slice(local, 'keys.local'),
+    session: slice(session, 'keys.session'),
+    suspicious: slice(suspicious, 'keys.suspicious'),
+    indexedDB: slice(storage?.storage?.indexedDBDatabases || [], 'keys.indexedDB'),
+    caches: slice(storage?.storage?.cacheNames || [], 'keys.caches'),
+    serviceWorkers: slice(storage?.storage?.serviceWorkers || [], 'keys.serviceWorkers'),
   };
 }
 
@@ -372,7 +380,7 @@ if (includeHar && paths.har) {
       filter: harFilter,
       total: compact.length,
       matched: rows.length,
-      rows: slice(rows),
+      rows: slice(rows, 'har.rows'),
     };
   } catch (err) {
     result.har = { path: paths.har, error: String(err?.message || err) };
@@ -392,16 +400,30 @@ if (minHealth != null || maxHealth != null) {
   };
 }
 
-result.next = [];
+result.hints = [];
 if ((result.findings?.length || 0) > 0 && view === 'summary') {
-  result.next.push({ view: 'findings', code: result.findings[0]?.code });
+  result.hints.push({ view: 'findings', code: result.findings[0]?.code });
 }
 if ((result.failures?.length || result.counts?.failures || 0) > 0 && view === 'summary') {
-  result.next.push({ view: 'failures' });
+  result.hints.push({ view: 'failures' });
 }
 if ((storage?.score?.findings?.length || 0) > 0 && view === 'summary') {
-  result.next.push({ view: 'cookies' }, { view: 'keys' });
+  result.hints.push({ view: 'cookies' }, { view: 'keys' });
 }
 
+result.pagination = pagination;
+result.next = {};
+if (Object.values(pagination).some((list) => list.hasMore)) {
+  const args = [process.argv[1], '--view', view, '--limit', String(limit), '--page', String(page + 1)];
+  for (const [flag, file] of [['--perf', paths.perf], ['--net', paths.net], ['--storage', paths.storage], ['--har-file', paths.har]]) {
+    if (file) args.push(flag, resolve(file));
+  }
+  for (const flag of ['--code', '--kind', '--domain', '--url-regex', '--name-regex', '--min-ms', '--min-health', '--max-health', '--filter']) {
+    const value = getArg(flag, null);
+    if (value !== null) args.push(flag, value);
+  }
+  if (includeHar) args.push('--har');
+  result.next.continue = { command: process.execPath, args };
+}
 console.log(JSON.stringify(result, null, 2));
 console.error(`[METRIC] QUERY view=${view} perf=${healthOf('perf') ?? '-'} net=${healthOf('net') ?? '-'} storage=${healthOf('storage') ?? '-'} findings=${collectFindings().length}`);

@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
-import { parseStream, tokenAccounting, toolCounts, runClaude, configurationHashes, sha256, recordedProbe, failedProbeDetails, pool, freshCwd, REPO_ROOT, resumedAccounting, loadWorkers, sessionServerEnv, loadQuestions, judgePairs } from './lib.mjs';
+import { FAMILY_TOOLS, parseStream, tokenAccounting, toolCounts, runClaude, configurationHashes, sha256, recordedProbe, failedProbeDetails, pool, freshCwd, REPO_ROOT, resumedAccounting, loadWorkers, sessionServerEnv, loadQuestions, judgePairs } from './lib.mjs';
 import { getConfigFilePath, getProjectConfigFilePath, propagateOctocodeEnv } from '@octocodeai/config';
 import { parseVerdict } from './verdict.mjs';
 import { solverBoundary, sandboxPolicy, nativeSandboxPolicy, upstreamEnv } from './isolation.mjs';
@@ -258,12 +258,14 @@ test('profile server env reaches native MCP, but never re-enables a write tool o
 test('family selector follows the session checkout, never the question category', () => {
   const local = { id: 'X1', category: 'github-pr-review', repos: [{ repo: 'o/r', path: '/c/r' }] };
   const remote = { id: 'X2', category: 'local-trace', repos: [{ repo: 'o/r' }] };
-  assert.deepEqual(sessionServerEnv({ familySelector: 'checkout' }, local), { OCTOCODE_TOOL_FAMILY: 'local' });
-  assert.deepEqual(sessionServerEnv({ familySelector: 'checkout' }, remote), { OCTOCODE_TOOL_FAMILY: 'github' });
+  assert.deepEqual(sessionServerEnv({ familySelector: 'checkout' }, local), { TOOLS_TO_RUN: FAMILY_TOOLS.local.join(',') });
+  assert.deepEqual(sessionServerEnv({ familySelector: 'checkout' }, remote), { TOOLS_TO_RUN: FAMILY_TOOLS.github.join(',') });
+  for (const tools of Object.values(FAMILY_TOOLS)) for (const write of ['astRewrite', 'ghCloneRepo']) assert.ok(!tools.includes(write), write);
+  assert.ok(!FAMILY_TOOLS.local.some((t) => t.startsWith('gh')) && !FAMILY_TOOLS.github.some((t) => /^(local|structure|ast|lsp)/.test(t)));
   assert.deepEqual(sessionServerEnv({}, local), {});
   assert.throws(() => sessionServerEnv({ familySelector: 'category' }, local), /unknown familySelector/);
   // Every mixed question has a checkout, so the selector starts it local (the measured risk).
-  for (const q of loadQuestions().filter(q => q.category === 'mixed')) assert.equal(sessionServerEnv({ familySelector: 'checkout' }, q).OCTOCODE_TOOL_FAMILY, 'local', q.id);
+  for (const q of loadQuestions().filter(q => q.category === 'mixed')) assert.equal(sessionServerEnv({ familySelector: 'checkout' }, q).TOOLS_TO_RUN, FAMILY_TOOLS.local.join(','), q.id);
 });
 
 test('S13 arm workers differ from the octocode control only by server switches', () => {

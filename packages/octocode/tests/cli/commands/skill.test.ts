@@ -99,7 +99,7 @@ describe('skill command', () => {
   ])(
     'rejects invalid options before executing $args',
     ({ args, options, message }) => {
-      run(args, { ...options, 'json-errors': true });
+      run(args, { ...options, json: true });
       expect(process.exitCode).toBe(EXIT.USAGE);
       expect(loggedJson()).toEqual({
         kind: 'octocode.toolError',
@@ -117,8 +117,8 @@ describe('skill command', () => {
     ['install'],
     ['remove'],
     ['check', 'missing-skill'],
-  ])('honors --json-errors for %j', (...args) => {
-    run(args, { 'json-errors': true });
+  ])('reports failures as the JSON error envelope with --json for %j', (...args) => {
+    run(args, { json: true });
     expect(process.exitCode).toBeGreaterThan(0);
     expect(loggedJson()).toMatchObject({
       kind: 'octocode.toolError',
@@ -190,11 +190,26 @@ describe('skill command', () => {
     expect(names).toContain('workspace');
   });
 
-  it('prints bundled skill help when no subcommand is provided', () => {
+  it('prints bundled skill help, exiting USAGE without a subcommand', () => {
     run([], {});
+    expect(process.exitCode).toBe(EXIT.USAGE);
+    expect(console.log).toHaveBeenCalledWith(
+      expect.stringContaining('Usage: octocode skill <COMMAND> [OPTIONS]')
+    );
+    process.exitCode = undefined;
+    vi.mocked(console.log).mockClear();
+    run([], { help: true });
     expect(process.exitCode).toBeUndefined();
     expect(console.log).toHaveBeenCalledWith(
-      expect.stringContaining('octocode skill')
+      expect.stringContaining('Usage: octocode skill <COMMAND> [OPTIONS]')
+    );
+  });
+
+  it('has no `help` subcommand alias for --help', () => {
+    run(['help'], { json: true });
+    expect(process.exitCode).toBe(EXIT.USAGE);
+    expect(loggedJson<{ error: string }>().error).toContain(
+      'Unknown skill command: "help"'
     );
   });
 
@@ -262,8 +277,8 @@ describe('skill command', () => {
       'dry-run': true,
       json: true,
     });
-    expect(loggedJson<{ ok: boolean; error: string }>()).toMatchObject({
-      ok: false,
+    expect(loggedJson<{ kind: string; error: string }>()).toMatchObject({
+      kind: 'octocode.toolError',
       error: expect.stringContaining('--global or --project-dir'),
     });
 
@@ -275,8 +290,8 @@ describe('skill command', () => {
       'dry-run': true,
       json: true,
     });
-    expect(loggedJson<{ ok: boolean; error: string }>()).toMatchObject({
-      ok: false,
+    expect(loggedJson<{ kind: string; error: string }>()).toMatchObject({
+      kind: 'octocode.toolError',
       error: expect.stringContaining('--global or --project-dir'),
     });
 
@@ -286,8 +301,8 @@ describe('skill command', () => {
       'dry-run': true,
       json: true,
     });
-    expect(loggedJson<{ ok: boolean; error: string }>()).toMatchObject({
-      ok: false,
+    expect(loggedJson<{ kind: string; error: string }>()).toMatchObject({
+      kind: 'octocode.toolError',
       error: expect.stringContaining('--platform codex --project-dir'),
     });
 
@@ -326,7 +341,7 @@ describe('skill command', () => {
     try {
       run(['install'], {
         add: sourceDir,
-        platform: 'claude,cursor,codex-native',
+        platform: 'claude,cursor,codex',
         global: true,
         force: true,
         'dry-run': true,
@@ -451,25 +466,22 @@ describe('skill command', () => {
     }
   });
 
-  it('normalizes desktop/native aliases to current host skill homes', () => {
+  it('resolves canonical platform ids to current host skill homes', () => {
     expect(getPlatformSkillsDir('claude')).toBe(
       path.join(homedir(), '.claude', 'skills')
     );
-    expect(
-      parseSkillPlatforms('claude,claude-desktop,cursor,codex,codex-native')
-    ).toEqual({
+    expect(parseSkillPlatforms('claude,cursor,codex,claude')).toEqual({
       platforms: ['claude', 'cursor', 'codex'],
-    });
-  });
-
-  it('normalizes shared skill-directory aliases', () => {
-    expect(parseSkillPlatforms('shared,common,agents,codex')).toEqual({
-      platforms: ['codex'],
     });
   });
 
   it('rejects unsupported platform spellings', () => {
     for (const removed of [
+      'claude-desktop',
+      'codex-native',
+      'shared',
+      'common',
+      'agents',
       'pi-agent',
       'claude-code',
       'open-code',
@@ -485,8 +497,8 @@ describe('skill command', () => {
   it('rejects unknown skill names on install', () => {
     run(['install', 'not-a-real-skill'], { json: true });
     expect(process.exitCode).toBe(EXIT.GENERAL);
-    const parsed = loggedJson<{ ok: boolean; error: string }>();
-    expect(parsed.ok).toBe(false);
+    const parsed = loggedJson<{ kind: string; error: string }>();
+    expect(parsed.kind).toBe('octocode.toolError');
     expect(parsed.error).toContain('not-a-real-skill');
   });
 
@@ -552,15 +564,15 @@ describe('skill command', () => {
   it('rejects unknown skill names on check', () => {
     run(['check', 'not-a-real-skill'], { json: true });
     expect(process.exitCode).toBe(EXIT.GENERAL);
-    const parsed = loggedJson<{ success: boolean; error: string }>();
-    expect(parsed.success).toBe(false);
+    const parsed = loggedJson<{ kind: string; error: string }>();
+    expect(parsed.kind).toBe('octocode.toolError');
     expect(parsed.error).toContain('not-a-real-skill');
   });
 
   it('requires a target for remove', () => {
     run(['remove'], { json: true });
     expect(process.exitCode).toBe(EXIT.GENERAL);
-    expect(loggedJson<{ success: boolean }>().success).toBe(false);
+    expect(loggedJson<{ kind: string }>().kind).toBe('octocode.toolError');
   });
 
   it('dry-runs remove without deleting installed locations', () => {

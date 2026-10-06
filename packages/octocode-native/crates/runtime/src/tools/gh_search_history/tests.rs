@@ -886,3 +886,187 @@ fn branch_and_label_filters_come_from_qualifiers() {
         );
     }
 }
+
+/// SH1: a commit row whose headline ends in `(#N)` names the PR; only the
+/// trailing suffix counts (a revert names the reverting PR).
+#[test]
+fn commit_rows_name_the_pull_request_of_a_squash_headline() {
+    let commit =
+        |message: &str| json!({"sha":"abc","commit":{"message":message,"author":{"name":"Dev"}}});
+    for (message, number) in [
+        ("x (#123)", Some(123)),
+        ("Revert \"y (#1)\" (#2)\n\nbody", Some(2)),
+        ("(#12) prefix", None),
+        ("fix (#abc)", None),
+    ] {
+        for row in [
+            map_commit(commit(message)),
+            map_commit_list(commit(message)),
+        ] {
+            assert_eq!(
+                row.get("prNumber").and_then(Value::as_u64),
+                number,
+                "{message}: {row}"
+            );
+        }
+    }
+}
+
+/// SH2: issue rows carry the discussion size like PR rows; zero stays out.
+#[test]
+fn issue_rows_carry_a_non_zero_comment_count() {
+    let issue = |comments: u64| {
+        map_issue(
+            json!({"number":1,"title":"t","state":"open","comments":comments}),
+            false,
+        )
+    };
+    assert_eq!(issue(105)["commentsCount"], 105);
+    assert!(issue(0).get("commentsCount").is_none());
+}
+
+/// SH5: an empty search with several keywords offers one drop-one variant
+/// per keyword (at most 5, the last keyword dropped first) instead of
+/// dropping them all.
+#[test]
+fn empty_multi_keyword_search_broadens_one_keyword_at_a_time() {
+    let variants = |keywords: Value| {
+        let query: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"pullRequest",
+            "owner":"o","repo":"r","keywords":keywords,"pageSize":7}))
+        .expect("query");
+        super::leads::broaden_search(&query).expect("lead")["query"]["queries"].clone()
+    };
+    let three = variants(json!(["a", "b", "c"]));
+    let kept = three
+        .as_array()
+        .expect("queries")
+        .iter()
+        .map(|row| row["keywords"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        kept,
+        vec![json!(["a", "b"]), json!(["a", "c"]), json!(["b", "c"])]
+    );
+    assert!(
+        three
+            .as_array()
+            .expect("queries")
+            .iter()
+            .all(|row| row["pageSize"] == 7)
+    );
+    let one = variants(json!(["a"]));
+    assert_eq!(one.as_array().map(Vec::len), Some(1), "{one}");
+    assert!(one[0].get("keywords").is_none(), "{one}");
+    let seven = variants(json!(["a", "b", "c", "d", "e", "f", "g"]));
+    assert_eq!(seven.as_array().map(Vec::len), Some(5), "{seven}");
+    assert_eq!(seven[0]["keywords"], json!(["a", "b", "c", "d", "e", "f"]));
+    assert_eq!(seven[4]["keywords"], json!(["a", "b", "d", "e", "f", "g"]));
+}
+
+/// SH6: the PR read of a relevance-ordered search targets row 0 (the best
+/// match), not the first merged row; a sorted page keeps merged-first.
+#[test]
+fn pull_request_read_targets_the_best_match_unless_sorted() {
+    let rows = [
+        json!({"number":10,"state":"open"}),
+        json!({"number":11,"state":"closed","pull_request":{"merged_at":"2026-01-01T00:00:00Z"}}),
+    ];
+    let read = |query: Value| {
+        let query: GhSearchHistoryQuery = serde_json::from_value(query).expect("query");
+        super::leads::read_pull_request(&query, &rows).expect("read")["query"]["queries"][0]["number"].clone()
+    };
+    assert_eq!(
+        read(json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["x"]})),
+        10
+    );
+    assert_eq!(
+        read(
+            json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["x"],"sort":"updated"})
+        ),
+        11
+    );
+    assert_eq!(
+        read(json!({"operation":"pullRequest","owner":"o","repo":"r"})),
+        11
+    );
+}
+
+/// SH1 + SH6: a path commit listing leads to the first `(#N)` row's PR
+/// scoped to that path, and the envelope neither echoes owner/repo nor
+/// restates totalPages.
+#[tokio::test]
+async fn commit_listing_leads_to_the_squash_pull_request() {
+    use wiremock::MockServer;
+
+    let server = MockServer::start().await;
+    let commit = |sha: &str, message: &str| {
+        json!({"sha": sha, "commit": {"message": message,
+            "author": {"name": "Dev", "date": "2026-01-01T00:00:00Z"}}, "author": {"login": "dev"}})
+    };
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/commits",
+        200,
+        json!([commit("aaa", "Bump deps"), commit("bbb", "Fix cache (#9)")]),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/search/issues",
+        200,
+        json!({"total_count": 1, "incomplete_results": false,
+            "items": [{"number": 3, "title": "Bug", "state": "open", "comments": 4}]}),
+    )
+    .await;
+    let transport = transport(&server);
+    let query = serde_json::from_value(
+        json!({"operation":"commit","owner":"o","repo":"r","path":"src/lib.rs"}),
+    )
+    .expect("query");
+    let data = execute(&transport, &query, &context(), &Passthrough)
+        .await
+        .expect("commit listing");
+    assert!(data["commits"][0].get("prNumber").is_none(), "{data}");
+    assert_eq!(data["commits"][1]["prNumber"], 9, "{data}");
+    let read = &data["next"]["readPullRequest"]["query"]["queries"][0];
+    assert_eq!(read["number"], 9, "{data}");
+    assert_eq!(read["include"], json!(["src/lib.rs"]), "{data}");
+    assert!(
+        data.get("owner").is_none() && data.get("repo").is_none(),
+        "{data}"
+    );
+
+    let query = serde_json::from_value(
+        json!({"operation":"issue","owner":"o","repo":"r","keywords":["bug"]}),
+    )
+    .expect("query");
+    let data = execute(&transport, &query, &context(), &Passthrough)
+        .await
+        .expect("issue search");
+    assert!(
+        data.get("owner").is_none() && data.get("repo").is_none(),
+        "{data}"
+    );
+    assert_eq!(data["issues"][0]["commentsCount"], 4, "{data}");
+    assert!(data["pagination"].get("totalPages").is_none(), "{data}");
+}
+
+/// SH3: a resolved window is one range value: both bounds `a..b`, one bound
+/// `>=a` / `<=b` (commit `committer-date:` and PR/issue `created:` alike).
+#[test]
+fn date_windows_render_as_one_search_range() {
+    use super::query::window_range;
+    assert_eq!(
+        window_range(Some("2026-09-01"), Some("2026-09-30")).as_deref(),
+        Some("2026-09-01..2026-09-30")
+    );
+    assert_eq!(
+        window_range(Some("2026-09-01"), None).as_deref(),
+        Some(">=2026-09-01")
+    );
+    assert_eq!(
+        window_range(None, Some("2026-09-30")).as_deref(),
+        Some("<=2026-09-30")
+    );
+    assert_eq!(window_range(None, None), None);
+}

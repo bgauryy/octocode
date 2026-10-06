@@ -33,7 +33,7 @@ describe('MCP process lifecycle', () => {
       'npx',
       ['-y', 'octocode-mcp@latest'],
       expect.objectContaining({
-        env: expect.objectContaining({ OCTOCODE_TOKEN: 'token' }),
+        env: expect.objectContaining({ GH_TOKEN: 'token' }),
       })
     );
     current.stdout.emit('data', Buffer.from('out'));

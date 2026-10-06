@@ -312,22 +312,36 @@ pub(super) fn pr_next_menu(
     Value::Object(next.into_iter().take(MENU_CAP).collect())
 }
 
-/// Lines `next.readAtMerge` reads around each hunk's new-side span, so the
-/// merged window shows the enclosing code beyond the diff context.
-pub(super) const MERGE_WINDOW_PAD: usize = 10;
+/// Lines `readParent` reads around each hunk's old-side span, so the
+/// window shows the enclosing code beyond the diff context.
+pub(super) const PARENT_WINDOW_PAD: usize = 10;
 
 /// Ranges one `ghGetFileContent` read takes (the contract's `maxItems`).
-pub(super) const MERGE_WINDOW_RANGES: usize = 10;
+pub(super) const PARENT_WINDOW_RANGES: usize = 10;
+
+/// Literals one `ghGetFileContent` `matchString` list takes (the contract's
+/// `maxItems`).
+pub(super) const MERGE_MATCH_LINES: usize = 10;
+
+/// Trimmed added lines this long locate a hunk well; when any hunk has
+/// one, shorter picks (`}`, `x = 1;`) are dropped as matching too much.
+const DISTINCTIVE_LINE_MIN: usize = 12;
+
+/// Longest line a merge read searches for: a minified or generated line is
+/// not a locator.
+const DISTINCTIVE_LINE_MAX: usize = 200;
 
 /// `next.readAtMerge`: a merged pull request whose patches were read offers
-/// its most-changed code file (not a test) at the merge commit, as one
-/// numbered read of every hunk's new-side lines (padded, merged, at most
-/// [`MERGE_WINDOW_RANGES`] ranges), so the fix is checked in the code that
-/// shipped. `files` is every loaded provider file (`filename`, `additions`,
-/// `deletions`, `patch`), not only the patch window shown. `None` for
-/// unmerged pull requests, for a `matchString` read (a targeted answer
-/// already), and when no such file adds a line. Only files the read
-/// selected (`include`, `status`, `minChanges`) are candidates: `selected`.
+/// its most-changed code file (not a test) at the merge commit, searched for
+/// one distinctive added line per hunk (at most [`MERGE_MATCH_LINES`]), so
+/// the fix is checked in the code that shipped. The diff's line numbers
+/// belong to `sourceSha`; the target branch may have moved the lines by the
+/// merge, so the read locates them by text, never by number. `files` is
+/// every loaded provider file (`filename`, `additions`, `deletions`,
+/// `patch`), not only the patch window shown. `None` for unmerged pull
+/// requests, for a `matchString` read (a targeted answer already), and when
+/// no such file adds a line with something to find. Only files the read selected
+/// (`include`, `status`, `minChanges`) are candidates: `selected`.
 pub(super) fn read_at_merge(
     query: &HistoryItemRequest,
     raw: &Value,
@@ -343,23 +357,21 @@ pub(super) fn read_at_merge(
         .get("merge_commit_sha")
         .and_then(Value::as_str)
         .filter(|sha| !sha.is_empty())?;
-    let (path, ranges) = files
+    let (path, lines) = files
         .iter()
         .filter(|file| selected(file))
         .filter_map(|file| {
             let path = file.get("filename")?.as_str()?;
             let patch = file.get("patch")?.as_str()?;
-            (classify_file_type(path) == Some(FileType::Code)
-                && !is_test_path(path)
-                && adds_lines(patch))
-            .then_some(())?;
-            let ranges = merge_windows(patch);
-            (!ranges.is_empty()).then(|| (churn(file), path, ranges))
+            (classify_file_type(path) == Some(FileType::Code) && !is_test_path(path))
+                .then_some(())?;
+            let lines = distinctive_added_lines(patch);
+            (!lines.is_empty()).then(|| (churn(file), path, lines))
         })
         // The most-changed file; the first of equals.
         .rev()
         .max_by_key(|(churn, _, _)| *churn)
-        .map(|(_, path, ranges)| (path, ranges))?;
+        .map(|(_, path, lines)| (path, lines))?;
     Some(
         Continuation::new(
             ToolId::GhGetFileContent,
@@ -368,7 +380,7 @@ pub(super) fn read_at_merge(
                 "repo": query.repo(),
                 "ref": sha,
                 "path": path,
-                "ranges": ranges,
+                "matchString": lines,
             }),
         )
         .confidence("high")
@@ -376,16 +388,49 @@ pub(super) fn read_at_merge(
     )
 }
 
-/// Whether a patch adds a line with something to read (not a lone brace or
-/// a redaction placeholder).
-pub(super) fn adds_lines(patch: &str) -> bool {
-    patch
-        .lines()
-        .filter(|line| !line.starts_with("@@") && !line.starts_with("+++"))
-        .filter_map(|line| line.strip_prefix('+'))
-        .any(|text| {
-            text.chars().filter(|c| c.is_alphanumeric()).count() >= 3 && !text.contains("[REDACTED")
-        })
+/// One added line per hunk that locates it in another version of the file:
+/// the hunk's longest trimmed `+` line of at most [`DISTINCTIVE_LINE_MAX`]
+/// chars with three or more letters or digits and no redaction placeholder;
+/// when any pick reaches [`DISTINCTIVE_LINE_MIN`] chars the shorter ones
+/// are dropped. Duplicates once, at most [`MERGE_MATCH_LINES`].
+pub(super) fn distinctive_added_lines(patch: &str) -> Vec<String> {
+    let mut picks: Vec<String> = Vec::new();
+    let mut best: Option<&str> = None;
+    let flush = |best: &mut Option<&str>, picks: &mut Vec<String>| {
+        if let Some(line) = best.take()
+            && !picks.iter().any(|pick| pick == line)
+        {
+            picks.push(line.to_owned());
+        }
+    };
+    for line in patch.lines() {
+        if line.starts_with("@@") {
+            flush(&mut best, &mut picks);
+            continue;
+        }
+        if line.starts_with("+++") {
+            continue;
+        }
+        let Some(text) = line.strip_prefix('+').map(str::trim) else {
+            continue;
+        };
+        let chars = text.chars().count();
+        let qualifies = chars <= DISTINCTIVE_LINE_MAX
+            && text.chars().filter(|c| c.is_alphanumeric()).count() >= 3
+            && !text.contains("[REDACTED");
+        if qualifies && best.is_none_or(|current| current.chars().count() < chars) {
+            best = Some(text);
+        }
+    }
+    flush(&mut best, &mut picks);
+    if picks
+        .iter()
+        .any(|pick| pick.chars().count() >= DISTINCTIVE_LINE_MIN)
+    {
+        picks.retain(|pick| pick.chars().count() >= DISTINCTIVE_LINE_MIN);
+    }
+    picks.truncate(MERGE_MATCH_LINES);
+    picks
 }
 
 /// Added plus removed lines of a provider file.
@@ -396,31 +441,15 @@ pub(super) fn churn(file: &Value) -> u64 {
         .sum()
 }
 
-/// The new-side span of every hunk header (`@@ -a,b +c,d @@`), padded by
-/// [`MERGE_WINDOW_PAD`] lines and merged where they touch; past
-/// [`MERGE_WINDOW_RANGES`] spans, the closest neighbours merge. Pure
-/// deletions (`+c,0`) have no new-side lines. A whole hunk that opens with
-/// the diff's context but ends with less reaches the end of the file, so its
-/// span is not padded past it.
-pub(super) fn merge_windows(patch: &str) -> Vec<String> {
-    hunk_windows(patch, Side::New)
-}
-
-/// One side of a unified diff: `-a,b` (the parent) or `+c,d` (the change).
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Side {
-    Old,
-    New,
-}
-
-/// [`merge_windows`] on either side: each hunk's span on `side` (old-side
-/// lines are context and `-` lines, new-side lines context and `+` lines),
-/// so the ranges read the file as that side of the diff numbers it.
-pub(super) fn hunk_windows(patch: &str, side: Side) -> Vec<String> {
-    let mark = match side {
-        Side::Old => '-',
-        Side::New => '+',
-    };
+/// The old-side span (`-a,b`) of every hunk header, padded by
+/// [`PARENT_WINDOW_PAD`] lines and merged where they touch; past
+/// [`PARENT_WINDOW_RANGES`] spans, the closest neighbours merge. Old-side
+/// lines are context and `-` lines, so the ranges read the parent as the
+/// diff numbers it. A pure addition (`-a,0`) has no old-side lines. A whole
+/// hunk that opens with the diff's context but ends with less reaches the
+/// end of the file, so its span is not padded past it.
+pub(super) fn parent_windows(patch: &str) -> Vec<String> {
+    let mark = '-';
     let mut spans: Vec<(usize, usize)> = Vec::new();
     let mut lines = patch.lines().peekable();
     while let Some(header) = lines.next() {
@@ -448,15 +477,15 @@ pub(super) fn hunk_windows(patch: &str, side: Side) -> Vec<String> {
         let context = leading == Some(DIFF_CONTEXT_LINES) || start == 1;
         let at_end = side_lines == count && context && trailing < DIFF_CONTEXT_LINES;
         let span = (
-            start.saturating_sub(MERGE_WINDOW_PAD).max(1),
-            start + count - 1 + if at_end { 0 } else { MERGE_WINDOW_PAD },
+            start.saturating_sub(PARENT_WINDOW_PAD).max(1),
+            start + count - 1 + if at_end { 0 } else { PARENT_WINDOW_PAD },
         );
         match spans.last_mut() {
             Some(last) if span.0 <= last.1 + 1 => last.1 = last.1.max(span.1),
             _ => spans.push(span),
         }
     }
-    while spans.len() > MERGE_WINDOW_RANGES {
+    while spans.len() > PARENT_WINDOW_RANGES {
         let closest = (1..spans.len())
             .min_by_key(|&i| spans[i].0 - spans[i - 1].1)
             .unwrap_or(1);
@@ -480,11 +509,31 @@ pub(super) struct ChangeSides<'a> {
     pub(super) old_confidence: &'static str,
 }
 
-/// `readAtCommit` and `readParent`: the change's most-changed code file (a
-/// test, doc or other file only when no code file has a patch), read whole
-/// at the new side and, over its hunks' old-side windows, at the old side
-/// (its pre-rename path). An added file has no parent read, a removed one
-/// no new-side read. Only files the read selected are candidates.
+/// The first selected file GitHub sent without a patch whose text is
+/// readable (`tooLarge` or `omitted`; not binary, not a pure rename). Only
+/// REST entries (with a blob `sha`) say anything about patches.
+pub(super) fn first_unpatched(
+    files: &[Value],
+    selected: impl Fn(&Value) -> bool,
+) -> Option<&Value> {
+    files.iter().find(|file| {
+        selected(file)
+            && file.get("patch").is_none()
+            && file.get("sha").is_some()
+            && matches!(
+                super::inventory::missing_patch_reason(file),
+                Some("tooLarge" | "omitted")
+            )
+    })
+}
+
+/// `readAtCommit` and `readParent`: the first file GitHub sent without a
+/// patch (its change is in no response, so both sides are read whole), else
+/// the change's most-changed code file (a test, doc or other file only when
+/// no code file has a patch), read whole at the new side and, over its
+/// hunks' old-side windows, at the old side (its pre-rename path). An added
+/// file has no parent read, a removed one no new-side read. Only files the
+/// read selected are candidates.
 pub(super) fn change_reads(
     owner: &str,
     repo: &str,
@@ -498,12 +547,13 @@ pub(super) fn change_reads(
         let code = classify_file_type(path) == Some(FileType::Code) && !is_test_path(path);
         (code, churn(file))
     };
-    let Some(file) = files
-        .iter()
-        .filter(|file| selected(file) && file.get("patch").and_then(Value::as_str).is_some())
-        .rev()
-        .max_by_key(|file| rank(file))
-    else {
+    let Some(file) = first_unpatched(files, &selected).or_else(|| {
+        files
+            .iter()
+            .filter(|file| selected(file) && file.get("patch").and_then(Value::as_str).is_some())
+            .rev()
+            .max_by_key(|file| rank(file))
+    }) else {
         return Vec::new();
     };
     let path = file.get("filename").and_then(Value::as_str).unwrap_or("");
@@ -527,7 +577,7 @@ pub(super) fn change_reads(
             .and_then(Value::as_str)
             .unwrap_or(path);
         let mut row = json!({"owner": owner, "repo": repo, "path": old_path, "ref": old_ref});
-        let ranges = hunk_windows(patch, Side::Old);
+        let ranges = parent_windows(patch);
         if !ranges.is_empty() {
             row["ranges"] = json!(ranges);
         }
@@ -559,5 +609,59 @@ fn hunk_side(header: &str, mark: char) -> Option<(usize, usize)> {
 pub(super) fn remove_key(value: &mut Value, key: &str) {
     if let Some(object) = value.as_object_mut() {
         object.remove(key);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// HI8: a file GitHub sent without a readable patch (tooLarge, omitted)
+    /// is read at both sides, whole, ahead of the most-changed patched
+    /// file; a binary file or a GraphQL node (no blob sha) never is.
+    #[test]
+    fn change_reads_prefer_the_first_unpatched_text_file() {
+        let sides = ChangeSides {
+            new_ref: Some("head"),
+            old_ref: Some("base"),
+            old_confidence: "medium",
+        };
+        let file = |name: &str, additions: u64, patch: Option<&str>| {
+            let mut file = json!({"filename":name,"status":"modified","additions":additions,
+                "deletions":0,"sha":"1111111111111111111111111111111111111111"});
+            if let Some(patch) = patch {
+                file["patch"] = json!(patch);
+            }
+            file
+        };
+        let files = [
+            file("src/big.rs", 900, Some("@@ -1,1 +1,2 @@\n x\n+y")),
+            file("assets/logo.png", 0, None),
+            file("src/huge.rs", 70_000, None),
+        ];
+        let reads = change_reads("o", "r", &files, &sides, |_| true);
+        let paths = reads
+            .iter()
+            .map(|(name, read)| (*name, read["query"]["queries"][0].clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            paths,
+            [
+                (
+                    "readAtCommit",
+                    json!({"owner":"o","repo":"r","path":"src/huge.rs","ref":"head"})
+                ),
+                (
+                    "readParent",
+                    json!({"owner":"o","repo":"r","path":"src/huge.rs","ref":"base"})
+                ),
+            ]
+        );
+        // Without an unpatched text file the top patched file is read.
+        let reads = change_reads("o", "r", &files[..2], &sides, |_| true);
+        assert_eq!(reads[0].1["query"]["queries"][0]["path"], "src/big.rs");
+        let mut graphql = files[2].clone();
+        graphql.as_object_mut().map(|file| file.remove("sha"));
+        assert!(first_unpatched(&[graphql], |_| true).is_none());
     }
 }

@@ -36,6 +36,7 @@ Load when you type `#[napi]` signatures, read a generated `.d.ts`, debug a JS↔
 - The generated `.d.ts` is the ABI truth. Add helper types via `napi.dtsHeaderFile` (oxc: `src-js/header.d.ts`) or `ts_args_type` / `ts_return_type` / `ts_type`, never a hand mirror.
 - Type the error channel, not `Promise<unknown>` (rolldown `BindingResult<T>`). An idiomatic `src/index.ts` imports types *from* the binding.
 - Drift guard: commit the generated `.d.ts`/loader, regenerate in CI, `git diff --exit-code`.
+- Distinguish the binding ABI from a tool's authored contract. In Octocode, tool types come from config generation; keep the N-API adapter over that runtime. See `references/parsing-and-codegen.md`.
 - `#[napi(strict)]` throws on wrong argument types; still validate NaN, negatives, and > u32 for sizes or indices.
 - Dual-package hazard: oxc/rolldown ship ESM-only; a kept `require` path re-exports ESM state so the `.node` loads once.
 
@@ -43,6 +44,9 @@ Load when you type `#[napi]` signatures, read a generated `.d.ts`, debug a JS↔
 - `Cargo.toml` (crate type: `references/safety-and-ffi.md`): `[lib] test = false, doctest = false` (oxc `napi/parser`), `napi`/`napi-derive`, `[build-dependencies] napi-build`, `build.rs` → `napi_build::setup()`.
 - Allocator: gate `mimalloc-safe` behind a feature with `local_dynamic_tls` on Linux; a `dlopen`ed `.node` can't use initial-exec TLS.
 - **Batch across the boundary**: one result per job; for big trees return a JSON string or a `Buffer` and decode in JS.
+- Octocode uses a separate `runtime-napi` crate over the runtime `rlib`. Its `napi-test` feature enables `napi/noop` only for Rust tests; never ship that stub in an addon.
+- Stage changed binaries/addons through a temporary file and atomic rename. In-place overwrite can crash a process with the old inode mapped. Keep an unchanged verified inode.
+- On Darwin, sign the staged addon before rename. Smoke-load the final addon in a subprocess with a deadline; a successful compile does not prove Node can load it.
 
 ## Per-platform package pattern (`@napi-rs/cli` v3)
 Root `package.json`:

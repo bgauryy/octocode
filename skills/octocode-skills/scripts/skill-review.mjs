@@ -196,7 +196,7 @@ const STALE_OCTOCODE_CONTRACTS = [
   {
     pattern:
       /\btools\s+(?:local\.(?:text|find|tree|fetch)|github\.(?:tree|code|repo|fetch)|local_(?:ripgrep|view_structure|find_files|fetch_content))\b/,
-    fix: 'use a current public tool name and operation from `scheme --compact`',
+    fix: 'use a current public tool name and operation from `octocode schema`',
   },
 ];
 

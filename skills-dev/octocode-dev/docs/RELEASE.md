@@ -16,7 +16,7 @@ Core publishes before the packages that embed its contracts: the native binary e
 8. **Codex plugin** (`@octocodeai/codex-plugin`). Follow `<repo>/packages/octocode-codex-plugin/ARCHITECTURE.md`, then update `.agents/plugins/marketplace.json` to the published plugin version.
 9. **Claude Code plugin** (`@octocodeai/claude-plugin`). Follow `<repo>/packages/octocode-claude-plugin/ARCHITECTURE.md`, then publish `.claude-plugin/marketplace.json` with the matching npm version.
 
-Then smoke-test from a clean temp dir (`npx -y octocode-mcp@<v>`, `npx -y octocode@<v> scheme --compact`). Run `node skills-dev/octocode-dev/scripts/dev.mjs setup` to restore the dev resolutions.
+Then smoke-test from a clean temp dir (`npx -y octocode-mcp@<v>`, `npx -y octocode@<v> schema`). Run `node skills-dev/octocode-dev/scripts/dev.mjs setup` to restore the dev resolutions.
 
 - **Use `npm publish`, not `yarn npm publish`.** Only npm runs each package's `prepublishOnly` guard. Every package rejects `workspace:`/`file:` dependencies; native also runs `version:check` and the published-contract sync.
 - **Config-pin gate (manual):** before you publish mcp or the launcher, their `@octocodeai/config` dependency must name the config version from step 3, and `npm view @octocodeai/config@<pin> exports` must list `./schema`. A pin to an older config breaks `@octocodeai/config/schema` on a clean install.

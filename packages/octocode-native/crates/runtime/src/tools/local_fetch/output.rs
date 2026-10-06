@@ -14,6 +14,7 @@ impl ToolOutput for Output {
             "fileAccessFailed" => Some(
                 "Verify the path with structureSearch operation:\"files\", then retry the exact path.",
             ),
+            "notAFile" => Some("Read a file inside it; hints.viewTree lists its entries."),
             _ => None,
         }
     }

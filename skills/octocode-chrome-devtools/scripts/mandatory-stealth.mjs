@@ -1,11 +1,11 @@
 /**
- * Mandatory stealth gate for every CDP run (unless CDP_NO_STEALTH=1).
+ * Opt-in browser emulation for CDP runs. Native browser settings are the default.
  */
 import { applyStealthPatches, verifyStealth } from './undercover.mjs';
 
 export function stealthEnabled() {
   const v = process.env.CDP_NO_STEALTH;
-  return v !== '1' && v !== 'true';
+  return process.env.CDP_STEALTH === '1' && v !== '1' && v !== 'true';
 }
 
 export function isAboutOrDataUrl(url) {
@@ -24,14 +24,9 @@ export async function applyMandatoryStealth(cdp, opts = {}) {
   await cdp.send('Page.enable', {}).catch(() => {});
   await cdp.send('Runtime.enable', {}).catch(() => {});
 
-  const httpOrigin = (url) => { try { const o = new URL(url).origin; return o === 'null' ? undefined : o; } catch { return undefined; } };
-  let origin = opts.origin;
-  if (!origin && opts.navigateUrl) origin = httpOrigin(opts.navigateUrl);
-  if (!origin && cdp.targetInfo?.url && !isAboutOrDataUrl(cdp.targetInfo.url)) origin = httpOrigin(cdp.targetInfo.url);
-
-  await applyStealthPatches(cdp, origin ? { origin } : {});
+  await applyStealthPatches(cdp);
   cdp.stealthApplied = true;
-  console.log('[INJECT] Stealth patches applied (mandatory gate)');
+  console.log('[INJECT] Stealth patches applied (opt-in)');
 
   // Kept-tab follow-up steps: reloading would erase form/SPA state. The current
   // document was loaded under the previous run's patches, so skip reload+verify.

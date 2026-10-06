@@ -56,9 +56,6 @@ impl Paging {
             incomplete: result.incomplete_results,
         }
     }
-    fn pages(&self) -> usize {
-        self.total.div_ceil(self.per).max(1)
-    }
     /// The total a page reports: the search total, or an exact list count.
     fn reported_total(&self) -> Option<usize> {
         if self.listed {
@@ -93,6 +90,11 @@ pub(super) fn shape(
         && let Some(read) = leads::read_commit(query, sha)
     {
         value["next"]["readCommit"] = read;
+    }
+    if let Some(rows) = value.get("commits").and_then(Value::as_array)
+        && let Some(read) = leads::read_commit_pull_request(query, rows)
+    {
+        value["next"]["readPullRequest"] = read;
     }
     if !warnings.is_empty() {
         value["warnings"] = json!(warnings);
@@ -152,13 +154,12 @@ fn pull_requests(query: &HistorySearch, items: &[Value], paging: &Paging, terms:
         .collect::<Vec<_>>();
     let mut v = json!({"pullRequests":rows,"effectiveQuery":terms,
         "pagination":paging.pagination(paging.current)});
+    // Pages follow from totalItems and pageSize: no totalPages.
     if !paging.listed {
-        v["pagination"]["totalPages"] = json!(paging.pages());
         v["pagination"]["totalItems"] = json!(paging.total);
         v["pagination"]["totalItemsCapped"] = json!(paging.capped);
     } else if let Some(total) = paging.exact_list_total {
         v["pagination"]["totalItems"] = json!(total);
-        v["pagination"]["totalPages"] = json!(1);
     }
     // List mode runs the REST endpoint, not the search terms.
     if paging.listed
@@ -188,7 +189,8 @@ fn issues(query: &HistorySearch, items: &[Value], paging: &Paging, terms: String
             }
         })
         .collect::<Vec<_>>();
-    let mut v = json!({"owner":query.owner(),"repo":query.repo(),"issues":issues,
+    // The rows' repository is the query's own owner/repo: not echoed.
+    let mut v = json!({"issues":issues,
         "effectiveQuery":terms,"pagination":paging.pagination(paging.current)});
     if let Some(total) = paging.reported_total() {
         v["pagination"]["totalItems"] = json!(total);
@@ -211,8 +213,7 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
             .into_iter()
             .map(rows::map_commit_list)
             .collect::<Vec<_>>();
-        let mut v = json!({"owner":query.owner(),"repo":query.repo(),"commits":commits});
-        remove_null_fields(&mut v);
+        let mut v = json!({"commits":commits});
         if paging.more {
             v["pagination"] = json!({"currentPage":paging.page,"pageSize":paging.per,
                 "hasMore":true,"nextPage":paging.page + 1});
@@ -220,7 +221,7 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
         return v;
     }
     let commits = items.into_iter().map(rows::map_commit).collect::<Vec<_>>();
-    let mut v = json!({"owner":query.owner(),"repo":query.repo(),"scope":"defaultBranch",
+    let mut v = json!({"scope":"defaultBranch",
         "commits":commits,"pagination":{"currentPage":paging.page,"pageSize":paging.per,
         "hasMore":paging.more}});
     if let Some(total) = paging.reported_total() {

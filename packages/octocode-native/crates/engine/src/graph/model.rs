@@ -150,6 +150,10 @@ pub struct GraphFactsDocument {
     pub common_js: Vec<GraphFactCommonJs>,
     pub edges: Vec<GraphFactEdge>,
     pub diagnostics: Vec<String>,
+    /// 1-based `[start, end]` line spans of the syntax errors a recovered
+    /// parse skipped (merged); empty for a clean parse.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub error_lines: Vec<[u32; 2]>,
     pub modules: Vec<GraphFactRustModule>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rust_root_unsupported: Option<bool>,

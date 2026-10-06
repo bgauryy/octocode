@@ -15,7 +15,7 @@ Every acceptance run covers the shared contract and the tool-specific behavior:
 - a strict `{ queries: [...] }` envelope (for `clasify` too) with 1–5 same-tool rows; a flat row or bare array is rejected;
 - optional `mainGoal` and `reasoning` on every row: a row without them validates, a blank one is dropped, a top-level brief is not inherited, and `next.*` pages and `hints.*` leads carry the producing query's brief only when it sent one;
 - zero-based result `index` alignment and isolated row errors;
-- `scheme` `variants` and `rules`;
+- `schema` `variants` and `rules`;
 - collection, content, and whole-response continuations in `next` (pages only), optional `hints` leads and `hints.text` tips, and typed terminal limits.
 
 ## Inspect the surface being tested
@@ -23,19 +23,19 @@ Every acceptance run covers the shared contract and the tool-specific behavior:
 After you build the CLI, run from the monorepo root:
 
 ```bash
-node packages/octocode/out/octocode.js scheme --compact
-node packages/octocode/out/octocode.js scheme localFetch --view query --compact
+node packages/octocode/out/octocode.js schema
+node packages/octocode/out/octocode.js schema localFetch --view query
 ```
 
 - The catalog has 16 tools, with 12 enabled by default in MCP: `clasify` needs a classification key, and `ghCloneRepo` and the beta tools `astTopology` and `astRewrite` are CLI-only (the beta tools also need `OCTOCODE_BETA` or `local.beta`).
-- MCP omits `clasify` when no key resolves (`OCTOCODE_CLASSIFICATION_API`, `OCTOCODE_JEV_KEY`, or `.octocoderc` `classification.api`) or when `OCTOCODE_CLASSIFICATION_API` is blank. Local-tool, clone, storage, and allowlist settings also gate tools.
+- MCP omits `clasify` when no key resolves (`OCTOCODE_CLASSIFICATION_API` or `.octocoderc` `classification.api`) or when `OCTOCODE_CLASSIFICATION_API` is blank. Local-tool, clone, storage, and allowlist settings also gate tools.
 - Record effective configuration and unavailable capabilities per run; enabling a tool installs no language server and grants no provider access. Test CLI and MCP when registration, schema projection, formatting, or continuation rendering changes.
 
 ## Shared acceptance requirements
 
 ### Schema and description accuracy
 
-- Through public validation, exercise each operation's required fields, defaults, selectors, and rejected cross-operation fields; compare `scheme` with the input schema.
+- Through public validation, exercise each operation's required fields, defaults, selectors, and rejected cross-operation fields; compare `schema` with the input schema.
 - Execute documented examples with observed paths and identities; schema-valid is not runtime-correct. A replaced contract drops renamed aliases unless compatibility is required.
 - Through the actual adapter (MCP validates before the callback), a rejected call names a valid correction and the corrected call passes.
 

@@ -80,7 +80,6 @@ pub struct QueryOptions {
 
 struct Graph {
     id: String,
-    dir: PathBuf,
     manifest: Value,
     t: GraphTables,
 }
@@ -176,12 +175,7 @@ fn load(options: &QueryOptions, paths: &PathPolicy) -> Result<Graph, Failure> {
         ));
     }
     let id = manifest["id"].as_str().unwrap_or_default().to_owned();
-    Ok(Graph {
-        id,
-        dir,
-        manifest,
-        t,
-    })
+    Ok(Graph { id, manifest, t })
 }
 
 impl Graph {
@@ -998,7 +992,6 @@ fn stats(g: &Graph) -> GraphOutput {
     GraphOutput::ok(json!({
         "graph": g.summary(),
         "op": "stats",
-        "dir": g.dir.to_string_lossy(),
         "octocodeVersion": m["octocodeVersion"],
         "scan": m["scan"],
         "counts": m["counts"],

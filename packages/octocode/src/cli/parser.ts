@@ -1,7 +1,7 @@
 import type { ParsedArgs } from './types.js';
 
 // Only options the Node side itself reads need value-consumption here — the
-// `skill` and `scheme` commands' value flags. Everything else is forwarded to
+// `skill` and `schema` commands' value flags. Everything else is forwarded to
 // the native binary as raw argv, which owns its own parsing.
 const OPTIONS_WITH_VALUES = new Set([
   'add',

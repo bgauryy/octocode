@@ -1,9 +1,9 @@
 # Launch and stealth
 
-Load when launching with flags, a proxy, or tuning stealth. Launch flags only apply to a fresh browser process. If output says `"reused": true`, clean up or change port.
+Load when launching with flags, a proxy, or tuning stealth. Why: Apply launch settings to the intended session. Launch flags only apply to a fresh browser process. If output says `"reused": true`, clean up or change port.
 
 ```bash
-node $S/open-browser.mjs --headless --port 9222 --url "<url>"          # isolated profile, 1280x720
+node $S/open-browser.mjs --headless --port 9222 --url "<url>"          # isolated profile; native viewport defaults to 1280x720
 node $S/open-browser.mjs --port 9222 --url "<url>"                     # visible isolated profile, for user auth
 node $S/open-browser.mjs --profile Default --port 9222                 # real profile: approval first, Chrome quit
 node $S/open-browser.mjs --headless --proxyServer "socks5://127.0.0.1:1080"
@@ -16,13 +16,13 @@ node $S/open-browser.mjs --headless --port 9222 --enableFeatures WebMCP --url "<
 
 ## Stealth
 
-Every sandbox/runner run applies `undercover.mjs` and runs 15 self-checks before `run(cdp)`; a failed check stops the run.
+Native browser settings are the default. `--stealth` opts into `undercover.mjs` and 15 patch self-checks. These checks verify emulation, not that a website accepts it. Emulation changes platform, viewport, locale, timezone and location; it can bias performance and locale tests. It never grants camera, microphone or notification permissions.
 
 | Case | Behavior |
 |---|---|
-| `--new-tab <url>` | Opens `about:blank`, patches, verifies, then navigates |
-| Attached tab | Reloads after patching; `--no-reload` keeps page state and skips verify (patches from the previous run still hold) |
-| `--no-stealth` | Disables stealth (debug only) |
+| `--stealth --new-tab <url>` | Opens `about:blank`, patches, verifies, then navigates |
+| `--stealth` on an attached tab | Reloads after patching; `--no-reload` keeps page state and skips verify (patches from the previous run still hold) |
+| `--no-stealth` | Disables opt-in emulation |
 | Unsandboxed runner only | `CDP_STEALTH_ALLOW_FAIL=1` logs failures; `CDP_SKIP_STEALTH_VERIFY=1` skips verify |
 
 Smoke tests: `stealth-check` (bot.sannysoft.com) and `affiliates-stealth-check`. `octocode-scraping --provider cdp` uses the same patches unless `--no-cdp-stealth`.

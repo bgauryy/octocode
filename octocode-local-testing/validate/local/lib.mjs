@@ -9,7 +9,7 @@ export const REPOS = path.resolve(HERE, '../../../repos');
 export const BIN = path.join(HERE, 'bin');
 const ENV = {
   ...process.env,
-  ENABLE_LOCAL: 'true',
+  OCTOCODE_ENABLE_LOCAL: 'true',
   OCTOCODE_BETA: '1',
   PATH: `${BIN}:${path.join(HERE,'tools/node_modules/.bin')}:${process.env.PATH}`,
 };

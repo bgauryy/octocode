@@ -12,7 +12,7 @@ const WAIT_MS = Math.max(500, Math.min(15000, Number.parseInt(getArg('--wait-ms'
 function classify({ finalUrl, title, bodyText, counts, failures }) {
   const text = `${title}\n${bodyText}`.toLowerCase();
   const reasons = [];
-  if (failures.some(f => /403|blocked|captcha|challenge|cloudflare|access denied/i.test(`${f.status} ${f.errorText} ${f.url}`)) || /captcha|access denied|verify you are human|cloudflare|blocked|unusual traffic/.test(text)) reasons.push('blocked');
+  if (failures.some(f => /403|blocked|captcha|challenge|cloudflare|access denied/i.test(`${f.status} ${f.errorText} ${f.url}`)) || /captcha|access denied|verify you are human|cloudflare|blocked|unusual traffic|performing security verification|security service to protect against malicious bots/.test(text)) reasons.push('blocked');
   if ((counts.buttons + counts.inputs + counts.links) === 0 && bodyText.length < 500) reasons.push('js-shell');
   if (/cookie|consent|privacy choices|gdpr|accept all|manage preferences/.test(text)) reasons.push('consent-region');
   if (bodyText.length < 1000 && counts.scripts > 5 && counts.links < 5) reasons.push('timing-hydration');
@@ -39,16 +39,17 @@ export async function run(cdp) {
     returnByValue: true,
     expression: `(() => {
       ${ACTIONABILITY_HELPERS_JS}
-      const bodyText = (document.body?.innerText || document.body?.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 5000);
+      const bodyText = (document.body?.innerText || document.body?.textContent || '').replace(/\\s+/g, ' ').trim();
       const count = s => document.querySelectorAll(s).length;
       const visible = el => isVisible(el);
-      const visibleButtons = [...document.querySelectorAll('button,[role=button]')].filter(visible).slice(0, 20).map(el => ({ text: (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim().slice(0,120), disabled: isDisabled(el) }));
-      const visibleInputs = [...document.querySelectorAll('input,textarea,select')].filter(visible).slice(0, 20).map(el => ({ tag: el.localName, type: el.type || null, name: el.name || null, placeholder: el.placeholder || null }));
+      const visibleButtons = [...document.querySelectorAll('button,[role=button]')].filter(visible).map(el => ({ text: (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim(), disabled: isDisabled(el) }));
+      const visibleInputs = [...document.querySelectorAll('input,textarea,select')].filter(visible).map(el => ({ tag: el.localName, type: el.type || null, name: el.name || null, placeholder: el.placeholder || null }));
       return { finalUrl: location.href, title: document.title, readyState: document.readyState, bodyText, counts: { buttons: count('button,[role=button]'), inputs: count('input,textarea,select'), links: count('a[href]'), forms: count('form'), scripts: count('script'), iframes: count('iframe') }, visibleButtons, visibleInputs };
     })()`
   });
-  const payload = evalResult.result?.value || { finalUrl: cdp.targetInfo.url, title: '', bodyText: '', counts: { buttons: 0, inputs: 0, links: 0, forms: 0, scripts: 0, iframes: 0 } };
-  payload.networkFailures = failures.slice(0, 50);
+  if (evalResult.exceptionDetails || !evalResult.result?.value) throw new Error('Diagnostic evaluation unavailable');
+  const payload = evalResult.result.value;
+  payload.networkFailures = failures;
   payload.classification = classify({ finalUrl: payload.finalUrl, title: payload.title, bodyText: payload.bodyText, counts: payload.counts, failures });
   let screenshotPath = null;
   try {

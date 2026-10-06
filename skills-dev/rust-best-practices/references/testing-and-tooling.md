@@ -25,7 +25,7 @@ Load when you add tests, choose a test kind, organize test files, make a suite f
 | "This must not compile" (macros, typestate) | `trybuild` |
 | Async | `#[tokio::test]`; `flavor = "multi_thread"` only when the code needs it |
 
-- Coverage % is a map, not a goal.
+- Coverage % helps locate untested behavior. Preserve repository coverage floors; never lower one to pass a change.
 - Node addons: test the binding from JS (vitest/ava) against the built `.node`.
 
 ## Toolchain pin (commit it)
@@ -65,6 +65,13 @@ t    = "nextest run --workspace"
 xtask = "run -p xtask --"
 ```
 Anything beyond one command goes in an `xtask` crate, not bash.
+
+## Octocode verification
+- Use `octocode-dev` tasks and existing workspace scripts; do not introduce a second task runner.
+- Run `yarn workspace @octocodeai/octocode-native test:rust` for the repo's package/feature selections. Test-only N-API stubs stay out of production builds.
+- After native changes: rebuild native and affected interfaces, run CLI `config --json` and `schema`, then call the changed tool. Restart MCP before checking it.
+- For pagination changes, walk every executable `next.*` page. Assert complete coverage exactly once, stable query identity, and rejection or safe replay after source edits.
+- Cover errors, warnings, and partial rows through CLI/MCP as well as Rust. A green exit or Rust-only test does not prove every tool row succeeded.
 
 ## CI order (fail fast, cheap first)
 `fmt --check` → `clippy --all-targets -D warnings` → `nextest` + `test --doc` → `audit` (RUSTSEC) + `deny check` (licenses, bans, advisories, duplicates) → `hack --each-feature check` → `semver-checks` (libs) → MSRV build → Miri on unsafe-bearing crates, `cargo fuzz` on parsers/decoders of untrusted bytes. Block merge on fmt through deny plus Miri/fuzz. Cache with `Swatinem/rust-cache` (+ `sccache` per `references/build-profiles.md`).

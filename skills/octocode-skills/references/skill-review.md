@@ -55,6 +55,6 @@ Navigation WARNs are candidates, not mandatory format; audit trails, templates, 
 
 ## Judgment checks the script cannot make
 
-Check that every lobby ACT rule holds and that the prose has no filler and no lost data. Also check that each routed file owns a job that changes the next action, and that a declared host scheme is exposed. Reachability does not prove a routed adapter is useful; verify runtime selection separately.
+Check that every lobby ACT rule holds, including `## Output`, and that the prose has no filler and no lost data. The script does not check that section. Also check that each routed file owns a job that changes the next action, and that a declared host scheme is exposed. Reachability does not prove a routed adapter is useful; verify runtime selection separately.
 
 Next: to fix findings load `references/skill-improve.md`; for design guidance load `references/skill-anatomy.md`.

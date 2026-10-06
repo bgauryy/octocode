@@ -34,6 +34,6 @@ Load for a remote repository, package, upstream change, docs or web evidence, or
 - Local → upstream: resolve the local version or error anchor first; return to local callers and config before claiming an upstream fix applies.
 - Remote → local, smallest scope: one read → `ghGetFileContent`; a directory → `ghStructure` (`materialize` small sets, then `localSearch` at `location.localPath`); repeated subtree reads → `ghCloneRepo` + `path` (a path or a list); repo-wide graph/LSP → full clone.
 - Clone completeness is relative to the requested scope: a sparse clone proves nothing about omitted paths, and shallow history (`historyDepth`, default 1) is not full history. Use `location.localPath` (or `hints.exploreClone`); keep the resolved ref and `commitSha`. Refresh with `forceRefresh` when currency matters.
-- `ghCloneRepo` is CLI-only and needs `ENABLE_LOCAL` + persistent `OCTOCODE_STORAGE_MODE` (the default); `ENABLE_CLONE` is legacy and ignored. Never change config automatically.
+- `ghCloneRepo` is CLI-only and needs `OCTOCODE_ENABLE_LOCAL` + persistent `OCTOCODE_STORAGE_MODE` (the default); `ENABLE_CLONE` is legacy and ignored. Never change config automatically.
 
 Next: materialized path → `workflow-local.md`; comparisons → `campaigns.md`.

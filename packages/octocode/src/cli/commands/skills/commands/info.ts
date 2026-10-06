@@ -5,15 +5,13 @@ import { bold, c, dim } from '../../../../utils/colors.js';
 
 export function runInfo(
   skillName: string,
-  opts: { json: boolean; jsonErrors?: boolean }
+  opts: { json: boolean }
 ): void {
   const skill = getSkill(skillName);
   if (!skill) {
     reportFailure(
       `Skill not found: "${skillName}". Run \`octocode skill list\` to see available skills.${retiredHint(skillName)}`,
-      opts.json,
-      opts.jsonErrors
-    );
+      opts.json);
     return;
   }
 

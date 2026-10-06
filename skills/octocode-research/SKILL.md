@@ -62,13 +62,15 @@ Use `clasify` on an explicit classification request, or before the host reads a 
 ## Routes
 Pages (load when its map edge applies): `references/campaigns.md` · `references/algorithm.md` · `references/clasify.md` · `references/workflow-local.md` · `references/reading-flows.md` · `references/workflow-external.md` · `references/octocode.md` · `references/tool-examples.md` · `references/code-research.md` · `references/workflow-change.md` · `references/workflow-pr-review.md`. Source authority and editing this skill: `README.md`. Architecture decisions → `octocode-architect`; parallel workers → `octocode-subagent`.
 
-## Tools and output
-- Prefer exposed Octocode MCP tools; else `node packages/octocode/out/octocode.js` (monorepo) or `npx -y octocode`. Read `scheme <name> --view query --compact` before an unfamiliar call or after a validation error.
+## Tools
+- Prefer exposed Octocode MCP tools; else `node packages/octocode/out/octocode.js` (monorepo) or `npx -y octocode`. Read `schema <name> --view query --compact` before an unfamiliar call or after a validation error.
 - Batch ≤5 independent rows; keep dependent probes sequential. Add `mainGoal`/`reasoning` only in multi-call research on an unknown; omit them on simple lookups.
 - Run each `next.*` page unchanged, or narrow it and name what stays unread; `hints.*` leads are optional.
 - Read narrow (`references/reading-flows.md`); never widen a guessed line range.
 - Repo-wide topology: run `octocode graph ingest <path>` once, then `octocode graph query <op>`.
 
-Return `Route · Finding · Evidence · Confidence · Next`. Decisions add verdict, risks, verification, and the smallest safe fix. Write findings in STE-80 (owner: `octocode-documentation`). Write reports, or a requested single-file HTML explainer, to `<output>/octocode-research/` only when asked. When a flow has three or more evidenced hops, a Mermaid diagram can replace a dense paragraph; draw only proven edges and mark candidates. HTML stays out of agent handoffs.
+## Output
+One answer in chat, in ASD-STE100: `Route · Finding · Evidence · Confidence · Next`. A decision adds verdict, risks, verification, and the smallest safe fix.
+Save one report under `<output>/octocode-research/` only when asked. HTML is a second file only when a person asks for a page, and it stays out of agent handoffs.
 
 After editing this skill, run `node scripts/check-description.mjs` and `node scripts/check-guidance.mjs --self-test --examples`.

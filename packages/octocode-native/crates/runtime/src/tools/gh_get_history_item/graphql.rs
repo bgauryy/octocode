@@ -76,8 +76,11 @@ pub(super) fn pull_request_document(wants: &ContentWants) -> (String, Vec<(&'sta
     let mut selections: Vec<&str> = vec![
         "number title url state body isDraft author { login }",
         "labels(first:20){ pageInfo{ hasNextPage } nodes { name } }",
-        "baseRefName headRefName headRefOid createdAt updatedAt closedAt mergedAt mergeCommit { oid }",
+        "baseRefName baseRefOid headRefName headRefOid createdAt updatedAt closedAt mergedAt mergeCommit { oid }",
         "comments { totalCount } changedFiles additions deletions",
+        // Totals only: an alias keeps the count apart from a paged
+        // `commits(first:)` selection of the same connection.
+        "commitsCount: commits { totalCount } reviewThreads { totalCount }",
     ];
     let mut variables = Vec::new();
     let mut header = String::from("query($owner:String!,$repo:String!,$number:Int!");
@@ -104,7 +107,7 @@ pub(super) fn pull_request_document(wants: &ContentWants) -> (String, Vec<(&'sta
             wants.commits,
             "commits",
             50,
-            "commits(first:$commits){ pageInfo{ hasNextPage } nodes{ commit{ oid message messageHeadline authoredDate author{ user{ login } } } } }",
+            "commits(first:$commits){ pageInfo{ hasNextPage } nodes{ commit{ oid message messageHeadline authoredDate author{ name user{ login } } } } }",
         ),
     ] {
         if wanted {
@@ -237,12 +240,16 @@ pub(super) fn map_graphql_pr_metadata(pr: &Value) -> Value {
         "user": { "login": str_at(pr, "/author/login").unwrap_or("") },
         "labels": labels,
         "labels_truncated": labels_truncated,
-        "base": { "ref": pr.get("baseRefName") },
+        // The target-branch tip GitHub recorded for the PR (`targetSha`).
+        "base": { "ref": pr.get("baseRefName"), "sha": pr.get("baseRefOid") },
         "head": { "ref": pr.get("headRefName"), "sha": pr.get("headRefOid") },
         "created_at": pr.get("createdAt"),
         "updated_at": pr.get("updatedAt"),
         "closed_at": pr.get("closedAt"),
         "comments": pr.pointer("/comments/totalCount"),
+        "commits": pr.pointer("/commitsCount/totalCount"),
+        // GraphQL only: REST has no review-thread total.
+        "review_threads": pr.pointer("/reviewThreads/totalCount"),
         "changed_files": pr.get("changedFiles"),
         "additions": pr.get("additions"),
         "deletions": pr.get("deletions"),
@@ -303,8 +310,10 @@ pub(super) fn map_graphql_reviews(pr: &Value) -> Vec<Value> {
 
 pub(super) fn map_graphql_commits(pr: &Value) -> Vec<Value> {
     nodes(pr, "/commits/nodes", |node| {
+        // The REST shape: the GitHub account beside the git identity.
         json!({
             "sha": str_at(node, "/commit/oid").unwrap_or(""),
+            "author": str_at(node, "/commit/author/user/login").map(|login| json!({"login": login})),
             "commit": {
                 // Full message (headline + body), like the REST shape;
                 // the headline is only a fallback for older servers.
@@ -312,7 +321,7 @@ pub(super) fn map_graphql_commits(pr: &Value) -> Vec<Value> {
                     .or_else(|| str_at(node, "/commit/messageHeadline"))
                     .unwrap_or(""),
                 "author": {
-                    "name": str_at(node, "/commit/author/user/login").unwrap_or("unknown"),
+                    "name": str_at(node, "/commit/author/name").unwrap_or("unknown"),
                     "date": str_at(node, "/commit/authoredDate").unwrap_or("")
                 }
             }
@@ -552,6 +561,30 @@ mod tests {
             "labels": {"pageInfo": {"hasNextPage": false}, "nodes": []}
         }));
         assert_eq!(complete["labels_truncated"], false);
+    }
+
+    /// HI4/HI7/X5: the GraphQL PR carries the target-branch tip, the commit
+    /// and review-thread totals, and each commit's account login beside its
+    /// git name, in the REST shape.
+    #[test]
+    fn graphql_pr_maps_target_sha_totals_and_commit_logins() {
+        let pr = json!({
+            "baseRefName":"main","baseRefOid":"b1","commitsCount":{"totalCount":4},
+            "reviewThreads":{"totalCount":2},
+            "commits":{"pageInfo":{"hasNextPage":false},"nodes":[{"commit":{
+                "oid":"c1","message":"m","authoredDate":"2026-01-01T00:00:00Z",
+                "author":{"name":"Ricky","user":{"login":"rickhanlonii"}}}},
+                {"commit":{"oid":"c2","message":"m","author":{"name":"Bot"}}}]}
+        });
+        let metadata = map_graphql_pr_metadata(&pr);
+        assert_eq!(metadata["base"], json!({"ref":"main","sha":"b1"}));
+        assert_eq!(metadata["commits"], 4);
+        assert_eq!(metadata["review_threads"], 2);
+        let commits = map_graphql_commits(&pr);
+        assert_eq!(commits[0]["author"]["login"], "rickhanlonii");
+        assert_eq!(commits[0]["commit"]["author"]["name"], "Ricky");
+        assert!(commits[1]["author"].is_null());
+        assert_eq!(commits[1]["commit"]["author"]["name"], "Bot");
     }
 
     /// GitHub nulls a connection the token cannot read and reports the cause

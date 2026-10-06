@@ -20,7 +20,7 @@ Use files/count views when bodies are unnecessary. `localSearch` shows every hit
 - A `symbols` row's `name` + `line` are `lspSearch` `symbolName` + `lineHint` as-is.
 - Anchored LSP needs `path` plus `symbolName` and a real `lineHint` (or a 0-based `position`); `workspaceSymbol` needs `symbolName` + `path`/`workspaceRoot`. An unresolved anchor returns `hints.read`.
 - `definition` identity · `references` uses (per-file `files[].matches` rows `line:col text`; `groupByFile:true` → counts) · `callers` (direct: `files[].matches` rows `line:col in kind name start-end`)/`callees`/`callHierarchy` flow · `hover`/`implementation` types.
-- Servers cover ts/js, py, rust, c/c++. Check `lsp.serverAvailable`, capabilities (`debug:true` receipt), `coverage`, and truncation; native fallback is syntactic. First calls pay a cold start; `OCTOCODE_LSP_PREWARM=1` starts the server from earlier local reads in a long-lived MCP session. Usage checks set `includeDeclaration:false`; zero references still needs entrypoint, export, and runtime checks.
+- Servers cover ts/js, py, rust, c/c++. Check `lsp.serverAvailable`, capabilities (`debug:true` receipt), `coverage`, and truncation; native fallback is syntactic. First calls pay a cold start; `lsp.prewarm` (`OCTOCODE_LSP_PREWARM=all`) also starts the server from earlier local reads in a long-lived MCP session. Usage checks set `includeDeclaration:false`; zero references still needs entrypoint, export, and runtime checks.
 
 ## Graph
 - `octocode graph query`: `callers`, `impact --since <rev>`, `cycles`, `issues`, `stale`; honor `coverage` and `tier`.

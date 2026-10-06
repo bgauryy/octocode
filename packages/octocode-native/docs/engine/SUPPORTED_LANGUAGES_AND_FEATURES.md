@@ -3,7 +3,7 @@
 Reference, not a tutorial. Regenerate the grammar list from the shipped CLI if this ever looks stale:
 
 ```bash
-octocode scheme --compact | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
+octocode schema | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
 for (const g of JSON.parse(d).grammarCapabilities) console.log(g.language, g.extensions.join(' '), g.signatureOutline ? 'signatures' : '');})"
 ```
 
@@ -126,7 +126,6 @@ Built-in LSP routing covers 11 language families and 27 extensions. CUDA `.cu`/`
 |---|---|---|
 | **Workspace, ecosystem, or PATH** | The 11 built-in language families | Resolves an installed known command; the engine npm package does not bundle language servers |
 | **Managed cache** | Rust (`rust-analyzer`), C/C++/CUDA (`clangd`) | Uses assets explicitly installed by `octocode lsp-server install` after HTTPS and SHA-256 verification |
-| **Language-specific override** | Built-in routes | Uses the matching `OCTOCODE_*_SERVER_PATH` command after executable validation |
 | **Custom configuration** | Any extension, including removed first-class routes | Registers an extension, command, arguments, and language ID; project configuration requires explicit trust |
 
 `documentSymbols`, `definition`, `references`, `callers`, `callees`,
@@ -165,7 +164,7 @@ public CLI or MCP tool path. Do not infer native grammar support from an LSP
 route.
 
 ```bash
-octocode scheme --compact | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
+octocode schema | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{
 for (const g of JSON.parse(d).grammarCapabilities) console.log(g.language, g.extensions.join(' '));})"
 
 node packages/octocode/out/octocode.js astSearch \

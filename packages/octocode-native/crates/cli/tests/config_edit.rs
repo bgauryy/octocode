@@ -14,7 +14,7 @@ fn global_config_roundtrip_preserves_other_lines_and_hides_values() {
     let secret = " space 'quoted' # = value ";
     let add = workspace
         .cli()
-        .args(["config", "--add", "TEST_KEY", secret, "--json"])
+        .args(["config", "set", "TEST_KEY", secret, "--json"])
         .output()
         .unwrap();
     assert!(
@@ -34,7 +34,7 @@ fn global_config_roundtrip_preserves_other_lines_and_hides_values() {
     );
     let check = workspace
         .cli()
-        .args(["config", "--check", "TEST_KEY", "--json"])
+        .args(["config", "check", "TEST_KEY", "--json"])
         .output()
         .unwrap();
     assert!(check.status.success());
@@ -44,18 +44,21 @@ fn global_config_roundtrip_preserves_other_lines_and_hides_values() {
     );
     let show = workspace
         .cli()
-        .args(["showConfig", "--json"])
+        .args(["config", "--json"])
         .output()
         .unwrap();
     assert!(show.status.success());
+    let shown = serde_json::from_slice::<serde_json::Value>(&show.stdout).unwrap();
     assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&show.stdout).unwrap()["path"],
+        shown["envFiles"]["global"]["path"],
         path.to_string_lossy().as_ref()
     );
+    assert_eq!(shown["envFiles"]["global"]["exists"], true);
+    assert!(!String::from_utf8_lossy(&show.stdout).contains(secret));
     for expected in [true, false] {
         let remove = workspace
             .cli()
-            .args(["config", "--remove", "TEST_KEY", "--json"])
+            .args(["config", "unset", "TEST_KEY", "--json"])
             .output()
             .unwrap();
         assert!(remove.status.success());
@@ -70,7 +73,7 @@ fn global_config_roundtrip_preserves_other_lines_and_hides_values() {
     );
     let unset = workspace
         .cli()
-        .args(["config", "--check", "TEST_KEY", "--json"])
+        .args(["config", "check", "TEST_KEY", "--json"])
         .output()
         .unwrap();
     assert_eq!(unset.status.code(), Some(1));
@@ -86,17 +89,18 @@ fn config_rejects_invalid_edits_without_changing_the_file() {
     let path = workspace.home.join(".env");
     std::fs::write(&path, "KEEP=original\n").unwrap();
     for args in [
-        vec!["config", "--add", "BAD-KEY", "value"],
-        vec!["config", "--add", "GOOD", "bad\nINJECTED=true"],
-        vec!["config", "--add", "PATH", "/tmp"],
-        vec!["config", "--add", "GOOD"],
-        vec!["config", "--add", "GOOD", "v", "--remove", "KEEP"],
-        vec!["config", "--remove", "KEEP", "--check", "KEEP"],
+        vec!["config", "set", "BAD-KEY", "value"],
+        vec!["config", "set", "GOOD", "bad\nINJECTED=true"],
+        vec!["config", "set", "PATH", "/tmp"],
+        vec!["config", "set", "GOOD"],
+        vec!["config", "set", "GOOD", "v", "--stdin"],
+        vec!["config", "set", "GOOD", "v", "extra"],
+        vec!["config", "unset", "KEEP", "extra"],
     ] {
         let output = workspace
             .cli()
             .args(args)
-            .arg("--json-errors")
+            .arg("--json")
             .output()
             .unwrap();
         assert_eq!(output.status.code(), Some(2));
@@ -112,7 +116,7 @@ fn config_stdin_creates_private_global_file() {
     let workspace = Workspace::new();
     let mut child = workspace
         .cli()
-        .args(["config", "--add", "TEST_KEY", "--value-stdin", "--json"])
+        .args(["config", "set", "TEST_KEY", "--stdin", "--json"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -156,7 +160,7 @@ fn config_refuses_symlinks_and_concurrent_edits() {
     std::os::unix::fs::symlink(&target, &path).unwrap();
     let output = workspace
         .cli()
-        .args(["config", "--add", "TEST_KEY", "value"])
+        .args(["config", "set", "TEST_KEY", "value"])
         .output()
         .unwrap();
     assert!(!output.status.success());
@@ -173,7 +177,7 @@ fn config_refuses_symlinks_and_concurrent_edits() {
     lock.try_lock().unwrap();
     let output = workspace
         .cli()
-        .args(["config", "--add", "TEST_KEY", "value"])
+        .args(["config", "set", "TEST_KEY", "value"])
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(5));
@@ -213,8 +217,8 @@ fn manage(
 ) -> (Option<i32>, serde_json::Value) {
     use std::io::Write;
     use std::process::Stdio;
-    let scheme = workspace.cli().arg("scheme").output().expect("scheme");
-    request["expectedFingerprint"] = serde_json::from_slice::<serde_json::Value>(&scheme.stdout)
+    let catalog = workspace.cli().arg("catalog").output().expect("catalog");
+    request["expectedFingerprint"] = serde_json::from_slice::<serde_json::Value>(&catalog.stdout)
         .expect("catalog")["fingerprint"]
         .clone();
     let mut child = workspace

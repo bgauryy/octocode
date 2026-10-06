@@ -23,8 +23,7 @@ This reference is generated from [`packages/octocode-config/config-contract.json
   },
   "tools": {
     "enabled": null,
-    "disabled": null,
-    "family": "all"
+    "disabled": null
   },
   "mcp": {
     "deferred": null
@@ -35,7 +34,11 @@ This reference is generated from [`packages/octocode-config/config-contract.json
     "allowPrivateRegistry": false
   },
   "lsp": {
-    "configPath": null
+    "configPath": null,
+    "autoInstall": "prompt",
+    "cacheDir": null,
+    "trustProjectConfig": false,
+    "prewarm": "targeted"
   },
   "output": {
     "format": "yaml",
@@ -45,12 +48,13 @@ This reference is generated from [`packages/octocode-config/config-contract.json
     }
   },
   "storage": {
-    "mode": "persistent"
-  },
-  "cloneCache": {
-    "ttl": 86400000,
-    "maxSize": 2147483648,
-    "maxClones": 50
+    "mode": "persistent",
+    "stats": false,
+    "cloneCache": {
+      "ttl": 86400000,
+      "maxSize": 2147483648,
+      "maxClones": 50
+    }
   },
   "classification": {
     "type": "jev",
@@ -70,30 +74,33 @@ Environment values take precedence over `.octocoderc`. Aliases are listed in pri
 | `version` | — | `1` | integer | Configuration schema version. |
 | `github.apiUrl` | `GITHUB_API_URL` | `"https://api.github.com"` | url | GitHub REST API root. GitHub Enterprise commonly uses /api/v3. GITHUB_API_URL: shell or trusted home .env |
 | `github.graphqlEnabled` | `OCTOCODE_GITHUB_GRAPHQL` | `true` | boolean | Use GitHub GraphQL where supported; false forces REST-only access. |
-| `local.enabled` | `ENABLE_LOCAL`<br>`OCTOCODE_ENABLE_LOCAL` | `true` | boolean | Enable local filesystem tools on every runtime surface. ENABLE_LOCAL is canonical; OCTOCODE_ENABLE_LOCAL is an alias. |
-| `local.beta` | `OCTOCODE_BETA` | `false` | boolean | Enable beta features and tools; off by default on every surface. `octocode scheme` reports which tools the gate withholds. OCTOCODE_BETA: shell or trusted home .env |
+| `local.enabled` | `OCTOCODE_ENABLE_LOCAL` | `true` | boolean | Enable local filesystem tools on every runtime surface. |
+| `local.beta` | `OCTOCODE_BETA` | `false` | boolean | Enable beta features and tools; off by default on every surface. `octocode schema` reports which tools the gate withholds. OCTOCODE_BETA: shell or trusted home .env |
 | `local.allowedPaths` | `ALLOWED_PATHS` | `[]` | string array | Extra absolute or home-relative roots added to the allowed roots (workspace root and OCTOCODE_HOME). The environment value is a comma-separated list. ALLOWED_PATHS: shell or trusted home .env |
 | `local.workspaceRoot` | `WORKSPACE_ROOT` | process.cwd() | path | Optional absolute or home-relative workspace root. WORKSPACE_ROOT: shell or trusted home .env |
 | `tools.enabled` | `TOOLS_TO_RUN` | unset | string array | Strict tool allowlist replacing the default tool set. |
 | `tools.disabled` | `DISABLE_TOOLS` | unset | string array | Tools removed from the default tool set. |
-| `tools.family` | `OCTOCODE_TOOL_FAMILY` | `"all"` | `all` or `local` or `github` | Tool family preset (core tool policy families): local keeps the local and remote families, github keeps the GitHub and remote families. It only narrows tools.enabled/tools.disabled. |
 | `mcp.deferred` | `OCTOCODE_DEFER_TOOLS` | unset | string array | Available tools left out of tools/list; one run({tool, query}) tool executes them and next/hints leads that name them. |
 | `network.timeout` | `REQUEST_TIMEOUT` | `30000` | integer (5000–300000) | Request timeout in milliseconds. |
 | `network.maxRetries` | `MAX_RETRIES` | `3` | integer (0–10) | Maximum retries after a failed request. |
 | `network.allowPrivateRegistry` | `OCTOCODE_ALLOW_PRIVATE_REGISTRY` | `false` | boolean | Allow private, loopback, or link-local artifact registries. Security-sensitive SSRF escape hatch; opt in only for trusted enterprise registries. OCTOCODE_ALLOW_PRIVATE_REGISTRY: shell or trusted home .env |
 | `lsp.configPath` | `OCTOCODE_LSP_CONFIG` | unset | string | Optional path to a custom lsp-servers.json. OCTOCODE_LSP_CONFIG: shell or trusted home .env |
+| `lsp.autoInstall` | `OCTOCODE_LSP_AUTO_INSTALL` | `"prompt"` | `prompt` or `off` or `auto` | Whether `octocode lsp-server install` may download a managed language server: prompt (ask), off, or auto. OCTOCODE_LSP_AUTO_INSTALL: shell or trusted home .env |
+| `lsp.cacheDir` | `OCTOCODE_LSP_CACHE_DIR` | unset | path | Directory for managed language-server installs; default <octocode home>/lsp. OCTOCODE_LSP_CACHE_DIR: shell or trusted home .env |
+| `lsp.trustProjectConfig` | `OCTOCODE_TRUST_PROJECT_LSP_CONFIG` | `false` | boolean | Trust a project .octocode/lsp-servers.json. Security-sensitive: a trusted project config can launch server binaries. OCTOCODE_TRUST_PROJECT_LSP_CONFIG: shell or trusted home .env |
+| `lsp.prewarm` | `OCTOCODE_LSP_PREWARM` | `"targeted"` | `targeted` or `all` or `off` | Language-server prewarm: targeted starts the server an offered lspSearch call names; all also warms the file a read or search names; off disables it. |
 | `output.format` | `OCTOCODE_OUTPUT_FORMAT` | `"yaml"` | `yaml` or `json` | Encoding of rendered text content (the MCP text channel): yaml or json. Structured content and CLI stdout are always JSON. |
 | `output.redactEmails` | `OCTOCODE_REDACT_EMAILS` | `false` | boolean | Mask email addresses such as GitHub commit authors. |
 | `output.pagination.defaultCharLength` | `OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH` | `50000` | integer (1000–50000) | Automatic pagination character budget. |
 | `storage.mode` | `OCTOCODE_STORAGE_MODE` | `"persistent"` | `persistent` or `memory` | Whether caches and runtime state may persist on disk. OCTOCODE_STORAGE_MODE: shell or trusted home .env |
-| `cloneCache.ttl` | `OCTOCODE_CACHE_TTL_MS` | `86400000` | integer (60000–2592000000) | Milliseconds a ghCloneRepo checkout stays fresh before it is re-fetched. |
-| `cloneCache.maxSize` | `OCTOCODE_MAX_CACHE_SIZE` | `2147483648` | integer (1048576–1099511627776) | Byte cap for the on-disk ghCloneRepo cache; least-recently-used checkouts are evicted above it. |
-| `cloneCache.maxClones` | `OCTOCODE_MAX_CLONES` | `50` | integer (1–1000) | Maximum repositories the ghCloneRepo cache keeps. |
+| `storage.stats` | `OCTOCODE_ENABLE_STATS` | `false` | boolean | Write stats.json on flush; stats remain in memory either way. |
+| `storage.cloneCache.ttl` | `OCTOCODE_CACHE_TTL_MS` | `86400000` | integer (60000–2592000000) | Milliseconds a ghCloneRepo checkout stays fresh before it is re-fetched. |
+| `storage.cloneCache.maxSize` | `OCTOCODE_MAX_CACHE_SIZE` | `2147483648` | integer (1048576–1099511627776) | Byte cap for the on-disk ghCloneRepo cache; least-recently-used checkouts are evicted above it. |
+| `storage.cloneCache.maxClones` | `OCTOCODE_MAX_CLONES` | `50` | integer (1–1000) | Maximum repositories the ghCloneRepo cache keeps. |
 | `classification.type` | `OCTOCODE_CLASSIFICATION_TYPE` | jev | `jev` | Classification vendor. Per-vendor defaults (host, model, endpoint) are built in. |
-| `classification.api` | `OCTOCODE_CLASSIFICATION_API`<br>`OCTOCODE_JEV_KEY` | unset | string | Classification provider API key (bearer credential). Never appears in ResolvedConfig; shell environment wins over the trusted home config file. OCTOCODE_JEV_KEY is the vendor-native alias for the jev provider. Credential-only; excluded from ResolvedConfig. |
+| `classification.api` | `OCTOCODE_CLASSIFICATION_API` | unset | string | Classification provider API key (bearer credential). Never appears in ResolvedConfig; shell environment wins over the trusted home config file. Credential-only; excluded from ResolvedConfig. |
 | `classification.apiHost` | `OCTOCODE_CLASSIFICATION_API_HOST` | vendor default (jev: https://api.typesafe.ai) | url | Optional override of the selected vendor's default API root. Requires HTTP or HTTPS at config validation; provider policy may require HTTPS except loopback. OCTOCODE_CLASSIFICATION_API_HOST: shell or trusted home .env Credential-only; excluded from ResolvedConfig. |
 | `classification.maxConcurrency` | `OCTOCODE_CLASSIFICATION_CONCURRENCY` | `10` | integer (1–64) | Process-wide maximum in-flight classification provider requests per provider endpoint. |
-| — | `OCTOCODE_ENABLE_STATS` | `false` | boolean | Write stats.json on flush; stats remain in memory either way. Environment-only setting. |
 
 ## GitHub token priority
 
@@ -101,10 +108,8 @@ Tokens first choose the highest-priority source: process environment → workspa
 
 | Environment variable | Priority | Description |
 |---|---:|---|
-| `OCTOCODE_TOKEN` | 1 | Octocode token override |
-| `GH_TOKEN` | 2 | GitHub CLI token |
-| `GITHUB_TOKEN` | 3 | GitHub Actions token |
-| `GITHUB_PERSONAL_ACCESS_TOKEN` | 4 | GitHub personal access token |
+| `GH_TOKEN` | 1 | GitHub CLI token |
+| `GITHUB_TOKEN` | 2 | GitHub Actions token |
 
 ## Additional configuration environment
 
@@ -112,17 +117,5 @@ Tokens first choose the highest-priority source: process environment → workspa
 |---|---|
 | `OCTOCODE_GITHUB_CLIENT_ID` | GitHub OAuth client override |
 | `OCTOCODE_HOME` | Overrides the Octocode configuration directory (default: <os-home>/.octocode) |
-| `OCTOCODE_TS_SERVER_PATH` | Override the TypeScript/JavaScript LSP server binary (e.g. tsgo). |
-| `OCTOCODE_RUST_SERVER_PATH` | Override the Rust LSP server binary (rust-analyzer). |
-| `OCTOCODE_GO_SERVER_PATH` | Override the Go LSP server binary (gopls). |
-| `OCTOCODE_PYTHON_SERVER_PATH` | Override the Python LSP server binary. |
-| `OCTOCODE_JAVA_SERVER_PATH` | Override the Java LSP server binary. |
-| `OCTOCODE_CLANGD_SERVER_PATH` | Override the C/C++ LSP server binary (clangd). |
-| `OCTOCODE_CSHARP_SERVER_PATH` | Override the C# LSP server binary. |
-| `OCTOCODE_SCALA_SERVER_PATH` | Override the Scala LSP server binary (metals). |
-| `OCTOCODE_ASM_SERVER_PATH` | Override the assembly LSP server binary. |
-| `OCTOCODE_LSP_AUTO_INSTALL` | LSP server auto-install policy: off (default), prompt, or auto. |
-| `OCTOCODE_LSP_CACHE_DIR` | Override the managed LSP server download/cache directory. |
-| `OCTOCODE_TRUST_PROJECT_LSP_CONFIG` | Trust a project-local lsp-servers.json (1/true/yes/on). Security-sensitive: a trusted project config can launch server binaries, so prefer setting this in your shell rather than a project .env. |
 | `OCTOCODE_AST_REWRITE_STATE_DIR` | Override the astRewrite transaction/recovery state directory. |
 | `OCTOCODE_CARGO` | Override the cargo executable used for Rust dependency-graph analysis. |

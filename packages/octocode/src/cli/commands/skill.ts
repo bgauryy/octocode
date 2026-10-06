@@ -1,7 +1,7 @@
 import type { CLICommand, ParsedArgs } from '../types.js';
 import { EXIT } from '../exit-codes.js';
+import { reportFailure } from './skills/commands/fail.js';
 import { getBool, getString } from '../options.js';
-import { bold, dim } from '../../utils/colors.js';
 import { runList } from './skills/commands/list.js';
 import { runInstall, type InstallOptions } from './skills/commands/install.js';
 import { runRemove } from './skills/commands/remove.js';
@@ -12,68 +12,40 @@ import {
   type SkillInstallMode,
 } from '@octocodeai/octocode-skill-installer';
 
-const SUBCOMMANDS = new Set([
-  'list',
-  'install',
-  'remove',
-  'check',
-  'info',
-  'help',
-]);
+const SUBCOMMANDS = new Set(['list', 'install', 'remove', 'check', 'info']);
 
 function printBundledSkillHelp(): void {
-  console.log(`
-${bold('octocode skill')} — bundled Octocode skills
+  console.log(`Install, remove, or check bundled Octocode skills
 
-${bold('Usage')}
-  octocode skill <command> [options]
+Usage: octocode skill <COMMAND> [OPTIONS]
 
-${bold('Commands')}
-  list                    List bundled skills with install/env status
-  install <name>...       Install one or more bundled skills
-  install --add <source> Add a local skill to the canonical home
-  remove  <name>...       Remove a skill — home copy + platform links
-  check  [<name>...]      Verify installs, platform links, and env readiness
-  info   <name>           Show full SKILL.md content
+Commands:
+  list                 Bundled skills with install status and platform links
+  info <name>          A skill's SKILL.md and env readiness
+  install <name>...    Install skills (--all for every bundled skill)
+  install --add <dir>  Add a local skill to the canonical home
+  remove <name>...     Remove skills: home copy and platform links (--all for every skill)
+  check [<name>...]    Verify installs, platform links, and env readiness
 
-${bold('Install options')}
-  --all                   Install all bundled skills
-  --platform <p>          Link into platform dir  ${dim(`(${formatSkillPlatformHelp()})`)}
-  --global                Install links in the selected platform's global scope
-  --project-dir <dir>     Install links in the selected platform's project scope
-  --path <dir>            Install bundled skill directly to a custom destination
-  --mode copy|symlink|auto  ${dim('[default: symlink · copy only when requested]')}
-  --force                 Replace an existing installation that differs
-  --upgrade               Refresh changed bundled content; preserve destination drift
-  --dry-run               Preview without writing
+Options:
+      --platform <P>      Platforms, comma-separated: ${formatSkillPlatformHelp()}
+      --global            install: link into each platform's global scope
+      --project-dir <DIR> install: link into each platform's project scope
+      --path <DIR>        install: copy straight to a custom destination
+      --mode <MODE>       install: symlink (default), copy, or auto
+      --force             install: replace a differing install; remove: also delete real directories
+      --upgrade           install: refresh changed bundled content, keep destination edits
+      --workspace         check: also check <cwd>/.agents/skills
+      --fix               check: refresh stale or broken installs in place
+      --no-env            check: skip env readiness
+      --dry-run           install, remove, check --fix: preview without writing
+      --json              Print JSON (errors too)
+  -h, --help              Print help
 
-${bold('Remove options')}
-  --all                   Remove all installed skills
-  --platform <p>          Remove only specified platform link(s)  ${dim('(home kept)')}
-  --force                 Also delete real directories that are not Octocode links
-  --dry-run               Preview without deleting
-
-${bold('Check options')}
-  --platform <p>          Check specific platforms only
-  --workspace             Also check <cwd>/.agents/skills
-  --fix                   Refresh stale/broken installs in place (adds no new locations)
-  --dry-run               With --fix: preview fixes without writing
-  --no-env                Skip env param checks
-
-${bold('Global flags')}
-  --json                  Machine-readable JSON output
-  --json-errors           Emit structured JSON errors on stdout
-  --help                  Show this help
-
-${bold('Examples')}
-  octocode skill list --json
-  octocode skill install --all --platform pi,cursor --global
-  octocode skill install --add ./skills/my-skill --platform claude,cursor --global
-  octocode skill install octocode-research --platform codex --project-dir .
-  octocode skill remove octocode-research --platform pi
-  octocode skill check --fix
-  octocode skill info octocode-research
-`);
+Examples:
+  octocode skill install --all --platform claude,cursor --global
+  octocode skill install --add ./skills/my-skill --platform claude --global
+  octocode skill check --fix`);
 }
 
 /** Flags each subcommand reads; any other skill flag is a usage error there. */
@@ -96,10 +68,9 @@ const SUBCOMMAND_FLAGS: Record<string, readonly string[]> = {
     'json',
   ],
   remove: ['all', 'platform', 'force', 'dry-run', 'json'],
-  help: [],
 };
 /** Flags every subcommand accepts. */
-const GLOBAL_FLAGS = ['help', 'json-errors', 'no-color', 'redact-emails'];
+const GLOBAL_FLAGS = ['help'];
 
 function editDistance(left: string, right: string): number {
   let previous = Array.from({ length: right.length + 1 }, (_, i) => i);
@@ -142,10 +113,8 @@ function unknownFlagError(
   return `Unknown option: --${flag}${nearest ? ` (did you mean --${nearest.name}?)` : ''}`;
 }
 
-function subcommand(args: ParsedArgs): string {
-  const first = args.args[0];
-  if (first && SUBCOMMANDS.has(first)) return first;
-  return first ?? 'help';
+function subcommand(args: ParsedArgs): string | undefined {
+  return args.args[0];
 }
 
 function positionalAfterSubcommand(args: ParsedArgs): string[] {
@@ -186,26 +155,23 @@ export const skillCommand: CLICommand = {
   ],
   handler: (args: ParsedArgs) => {
     const json = getBool(args.options, 'json');
-    const jsonErrors = getBool(args.options, 'json-errors');
     const fail = (message: string): void => {
-      if (jsonErrors)
-        console.log(
-          JSON.stringify({
-            kind: 'octocode.toolError',
-            version: 1,
-            error: message,
-          })
-        );
-      else if (json)
-        console.log(JSON.stringify({ success: false, error: message }));
-      else console.error(message);
+      reportFailure(message, json);
       process.exitCode = EXIT.USAGE;
     };
     const command = subcommand(args);
-    // An unknown subcommand is reported by name below, before its flags.
-    const flagError = SUBCOMMANDS.has(command)
-      ? unknownFlagError(command, args.options)
-      : undefined;
+    if (getBool(args.options, 'help') || command === undefined) {
+      printBundledSkillHelp();
+      if (command === undefined && !getBool(args.options, 'help'))
+        process.exitCode = EXIT.USAGE;
+      return;
+    }
+    if (!SUBCOMMANDS.has(command)) {
+      return fail(
+        `Unknown skill command: "${command}". Commands: ${[...SUBCOMMANDS].join(', ')}.`
+      );
+    }
+    const flagError = unknownFlagError(command, args.options);
     if (flagError) return fail(flagError);
     for (const option of skillCommand.options ?? []) {
       if (
@@ -222,10 +188,6 @@ export const skillCommand: CLICommand = {
     ) {
       return fail('--mode expects copy|symlink|auto.');
     }
-    if (getBool(args.options, 'help')) {
-      printBundledSkillHelp();
-      return;
-    }
 
     switch (command) {
       case 'list':
@@ -239,7 +201,7 @@ export const skillCommand: CLICommand = {
           fail(msg);
           return;
         }
-        runInfo(skillName, { json, jsonErrors });
+        runInfo(skillName, { json });
         return;
       }
 
@@ -254,7 +216,6 @@ export const skillCommand: CLICommand = {
           dryRun: getBool(args.options, 'dry-run'),
           noEnv: getBool(args.options, 'no-env'),
           json,
-          jsonErrors,
         });
         return;
 
@@ -276,7 +237,6 @@ export const skillCommand: CLICommand = {
           upgrade: getBool(args.options, 'upgrade'),
           dryRun: getBool(args.options, 'dry-run'),
           json,
-          jsonErrors,
         };
         runInstall(installNames(args), opts);
         return;
@@ -291,19 +251,9 @@ export const skillCommand: CLICommand = {
             dryRun: getBool(args.options, 'dry-run'),
             force: getBool(args.options, 'force'),
             json,
-            jsonErrors,
           }
         );
         return;
-
-      case 'help':
-        printBundledSkillHelp();
-        return;
-
-      default:
-        fail(
-          `Unknown skill command: "${command}". Run octocode skill help for usage.`
-        );
     }
   },
 };

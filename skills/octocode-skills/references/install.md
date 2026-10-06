@@ -15,9 +15,9 @@ An install copies or symlinks a `SKILL.md` folder into a path the runtime scans.
 
 | Provider | User | Project |
 |---|---|---|
-| claude (`claude-desktop`) | `<home>/.claude/skills/` | `<repo>/.claude/skills/` |
+| claude | `<home>/.claude/skills/` | `<repo>/.claude/skills/` |
 | cursor | `<home>/.cursor/skills/` | `<repo>/.cursor/skills/` |
-| codex (`agents`, `shared`, `common`, `codex-native`) | `<home>/.agents/skills/` | `<repo>/.agents/skills/` |
+| codex | `<home>/.agents/skills/` | `<repo>/.agents/skills/` |
 | opencode | `<home>/.config/opencode/skills/` | `<repo>/.opencode/skills/` |
 | pi | `<home>/.pi/agent/skills/` | `<repo>/.pi/skills/` |
 | copilot | `<home>/.copilot/skills/` | `<repo>/.github/skills/` |
@@ -55,7 +55,6 @@ node scripts/skill-sync.mjs --list-vendors
 
 - `--force` replaces conflicts. The script never prompts.
 - `top` = `claude`, `cursor`, `codex` (`<home>/.agents/skills`). `all` adds `opencode`, `pi`, `copilot`, `gemini`.
-- Aliases: `agents`, `shared`, `common`, `codex-native` → `codex`; `claude-desktop` → `claude`.
 - The script mirrors the shared installer registry (CI contract-tests the mirror) because an installed skill cannot import workspace packages.
 
 ## Recovery

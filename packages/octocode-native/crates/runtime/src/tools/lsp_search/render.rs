@@ -9,9 +9,8 @@ use serde_json::{Value, json};
 
 /// One flattened document symbol: `name`, `kind`, one-based `line` (the
 /// name line, a usable `lineHint`) and `endLine` (the full extent), the
-/// zero-based name `character`, `parent`/`parentLine` for a member, and
-/// `unlisted`, the children of a symbol whose members are not listed (a
-/// function's locals).
+/// zero-based name `character`, and `parent`/`parentLine` for a nested
+/// symbol (a member, or a function's local). Every symbol is listed.
 pub(super) fn flatten_document_symbol(
     value: &Value,
     output: &mut Vec<Value>,
@@ -25,20 +24,6 @@ pub(super) fn flatten_document_symbol(
         .get("range")
         .or_else(|| symbol.get("location")?.get("range"));
     let name = symbol.get("name").and_then(Value::as_str);
-    // Rust `impl` blocks are `object` symbols.
-    let structural = matches!(
-        kind.as_str(),
-        "file"
-            | "module"
-            | "namespace"
-            | "package"
-            | "class"
-            | "enum"
-            | "interface"
-            | "markdownHeading"
-            | "struct"
-            | "object"
-    );
     let children = symbol
         .get("children")
         .and_then(Value::as_array)
@@ -63,20 +48,15 @@ pub(super) fn flatten_document_symbol(
             compact["parent"] = json!(parent);
             compact["parentLine"] = json!(parent_line);
         }
-        if !structural && !children.is_empty() {
-            compact["unlisted"] = json!(children.len());
-        }
         output.push(compact);
         line = Some(start);
     }
-    if structural {
-        let parent = match (name, line) {
-            (Some(name), Some(line)) => Some((name, line)),
-            _ => parent,
-        };
-        for child in children {
-            flatten_document_symbol(child, output, parent);
-        }
+    let parent = match (name, line) {
+        (Some(name), Some(line)) => Some((name, line)),
+        _ => parent,
+    };
+    for child in children {
+        flatten_document_symbol(child, output, parent);
     }
 }
 
@@ -110,6 +90,54 @@ pub(super) fn document_symbol_rows(page: &[Value], all: &[Value]) -> Vec<Value> 
         })
         .collect::<Vec<_>>();
     crate::tools::symbol_outline::outline_rows(&objects)
+}
+
+/// typescript-language-server reports a `type X = …` alias as a variable
+/// (LSP has no alias kind). Name each such symbol `type` when its declaring
+/// line says so; nested symbols are walked too.
+pub(super) fn name_type_aliases(symbols: &mut Value, content: &str) {
+    let lines: Vec<&str> = content.lines().collect();
+    fn walk(symbols: &mut Value, lines: &[&str]) {
+        let Some(items) = symbols.as_array_mut() else {
+            return;
+        };
+        for symbol in items {
+            if symbol["kind"].as_u64() == Some(13)
+                && let Some(name) = symbol["name"].as_str()
+                && let Some(line) = symbol
+                    .pointer("/selectionRange/start/line")
+                    .or_else(|| symbol.pointer("/range/start/line"))
+                    .and_then(Value::as_u64)
+                    .and_then(|line| lines.get(usize::try_from(line).ok()?))
+                && declares_type_alias(line, name)
+            {
+                symbol["kind"] = json!("type");
+            }
+            if let Some(children) = symbol.get_mut("children") {
+                walk(children, lines);
+            }
+        }
+    }
+    walk(symbols, &lines);
+}
+
+/// `[export] [declare] type <name>` at the start of a line.
+fn declares_type_alias(line: &str, name: &str) -> bool {
+    let mut rest = line.trim_start();
+    for keyword in ["export ", "declare "] {
+        if let Some(after) = rest.strip_prefix(keyword) {
+            rest = after.trim_start();
+        }
+    }
+    rest.strip_prefix("type ")
+        .map(str::trim_start)
+        .and_then(|after| after.strip_prefix(name))
+        .is_some_and(|after| {
+            after
+                .chars()
+                .next()
+                .is_none_or(|c| !(c.is_alphanumeric() || c == '_' || c == '$'))
+        })
 }
 
 pub(super) fn symbol_kind_name(kind: Option<&Value>) -> String {

@@ -1,4 +1,4 @@
-//! Opt-in language-server prewarm (`OCTOCODE_LSP_PREWARM=1`).
+//! Language-server prewarm (`lsp.prewarm`).
 //!
 //! A local read or search names a source file before an agent asks for its
 //! identity. When enabled, that file's server is started in the shared pool
@@ -29,17 +29,6 @@ const PREWARM_SETTLE_MS: u32 = 400;
 /// Largest file the prewarm opens (the anchor read applies the real bound).
 const MAX_PREWARM_OPEN_BYTES: u64 = 2 * 1024 * 1024;
 
-/// Whether `OCTOCODE_LSP_PREWARM` enables prewarm (`1`/`true`/`yes`/`on`).
-#[must_use]
-pub fn enabled(value: Option<&str>) -> bool {
-    value.is_some_and(|value| {
-        matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes" | "on"
-        )
-    })
-}
-
 /// The source file a local tool row points at: the top search hit, else the
 /// row's or query's own `path` when it is a file. Relative paths are not guessed.
 #[must_use]
@@ -55,19 +44,6 @@ pub fn anchor_file(query: &Value, data: &Value) -> Option<PathBuf> {
         .chain(query.get("path").and_then(Value::as_str))
         .map(PathBuf::from)
         .find(|path| path.is_absolute() && path.is_file())
-}
-
-/// Whether a response that points at `lspSearch` may warm that call's
-/// server: on unless `OCTOCODE_LSP_PREWARM` is explicitly off
-/// (`0`/`false`/`no`/`off`).
-#[must_use]
-pub fn targeted_enabled(value: Option<&str>) -> bool {
-    !value.is_some_and(|value| {
-        matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "0" | "false" | "no" | "off"
-        )
-    })
 }
 
 /// The anchor file of the first `lspSearch` call a tool row offers (a lead
@@ -181,19 +157,8 @@ pub fn schedule(
 
 #[cfg(test)]
 mod tests {
-    use super::{anchor_file, enabled, lead_file, targeted_enabled};
+    use super::{anchor_file, lead_file};
     use serde_json::json;
-
-    #[test]
-    fn prewarm_is_off_unless_explicitly_enabled() {
-        assert!(!enabled(None));
-        assert!(!enabled(Some("")));
-        assert!(!enabled(Some("0")));
-        assert!(!enabled(Some("false")));
-        for on in ["1", "true", "YES", " on "] {
-            assert!(enabled(Some(on)), "{on}");
-        }
-    }
 
     #[test]
     fn anchor_prefers_the_top_hit_then_a_file_query_path() {
@@ -217,15 +182,6 @@ mod tests {
             None
         );
         let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn targeted_prewarm_is_on_unless_explicitly_off() {
-        assert!(targeted_enabled(None));
-        assert!(targeted_enabled(Some("1")));
-        for off in ["0", "false", "NO", " off "] {
-            assert!(!targeted_enabled(Some(off)), "{off}");
-        }
     }
 
     #[test]

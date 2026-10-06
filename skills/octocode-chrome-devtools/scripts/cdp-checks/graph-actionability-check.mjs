@@ -39,7 +39,7 @@ export async function run(cdp) {
   if (!ready) console.log('[FINDING] PAGE_NOT_FULLY_LOADED document.readyState never reached "complete" — actionability rows below may be incomplete');
 
   const graphSelectors = selectorsFromGraph(GRAPH);
-  const selectorList = [...new Set([...graphSelectors, ...SELECTORS.split(',').map(s => s.trim()).filter(Boolean)])].slice(0, LIMIT);
+  const selectorList = [...new Set([...graphSelectors, ...SELECTORS.split(',').map(s => s.trim()).filter(Boolean)])];
   const result = await cdp.send('Runtime.evaluate', {
     awaitPromise: true,
     returnByValue: true,
@@ -47,7 +47,7 @@ export async function run(cdp) {
       const selectors = ${JSON.stringify(selectorList)};
       const sleep = ms => new Promise(r => setTimeout(r, ms));
       ${ACTIONABILITY_HELPERS_JS}
-      const short = v => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, 160);
+      const short = v => String(v ?? '').replace(/\s+/g, ' ').trim();
       function nameOf(el) {
         const labelledBy = el.getAttribute('aria-labelledby');
         if (labelledBy) {
@@ -66,7 +66,7 @@ export async function run(cdp) {
       }
       const rows = [];
       for (const selector of selectors) {
-        for (const el of [...document.querySelectorAll(selector)].slice(0, 20)) {
+        for (const el of [...document.querySelectorAll(selector)]) {
           el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
           const r1 = el.getBoundingClientRect();
           await sleep(100);
@@ -89,6 +89,6 @@ export async function run(cdp) {
   writeFileSync(artifact, `${JSON.stringify(payload, null, 2)}\n`, { mode: 0o600 });
   const rows = payload.rows || [];
   console.log(`[METRIC] ACTIONABILITY rows=${rows.length} operable=${rows.filter(r => r.canOperate).length}`);
-  for (const row of rows.slice(0, 10)) console.log(`[ACTIONABILITY] ${JSON.stringify(row)}`);
+  for (const row of rows.slice(0, LIMIT)) console.log(`[ACTIONABILITY] ${JSON.stringify(row)}`);
   console.log(`[ARTIFACT] ACTIONABILITY ${artifact}`);
 }

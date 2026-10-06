@@ -1,10 +1,10 @@
 # Review cost receipt and evaluation
 
-Load after a two-agent RFC review, whether Jev ran or the workers converged. Load also before improving this skill or claiming that the debate beats the ordinary RFC flow.
+Load after a two-agent RFC review, whether Jev ran or the workers converged. Load also before improving this skill or claiming that the debate beats the ordinary RFC flow. Why: cost and benefit have one receipt shape, and provider usage is not total cost.
 
 ## Cost receipt
 
-Write one JSON receipt under `<output>/octocode-rfc-generator/{name}/review/` with this shape:
+Write one JSON receipt under `<output>/rfc/{name}/review/` with this shape:
 
 ```json
 {

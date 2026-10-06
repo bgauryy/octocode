@@ -1,5 +1,5 @@
 // Shared browser-side actionability checks, interpolated into Runtime.evaluate
-// expressions across the DOM-inspection examples. One definition, not three.
+// expressions across the DOM-inspection checks.
 export const ACTIONABILITY_HELPERS_JS = `
   function isVisible(el, rect, style) {
     const r = rect ?? el.getBoundingClientRect();
@@ -11,24 +11,28 @@ export const ACTIONABILITY_HELPERS_JS = `
   }
 `;
 
-// Node-side (not page-side) readiness gate: a fresh headless launch commits an
-// internal about:blank document before the requested --url navigation lands,
-// even though the CDP target list already reports the destination URL and
-// document.readyState on that blank page already reads "complete". Any script
-// that resolves a selector/ref immediately after launch can silently see the
-// blank page and report a real element as not-found. Call this before
-// resolving elements; it does not guarantee the destination page has finished
-// its OWN async rendering, only that navigation past about:blank landed.
-export async function waitForPageReady(cdp, timeoutMs = 8000) {
+// Wait past the initial about:blank document; SPA rendering may continue afterward.
+export async function waitForPageReady(cdp, timeoutMs = 8000, { selector = '', text = '', state = 'interactive' } = {}) {
   await cdp.send('Page.enable');
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const { result } = await cdp.send('Runtime.evaluate', {
-      expression: 'JSON.stringify({ready: document.readyState, blank: document.URL === "about:blank"})',
-      returnByValue: true,
-    });
-    const state = JSON.parse(result.value);
-    if (state.ready === 'complete' && !state.blank) return true;
+    let evaluated;
+    try {
+      evaluated = await cdp.send('Runtime.evaluate', {
+        expression: `(() => {
+          const selector = ${JSON.stringify(selector)};
+          const el = selector ? document.querySelector(selector) : null;
+          const text = ${JSON.stringify(text)};
+          return { ready: document.readyState, blank: document.URL === 'about:blank',
+            content: (!selector || Boolean(el)) && (!text || document.body?.innerText?.includes(text)) };
+        })()`, returnByValue: true,
+      });
+    } catch (error) {
+      if (!/context.*destroyed|Cannot find context|Inspected target navigated/i.test(error.message)) throw error;
+    }
+    if (evaluated?.exceptionDetails) throw new Error(evaluated.exceptionDetails.exception?.description || evaluated.exceptionDetails.text);
+    const current = evaluated?.result?.value;
+    if (current && !current.blank && current.content && (state === 'complete' ? current.ready === 'complete' : ['interactive', 'complete'].includes(current.ready))) return true;
     await new Promise((r) => setTimeout(r, 150));
   }
   return false;

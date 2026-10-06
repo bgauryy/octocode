@@ -48,10 +48,6 @@ pub trait ClassificationProvider: Send + Sync {
     /// Stable vendor identifier, matching the `classification.type` value.
     fn id(&self) -> &'static str;
 
-    /// Vendor-native credential env var, accepted in addition to the generic
-    /// `OCTOCODE_CLASSIFICATION_API` (e.g. `jev` also honors `OCTOCODE_JEV_KEY`).
-    fn key_env(&self) -> &'static str;
-
     /// Default API root used when `OCTOCODE_CLASSIFICATION_API_HOST` is unset.
     fn default_host(&self) -> &'static str;
 

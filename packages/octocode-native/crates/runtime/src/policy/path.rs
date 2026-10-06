@@ -354,6 +354,26 @@ impl PathPolicy {
         })
     }
 
+    /// The closest ancestor of `requested` the policy admits as a
+    /// directory, named relative to the workspace when it lies inside it;
+    /// `None` when no admitted ancestor exists (the climb never leaves the
+    /// allowed roots).
+    pub fn nearest_existing_dir(&self, requested: &str) -> Option<String> {
+        let mut path = self.expand_and_resolve(Path::new(requested));
+        while let Some(parent) = path.parent().map(Path::to_path_buf) {
+            if let Ok(valid) = self.validate(&parent)
+                && valid.canonical.is_dir()
+            {
+                return Some(
+                    self.workspace_relative(&valid.canonical)
+                        .unwrap_or_else(|| valid.canonical.to_string_lossy().into_owned()),
+                );
+            }
+            path = parent;
+        }
+        None
+    }
+
     pub fn redact(&self, path: impl AsRef<Path>) -> String {
         let normalized = normalize(path.as_ref());
         if let Some(relative) = self.workspace_relative(&normalized) {
@@ -933,5 +953,44 @@ mod tests {
         );
         std::fs::remove_dir_all(workspace).expect("remove fixture");
         std::fs::remove_dir_all(extra).expect("remove fixture");
+    }
+
+    #[test]
+    fn nearest_existing_dir_names_the_closest_admitted_parent() {
+        let root = fixture();
+        std::fs::create_dir_all(root.join("src/a")).expect("dirs");
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.clone()),
+            ..Default::default()
+        })
+        .expect("policy");
+        assert_eq!(
+            policy.nearest_existing_dir("src/nativ/x.rs").as_deref(),
+            Some("src")
+        );
+        assert_eq!(
+            policy.nearest_existing_dir("src/a/missing").as_deref(),
+            Some("src/a")
+        );
+        assert_eq!(policy.nearest_existing_dir("nope").as_deref(), Some("."));
+        std::fs::remove_dir_all(root).expect("remove fixture");
+    }
+
+    #[test]
+    fn nearest_existing_dir_stops_at_policy_root() {
+        let root = fixture();
+        let policy = PathPolicy::new(PathPolicyConfig {
+            workspace_root: Some(root.join("ws")),
+            ..Default::default()
+        })
+        .expect("policy");
+        std::fs::create_dir_all(root.join("ws")).expect("ws");
+        // The temp dir above the workspace exists but is outside the policy.
+        let outside = root.join("elsewhere/missing");
+        assert_eq!(
+            policy.nearest_existing_dir(&outside.to_string_lossy()),
+            None
+        );
+        std::fs::remove_dir_all(root).expect("remove fixture");
     }
 }

@@ -1,6 +1,6 @@
 # Octocode Clasify
 
-`clasify` is Octocode's only semantic tool. One concept has three names, each in one layer: `clasify` is the tool, `classification` is its provider configuration and native provider module (`OCTOCODE_CLASSIFICATION_*`, `providers/classification`), and Jev is the vendor behind that provider (`OCTOCODE_JEV_KEY` is an alias).
+`clasify` is Octocode's only semantic tool. One concept has three names, each in one layer: `clasify` is the tool, `classification` is its provider configuration and native provider module (`OCTOCODE_CLASSIFICATION_*`, `providers/classification`), and Jev is the vendor behind that provider.
 
 Clasify has two modes:
 
@@ -178,17 +178,17 @@ Delegated reads share a limit of four concurrent reads per call and sixteen per 
 
 ## Availability
 
-Clasify needs a classification provider key: `OCTOCODE_CLASSIFICATION_API` (Jev alias `OCTOCODE_JEV_KEY`), with an optional `OCTOCODE_CLASSIFICATION_API_HOST` API root (default `https://api.typesafe.ai`; HTTPS except loopback; home-trusted, never from a workspace). Key setup, source order, and the blank-value kill switch are in [AUTHENTICATION.md](AUTHENTICATION.md#classification-key-clasify); every setting is in [CONFIGURATION.md](CONFIGURATION.md).
+Clasify needs a classification provider key: `OCTOCODE_CLASSIFICATION_API`, with an optional `OCTOCODE_CLASSIFICATION_API_HOST` API root (default `https://api.typesafe.ai`; HTTPS except loopback; home-trusted, never from a workspace). Key setup, source order, and the blank-value kill switch are in [AUTHENTICATION.md](AUTHENTICATION.md#classification-key-clasify); every setting is in [CONFIGURATION.md](CONFIGURATION.md).
 
 - Without a key, MCP does not register `clasify`, and every cross-tool `hints.clasify` lead is dropped. Restart MCP after changing the key; the catalog is fixed at startup.
 - With a key, MCP startup sends one minimal `yesno` judgment (5 s cap, one retry) before it lists tools. If the provider fails (rejected key, HTTP 402 quota, unreachable host, invalid response), `clasify` is left out exactly as without a key: the native catalog marks it `unavailableReason:"providerUnreachable"`, and stderr shows `[octocode-mcp] clasify disabled: provider check failed (<errorCode>): <message>`. A rate limit (`classificationRateLimited`) proves the key and endpoint work, so `clasify` stays. Each MCP start with a key therefore makes one small billed provider request. Fix the provider, then restart MCP. The CLI does not probe; a failing provider surfaces on the call.
-- CLI root help and `octocode scheme` list only enabled tools, so neither offers it; `octocode scheme clasify` shows `availability.enabled:false` and the env hint, and a direct call fails with `missingConfiguration` (exit `5`).
-- HTTP 402 from the provider is `classificationQuotaExhausted` (billing or quota). For the next 60 s, calls to that endpoint and key read no context and send no provider request; each resource states the error once. The first call after that probes again, since credit can be added. A page the provider refused keeps its captured read, and the resource states how many candidates were not captured.
+- CLI root help and `octocode schema` list only enabled tools, so neither offers it; `octocode schema clasify` shows `availability.enabled:false` and the env hint, and a direct call fails with `missingConfiguration` (exit `5`).
+- HTTP 402 from the provider is `classificationQuotaExhausted` (billing or quota). For the next 60 s, calls to that endpoint and key send no provider request; their bounded context reads still run, so an input error (for example `locate` over a minified view) still exits 2, and each resource states the quota error once. The first call after that probes again, since credit can be added. A page the provider refused keeps its read (`hints.read`, the page's own window for a file resource), and the resource states how many candidates were not captured.
 - Provider concurrency: `OCTOCODE_CLASSIFICATION_CONCURRENCY` / `classification.maxConcurrency` (default 10, 1–64). The resolved model and usage stay internal telemetry.
 
 ```bash
-npx octocode config --check OCTOCODE_CLASSIFICATION_API
-npx octocode scheme clasify --view query --compact
+npx octocode config check OCTOCODE_CLASSIFICATION_API
+npx octocode schema clasify --view query
 ```
 
 ## Input
@@ -460,9 +460,9 @@ Rules:
 ## CLI
 
 ```bash
-npx octocode scheme clasify --view query --compact
+npx octocode schema clasify --view query
 npx octocode clasify --input request.json
-npx octocode clasify --input request.json --pretty
+cat request.json | npx octocode clasify --input -
 ```
 
 In this repository:

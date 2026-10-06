@@ -22,8 +22,8 @@ npx octocode --help
 Inspect the available tools and the exact schema before an unfamiliar call:
 
 ```bash
-npx octocode scheme --compact
-npx octocode scheme localSearch --view query --compact
+npx octocode schema
+npx octocode schema localSearch --view query
 ```
 
 Common management commands:

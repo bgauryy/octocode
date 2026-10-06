@@ -43,6 +43,7 @@ pub mod prewarm;
 mod receipt;
 mod recovery;
 mod render;
+mod scope;
 mod server_coverage;
 mod source;
 mod walk;
@@ -61,6 +62,11 @@ const DIDOPEN_SETTLE_MS: u32 = 400;
 const DIDOPEN_READY_TIMEOUT_MS: u32 = 15_000;
 /// How often a long language-server await re-checks cancellation.
 const CANCEL_POLL_MS: u64 = 50;
+/// Default rows per page of locations (references, callers, …).
+pub(super) const LOCATIONS_PER_PAGE: u32 = 40;
+/// Default rows per page of compact symbol rows (documentSymbols,
+/// workspaceSymbol): the contract's page maximum.
+pub(super) const SYMBOLS_PER_PAGE: u32 = 100;
 
 use crate::contracts::tool_types as wire;
 pub use crate::contracts::tool_types::LspSearchQuery;
@@ -161,8 +167,13 @@ impl LspSearchQuery {
     pub fn page(&self) -> Option<u32> {
         each_shape!(self, page => Some(u32_of(page.get())))
     }
+    /// Rows per page: the caller's `pageSize`, else 40 locations.
     pub fn page_size(&self) -> u32 {
-        each_shape!(self, page_size => u32_of(page_size.get()))
+        self.page_size_or(LOCATIONS_PER_PAGE)
+    }
+    /// Rows per page: the caller's `pageSize`, else `default`.
+    pub fn page_size_or(&self, default: u32) -> u32 {
+        each_shape!(self, page_size => page_size.as_ref().map_or(default, |size| u32_of(size.get())))
     }
     pub fn snapshot(&self) -> Option<&str> {
         each_shape!(self, snapshot => snapshot.as_ref().map(|snapshot| snapshot.as_str()))
@@ -323,6 +334,9 @@ impl LspSearchQuery {
         let path = match self.path() {
             Some(uri) => {
                 let decoded = decode_uri_path(uri).map_err(LspFailure::invalid_query)?;
+                if let Some(root) = self.directory_as_workspace_root(&decoded, paths) {
+                    return Ok(root);
+                }
                 let path = paths
                     .validate_read(&decoded)
                     .map_err(LspFailure::path_denied)?
@@ -343,6 +357,124 @@ impl LspSearchQuery {
         };
         Ok(path)
     }
+
+    /// A `workspaceSymbol` `path` naming an authorized directory is read as
+    /// its `workspaceRoot` (a workspace-wide search has no anchor file):
+    /// the query keeps the directory and searches from it.
+    fn directory_as_workspace_root(&mut self, decoded: &str, paths: &PathPolicy) -> Option<String> {
+        if self.operation() != "workspaceSymbol" {
+            return None;
+        }
+        let directory = paths
+            .validate(decoded)
+            .ok()
+            .filter(|valid| valid.canonical.is_dir())?
+            .canonical
+            .to_string_lossy()
+            .into_owned();
+        if self.workspace_root().is_none() {
+            self.set_workspace_root(directory.clone());
+        }
+        self.set_path(directory.clone());
+        Some(directory)
+    }
+}
+
+/// Continuations repeat the caller's spelling of `workspaceRoot` (a
+/// workspace-relative root stays relative), not the canonical path the
+/// request resolved it to; both name the same root and snapshot.
+fn restore_root_spelling(row: &mut Value, canonical: Option<&str>, original: Option<&str>) {
+    let (Some(canonical), Some(original)) = (canonical, original) else {
+        return;
+    };
+    if canonical == original {
+        return;
+    }
+    let Some(next) = row.get_mut("next").and_then(Value::as_object_mut) else {
+        return;
+    };
+    for call in next.values_mut() {
+        if call.get("tool").and_then(Value::as_str) != Some("lspSearch") {
+            continue;
+        }
+        let rows = call
+            .pointer_mut("/query/queries")
+            .and_then(Value::as_array_mut);
+        for query in rows.into_iter().flatten() {
+            if query.get("workspaceRoot").and_then(Value::as_str) == Some(canonical) {
+                query["workspaceRoot"] = Value::from(original);
+            }
+        }
+    }
+}
+
+/// Operations whose first page may reuse server responses from an earlier
+/// request: their answers depend only on the files the scope fingerprint
+/// covers. Diagnostics and hover always ask the server.
+const REUSED_OPERATIONS: [&str; 4] = ["references", "callers", "callees", "callHierarchy"];
+
+/// The page's response scope. Every cached key carries the anchor content
+/// digest; for [`REUSED_OPERATIONS`] it also carries the scope fingerprint
+/// (any edit, addition, or removal of a family or project file misses), so
+/// a first page may reuse an earlier request's answers. Without a
+/// fingerprint (walk past its bounds) only continuation pages reuse, as the
+/// snapshot check proves they belong to the same result set.
+fn response_scope(
+    query: &LspSearchQuery,
+    content_digest: String,
+    fingerprint: Option<&str>,
+) -> octocode_engine::lsp::client::ResponseScope {
+    let continuation = query.page().is_some_and(|page| page > 1) && query.snapshot().is_some();
+    match fingerprint {
+        Some(fingerprint) if REUSED_OPERATIONS.contains(&query.operation().as_str()) => {
+            octocode_engine::lsp::client::ResponseScope {
+                reuse: true,
+                generation: crate::digest::sha256(
+                    format!("{content_digest}\u{0}{fingerprint}").as_bytes(),
+                ),
+            }
+        }
+        _ => octocode_engine::lsp::client::ResponseScope {
+            reuse: continuation,
+            generation: content_digest,
+        },
+    }
+}
+
+/// Set this page's response scope from the anchor text and, for a
+/// [`REUSED_OPERATIONS`] query, the scope fingerprint (one bounded walk).
+async fn scope_responses(
+    query: &LspSearchQuery,
+    scope: &scope::Scope,
+    document: Option<&source::Source>,
+    cancel: &dyn CancellationCheck,
+) -> Result<(), LspFailure> {
+    let Some(document) = document else {
+        return Ok(());
+    };
+    let digest = crate::digest::sha256(document.content.as_bytes());
+    let fingerprint = if REUSED_OPERATIONS.contains(&query.operation().as_str()) {
+        let walked = scope.walk_inputs();
+        blocking_cancellable(cancel, move |stopped| walked.fingerprint(stopped))
+            .await?
+            .flatten()
+    } else {
+        None
+    };
+    let next = response_scope(query, digest, fingerprint.as_deref());
+    let _ =
+        octocode_engine::lsp::client::RESPONSE_SCOPE.try_with(|scope| *scope.borrow_mut() = next);
+    Ok(())
+}
+
+/// Responses read while the project was still loading may be incomplete:
+/// key them apart, so no later request reuses them.
+fn quarantine_responses() {
+    let _ = octocode_engine::lsp::client::RESPONSE_SCOPE.try_with(|scope| {
+        let mut scope = scope.borrow_mut();
+        scope.reuse = false;
+        scope.generation.push_str("\u{0}loading");
+    });
 }
 
 pub async fn execute(
@@ -352,14 +484,9 @@ pub async fn execute(
     paths: &PathPolicy,
     execution_config: &LspExecutionConfig,
 ) -> Result<Value, LspFailure> {
-    // A continuation page (page > 1 with its walk's snapshot) may reuse the
-    // server responses computed for page 1; the snapshot check still proves
-    // the page belongs to the same result set. First pages always re-query.
-    let reuse = query.page().is_some_and(|page| page > 1) && query.snapshot().is_some();
-    let scope = octocode_engine::lsp::client::ResponseScope {
-        reuse,
-        generation: String::new(),
-    };
+    // No reuse until the anchor text (and, for incoming walks, the scope
+    // fingerprint) keys the page's responses: see `scope_responses`.
+    let scope = octocode_engine::lsp::client::ResponseScope::default();
     octocode_engine::lsp::client::RESPONSE_SCOPE
         .scope(
             std::cell::RefCell::new(scope),
@@ -391,9 +518,13 @@ async fn execute_page(
     execution_config: &LspExecutionConfig,
 ) -> Result<Value, LspFailure> {
     cancel.check().map_err(LspFailure::cancelled)?;
+    let original_root = query.workspace_root().map(str::to_owned);
     let path = query.resolve_paths(paths)?;
     match run_page(&query, path, cancel, pool, paths, execution_config).await {
-        Ok(row) | Err(Exit::Row(row)) => Ok(row),
+        Ok(mut row) | Err(Exit::Row(mut row)) => {
+            restore_root_spelling(&mut row, query.workspace_root(), original_root.as_deref());
+            Ok(row)
+        }
         Err(Exit::Failed(failure)) => Err(failure),
     }
 }
@@ -407,11 +538,19 @@ async fn run_page(
     execution_config: &LspExecutionConfig,
 ) -> Result<Value, Exit> {
     let target = discover_server(query, path, paths, execution_config)?;
+    let language_id = target.config.language_id.as_deref();
+    let scope = scope::Scope::resolve(
+        &target.path,
+        &target.config.workspace_root,
+        paths,
+        language_id,
+    );
     // Read the anchor document once (bounded, regular files only). The same
     // text is sent in didOpen, resolves the anchor, and serves same-file
     // context windows; a bad document or anchor costs no server start.
     let mut sources = SourceCache::new(paths);
     let document = read_anchor_document(query, &target, &mut sources).await?;
+    scope_responses(query, &scope, document.as_deref(), cancel).await?;
     let text = document.as_deref().map(|source| source.content.as_str());
     let anchor =
         anchor::resolve_anchor(query, &target.path, &target.uri, text).map_err(|error| {
@@ -428,6 +567,9 @@ async fn run_page(
         pool,
     )
     .await?;
+    if session.open_readiness.as_deref() == Some("timeout") {
+        quarantine_responses();
+    }
     let snippet_policy = snippet_policy(paths);
     let mut result = ops::Operation {
         client: &session.client,
@@ -436,25 +578,55 @@ async fn run_page(
         snippet_policy: &snippet_policy,
         cancel,
         path: &target.path,
-        workspace_root: target.config.workspace_root.as_str(),
+        scope: &scope,
         root_only: target.root_only,
         line: anchor.line,
         character: anchor.character,
-        language_id: target.config.language_id.as_deref(),
+        language_id,
     }
     .run()
     .await?;
+    if needs_text_scan(query, language_id, &result)
+        && let Some(name) = query.symbol_name()
+    {
+        scope.text_files(name, paths, cancel).await?;
+    }
     annotate(
         &mut result,
         query,
         &target,
         &session,
+        &scope,
         anchor.resolved_symbol,
     );
     if matches!(query.operation().as_str(), "references" | "callers") {
         locations::attach_read_lead(&mut result);
     }
     Ok(with_next(query, result))
+}
+
+/// Whether coverage annotation may flag `row` with a text lead: an
+/// incoming, name-anchored, non-error row of a language with a coverage
+/// signal. Its `textOnlyFiles` needs the scope's text scan first.
+fn needs_text_scan(query: &LspSearchQuery, language_id: Option<&str>, row: &Value) -> bool {
+    const FLAGGED: [&str; 10] = [
+        "typescript",
+        "typescriptreact",
+        "javascript",
+        "javascriptreact",
+        "python",
+        "rust",
+        "c",
+        "cpp",
+        "objective-c",
+        "objective-cpp",
+    ];
+    inferred_project::is_incoming(&query.operation())
+        && language_id.is_some_and(|id| FLAGGED.contains(&id))
+        && query
+            .symbol_name()
+            .is_some_and(|name| !name.trim().is_empty())
+        && row.get("status").and_then(Value::as_str) != Some("error")
 }
 
 /// Resolve the workspace, then discover the language server for the file
@@ -525,8 +697,8 @@ fn discover_server(
     })
 }
 
-/// Read the anchor file once; responses are cached per anchor content, so
-/// an edited anchor never reuses an earlier page's server answers.
+/// Read the anchor file once; responses are cached per anchor content (see
+/// `scope_responses`), so an edited anchor never reuses earlier answers.
 async fn read_anchor_document(
     query: &LspSearchQuery,
     target: &Target,
@@ -536,12 +708,7 @@ async fn read_anchor_document(
         return Ok(None);
     }
     match read_bounded_source_async(std::path::PathBuf::from(&target.path)).await {
-        Ok(content) => {
-            let generation = crate::digest::sha256(content.as_bytes());
-            let _ = octocode_engine::lsp::client::RESPONSE_SCOPE
-                .try_with(|scope| scope.borrow_mut().generation = generation);
-            Ok(Some(sources.insert(&target.path, content)))
-        }
+        Ok(content) => Ok(Some(sources.insert(&target.path, content))),
         Err(SourceReadError::TooLarge(len)) => Err(target.fail(
             query,
             "lsp.documentTooLarge",
@@ -687,6 +854,7 @@ fn annotate(
     query: &LspSearchQuery,
     target: &Target,
     session: &Session,
+    scope: &scope::Scope,
     resolved_symbol: Option<Value>,
 ) {
     if session.open_readiness.as_deref() == Some("timeout")
@@ -702,16 +870,9 @@ fn annotate(
         );
     }
     let language_id = target.config.language_id.as_deref();
-    let workspace_root = &target.config.workspace_root;
-    inferred_project::annotate(result, query, language_id, &target.path, workspace_root);
-    inferred_project::annotate_compile_database(
-        result,
-        query,
-        language_id,
-        &target.path,
-        workspace_root,
-    );
-    server_coverage::annotate(result, query, language_id, workspace_root);
+    inferred_project::annotate(result, query, language_id, &target.path, scope);
+    inferred_project::annotate_compile_database(result, query, language_id, &target.path, scope);
+    server_coverage::annotate(result, query, language_id, scope);
     receipt::attach_provider_context(
         result,
         query,

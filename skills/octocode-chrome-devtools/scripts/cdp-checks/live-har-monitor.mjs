@@ -1,5 +1,6 @@
 import { writeFileSync } from 'fs';
 import { join } from 'path';
+import { observeFrameEvents } from '../frame-events.mjs';
 
 const MONITOR_MS = Number.parseInt(process.env.MONITOR_MS ?? '30000', 10);
 const SLOW_MS = Number.parseInt(process.env.SLOW_MS ?? '1000', 10);
@@ -31,12 +32,12 @@ function headerPairs(headers = {}) {
 }
 
 function mimeToContent(mimeType = '') {
-  return { size: 0, mimeType: mimeType || 'application/octet-stream', text: '' };
+  return { size: -1, mimeType: mimeType || 'application/octet-stream', text: '', comment: 'response body not captured' };
 }
 
 function toHarEntry(record) {
   const startedDateTime = new Date(record.startWallTime ?? record.start).toISOString();
-  const duration = Math.max(0, (record.end ?? Date.now()) - record.start);
+  const duration = Math.max(0, (record.complete ? record.end : Date.now()) - record.start);
   const response = record.response ?? {};
   const request = record.request ?? {};
   const url = safeUrl(request.url ?? record.url);
@@ -78,8 +79,13 @@ function toHarEntry(record) {
       ssl: -1,
     },
     pageref: 'live-page',
+    _timingsEstimated: true,
     _resourceType: record.type ?? 'Other',
+    _encodedDataLength: record.encodedDataLength ?? null,
     _requestId: record.requestId,
+    _frameId: record.frameId ?? null,
+    _sessionId: record.sessionId ?? null,
+    _pending: !record.complete,
     _failed: Boolean(record.failed),
     _errorText: record.errorText ?? null,
     _blockedReason: record.blockedReason ?? null,
@@ -88,19 +94,18 @@ function toHarEntry(record) {
 }
 
 function summarize(records, events, resourceEntries, performanceSnapshot) {
-  const completed = [...records.values()].filter(r => r.response || r.failed);
-  const failed = completed.filter(r => r.failed || (r.response?.status ?? 0) >= 400);
+  const completed = [...records.values()].filter(r => r.complete);
+  const failed = [...records.values()].filter(r => r.failed || (r.response?.status ?? 0) >= 400);
   const slow = completed
     .map(r => ({
       url: safeUrl(r.request?.url ?? r.url),
       method: r.request?.method ?? r.method,
       status: r.response?.status ?? (r.failed ? 0 : -1),
-      ms: Math.max(0, (r.end ?? Date.now()) - r.start),
+      ms: Math.max(0, (r.complete ? r.end : Date.now()) - r.start),
       type: r.type ?? 'Other',
     }))
     .filter(r => r.ms >= SLOW_MS)
-    .sort((a, b) => b.ms - a.ms)
-    .slice(0, 25);
+    .sort((a, b) => b.ms - a.ms);
 
   const exceptions = events.filter(e => e.kind === 'exception').length;
   const consoleErrors = events.filter(e => e.kind === 'console' && e.type === 'error').length;
@@ -112,6 +117,7 @@ function summarize(records, events, resourceEntries, performanceSnapshot) {
     counts: {
       requests: records.size,
       completed: completed.length,
+      pending: records.size - completed.length,
       failed: failed.length,
       slow: slow.length,
       exceptions,
@@ -121,7 +127,7 @@ function summarize(records, events, resourceEntries, performanceSnapshot) {
     },
     pageTiming: performanceSnapshot?.navigationTiming ?? null,
     vitalsApprox: performanceSnapshot?.vitalsApprox ?? null,
-    failures: failed.slice(0, 50).map(r => ({
+    failures: failed.map(r => ({
       url: safeUrl(r.request?.url ?? r.url),
       method: r.request?.method ?? r.method,
       status: r.response?.status ?? 0,
@@ -147,9 +153,8 @@ async function collectPerformanceSnapshot(cdp) {
           encodedBodySize: r.encodedBodySize || 0,
           decodedBodySize: r.decodedBodySize || 0,
         }))
-        .sort((a, b) => b.duration - a.duration)
-        .slice(0, 200);
-      const longTasks = (globalThis.__octocodeLongTasks || []).slice(-100);
+        .sort((a, b) => b.duration - a.duration);
+      const longTasks = (globalThis.__octocodeLongTasks || []);
       return {
         location: location.href,
         title: document.title,
@@ -174,7 +179,9 @@ async function collectPerformanceSnapshot(cdp) {
   return result.result?.value ?? { resources: [], longTasks: [] };
 }
 
-export async function run(cdp) {
+export async function run(cdp, { onReady } = {}) {
+  const captureStartedAt = Date.now();
+  let actionError = null;
   await cdp.send('Runtime.enable');
   await cdp.send('Network.enable');
   await cdp.send('Log.enable');
@@ -193,9 +200,6 @@ export async function run(cdp) {
                 name: entry.name,
               });
             }
-            if (globalThis.__octocodeLongTasks.length > 200) {
-              globalThis.__octocodeLongTasks = globalThis.__octocodeLongTasks.slice(-200);
-            }
           });
           observer.observe({ type: 'longtask', buffered: true });
         } catch {}
@@ -204,7 +208,10 @@ export async function run(cdp) {
   });
 
   const records = new Map();
+  const requestKey = (requestId, meta) => JSON.stringify([meta.sessionId || null, requestId]);
+  let hop = 0;
   const events = [];
+  let slowPrinted = 0;
   const eventLines = [];
   const pushEvent = (event) => {
     const safeEvent = { at: nowIso(), ...event };
@@ -212,9 +219,14 @@ export async function run(cdp) {
     eventLines.push(JSON.stringify(safeEvent));
   };
 
-  cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime, timestamp, initiator, type }) => {
-    records.set(requestId, {
+  cdp.on('Network.requestWillBeSent', ({ requestId, request, wallTime, timestamp, initiator, type, frameId, redirectResponse }, meta = {}) => {
+    const prior = records.get(requestKey(requestId, meta));
+    if (prior && redirectResponse) { prior.response = redirectResponse; prior.end = Date.now(); prior.complete = true; records.set(`${requestKey(requestId, meta)}:redirect:${hop++}`, prior); }
+    records.set(requestKey(requestId, meta), {
       requestId,
+      frameId,
+      sessionId: meta.sessionId ?? null,
+      complete: false,
       request,
       method: request.method,
       url: request.url,
@@ -226,8 +238,8 @@ export async function run(cdp) {
     });
   });
 
-  cdp.on('Network.responseReceived', ({ requestId, response, type }) => {
-    const record = records.get(requestId);
+  cdp.on('Network.responseReceived', ({ requestId, response, type }, meta = {}) => {
+    const record = records.get(requestKey(requestId, meta));
     if (!record) return;
     record.response = response;
     record.type = type ?? record.type;
@@ -235,28 +247,30 @@ export async function run(cdp) {
     const ms = record.end - record.start;
     if (response.status >= 400) {
       console.log(`[NETWORK_ERROR] ${response.status} ${record.method} ${safeUrl(record.url)} ${ms}ms`);
-    } else if (ms >= SLOW_MS && events.filter(e => e.kind === 'slow-request').length < MAX_STDOUT_ITEMS) {
+    } else if (ms >= SLOW_MS && slowPrinted++ < MAX_STDOUT_ITEMS) {
       console.log(`[METRIC] slow-request status=${response.status} method=${record.method} ms=${ms} url=${safeUrl(record.url)}`);
     }
-    pushEvent({ kind: 'response', requestId, status: response.status, method: record.method, url: safeUrl(record.url), ms, type: record.type });
+    pushEvent({ kind: 'response', requestId, sessionId: record.sessionId, status: response.status, method: record.method, url: safeUrl(record.url), ms, type: record.type });
   });
 
-  cdp.on('Network.loadingFinished', ({ requestId, encodedDataLength }) => {
-    const record = records.get(requestId);
+  cdp.on('Network.loadingFinished', ({ requestId, encodedDataLength }, meta = {}) => {
+    const record = records.get(requestKey(requestId, meta));
     if (!record) return;
+    record.complete = true;
     record.encodedDataLength = encodedDataLength;
     record.end = Date.now();
   });
 
-  cdp.on('Network.loadingFailed', ({ requestId, errorText, blockedReason }) => {
-    const record = records.get(requestId) ?? { requestId, start: Date.now(), url: 'unknown', method: 'GET' };
+  cdp.on('Network.loadingFailed', ({ requestId, errorText, blockedReason }, meta = {}) => {
+    const record = records.get(requestKey(requestId, meta)) ?? { requestId, start: Date.now(), url: 'unknown', method: 'GET' };
+    record.complete = true;
     record.failed = true;
     record.errorText = errorText;
     record.blockedReason = blockedReason;
     record.end = Date.now();
-    records.set(requestId, record);
+    records.set(requestKey(requestId, meta), record);
     console.log(`[NETWORK_FAILED] ${safeUrl(record.url)} ${blockedReason ? `blocked=${blockedReason}` : errorText}`);
-    pushEvent({ kind: 'network-failed', requestId, url: safeUrl(record.url), errorText, blockedReason });
+    pushEvent({ kind: 'network-failed', requestId, sessionId: meta.sessionId || null, url: safeUrl(record.url), errorText, blockedReason });
   });
 
   cdp.on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
@@ -269,18 +283,27 @@ export async function run(cdp) {
 
   cdp.on('Runtime.consoleAPICalled', ({ type, args }) => {
     if (!['error', 'warning'].includes(type)) return;
-    const message = args.map(a => a.value ?? a.description ?? '[object]').join(' ').slice(0, 500);
+    const message = args.map(a => a.value ?? a.description ?? '[object]').join(' ');
     console.log(`[CONSOLE:${type.toUpperCase()}] ${message}`);
     pushEvent({ kind: 'console', type, message });
   });
 
+  const frameEvents = await observeFrameEvents(cdp, ['Network', 'Runtime', 'Log']);
   if (MONITOR_URL) await cdp.send('Page.navigate', { url: MONITOR_URL });
   console.log(`[METRIC] live-monitor target="${MONITOR_URL || cdp.targetInfo.url}" durationMs=${MONITOR_MS}`);
-  await new Promise(resolve => setTimeout(resolve, MONITOR_MS));
+  if (onReady) {
+    try { await onReady(); } catch (error) { actionError = error.message; process.exitCode = 1; console.log(`[FINDING] MONITORED_ACTION_ERROR ${error.message}`); }
+  }
+  const progress = setInterval(() => console.log(`[PROGRESS] NETWORK observed=${records.size} pending=${[...records.values()].filter(r => !r.complete).length} frames=${frameEvents.coverage().frames.length}`), 1000);
+  try { await new Promise(resolve => setTimeout(resolve, MONITOR_MS)); } finally { clearInterval(progress); }
 
+  await frameEvents.stop();
   const performanceSnapshot = await collectPerformanceSnapshot(cdp);
   const resourceEntries = performanceSnapshot.resources ?? [];
   const summary = summarize(records, events, resourceEntries, performanceSnapshot);
+  summary.actualMonitorMs = Date.now() - captureStartedAt;
+  summary.actionError = actionError;
+  summary.iframeEvents = frameEvents.coverage();
   const har = {
     log: {
       version: '1.2',
@@ -295,7 +318,7 @@ export async function run(cdp) {
           onLoad: performanceSnapshot.navigationTiming?.load ?? -1,
         },
       }],
-      entries: [...records.values()].filter(r => r.response || r.failed).map(toHarEntry),
+      entries: [...records.values()].map(toHarEntry),
     },
   };
 

@@ -6,7 +6,7 @@ use crate::support;
 use support::Workspace;
 
 #[test]
-fn scheme_catalog_is_machine_only_with_availability_scoping() {
+fn catalog_is_machine_only_with_availability_scoping() {
     let workspace = Workspace::new();
     for enabled in [false, true] {
         let env = if enabled {
@@ -27,11 +27,11 @@ fn scheme_catalog_is_machine_only_with_availability_scoping() {
         drop(runtime);
 
         let mut command = workspace.cli();
-        command.args(["scheme", "--compact"]);
+        command.arg("catalog");
         if enabled {
             command.env("OCTOCODE_CLASSIFICATION_API", "fixture-key");
         }
-        let output = command.output().expect("scheme command");
+        let output = command.output().expect("catalog command");
         assert!(output.status.success(), "{output:?}");
         let catalog: serde_json::Value =
             serde_json::from_slice(&output.stdout).expect("catalog JSON");
@@ -40,7 +40,7 @@ fn scheme_catalog_is_machine_only_with_availability_scoping() {
         assert_eq!(catalog["fingerprint"], expected_fingerprint, "{catalog}");
         assert_eq!(
             catalog["grammarCapabilities"], native_catalog["grammarCapabilities"],
-            "machine scheme must carry the runtime grammar inventory"
+            "machine catalog must carry the runtime grammar inventory"
         );
         let clasify = catalog["tools"]
             .as_array()

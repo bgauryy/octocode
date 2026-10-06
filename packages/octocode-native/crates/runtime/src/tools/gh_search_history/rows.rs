@@ -103,15 +103,19 @@ pub(super) fn map_issue(v: Value, by_update: bool) -> Value {
     if by_update {
         row["updatedAt"] = utc(v.get("updated_at"));
     }
+    if let Some(count) = v.get("comments").and_then(Value::as_u64).filter(|n| *n > 0) {
+        row["commentsCount"] = json!(count);
+    }
     remove_null_fields(&mut row);
     row
 }
 
 /// A commit person as one string: the GitHub login, else the git name
 /// (emails stay out of default rows).
-fn person(v: &Value, kind: &str) -> Value {
+pub(crate) fn person(v: &Value, kind: &str) -> Value {
     v.pointer(&format!("/{kind}/login"))
         .and_then(Value::as_str)
+        .filter(|login| !login.is_empty())
         .or_else(|| {
             v.pointer(&format!("/commit/{kind}/name"))
                 .and_then(Value::as_str)
@@ -128,12 +132,31 @@ fn headline(v: &Value) -> &str {
         .unwrap_or("")
 }
 
+/// The pull request a squash-merge headline ends with: `subject (#123)`.
+/// Only the trailing suffix counts, so a revert names the reverting PR.
+pub(crate) fn headline_pull_request(headline: &str) -> Option<u64> {
+    let digits = headline.trim_end().strip_suffix(')')?.rsplit_once("(#")?.1;
+    digits.parse().ok().filter(|number| *number > 0)
+}
+
+/// `prNumber` on a commit row whose headline ends in `(#N)`.
+fn with_pull_request(mut row: Value) -> Value {
+    if let Some(number) = row
+        .get("messageHeadline")
+        .and_then(Value::as_str)
+        .and_then(headline_pull_request)
+    {
+        row["prNumber"] = json!(number);
+    }
+    row
+}
+
 /// A commit-search row. No per-row html_url: it is owner/repo/commit/sha,
 /// all already in the row and its envelope (issue and PR rows omit it too).
 pub(super) fn map_commit(v: Value) -> Value {
     let mut row = json!({"sha":v["sha"],"messageHeadline":headline(&v),"date":utc(v.pointer("/commit/author/date")),"author":person(&v, "author")});
     remove_null_fields(&mut row);
-    row
+    with_pull_request(row)
 }
 
 /// A commit-list row: headline, date and the author's login; the full
@@ -156,7 +179,7 @@ pub(super) fn map_commit_list(v: Value) -> Value {
         row["committer"] = committer;
     }
     remove_null_fields(&mut row);
-    row
+    with_pull_request(row)
 }
 
 /// The row a default read targets: the first readable row `prefer` picks

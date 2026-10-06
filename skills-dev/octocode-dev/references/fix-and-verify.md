@@ -21,7 +21,7 @@ Provenance records the core package version; release order is in `docs/RELEASE.m
 ## Verify through the real path
 
 1. `yarn workspace @octocodeai/config check:tool-contract` — `contract/` matches core.
-2. `$OCTO scheme <tool> --view query` shows the changed contract.
+2. `$OCTO schema <tool> --view query` shows the changed contract.
 3. Re-run the reproducing call from the finding via CLI; it now passes.
 4. Re-run via a restarted host server or a fresh stdio MCP session.
 5. Execute any `next.*` pages and `hints.*` leads the change touches, pages to termination.

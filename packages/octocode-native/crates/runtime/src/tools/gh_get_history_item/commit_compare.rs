@@ -50,6 +50,10 @@ pub(super) async fn commit<R: CredentialResolver>(
     let state = loaded.state;
     let raw = &loaded.first;
     let listed = state.skipped + loaded.items.len();
+    let unmatched = path
+        .is_some()
+        .then(|| empty_scope_warning(&loaded.items, path, query, state.exhausted && !state.capped))
+        .flatten();
     let scoped = scope_files(loaded.items, path);
     let sha = string(raw.get("sha"));
     let message = str_at(raw, "/commit/message").unwrap_or("");
@@ -62,8 +66,10 @@ pub(super) async fn commit<R: CredentialResolver>(
         "message":(!patches).then_some(message),"messageHeadline":headline,
         "author":identity(raw,"author"),"committer":identity(raw,"committer"),
         "parents":raw.get("parents").and_then(Value::as_array).into_iter().flatten().filter_map(|v|str_at(v,"/sha").map(str::to_owned)).collect::<Vec<_>>(),
+        // Top-level counts always describe the whole commit; a path scope's
+        // own count is `filePagination.totalItems`.
         "additions":raw.pointer("/stats/additions"),"deletions":raw.pointer("/stats/deletions"),
-        "changedFilesCount":state.skipped + scoped.len(),
+        "changedFilesCount":listed,
         // A scan stopped at the batch cap never saw the remaining files.
         "changedFilesCountScope":if state.capped {"partial"} else if state.exhausted {"complete"} else {"loaded"}
     });
@@ -73,23 +79,8 @@ pub(super) async fn commit<R: CredentialResolver>(
     {
         fields.remove("ref");
     }
-    // A path scope counts only its files, while GitHub's line stats cover the
-    // whole commit: name those totals as the commit's, never the scope's.
-    if path.is_some()
-        && let Some(fields) = out.as_object_mut()
-    {
-        let mut totals = serde_json::Map::new();
-        for key in ["additions", "deletions"] {
-            if let Some(value) = fields.remove(key).filter(|value| !value.is_null()) {
-                totals.insert(key.into(), value);
-            }
-        }
-        if state.exhausted && !state.capped {
-            totals.insert("changedFilesCount".into(), json!(listed));
-        }
-        if !totals.is_empty() {
-            fields.insert("commitTotals".into(), Value::Object(totals));
-        }
+    if let Some(warning) = unmatched {
+        push_warning(&mut out, warning);
     }
     let (files, mut page) = paginate_window(
         scoped,
@@ -218,30 +209,54 @@ pub(super) async fn compare<R: CredentialResolver>(
     let all_files = array(raw.get("files").cloned().unwrap_or(json!([])));
     let file_limit = all_files.len() >= COMPARE_FILE_LIMIT;
     let scope = PathScope::from_query(query).map_err(|message| validation(&message))?;
+    let all_count = all_files.len();
+    let unmatched = scope
+        .as_ref()
+        .filter(|_| !file_page)
+        .and_then(|scope| empty_scope_warning(&all_files, Some(scope), query, !file_limit));
     let scoped = scope_files(all_files, scope.as_ref());
     let mut out = json!({"owner":query.owner(),"repo":query.repo(),"base":base,"head":head,
         "compareStatus": raw.get("status"),
         "aheadBy":usize_at(&raw,"/ahead_by"),"behindBy":usize_at(&raw,"/behind_by"),"totalCommits":total,
         "isPartial":((more && !file_page)||file_limit).then_some(true)});
+    let mut commit_read = None;
     if !file_page {
+        // Headlines name the range's commits; any row's `sha` reads its whole
+        // message, and `hints.readCommit` names the first one with more.
         // A path-scoped comparison lists every commit of the range, not
-        // only the path's: headlines name them, and `hints.narrowScope`
-        // lists the path's own commits.
-        let scoped = query.path().is_some();
-        out["commits"] = json!(array(raw.get("commits").cloned().unwrap_or(json!([]))).into_iter().map(|v|{
-            let message = str_at(&v,"/commit/message").unwrap_or("");
-            let mut row = json!({
-                "sha":v["sha"],
-                "author":str_at(&v,"/commit/author/name").or_else(||str_at(&v,"/author/login")).unwrap_or("unknown"),"date":super::util::utc_date(str_at(&v,"/commit/author/date"))
+        // only the path's: `hints.narrowScope` lists the path's own commits.
+        let commits = array(raw.get("commits").cloned().unwrap_or(json!([])));
+        commit_read = commits
+            .iter()
+            .find(|v| {
+                let message = str_at(v, "/commit/message").unwrap_or("").trim_end();
+                message.lines().nth(1).is_some()
+            })
+            .and_then(|v| str_at(v, "/sha"))
+            .map(|sha| {
+                Continuation::new(
+                    ToolId::GhGetHistoryItem,
+                    json!({"operation":"commit","owner":query.owner(),"repo":query.repo(),"ref":sha}),
+                )
+                .why("Read a commit's full message; each row's sha is the ref.")
+                .confidence("exact")
+                .build()
             });
-            if scoped {
-                row["messageHeadline"] = json!(message.lines().next().unwrap_or(message));
-            } else {
-                row["message"] = json!(message);
-            }
-            row
-        }).collect::<Vec<_>>());
-        if scoped {
+        out["commits"] = json!(
+            commits
+                .into_iter()
+                .map(|v| {
+                    let message = str_at(&v, "/commit/message").unwrap_or("");
+                    json!({
+                        "sha":v["sha"],
+                        "messageHeadline":message.lines().next().unwrap_or(message),
+                        "author":super::pr_sections::commit_person(&v),
+                        "date":super::util::utc_date(str_at(&v,"/commit/author/date"))
+                    })
+                })
+                .collect::<Vec<_>>()
+        );
+        if query.path().is_some() {
             out["commitsScope"] = json!("range");
         }
         // The last commit page past the first needs no page object.
@@ -262,7 +277,8 @@ pub(super) async fn compare<R: CredentialResolver>(
     if page == 1 {
         let include_diff = query.include_diff();
         if !include_diff {
-            out["changedFilesCount"] = json!(scoped.len());
+            // The whole comparison's count; a scope's own is the file page's.
+            out["changedFilesCount"] = json!(all_count);
             if file_limit {
                 // GitHub stops listing at 300: the count is a floor.
                 out["changedFilesCountScope"] = json!("partial");
@@ -299,6 +315,9 @@ pub(super) async fn compare<R: CredentialResolver>(
         out["files"] = files;
         out["filePagination"] = page;
         if include_diff && let Some(warning) = clamp_warning(query) {
+            push_warning(&mut out, warning);
+        }
+        if let Some(warning) = unmatched {
             push_warning(&mut out, warning);
         }
     }
@@ -367,8 +386,77 @@ pub(super) async fn compare<R: CredentialResolver>(
             side_reads.extend(lead);
         }
     }
+    side_reads.extend(commit_read.map(|read| ("readCommit", read)));
     lead_first(&mut out, side_reads);
     Ok(out)
+}
+
+/// Changed directories an empty-scope warning names at most.
+const NEAREST_DIRS: usize = 5;
+
+/// A file scope (`path`/`include`) that matched none of the listed changed
+/// files: `include matched 0 of N changed files`, with up to
+/// [`NEAREST_DIRS`] changed directories, closest to the scope first.
+/// `complete` says whether `files` is the whole list (else N is a floor).
+fn empty_scope_warning(
+    files: &[Value],
+    scope: Option<&PathScope>,
+    query: &HistoryItemRequest,
+    complete: bool,
+) -> Option<String> {
+    let scope = scope?;
+    if files.is_empty() || files.iter().any(|file| scope.matches(file)) {
+        return None;
+    }
+    let (label, target) = match query.path() {
+        Some(path) if query.file_scope.is_empty() => ("path", path.to_owned()),
+        _ => (
+            "include",
+            query
+                .file_scope
+                .iter()
+                .find_map(|pattern| literal_prefix(pattern))
+                .unwrap_or_default(),
+        ),
+    };
+    let mut dirs: Vec<&str> = Vec::new();
+    for file in files {
+        let name = str_at(file, "/filename").unwrap_or("");
+        let dir = name.rsplit_once('/').map_or("", |(dir, _)| dir);
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
+        }
+    }
+    let shared = |dir: &str| {
+        dir.split('/')
+            .zip(target.split('/'))
+            .take_while(|(a, b)| a == b && !a.is_empty())
+            .count()
+    };
+    // Most leading segments shared with the scope first; GitHub's order
+    // among equals.
+    let mut ranked = dirs.into_iter().enumerate().collect::<Vec<_>>();
+    ranked.sort_by_key(|(index, dir)| (std::cmp::Reverse(shared(dir)), *index));
+    let nearest = ranked
+        .into_iter()
+        .take(NEAREST_DIRS)
+        .map(|(_, dir)| {
+            if dir.is_empty() {
+                "(root)".to_owned()
+            } else {
+                format!("{dir}/")
+            }
+        })
+        .collect::<Vec<_>>();
+    let count = if complete {
+        files.len().to_string()
+    } else {
+        format!("at least {}", files.len())
+    };
+    Some(format!(
+        "{label} matched 0 of {count} changed files; changed directories: {}.",
+        nearest.join(", ")
+    ))
 }
 
 /// The literal path prefix of an `include` pattern: the pattern itself

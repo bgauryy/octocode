@@ -81,14 +81,15 @@ async fn typed_date_filters_reach_the_search_query() {
 }
 
 /// The default search excludes archived repositories: page 1 leads to them
-/// (`includeArchived`, archived:true, page 1); an archived search flags each
-/// row and offers no such lead.
+/// (`includeArchived`, archived:true, page 1) and the replay includes them
+/// (no archive qualifier); that search flags archived rows and offers no
+/// such lead.
 #[tokio::test]
 async fn default_archived_exclusion_is_disclosed_with_a_lead() {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/repositories"))
-        .and(query_param("q", "x archived:true"))
+        .and(query_param("q", "x"))
         .respond_with(ResponseTemplate::new(200).set_body_json(page(vec![repo_item("old", true)])))
         .mount(&server)
         .await;
@@ -116,21 +117,27 @@ async fn default_archived_exclusion_is_disclosed_with_a_lead() {
         "{}",
         first.data
     );
-    // The lead outranks the top repository's code search in a capped
-    // `hints` object: it reaches results this page withholds.
-    let names = first.data["next"]
-        .as_object()
-        .expect("next")
-        .keys()
-        .cloned()
-        .collect::<Vec<_>>();
-    let at = |name: &str| names.iter().position(|key| key == name);
-    assert!(at("includeArchived") < at("searchContent"), "{names:?}");
+    // Repo-discovery words are not code keywords: no code-search lead.
+    assert!(
+        first.data["next"].get("searchContent").is_none(),
+        "{}",
+        first.data
+    );
 
     // Later pages state nothing more; an explicit filter needs no lead.
     let second = run(&server, json!({"keywords":["x"],"page":2})).await;
     assert!(
         second.data["next"].get("includeArchived").is_none(),
+        "{}",
+        second.data
+    );
+    assert!(
+        second.data["next"].get("searchContent").is_none(),
+        "{}",
+        second.data
+    );
+    assert_eq!(
+        second.data["next"]["viewRepo"]["tool"], "ghStructure",
         "{}",
         second.data
     );
@@ -226,4 +233,25 @@ async fn rows_carry_creation_date_and_keep_counts_verbose() {
             "{field}"
         );
     }
+}
+
+/// An owner listing marks forks (`fork:true`) so they do not read as the
+/// owner's own source; other rows carry no `fork` key.
+#[tokio::test]
+async fn owner_listing_marks_forks_only() {
+    let server = MockServer::start().await;
+    let mut fork = repo_item("forked", false);
+    fork["fork"] = json!(true);
+    Mock::given(method("GET"))
+        .and(path("/api/v3/orgs/o/repos"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!([repo_item("own", false), fork])),
+        )
+        .mount(&server)
+        .await;
+    let out = run(&server, json!({"owner":"o"})).await;
+    let rows = out.data["repositories"].as_array().expect("rows");
+    assert_eq!(rows.len(), 2, "{}", out.data);
+    assert!(rows[0].get("fork").is_none(), "{}", out.data);
+    assert_eq!(rows[1]["fork"], true, "{}", out.data);
 }

@@ -2,7 +2,7 @@
 //! to a local directory (`materialize`).
 use crate::tools::gh_shared::{
     GhFailure, PathRecovery, RepoPath, locate_path, missing_path, parent_dir, search_failure,
-    tree_recovery,
+    tree_recovery, with_ref_recovery,
 };
 use crate::tools::id::ToolId;
 use crate::tools::result::remove_nulls;
@@ -19,6 +19,7 @@ use std::path::Path;
 
 pub use crate::contracts::tool_types::GhStructureQuery;
 
+mod dates;
 mod listing;
 mod materialize;
 mod refs;
@@ -48,7 +49,11 @@ pub async fn run<R: CredentialResolver, C: crate::providers::github::Conditional
         reference: query.ref_.as_deref(),
     };
     if !missing_path(&error, Some(at.path)) {
-        return Err(search_failure(error, WINDOW_HINT));
+        return Err(with_ref_recovery(
+            search_failure(error, WINDOW_HINT),
+            at.owner,
+            at.repo,
+        ));
     }
     let found = locate_path(provider, &at, context).await;
     Err(path_failure(error, &at, query.max_depth, found))
@@ -103,6 +108,9 @@ fn max_entries_per_page() -> usize {
     crate::contracts::query_schema_max(ToolId::GhStructure, None, "pageSize")
 }
 const CONTENTS_LIMIT: usize = 1000;
+/// Listing page size when `pageSize` is omitted (contract: optional,
+/// "default 300 entries, refs 30").
+pub(super) const DEFAULT_ENTRIES_PER_PAGE: u64 = 300;
 /// Upper bound on Contents API directory reads for one fallback walk (git
 /// trees API truncated or unavailable). Past it the listing is a typed
 /// terminal limit instead of an unbounded request fan-out.
@@ -146,6 +154,34 @@ pub(crate) async fn execute<
     }
     let scope = Scope::of(query)?;
     let (resolved_branch, commit_sha) = resolve_listing_ref(provider, query, context).await?;
+    // A renamed repository is listed, dated and continued under its
+    // canonical name: later requests skip the redirect, and every lead names
+    // the repository as it is now.
+    let renamed = crate::tools::gh_shared::canonical_repo(
+        provider,
+        query.owner.as_str(),
+        query.repo.as_str(),
+        context,
+    )
+    .await;
+    let renamed_warning = renamed.as_ref().map(|to| {
+        crate::tools::gh_shared::renamed_warning(query.owner.as_str(), query.repo.as_str(), to)
+    });
+    let canonical;
+    let query = match &renamed {
+        Some((owner, repo)) => {
+            let decode = |error: &dyn std::fmt::Display| {
+                ProviderError::new(ProviderErrorKind::Decode, error.to_string())
+            };
+            canonical = GhStructureQuery {
+                owner: owner.parse().map_err(|error| decode(&error))?,
+                repo: repo.parse().map_err(|error| decode(&error))?,
+                ..query.clone()
+            };
+            &canonical
+        }
+        None => query,
+    };
     let listing = Listing {
         owner: &query.owner,
         repo: &query.repo,
@@ -170,7 +206,7 @@ pub(crate) async fn execute<
     });
     let page = ListingPage::of(query, &traversal.entries);
     let mut value = json!({
-        "entries": build_structure(page.entries, &scope.path),
+        "entries": build_structure(page.entries),
         "summary": summary(page.entries),
         "resolvedRef": resolved_branch,
     });
@@ -182,6 +218,20 @@ pub(crate) async fn execute<
         value["commitSha"] = json!(commit_sha);
     }
     page.paginate(&mut value);
+    // A listing states when each entry last changed; a materialized page
+    // hands its files to local tools and stays undated.
+    if query.materialize != Some(true) {
+        let page_dates = dates::page_dates(
+            provider,
+            &query.owner,
+            &query.repo,
+            &commit_sha,
+            page.entries,
+            context,
+        )
+        .await;
+        dates::attach(&mut value, page_dates);
+    }
     let mut output = ToolData::from(Value::Null);
     let materialize_resume = if query.materialize == Some(true) {
         materialize_page(
@@ -199,6 +249,13 @@ pub(crate) async fn execute<
         None
     };
     disclose_limits(&traversal, &mut value, &mut output);
+    if let Some(warning) = renamed_warning {
+        let warning = json!(warning);
+        match value.get_mut("warnings").and_then(Value::as_array_mut) {
+            Some(warnings) => warnings.insert(0, warning),
+            None => value["warnings"] = json!([warning]),
+        }
+    }
     // Continuations read the same commit.
     let pinned = GhStructureQuery {
         ref_: Some(commit_sha.clone()),
@@ -219,16 +276,12 @@ pub(crate) async fn execute<
                 "No path matched include; try a bare word, or \"**/name\" for an exact file name."
             ]);
         }
-    } else if let Some(local) = value.pointer("/location/localPath").cloned() {
-        // A materialized listing continues with the local tools on disk.
-        value["next"]["exploreClone"] = crate::tools::result::Continuation::new(
-            ToolId::StructureSearch,
-            json!({ "path": local }),
-        )
-        .confidence("exact")
-        .build();
+    } else if value.pointer("/location/localPath").is_some() {
+        // A materialized listing continues with the local tools at
+        // `location.localPath`; re-listing the tree it just returned adds
+        // nothing.
     } else if page.current == 1
-        && let Some(read) = entry_read(&pinned, &traversal.entries, &scope.path, &commit_sha)
+        && let Some(read) = entry_read(&pinned, &traversal.entries, &commit_sha)
     {
         value["next"]["read"] = read;
     }
@@ -468,26 +521,38 @@ mod tests {
             );
         }
     }
+    /// GS1: `dir` is repo-relative, the same base as `path` and `include`.
     #[test]
-    fn structure_paths_are_relative_to_scope() {
-        let rows = build_structure(
-            &[
-                TreeEntry {
-                    path: "src/lib.rs".into(),
-                    kind: EntryKind::File,
-                    size: Some(1),
-                },
-                TreeEntry {
-                    path: "src/nested".into(),
-                    kind: EntryKind::Dir,
-                    size: None,
-                },
-            ],
-            "src",
-        );
+    fn structure_dirs_are_repo_relative() {
+        let rows = build_structure(&[
+            TreeEntry {
+                path: "src/lib.rs".into(),
+                kind: EntryKind::File,
+                size: Some(1),
+            },
+            TreeEntry {
+                path: "src/nested".into(),
+                kind: EntryKind::Dir,
+                size: None,
+            },
+            TreeEntry {
+                path: "src/nested/a.rs".into(),
+                kind: EntryKind::File,
+                size: Some(1),
+            },
+        ]);
         assert_eq!(
-            rows[0],
-            json!({"dir":".","files":["lib.rs"],"folders":["nested"]})
+            rows,
+            vec![
+                json!({"dir":"src","files":["lib.rs"],"folders":["nested"]}),
+                json!({"dir":"src/nested","files":["a.rs"]}),
+            ]
         );
+        let root = build_structure(&[TreeEntry {
+            path: "README.md".into(),
+            kind: EntryKind::File,
+            size: Some(1),
+        }]);
+        assert_eq!(root, vec![json!({"dir":".","files":["README.md"]})]);
     }
 }

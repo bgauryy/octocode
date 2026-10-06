@@ -505,11 +505,19 @@ pub(super) fn cycles(b: &BuiltGraph) -> (Vec<Value>, Value, Vec<String>, bool) {
             .unwrap_or_default()
             .into_iter()
             .collect::<Vec<_>>();
-        let mut item = json!({"files":files,"edgeKinds":collect_kinds(&uses, files),"runtimeCycle":!contained.is_empty(),"runtimeCycleCount":contained.len(),"cycleEdges":witness_edges(file_witnesses.witness(&members)),"componentId":id,"topologicalLayer":layers.get(&id),"outgoingComponents":outgoing,"confidence":"syntactic"});
+        // Small facts first and `files` last: a cycle too large for one
+        // response page shows its counts and runtime cycles before its files.
+        let mut item = json!({"componentId":id,"fileCount":files.len(),"runtimeCycleCount":contained.len(),"runtimeCycle":!contained.is_empty()});
         if !contained.is_empty() {
-            item["runtimeCycleEdges"] = json!(witness_edges(runtime_witnesses.witness(&members)));
             item["runtimeCycles"] = json!(contained);
+            item["runtimeCycleEdges"] = json!(witness_edges(runtime_witnesses.witness(&members)));
         }
+        item["cycleEdges"] = json!(witness_edges(file_witnesses.witness(&members)));
+        item["edgeKinds"] = json!(collect_kinds(&uses, files));
+        item["topologicalLayer"] = json!(layers.get(&id));
+        item["outgoingComponents"] = json!(outgoing);
+        item["confidence"] = json!("syntactic");
+        item["files"] = json!(files);
         items.push(item);
     }
     let rc = items.iter().filter(|x| x["runtimeCycle"] == true).count();

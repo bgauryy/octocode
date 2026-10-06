@@ -1,18 +1,4 @@
-// Human-like mouse/keyboard/scroll event sequences via CDP Input domain.
-//
-// dom-operations-check.mjs clicks/fills through JS (element.click(), element.value=),
-// which produces isTrusted:false synthetic events — fine for functional checks, but a
-// behavioral tell for anti-bot systems. These builders return real Input.dispatchMouseEvent /
-// dispatchKeyEvent / insertText sequences, which are OS-level trusted input.
-//
-// Usage in a run(cdp) script:
-//   import { buildHumanClickSequence, buildTypingEvents } from './human-input.mjs';
-//   const events = buildHumanClickSequence(fromX, fromY, targetX, targetY);
-//   for (const ev of events) {
-//     await cdp.send(ev.method, ev.params);
-//     await new Promise(r => setTimeout(r, ev.delayMs));
-//   }
-
+// Trusted CDP mouse, keyboard, and scroll sequences with configurable timing.
 function rand(min, max) { return min + Math.random() * (max - min); }
 function randInt(min, max) { return Math.floor(rand(min, max + 1)); }
 

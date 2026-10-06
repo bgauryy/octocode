@@ -1,4 +1,4 @@
-// Node-owned `scheme`: the same composition the MCP server ships — runtime
+// Node-owned `schema`: the same composition the MCP server ships — runtime
 // truth (availability, enforcement fingerprint) from the native binary's
 // machine catalog, canonical contract content from @octocodeai/octocode-core,
 // and capability-aware presentation addons from @octocodeai/config/schema —
@@ -11,8 +11,8 @@ import { EXIT } from '../exit-codes.js';
 import { resolveNativeBin } from '../native-delegate.js';
 import { contractDriftAllowed, contractDriftMessage } from '@octocodeai/config';
 import type { GrammarCapability } from '@octocodeai/config/mcp';
-import type { SchemeJsonObject, SchemeView } from '@octocodeai/config/schema';
-import { project } from './scheme-projection.js';
+import type { SchemaJsonObject, SchemaView } from '@octocodeai/config/schema';
+import { project } from './schema-projection.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -32,18 +32,13 @@ interface MachineCatalog {
   grammarCapabilities?: GrammarCapability[];
 }
 
-const USAGE = `octocode scheme [toolName] [--view full|query|variants] [--select FIELD=VALUE] [--compact|--pretty]
-
-  octocode scheme                   list enabled tools and agent instructions
-  octocode scheme <toolName>        print the tool's contract with variants before its schema
-  octocode scheme <toolName> --view variants
-                                    compact branch names, selectors, and examples
-  octocode scheme <toolName> --view query [--select variant=NAME]
-                                    self-contained query schema, optionally isolated
-                                    to one named variant or const field/value`;
-
-function writeJson(value: unknown, compact: boolean): number {
-  console.log(compact ? JSON.stringify(value) : JSON.stringify(value, null, 2));
+/** A terminal gets indented JSON; a pipe gets one line. */
+function writeJson(value: unknown): number {
+  console.log(
+    process.stdout.isTTY === true
+      ? JSON.stringify(value, null, 2)
+      : JSON.stringify(value)
+  );
   return EXIT.OK;
 }
 
@@ -57,7 +52,7 @@ async function readMachineCatalog(bin: string): Promise<MachineCatalog> {
     : [bin, [] as string[]];
   const { stdout } = await execFileAsync(
     command,
-    [...prefixArgs, 'scheme', '--compact'],
+    [...prefixArgs, 'catalog'],
     {
       maxBuffer: 4 * 1024 * 1024,
     }
@@ -75,9 +70,12 @@ async function readMachineCatalog(bin: string): Promise<MachineCatalog> {
   return catalog as unknown as MachineCatalog;
 }
 
-/** Same `--json-errors` envelope as the native CLI and contract input errors. */
-function emitError(message: string, jsonErrors: boolean): void {
-  if (jsonErrors) {
+/**
+ * Errors follow the output: the native CLI's JSON envelope on a pipe, text
+ * on a terminal.
+ */
+function emitError(message: string): void {
+  if (process.stdout.isTTY !== true) {
     console.log(
       JSON.stringify({ kind: 'octocode.toolError', version: 1, error: message })
     );
@@ -91,22 +89,8 @@ function isEnabled(availability: unknown): boolean {
     !!availability &&
     typeof availability === 'object' &&
     !Array.isArray(availability) &&
-    (availability as SchemeJsonObject).enabled === true
+    (availability as SchemaJsonObject).enabled === true
   );
-}
-
-/**
- * Agents read scheme through pipes: default to single-line JSON there, like
- * tool output. A terminal keeps the indented view unless --compact is set;
- * --pretty forces indentation anywhere.
- */
-export function useCompactJson(
-  options: ParsedArgs['options'],
-  isTty: boolean
-): boolean {
-  if (options.compact === true) return true;
-  if (options.pretty === true) return false;
-  return !isTty;
 }
 
 type ToolPresentation = {
@@ -117,17 +101,13 @@ type ToolPresentation = {
   enabled: string[];
 };
 
-async function loadPresentation(
-  jsonErrors: boolean
-): Promise<
+async function loadPresentation(): Promise<
   ({ ok: true } & ToolPresentation) | { ok: false; exitCode: number }
 > {
   const bin = resolveNativeBin();
   if (!bin) {
     emitError(
-      'The native Octocode runtime is unavailable for this platform or installation.',
-      jsonErrors
-    );
+      'The native Octocode runtime is unavailable for this platform or installation.');
     return { ok: false, exitCode: EXIT.TOOL };
   }
 
@@ -136,9 +116,7 @@ async function loadPresentation(
     machine = await readMachineCatalog(bin);
   } catch (error) {
     emitError(
-      `Failed to read the native tool catalog: ${error instanceof Error ? error.message : String(error)}`,
-      jsonErrors
-    );
+      `Failed to read the native tool catalog: ${error instanceof Error ? error.message : String(error)}`);
     return { ok: false, exitCode: EXIT.TOOL };
   }
 
@@ -165,7 +143,7 @@ async function loadPresentation(
     if (contractDriftAllowed(process.env, { bundled })) {
       console.error(`WARNING: ${drift}`);
     } else {
-      emitError(drift, jsonErrors);
+      emitError(drift);
       return { ok: false, exitCode: EXIT.TOOL };
     }
   }
@@ -181,30 +159,14 @@ function instructionsFor(presentation: ToolPresentation): Promise<string> {
   );
 }
 
-/** Root help shares the catalog's runtime availability and drift checks. */
-export async function printAgentInstructions(): Promise<number> {
-  const presentation = await loadPresentation(false);
-  if (!presentation.ok) return presentation.exitCode;
-  console.log(`\nAgent instructions:\n${await instructionsFor(presentation)}`);
-  return EXIT.OK;
-}
-
-export async function runScheme(args: ParsedArgs): Promise<number> {
-  const jsonErrors = args.options['json-errors'] === true;
-  const allowed = new Set([
-    'help',
-    'h',
-    'view',
-    'select',
-    'compact',
-    'pretty',
-    'json-errors',
-    'no-color',
-    'redact-emails',
-  ]);
-  const unknown = Object.keys(args.options).find(key => !allowed.has(key));
+export async function runSchema(args: ParsedArgs): Promise<number> {
+  const unknown = Object.keys(args.options).find(
+    key => key !== 'view' && key !== 'select'
+  );
   if (unknown) {
-    emitError(`Unknown option: --${unknown}`, jsonErrors);
+    emitError(
+      `Unknown option: --${unknown}. Usage: octocode schema [tool] [--view query|variants|full] [--select FIELD=VALUE]`
+    );
     return EXIT.USAGE;
   }
   for (const key of ['view', 'select']) {
@@ -212,19 +174,14 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
       args.options[key] !== undefined &&
       typeof args.options[key] !== 'string'
     ) {
-      emitError(`--${key} requires a value.`, jsonErrors);
+      emitError(`--${key} requires a value.`);
       return EXIT.USAGE;
     }
   }
-  if (args.options.help === true || args.options.h === true) {
-    console.log(USAGE);
-    return EXIT.OK;
-  }
   if (args.args.length > 1) {
-    emitError('scheme accepts one tool name per call.', jsonErrors);
+    emitError('schema accepts one tool name per call.');
     return EXIT.USAGE;
   }
-  const compact = useCompactJson(args.options, process.stdout.isTTY === true);
   const viewOption = args.options.view;
   if (
     viewOption !== undefined &&
@@ -232,13 +189,10 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
     viewOption !== 'query' &&
     viewOption !== 'variants'
   ) {
-    emitError(
-      `--view expects full|query|variants, got: ${String(viewOption)}`,
-      jsonErrors
-    );
+    emitError(`--view expects query|variants|full, got: ${String(viewOption)}`);
     return EXIT.USAGE;
   }
-  const view: SchemeView =
+  const view: SchemaView =
     viewOption === 'query'
       ? 'query'
       : viewOption === 'variants'
@@ -247,15 +201,19 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
   const select =
     typeof args.options.select === 'string' ? args.options.select : undefined;
   const toolName = args.args[0];
+  if (toolName === undefined && (viewOption ?? select) !== undefined) {
+    emitError('--view and --select need a tool name: octocode schema <tool> --view query');
+    return EXIT.USAGE;
+  }
 
-  const presentation = await loadPresentation(jsonErrors);
+  const presentation = await loadPresentation();
   if (!presentation.ok) return presentation.exitCode;
   const { machine, catalog } = presentation;
 
   const machineByName = new Map(machine.tools.map(tool => [tool.name, tool]));
 
   // Discovery lists only tools this surface can run, like MCP tools/list.
-  const listed = (catalog.tools as readonly SchemeJsonObject[]).filter(tool =>
+  const listed = (catalog.tools as readonly SchemaJsonObject[]).filter(tool =>
     presentation.enabled.includes(String(tool.name))
   );
   if (toolName === undefined) {
@@ -273,39 +231,32 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
         kind: 'octocode.toolCatalog',
         version: 1,
         toolCount: tools.length,
-        output:
-          'Compact catalog of enabled tools with agent instructions. Inspect one tool before execution.',
         commands: {
-          schema: 'scheme <name> --view query',
-          fullContract: 'scheme <name> --view full',
-          variants: 'scheme <name> --view variants',
-          querySchema: 'scheme <name> --view query [--select variant=<name>]',
-          run: "<name> '<json>'",
+          run: "octocode <tool> '<json>' (or --input FILE|-)",
+          query: 'octocode schema <tool> --view query [--select FIELD=VALUE]',
+          variants: 'octocode schema <tool> --view variants',
+          full: 'octocode schema <tool>',
         },
         instructions: await instructionsFor(presentation),
         tools,
-      },
-      compact
+      }
     );
   }
 
-  const tool = (catalog.tools as readonly SchemeJsonObject[]).find(
+  const tool = (catalog.tools as readonly SchemaJsonObject[]).find(
     candidate => candidate.name === toolName
   );
   if (!tool) {
     const known = listed.map(candidate => String(candidate.name)).join(', ');
-    emitError(`Unknown tool: ${toolName}. Known tools: ${known}`, jsonErrors);
+    emitError(`Unknown tool: ${toolName}. Known tools: ${known}`);
     return EXIT.USAGE;
   }
   // The catalog already carries the availability-scoped description.
-  let value: SchemeJsonObject;
+  let value: SchemaJsonObject;
   try {
     value = project(tool, view, select);
   } catch (error) {
-    emitError(
-      error instanceof Error ? error.message : String(error),
-      jsonErrors
-    );
+    emitError(error instanceof Error ? error.message : String(error));
     return EXIT.USAGE;
   }
   // Carry runtime availability into the per-tool view so an agent inspecting a
@@ -316,17 +267,17 @@ export async function runScheme(args: ParsedArgs): Promise<number> {
   const runtimeEntry = machineByName.get(String(toolName));
   value.availability = (runtimeEntry?.availability ?? {
     enabled: false,
-  }) as SchemeJsonObject;
+  }) as SchemaJsonObject;
   // The compact catalog carries a generic `run` hint; the per-tool view echoes
   // the concrete invocation so an agent inspecting one contract sees exactly
   // how to execute it.
   value.run = `octocode ${toolName} '<json>'`;
-  return writeJson(value, compact);
+  return writeJson(value);
 }
 
-export const schemeCommand = {
-  name: 'scheme',
+export const schemaCommand = {
+  name: 'schema',
   handler: async (args: ParsedArgs): Promise<void> => {
-    process.exitCode = await runScheme(args);
+    process.exitCode = await runSchema(args);
   },
 };

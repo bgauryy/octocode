@@ -59,7 +59,6 @@ describe('configFieldEnvNames', () => {
   it('lists a field env bindings in priority order', () => {
     expect(configFieldEnvNames('classification.api')).toEqual([
       'OCTOCODE_CLASSIFICATION_API',
-      'OCTOCODE_JEV_KEY',
     ]);
     expect(configFieldEnvNames('local.beta')).toEqual(['OCTOCODE_BETA']);
   });

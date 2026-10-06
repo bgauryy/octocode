@@ -1,6 +1,6 @@
 # Tool examples
 
-Load when a query shape is non-obvious. `scheme <tool>` lists every variant with a runnable example; these cover the shapes agents most often get wrong. Replace paths, lines, refs, and numbers with observed values. Each `query` is one row: send it as `{"queries":[query]}`.
+Load when a query shape is non-obvious. `schema <tool>` lists every variant with a runnable example; these cover the shapes agents most often get wrong. Replace paths, lines, refs, and numbers with observed values. Each `query` is one row: send it as `{"queries":[query]}`.
 
 ```json
 [
@@ -24,4 +24,4 @@ Load when a query shape is non-obvious. `scheme <tool>` lists every variant with
 
 `astTopology` (CLI only) paths are relative to its `path`. `astRewrite` previews by default; apply only with `apply:true` and the full `expectedHashes` (or the returned `hints.apply`).
 
-Next: run the call and return to the route that sent you; unfamiliar fields → `scheme <tool>`.
+Next: run the call and return to the route that sent you; unfamiliar fields → `schema <tool>`.

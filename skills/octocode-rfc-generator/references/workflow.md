@@ -1,26 +1,24 @@
 # RFC / plan workflow
 
-Load before drafting, improving, or auditing any RFC or plan. Choose the smallest artifact set and keep one decision and claim spine.
+Load before drafting, improving, or auditing any RFC or plan. Why: this page chooses the mode, the artifact set, and the delivery values before a draft exists.
 
 ## Select mode
-| Mode | Primary artifact and content |
+| Mode | Primary artifact |
 |---|---|
-| RFC / design / architecture | `RFC.md`: decision, alternatives, rationale, risks, implementation, KPIs |
-| Plan (decision settled) | Standalone `PLAN.md`, or `IMPLEMENTATION.md` when linked to an RFC |
-| Decision | Options matrix, recommendation, adoption, rollback |
-| Migration | Current and target state, compatibility, phases, rollout, rollback |
-| Validate / improve | Upgrade the existing artifact in place. Keep prior decisions and reasoning. |
+| Decision | One `RFC.md`. Put the plan in that file after Unresolved Questions. |
+| Decision already settled | One `PLAN.md`. Do not invent alternatives. |
+| Audit | The same `RFC.md`. Append the audit block. Do not open a second document. |
 
-Route trivial one-file edits to `octocode-research` Change mode.
+Route a trivial one-file edit to `octocode-research`. A migration, a public contract, and an architecture change use RFC mode. Put current and target state in Motivation and Current State and, when the design changes, Reference-Level Explanation.
 
 ## One ledger, dependency gates
 Track `claim | evidence | confidence | artifact/section | next proof`. Only confirmed or likely claims support a recommendation; uncertain claims become open questions. Do not keep a second ledger.
 Scaffold early if useful, but complete each dependency before its consumer:
-1. `PREREQUISITES.md` when needed: current-state evidence, baselines, blockers, owners.
-2. `RFC.md` decision or `PLAN.md` context: goals, scope, constraints, settled direction.
-3. `KPI.md` when separate: acceptance, metrics, guardrails, rollback threshold, decision rule. Without `KPI.md`, put a compact acceptance contract before the steps in `PLAN.md` or `IMPLEMENTATION.md`.
-4. `IMPLEMENTATION.md`: execution questions, dependency-ordered build, verification, rollout, rollback. Standalone mode keeps these in `PLAN.md`.
-5. `RESOURCES.md`: source inventory.
+1. Readiness stays in Motivation and Current State. Open `PREREQUISITES.md` only when that evidence has its own lifecycle.
+2. `RFC.md` or standalone `PLAN.md`: goals and scope before a final recommendation.
+3. Put the acceptance contract in the plan, after goals and before steps. Open `KPI.md` only when measurement has its own lifecycle.
+4. Steps inside `RFC.md`, or inside `PLAN.md` when there is no RFC. Move them to `IMPLEMENTATION.md` only when the build leaves the RFC.
+5. Cite sources in the sections that use them. Open `RESOURCES.md` only when the inventory has its own lifecycle.
 
 ## Gates
 - A brainstorming handoff marked Prototype First, Narrow, or Park is not RFC-ready.
@@ -39,10 +37,13 @@ Scaffold early if useful, but complete each dependency before its consumer:
 
 ## Validate and deliver
 Run the validators named in `SKILL.md` § Scripts. Both modes reject missing sections, forward step references, missing acceptance links, and phases that consume unavailable outputs. Unresolved decision blockers fail readiness. In `--draft` mode open blockers are valid; also inspect substantive comparisons for a hidden winner.
-| Mode | Deliver |
+
+Deliver one document in template order. Keep every heading you include. In chat, shorten a section only by keeping its heading and the deciding facts. A file that has left the RFC uses the same headings. Set the template header fields to the values for the mode:
+
+| Mode | Header values |
 |---|---|
-| Decision | `Status`, `Decision`, `Why`, `Alternatives`, `Risk`, `Success signal`, `Next step` |
-| Blocked Draft | as Decision, with `Provisional alternatives` instead of `Decision`, plus blockers and deciding checks |
-| Plan | `Status`, `Context`, `Risks`, `Success signal`, `Dependency-ordered steps`, `Next step` |
+| Blocked Draft | `Status: Draft`, `Recommendation: none`, `Comparison outcome: unresolved`, `Decision blockers: open`. Each open blocker has an owner, an evidence gap, and a next check. |
+| Ready RFC | `Recommendation: final`, `Comparison outcome: final`, `Decision blockers: none` or `resolved`. |
+| Plan | Title `# Plan:` or `# Implementation:`. Use the plan headings. |
 
 Next: evidence → `references/research-playbook.md`; decision → `references/rfc-template.md`; readiness → `references/rfc-prerequisites.md`; acceptance → `references/rfc-kpi.md`; build → `references/rfc-implementation.md`.

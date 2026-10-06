@@ -57,14 +57,29 @@ pub(super) fn status_code(status: &str) -> &str {
     }
 }
 
-/// A file row's status letter and change counts: `M +3 -1`.
+/// A file row's status letter and change counts: `M +3 -1`. A file GitHub
+/// sent with neither patch nor counts (`omitted`) shows its letter only:
+/// its 0/0 is not evidence.
 pub(super) fn change_counts(file: &Value) -> String {
+    let status = status_code(str_at(file, "/status").unwrap_or(""));
+    if is_omitted(file) {
+        return status.to_owned();
+    }
     format!(
-        "{} +{} -{}",
-        status_code(str_at(file, "/status").unwrap_or("")),
+        "{status} +{} -{}",
         usize_at(file, "/additions"),
         usize_at(file, "/deletions")
     )
+}
+
+/// A file GitHub sent with neither patch nor line counts: a shaped row
+/// flagged `patchUnavailable: "omitted"`, or such a REST provider entry
+/// (GraphQL file nodes never carry a patch).
+fn is_omitted(file: &Value) -> bool {
+    str_at(file, "/patchUnavailable") == Some("omitted")
+        || (file.get("patch").is_none()
+            && file.get("sha").is_some()
+            && missing_patch_reason(file) == Some("omitted"))
 }
 
 /// One compact inventory row: `M +3 -1 [!reason ]name[ <- full/old/path]`.
@@ -400,12 +415,17 @@ pub(super) fn compact_file_header(row: &mut Value) {
     let count = |fields: &Map<String, Value>, key: &str| {
         fields.get(key).and_then(Value::as_u64).unwrap_or(0)
     };
-    let stat = format!(
-        "{} +{} -{}",
-        status_code(fields.get("status").and_then(Value::as_str).unwrap_or("")),
-        count(fields, "additions"),
-        count(fields, "deletions")
-    );
+    let status = status_code(fields.get("status").and_then(Value::as_str).unwrap_or(""));
+    // An `omitted` file's 0/0 is not evidence: its letter only.
+    let stat = if fields.get("patchUnavailable").and_then(Value::as_str) == Some("omitted") {
+        status.to_owned()
+    } else {
+        format!(
+            "{status} +{} -{}",
+            count(fields, "additions"),
+            count(fields, "deletions")
+        )
+    };
     let rest = std::mem::take(fields);
     fields.insert(
         "path".into(),

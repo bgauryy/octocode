@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
-import { isAbsolute, join, relative, resolve } from 'path';
+import { isAbsolute, join, relative, resolve, basename } from 'path';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
-import { pathToFileURL } from 'url';
+import { pathToFileURL, fileURLToPath } from 'url';
+import { dirname } from 'path';
 import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { applyMandatoryStealth, stealthEnabled, isAboutOrDataUrl } from './mandatory-stealth.mjs';
 
@@ -40,20 +41,27 @@ const NEW_TAB     = getArg('--new-tab', '');
 const TARGET_ID   = getArg('--target', '');
 const TARGET_URL  = getArg('--target-url', '');
 const TARGET_TYPE = getArg('--target-type', '');
-const TIMEOUT     = parseInt(getArg('--timeout', '60000'), 10);
+const TIMEOUT     = Number(getArg('--timeout', '60000'));
 const KEEP_TAB    = hasFlag('--keep-tab');
 const LIST_TARGETS = hasFlag('--list-targets');
+const BROWSER = hasFlag('--browser');
 const VERBOSE     = process.env.CDP_VERBOSE === '1';
+if (hasFlag('--stealth')) process.env.CDP_STEALTH = '1';
 if (hasFlag('--no-stealth')) process.env.CDP_NO_STEALTH = '1';
 if (hasFlag('--no-reload')) process.env.CDP_STEALTH_NO_RELOAD = '1';
 
 if (hasFlag('--help') || hasFlag('-h')) {
-  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab] [--no-reload] [--no-stealth]');
+  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--browser] [--keep-tab] [--stealth] [--no-reload] [--no-stealth]');
   process.exit(0);
 }
 
+if (!Number.isSafeInteger(TIMEOUT) || TIMEOUT < 1) {
+  console.error('[CDP_RUNNER] --timeout must be a positive integer');
+  process.exit(2);
+}
+
 if (!scriptArg && !LIST_TARGETS) {
-  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--keep-tab] [--no-reload] [--no-stealth]');
+  console.error('[CDP_RUNNER] Usage: node cdp-runner.mjs <script.mjs> [--port 9222] [--new-tab <url>] [--target <id>] [--target-url <pattern>] [--target-type <type>] [--list-targets] [--browser] [--keep-tab] [--stealth] [--no-reload] [--no-stealth]');
   process.exit(1);
 }
 
@@ -162,12 +170,12 @@ function createSession(wsUrl, targetInfo) {
         else res(msg.result ?? {});
       } else if (msg.method) {
         const meta = msg.sessionId ? { sessionId: msg.sessionId } : {};
-        handlers.get(msg.method)?.forEach(h => {
-          try { h(msg.params ?? {}, meta); } catch (e) { console.error('[CDP_RUNNER] Handler error:', e.message); }
-        });
-        handlers.get('*')?.forEach(h => {
-          try { h(msg.method, msg.params ?? {}, meta); } catch {}
-        });
+        const dispatch = (handler, args) => {
+          const failed = error => { console.error(`[CDP_HANDLER_ERROR] event=${msg.method} ${error.message}`); process.exitCode = 1; };
+          try { const returned = handler(...args); if (returned?.catch) returned.catch(failed); } catch (error) { failed(error); }
+        };
+        handlers.get(msg.method)?.forEach(h => dispatch(h, [msg.params ?? {}, meta]));
+        handlers.get('*')?.forEach(h => dispatch(h, [msg.method, msg.params ?? {}, meta]));
       }
     };
 
@@ -184,14 +192,16 @@ function createSession(wsUrl, targetInfo) {
 }
 
 let _cleanup = null;
+let _interrupted = null;
 function registerCleanup(fn) { _cleanup = fn; }
 
 async function shutdown(signal) {
   console.error(`[CDP_RUNNER] ${signal} received - cleaning up...`);
+  _interrupted?.(signal);
   if (_cleanup) {
     try { await _cleanup(); } catch {}
   }
-  process.exit(0);
+  process.exit(signal === 'SIGINT' ? 130 : 143);
 }
 
 process.on('SIGINT',  () => shutdown('SIGINT'));
@@ -247,9 +257,14 @@ async function main() {
   let targetWsUrl, targetInfo, openedTabId;
   let pendingNavigate = null;
 
-  if (NEW_TAB) {
+  if (BROWSER) {
+    if (NEW_TAB || TARGET_ID || TARGET_URL || TARGET_TYPE || stealthEnabled()) throw new Error('--browser cannot combine with page selection or --stealth');
+    const version = await getVersion();
+    targetWsUrl = version.webSocketDebuggerUrl;
+    targetInfo = { id: 'browser', type: 'browser', title: version.Browser, url: '' };
+  } else if (NEW_TAB) {
     const tabUrl = NEW_TAB;
-    const openUrl = stealthEnabled() && !isAboutOrDataUrl(tabUrl) ? 'about:blank' : tabUrl;
+    const openUrl = !isAboutOrDataUrl(tabUrl) ? 'about:blank' : tabUrl;
     if (openUrl !== tabUrl) pendingNavigate = tabUrl;
     const tab  = await openTab(openUrl);
     openedTabId = tab.id;
@@ -268,7 +283,7 @@ async function main() {
 
   } else if (TARGET_URL) {
     const targets = await getTargets();
-    const pool    = TARGET_TYPE ? targets.filter(t => t.type === TARGET_TYPE) : targets;
+    const pool    = targets.filter(t => t.type === (TARGET_TYPE || 'page'));
     const t       = pool.find(x => x.url && x.url.includes(TARGET_URL));
     if (!t) {
       const available = targets.map(x => `  [${x.type}] ${x.url}`).join('\n');
@@ -310,6 +325,19 @@ async function main() {
   }
 
   const cdp = await createSession(targetWsUrl, targetInfo);
+  cdp.protocol = () => cdpHttp('/json/protocol');
+  cdp.skillScriptsDir = dirname(fileURLToPath(import.meta.url));
+  cdp.saveArtifact = (name, data, format = 'json') => {
+    if (!name || basename(name) !== name || name === '.' || name === '..') throw new Error('Artifact name must be a filename');
+    if (!['json', 'text', 'binary'].includes(format)) throw new Error('Invalid artifact format');
+    const file = join(cdp.outputDir, name);
+    if (existsSync(file)) throw new Error('Artifact exists; use a new name to preserve continuations');
+    writeFileSync(file, format === 'json' ? JSON.stringify(data, null, 2) + '\n' : data, { mode: 0o600 });
+    const next = { continue: { command: process.execPath, args: [join(cdp.skillScriptsDir, 'artifact-query.mjs'), '--file', file, '--format', format] } };
+    console.log(`[ARTIFACT] ${name} ${file}`);
+    console.log(`[NEXT] ${JSON.stringify(next)}`);
+    return { file, next };
+  };
 
   const outputDir = ENV_OUTPUT_DIR
     ? ENV_OUTPUT_DIR
@@ -374,7 +402,6 @@ async function main() {
     target: baseMeta.currentTarget,
     status: 'running',
   });
-  if (runHistory.runs.length > 100) runHistory.runs = runHistory.runs.slice(-100);
   writeJson(runLogFile, runHistory);
   const finalizeRun = (status, extra = {}) => {
     const current = readJson(runLogFile, { runs: [] }) ?? { runs: [] };
@@ -391,23 +418,15 @@ async function main() {
     }
   };
 
+  _interrupted = signal => {
+    cdp.writeSessionMetadata?.({ lastRunStatus: 'interrupted', lastError: signal });
+    finalizeRun('interrupted', { signal });
+  };
   cdp.outputDir = outputDir;
   cdp.sessionMetaDir = sessionMetaDir;
   cdp.sessionMetaFile = sessionMetaFile;
   cdp.targetSnapshotFile = targetSnapshotFile;
   cdp.resourcesFile = join(sessionMetaDir, 'resource-map.json');
-  cdp.reasoningFile = join(sessionMetaDir, 'reasoning-log.json');
-  cdp.addReasoningStep = (step) => {
-    const payload = readJson(cdp.reasoningFile, { steps: [] }) ?? { steps: [] };
-    if (!Array.isArray(payload.steps)) payload.steps = [];
-    payload.steps.push({
-      at: new Date().toISOString(),
-      ...step,
-    });
-    if (payload.steps.length > 300) payload.steps = payload.steps.slice(-300);
-    writeJson(cdp.reasoningFile, payload);
-    return payload.steps.length;
-  };
   cdp.upsertResourceMap = (resourceKey, details) => {
     const payload = readJson(cdp.resourcesFile, { updatedAt: null, resources: {} }) ?? { updatedAt: null, resources: {} };
     if (!payload.resources || typeof payload.resources !== 'object') payload.resources = {};
@@ -510,20 +529,23 @@ async function main() {
   }
 
   try {
-    if (stealthEnabled()) {
-      await applyMandatoryStealth(cdp, { navigateUrl: pendingNavigate ?? undefined });
-      if (pendingNavigate) {
-        console.error(`[CDP_RUNNER] Stealth gate: navigating to ${pendingNavigate}`);
-        await cdp.send('Page.enable').catch(() => {});
-        let onLoad;
-        const loaded = new Promise((r) => { onLoad = r; cdp.on('Page.loadEventFired', onLoad); });
-        await cdp.send('Page.navigate', { url: pendingNavigate });
-        await Promise.race([loaded, new Promise((r) => setTimeout(r, 15000))]);
-        cdp.off('Page.loadEventFired', onLoad);
-        await new Promise((r) => setTimeout(r, 300)); // let post-load scripts start
-        if (targetInfo) targetInfo = { ...targetInfo, url: pendingNavigate };
-        if (cdp.targetInfo) cdp.targetInfo = { ...cdp.targetInfo, url: pendingNavigate };
-      }
+    if (stealthEnabled()) await applyMandatoryStealth(cdp, { navigateUrl: pendingNavigate ?? undefined });
+    if (pendingNavigate) {
+      console.error(`[CDP_RUNNER] Navigating to ${pendingNavigate}`);
+      await cdp.send('Page.enable');
+      let onLoad;
+      const loaded = new Promise(resolve => { onLoad = resolve; cdp.on('Page.loadEventFired', onLoad); });
+      let timer;
+      try {
+        const navigation = await cdp.send('Page.navigate', { url: pendingNavigate });
+        if (navigation.errorText) throw new Error(`Navigation failed: ${navigation.errorText}`);
+        const completed = await Promise.race([loaded.then(() => true), new Promise(resolve => { timer = setTimeout(() => resolve(false), 15000); })]);
+        if (!completed) console.log('[FINDING] PAGE_LOAD_TIMEOUT load event not observed within 15000ms; page may still be rendering');
+      } finally { clearTimeout(timer); cdp.off('Page.loadEventFired', onLoad); }
+      const location = await cdp.send('Runtime.evaluate', { expression: 'location.href', returnByValue: true });
+      const currentUrl = location.result?.value || pendingNavigate;
+      cdp.targetInfo = { ...cdp.targetInfo, url: currentUrl };
+      cdp.writeSessionMetadata({ currentTarget: { ...baseMeta.currentTarget, url: currentUrl } });
     }
   } catch (stealthErr) {
     console.error(`[CDP_RUNNER] ${stealthErr.message}`);
@@ -536,8 +558,10 @@ async function main() {
   let exitCode = 0;
   try {
     await mod.run(cdp);
-    cdp.writeSessionMetadata({ lastRunStatus: 'success' });
-    finalizeRun('success');
+    exitCode = Number(process.exitCode) || 0;
+    const status = exitCode === 0 ? 'success' : 'error';
+    cdp.writeSessionMetadata({ lastRunStatus: status, lastExitCode: exitCode });
+    finalizeRun(status, { exitCode });
     if (VERBOSE) console.error('[CDP_RUNNER] Script completed successfully');
   } catch (e) {
     const isCdpError = /CDP error \[|CDP timeout/.test(e.message);
@@ -545,7 +569,7 @@ async function main() {
       const methodMatch = e.message.match(/for:\s*(\S+)/) ?? e.message.match(/'([A-Z][a-zA-Z]+\.[a-zA-Z]+)'/);
       const method = methodMatch ? methodMatch[1] : 'unknown';
       console.log(`[CDP_RETRY_NEEDED] method=${method} error="${e.message}"`);
-      console.log(`[CDP_RETRY_NEEDED] Fix: ensure the domain for "${method}" is enabled before calling it, check parameter names, and re-run.`);
+      console.log(`[CDP_RETRY_NEEDED] Inspect "${method}", its parameters, enabled domains and target readiness before retrying.`);
       cdp.writeSessionMetadata({
         lastRunStatus: 'retry-needed',
         lastError: e.message,
@@ -568,6 +592,11 @@ async function main() {
     _cleanup = null;
   }
 
+  if (process.exitCode && exitCode === 0) {
+    exitCode = Number(process.exitCode);
+    cdp.writeSessionMetadata({ lastRunStatus: 'error', lastExitCode: exitCode });
+    finalizeRun('error', { exitCode });
+  }
   process.exit(exitCode);
 }
 

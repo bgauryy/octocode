@@ -43,6 +43,7 @@ impl GitHubContentCache {
 const COMMIT_PINNED: &[&str] = &[
     "github-content",
     "github-file-timestamp",
+    "github-tree-dates",
     "git-tree",
     "git-tree-walk",
     "github-commit",

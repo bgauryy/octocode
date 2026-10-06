@@ -30,6 +30,9 @@ pub(super) struct PatchView {
     /// New-side windows (`start-end`) the requested context reaches past
     /// the hunks without head text to fill them.
     pub(super) clipped: Vec<String>,
+    /// Char offsets in `text` of the lines a `matchString` view shows as
+    /// hits (diff lines holding the needle); empty for any other view.
+    pub(super) hits: Vec<usize>,
 }
 
 /// Diff lines kept around each `matchString` hit (`contextLines`).
@@ -54,10 +57,13 @@ pub(super) fn history_patch_view(value: &str, path: &str, query: &HistoryItemReq
             .as_deref()
             .and_then(|sources| sources.lines(path));
         if let Some(found) = matching_hunks(value, &needle, match_context(query), source) {
+            let text = number_patch(&found.text);
+            let hits = line_starts(&text, &found.hit_lines);
             return PatchView {
-                text: number_patch(&found.text),
+                text,
                 narrowed: true,
                 clipped: found.clipped,
+                hits,
             };
         }
     }
@@ -65,7 +71,23 @@ pub(super) fn history_patch_view(value: &str, path: &str, query: &HistoryItemReq
         text: number_patch(value),
         narrowed: false,
         clipped: Vec::new(),
+        hits: Vec::new(),
     }
+}
+
+/// Char offsets of the given (sorted) line indices in `text`.
+fn line_starts(text: &str, lines: &[usize]) -> Vec<usize> {
+    let mut wanted = lines.iter().peekable();
+    let mut starts = Vec::with_capacity(lines.len());
+    let mut at = 0usize;
+    for (index, line) in text.split_inclusive('\n').enumerate() {
+        while wanted.next_if(|&&want| want < index).is_some() {}
+        if wanted.next_if(|&&want| want == index).is_some() {
+            starts.push(at);
+        }
+        at += line.chars().count();
+    }
+    starts
 }
 
 /// Number a unified diff on the side of each line's sign, `cat -n`-like:
@@ -368,6 +390,8 @@ fn end_line(stream: &mut [DiffLine<'_>]) {
 pub(super) struct HunkMatch {
     pub(super) text: String,
     pub(super) clipped: Vec<String>,
+    /// Line indices in `text` of the hit lines, ascending.
+    pub(super) hit_lines: Vec<usize>,
 }
 
 /// A `matchString` patch view: only the diff lines containing `needle`
@@ -395,11 +419,14 @@ pub(super) fn matching_hunks(
     };
     let mut out = String::new();
     let mut clipped: Vec<(usize, usize)> = Vec::new();
+    let mut hit_lines = Vec::new();
+    let mut line_index = 0usize;
     for (lines, (cut_above, cut_below)) in segments.iter().zip(cut_edges) {
+        let is_hit = |line: &DiffLine<'_>| line.diff && line.text.to_lowercase().contains(needle);
         let hits = lines
             .iter()
             .enumerate()
-            .filter(|(_, line)| line.diff && line.text.to_lowercase().contains(needle))
+            .filter(|(_, line)| is_hit(line))
             .map(|(i, _)| i)
             .collect::<Vec<_>>();
         let mut runs: Vec<(usize, usize, usize)> = Vec::new();
@@ -446,14 +473,20 @@ pub(super) fn matching_hunks(
             out.push_str(&format!(
                 "@@ -{old_start},{old_count} +{new_start},{new_count} @@{heading}\n"
             ));
+            line_index += 1;
             for line in run {
+                if is_hit(line) {
+                    hit_lines.push(line_index);
+                }
                 out.push_str(&clip_line(&line.text, needle));
+                line_index += 1;
             }
         }
     }
     (!out.is_empty()).then(|| HunkMatch {
         text: out,
         clipped: clipped_ranges(clipped),
+        hit_lines,
     })
 }
 
@@ -572,15 +605,18 @@ pub(super) fn shape_patch_page_reserving(
         })
         .collect::<Vec<_>>();
     let mut clipped = Vec::with_capacity(shaped.len());
+    let mut hits = Vec::with_capacity(shaped.len());
     let views = shaped
         .into_iter()
         .map(|view| {
             let view = view.map(|view| {
                 clipped.push(view.clipped);
+                hits.push(view.narrowed.then_some(view.hits));
                 view.text
             });
             if view.is_none() {
                 clipped.push(Vec::new());
+                hits.push(None);
             }
             view
         })
@@ -615,6 +651,7 @@ pub(super) fn shape_patch_page_reserving(
     let stream = PatchStream {
         views: &views,
         narrowed: &narrowed,
+        hits: &hits,
         clipped: &clipped,
         starts: &starts,
         lengths: &lengths,
@@ -635,6 +672,8 @@ pub(super) struct PatchStream<'a> {
     pub(super) views: &'a [Option<String>],
     /// Whole-patch sizes of `matchString` views narrowed to hit hunks.
     pub(super) narrowed: &'a [Option<usize>],
+    /// Hit-line starts of each narrowed view (`None`: not narrowed).
+    pub(super) hits: &'a [Option<Vec<usize>>],
     /// New-side windows each view's context could not reach.
     pub(super) clipped: &'a [Vec<String>],
     pub(super) starts: &'a [usize],
@@ -699,6 +738,15 @@ impl PatchStream<'_> {
                     if let Some(full) = self.narrowed[i] {
                         row["fullPatchChars"] = json!(full);
                     }
+                    // Hits this window shows of the file, so "every hit
+                    // shown" is checkable against the rows.
+                    if let Some(hits) = &self.hits[i] {
+                        let shown = hits
+                            .iter()
+                            .filter(|&&at| at >= local_start && at < local_end)
+                            .count();
+                        row["matchCount"] = json!(shown);
+                    }
                     if local_start == 0 && !self.clipped[i].is_empty() {
                         row["contextClipped"] = json!(true);
                         clipped.push((
@@ -727,10 +775,18 @@ impl PatchStream<'_> {
     }
 }
 
+/// Share of a window (`num/den`) a whole-file boundary must fill before the
+/// window ends there; below it the window packs on into the next file up
+/// to its last line end, so a walk does not ship windows mostly empty.
+pub(super) const PACK_SHARE: (usize, usize) = (3, 4);
+
 /// Where a window that starts at stream position `offset` ends: the last
 /// file end it holds whole, unless the next file is larger than a whole
-/// window (it would never fit, so it starts at once); a cut inside a file
-/// ends after the last line end the window holds, when one does.
+/// window (it would never fit, so it starts at once) or that end fills less
+/// than [`PACK_SHARE`] of the window (the window packs on into the next
+/// file). A cut inside a file ends after the last line end the window
+/// holds; a packed window whose next file has no line end in reach keeps
+/// the file boundary.
 pub(super) fn window_end(
     views: &[Option<String>],
     starts: &[usize],
@@ -752,17 +808,19 @@ pub(super) fn window_end(
             .find(|&i| starts[i] == at && lengths[i] > 0)
             .is_some_and(|i| lengths[i] > window)
     };
-    if let Some(at) = boundary.filter(|&at| !next_overflows(at)) {
+    let (num, den) = PACK_SHARE;
+    let filled = |at: usize| (at - offset) * den >= window * num;
+    if let Some(at) = boundary.filter(|&at| !next_overflows(at) && filled(at)) {
         return at;
     }
     let Some(cut) =
         (0..lengths.len()).find(|&i| starts[i] < stream_end && starts[i] + lengths[i] > stream_end)
     else {
-        return stream_end;
+        return boundary.unwrap_or(stream_end);
     };
     let from = offset.max(starts[cut]) - starts[cut];
     let to = stream_end - starts[cut];
-    views[cut]
+    let line_end = views[cut]
         .as_deref()
         .and_then(|view| {
             view.chars()
@@ -772,7 +830,13 @@ pub(super) fn window_end(
                 .filter(|(_, c)| *c == '\n')
                 .last()
         })
-        .map_or(stream_end, |(at, _)| starts[cut] + at + 1)
+        .map(|(at, _)| starts[cut] + at + 1);
+    match (line_end, boundary) {
+        (Some(at), _) => at,
+        // Packing found no line end past the boundary: end on the file.
+        (None, Some(at)) if !next_overflows(at) => at,
+        (None, _) => stream_end,
+    }
 }
 
 /// Shape a commit or comparison file page (see [`shape_patch_page`]):
@@ -1821,7 +1885,7 @@ mod tests {
                 ]},
                 "A +0 -0 !binary src/ui/logo.png",
                 "D +0 -5 src/z.ts",
-                "M +0 -0 !omitted docs/omitted.md"
+                "M !omitted docs/omitted.md"
             ])
         );
         assert_eq!(pagination["files"]["totalItems"], 7);
@@ -1933,5 +1997,126 @@ mod tests {
         let text = shaped["patch"].as_str().expect("patch");
         assert!(text.encode_utf16().count() <= 400, "{}", text.len());
         assert_eq!(shaped["patchPagination"]["hasMore"], true);
+    }
+
+    /// HI9a: a whole-file boundary that fills under 3/4 of the window does
+    /// not end it; the window packs on into the next file up to its last
+    /// line end, and the next window resumes there.
+    #[test]
+    fn history_b_windows_pack_past_a_low_file_boundary_at_a_line_end() {
+        let lines = |tag: &str, count: usize| format!("+{tag}{}\n", "x".repeat(7)).repeat(count);
+        // Two 10k files at the 15k default window: the boundary fills 2/3.
+        let files = vec![
+            file("a.rs", &lines("a", 1_000)),
+            file("b.rs", &lines("b", 1_000)),
+        ];
+        let window_chars = patch_window(None, None);
+        let first = shape_patch_page(files.clone(), true, &window(json!({})));
+        let cursor = first.cursor.expect("b.rs continues");
+        assert!(cursor > 10_000, "packed past the boundary: {cursor}");
+        assert!(cursor * 4 >= window_chars * 3, "{cursor}");
+        assert!(cursor <= window_chars);
+        let b = &first.rows[1];
+        let text = b["patch"].as_str().expect("b patch");
+        assert!(text.ends_with('\n'), "cut at a line end");
+        assert_eq!(b["patchPagination"]["hasMore"], true);
+        let (calls, patches, _) = follow_commit_page(&files, None);
+        assert_eq!(calls, 2);
+        assert_eq!(patches["a.rs"], lines("a", 1_000));
+        assert_eq!(patches["b.rs"], lines("b", 1_000));
+        // A next file with no line end in reach keeps the boundary.
+        let flat = vec![
+            file("a.rs", &"a".repeat(10_000)),
+            file("b.rs", &"b".repeat(10_000)),
+        ];
+        let page = shape_patch_page(flat, true, &window(json!({})));
+        assert_eq!(page.cursor, Some(10_000));
+    }
+
+    /// HI9a: a packed walk over many mid-size patches is lossless (no gap,
+    /// no repeat), every window but the last is at least 3/4 full, and the
+    /// call count is within one of the stream over the window.
+    #[test]
+    fn history_b_packed_walk_is_lossless_and_fills_its_windows() {
+        let files = (0..40)
+            .map(|i| {
+                file(
+                    &format!("f{i}.rs"),
+                    &format!("+line {i} of the patch\n").repeat(150 + (i * 37) % 400),
+                )
+            })
+            .collect::<Vec<_>>();
+        let total = files
+            .iter()
+            .map(|f| f["patch"].as_str().map_or(0, |p| p.chars().count()))
+            .sum::<usize>();
+        let window_chars = patch_window(None, None);
+        let mut offset = 0usize;
+        let mut read = HashMap::<String, String>::new();
+        let mut calls = 0;
+        loop {
+            calls += 1;
+            assert!(calls < 100, "cursor did not advance");
+            let page = shape_patch_page(files.clone(), true, &window(json!({"offset":offset})));
+            for row in &page.rows {
+                let name = str_at(row, "/filename").unwrap_or("").to_owned();
+                let have = read.entry(name).or_default();
+                let at = row["patchPagination"]["offset"].as_u64().unwrap_or(0);
+                assert_eq!(at as usize, have.chars().count(), "gap or repeat: {row}");
+                have.push_str(row["patch"].as_str().unwrap_or(""));
+            }
+            match page.cursor {
+                Some(next) => {
+                    assert!((next - offset) * 4 >= window_chars * 3, "{}", next - offset);
+                    offset = next;
+                }
+                None => break,
+            }
+        }
+        assert!(calls <= total.div_ceil(window_chars) + 1, "{calls}");
+        for source in &files {
+            let name = source["filename"].as_str().unwrap_or("");
+            assert_eq!(read.get(name).map(String::as_str), source["patch"].as_str());
+        }
+    }
+
+    /// X6: a `matchString` file row counts the hits its window shows
+    /// (`matchCount`), so "every hit shown" is checkable; a row the needle
+    /// matched by path only carries none.
+    #[test]
+    fn history_b_match_string_rows_count_the_hits_they_show() {
+        let patch = "@@ -1,9 +1,9 @@ fn f\n a\n-old needle\n+new needle\n b\n c\n d\n e\n f\n+NEEDLE again\n";
+        let query = patch_request(json!({"matchString":"needle","contextLines":1}));
+        let page = shape_patch_page(
+            vec![
+                file("hit.rs", patch),
+                file("needle_path.rs", "@@ -1 +1 @@\n-x\n+y\n"),
+            ],
+            true,
+            &query,
+        );
+        assert_eq!(page.rows[0]["matchCount"], 3, "{}", page.rows[0]);
+        assert!(page.rows[1].get("matchCount").is_none(), "{}", page.rows[1]);
+        // A window cut between hits counts only the hits it shows.
+        let shown = |offset: usize| {
+            let query = patch_request(
+                json!({"matchString":"needle","contextLines":1,"offset":offset,"length":60}),
+            );
+            let page = shape_patch_page(vec![file("hit.rs", patch)], true, &query);
+            (
+                page.rows[0]["matchCount"].as_u64().unwrap_or(0),
+                page.cursor,
+            )
+        };
+        let (first, cursor) = shown(0);
+        let mut total = first;
+        let mut offset = cursor;
+        while let Some(at) = offset {
+            let (count, next) = shown(at);
+            total += count;
+            offset = next;
+        }
+        assert!(first < 3, "the first window is cut: {first}");
+        assert_eq!(total, 3);
     }
 }

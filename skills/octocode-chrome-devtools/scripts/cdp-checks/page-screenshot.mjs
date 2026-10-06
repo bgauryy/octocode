@@ -3,7 +3,7 @@ import { join } from 'path';
 
 // Screenshot of the attached tab: viewport (default), full page, or one element.
 // Env:
-//   SHOT_FULL=1          full scrollable page (height capped at 8000 CSS px)
+//   SHOT_FULL=1          full scrollable page (tiles of at most 8000 CSS px)
 //   SHOT_SELECTOR=<css>  clip to the first matching element (scrolled into view)
 //   SHOT_FORMAT          jpeg (default, smaller) | png
 //   SHOT_QUALITY         jpeg quality 30-95 (default 70)
@@ -81,14 +81,14 @@ export async function run(cdp) {
       return { x: r.x + scrollX, y: r.y + scrollY, width: r.width, height: r.height }; })()`);
     if (!box || !box.width || !box.height) {
       console.log(`[FINDING] SHOT_SELECTOR_MISSING ${SELECTOR} not found or zero-size`);
+      process.exitCode = 1;
       return;
     }
-    clip = { ...box, height: Math.min(box.height, MAX_HEIGHT), scale: SCALE };
+    clip = { ...box, scale: SCALE };
   } else if (FULL) {
     const { cssContentSize, cssLayoutViewport } = await cdp.send('Page.getLayoutMetrics');
-    const width = Math.ceil(cssLayoutViewport?.clientWidth ?? cssContentSize.width);
-    const height = Math.min(Math.ceil(cssContentSize.height), MAX_HEIGHT);
-    if (cssContentSize.height > MAX_HEIGHT) console.log(`[FINDING] SHOT_TRUNCATED page is ${Math.ceil(cssContentSize.height)}px tall; captured ${MAX_HEIGHT}px`);
+    const width = Math.ceil(Math.max(cssLayoutViewport?.clientWidth || 0, cssContentSize.width));
+    const height = Math.ceil(cssContentSize.height);
     clip = { x: 0, y: 0, width, height, scale: SCALE };
   } else if (SCALE < 1) {
     const { cssVisualViewport: v } = await cdp.send('Page.getLayoutMetrics');
@@ -96,20 +96,29 @@ export async function run(cdp) {
   }
 
   const labels = ANNOTATE ? await annotate(cdp) : 0;
-  let data;
+  const tiles = [], total = clip && (FULL || SELECTOR) ? Math.ceil(clip.height / MAX_HEIGHT) : 1;
+  const stem = `screenshot${SELECTOR ? '-element' : FULL ? '-full' : ''}`;
+  let bytes = 0;
   try {
-    ({ data } = await cdp.send('Page.captureScreenshot', {
-      format: FORMAT,
-      ...(FORMAT === 'jpeg' ? { quality: QUALITY } : {}),
-      ...(clip ? { clip, captureBeyondViewport: true } : {}),
-    }));
+    for (let index = 0; index < total; index++) {
+      const tile = clip && total > 1 ? { ...clip, y: clip.y + index * MAX_HEIGHT, height: Math.min(MAX_HEIGHT, clip.height - index * MAX_HEIGHT) } : clip;
+      const { data } = await cdp.send('Page.captureScreenshot', {
+        format: FORMAT,
+        ...(FORMAT === 'jpeg' ? { quality: QUALITY } : {}),
+        ...(tile ? { clip: tile, captureBeyondViewport: true } : {}),
+      });
+      const buf = Buffer.from(data, 'base64'); bytes += buf.length;
+      const file = join(cdp.outputDir, `${stem}${index ? '-' + (index + 1) : ''}.${FORMAT === 'png' ? 'png' : 'jpg'}`);
+      writeFileSync(file, buf, { mode: 0o600 });
+      tiles.push({ index: index + 1, file, clip: tile || null, bytes: buf.length });
+      if (total > 1) console.log(`[PROGRESS] SCREENSHOT tile=${index + 1}/${total}`);
+    }
   } finally {
     if (ANNOTATE) await cdp.send('Runtime.evaluate', { expression: "document.getElementById('__octo_marks')?.remove()" }).catch(() => {});
+    const manifest = { mode: SELECTOR ? 'element' : FULL ? 'full' : 'viewport', scope: clip || null, complete: tiles.length === total, expectedTiles: total, captureMode: 'sequential', pageMayChangeBetweenTiles: total > 1, tiles };
+    cdp.saveArtifact('screenshot-manifest.json', manifest);
   }
-  const buf = Buffer.from(data, 'base64');
-  const file = join(cdp.outputDir, `screenshot${SELECTOR ? '-element' : FULL ? '-full' : ''}.${FORMAT === 'png' ? 'png' : 'jpg'}`);
-  writeFileSync(file, buf, { mode: 0o600 });
   const title = await evaluate('document.title');
-  console.log(`[METRIC] SCREENSHOT bytes=${buf.length} mode=${SELECTOR ? 'element' : FULL ? 'full' : 'viewport'}${clip ? ` size=${Math.round(clip.width * clip.scale)}x${Math.round(clip.height * clip.scale)}` : ''} title="${String(title ?? '').slice(0, 80)}"${ANNOTATE ? ` labels=${labels}` : ''}`);
-  console.log(`[SCREENSHOT] ${file}`);
+  console.log(`[METRIC] SCREENSHOT bytes=${bytes} tiles=${tiles.length} mode=${SELECTOR ? 'element' : FULL ? 'full' : 'viewport'}${clip ? ` size=${Math.round(clip.width * clip.scale)}x${Math.round(clip.height * clip.scale)}` : ''} title="${String(title ?? '').slice(0, 80)}"${ANNOTATE ? ` labels=${labels}` : ''}`);
+  console.log(`[SCREENSHOT] ${tiles[0].file}`);
 }

@@ -13,7 +13,7 @@
       ],
       "cwd": "/tmp",
       "env": {
-        "ENABLE_LOCAL": "true",
+        "OCTOCODE_ENABLE_LOCAL": "true",
         "WORKSPACE_ROOT": "${CORPUS_ROOT}",
         "ALLOWED_PATHS": "${CORPUS_PATHS}"
       }

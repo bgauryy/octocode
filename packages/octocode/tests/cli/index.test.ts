@@ -5,8 +5,7 @@ const mocks = vi.hoisted(() => ({
   configView: vi.fn(async () => 0),
   resolve: vi.fn((): string | null => '/native/octocode'),
   skillHandler: vi.fn(),
-  schemeHandler: vi.fn(),
-  printInstructions: vi.fn(() => 0),
+  schemaHandler: vi.fn(),
   setRuntimeSurface: vi.fn(),
 }));
 
@@ -28,10 +27,24 @@ vi.mock('../../src/cli/commands/config-view.js', () => ({
 vi.mock('../../src/cli/commands/skill.js', () => ({
   skillCommand: { name: 'skill', options: [], handler: mocks.skillHandler },
 }));
-vi.mock('../../src/cli/commands/scheme.js', () => ({
-  schemeCommand: { name: 'scheme', handler: mocks.schemeHandler },
-  printAgentInstructions: mocks.printInstructions,
+vi.mock('../../src/cli/commands/schema.js', () => ({
+  schemaCommand: { name: 'schema', handler: mocks.schemaHandler },
 }));
+
+/** Run `body` with `process.stdout.isTTY` set to `tty`. */
+async function withStdoutTty(tty: boolean, body: () => Promise<void>) {
+  const saved = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+  Object.defineProperty(process.stdout, 'isTTY', {
+    value: tty,
+    configurable: true,
+  });
+  try {
+    await body();
+  } finally {
+    if (saved) Object.defineProperty(process.stdout, 'isTTY', saved);
+    else delete (process.stdout as { isTTY?: boolean }).isTTY;
+  }
+}
 vi.mock('../../src/cli/stale-build.js', () => ({
   maybeWarnAboutStaleBuild: vi.fn(),
 }));
@@ -80,14 +93,15 @@ describe('runCLI native boundary', () => {
     await runCLI(['localSearch', '{"queries":[]}']);
     await runCLI(['localSearch', '--help']);
     expect(mocks.setRuntimeSurface).not.toHaveBeenCalled();
-    await runCLI(['scheme']);
+    await runCLI(['schema']);
     expect(mocks.setRuntimeSurface).toHaveBeenLastCalledWith('cli');
     mocks.setRuntimeSurface.mockClear();
+    // Root help is native and appends nothing.
     await runCLI(['--help']);
-    expect(mocks.setRuntimeSurface).toHaveBeenCalledTimes(1);
+    expect(mocks.setRuntimeSurface).not.toHaveBeenCalled();
   });
 
-  it('keeps clasify execution and help native while scheme discovery stays Node-owned', async () => {
+  it('keeps clasify execution and help native while schema discovery stays Node-owned', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
     const invocation = ['clasify', '{"resources":[],"questions":[]}'];
     await runCLI(invocation);
@@ -96,15 +110,28 @@ describe('runCLI native boundary', () => {
       invocation
     );
 
-    await runCLI(['scheme', 'clasify', '--compact']);
-    expect(mocks.schemeHandler).toHaveBeenLastCalledWith(
+    await runCLI(['schema', 'clasify', '--view', 'query']);
+    expect(mocks.schemaHandler).toHaveBeenLastCalledWith(
       expect.objectContaining({
-        command: 'scheme',
+        command: 'schema',
         args: ['clasify'],
-        options: expect.objectContaining({ compact: true }),
+        options: expect.objectContaining({ view: 'query' }),
       })
     );
     expect(mocks.delegate).toHaveBeenCalledTimes(1);
+
+    // The binary owns `schema --help` and `help schema`.
+    await runCLI(['schema', '--help']);
+    expect(mocks.delegate).toHaveBeenLastCalledWith('/native/octocode', [
+      'schema',
+      '--help',
+    ]);
+    await runCLI(['help', 'schema']);
+    expect(mocks.delegate).toHaveBeenLastCalledWith('/native/octocode', [
+      'help',
+      'schema',
+    ]);
+    expect(mocks.schemaHandler).toHaveBeenCalledTimes(1);
 
     await runCLI(['clasify', '--help']);
     expect(mocks.delegate).toHaveBeenLastCalledWith('/native/octocode', [
@@ -113,13 +140,26 @@ describe('runCLI native boundary', () => {
     ]);
   });
 
-  it('renders the agent overview (scheme catalog) for a bare invocation', async () => {
+  it('renders the schema catalog for a bare invocation on a pipe', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
-    await runCLI([]);
-    expect(mocks.schemeHandler).toHaveBeenCalledWith(
-      expect.objectContaining({ command: 'scheme', args: [] })
+    await withStdoutTty(false, async () => {
+      await runCLI([]);
+    });
+    expect(mocks.schemaHandler).toHaveBeenCalledWith(
+      expect.objectContaining({ command: 'schema', args: [] })
     );
     expect(mocks.delegate).not.toHaveBeenCalled();
+  });
+
+  it('prints native root help for a bare invocation on a terminal', async () => {
+    const { runCLI } = await import('../../src/cli/index.js');
+    await withStdoutTty(true, async () => {
+      await runCLI([]);
+    });
+    expect(mocks.delegate).toHaveBeenCalledWith('/native/octocode', [
+      '--help',
+    ]);
+    expect(mocks.schemaHandler).not.toHaveBeenCalled();
   });
 
   it('delegates top-level help, version, and unknown commands to native parsing', async () => {
@@ -140,32 +180,21 @@ describe('runCLI native boundary', () => {
   });
 
   it.each([['--help'], ['-h'], ['help']])(
-    'appends canonical instructions to root help %j',
+    'delegates root help %j to native without appending instructions',
     async (...argv) => {
       const { runCLI } = await import('../../src/cli/index.js');
       await runCLI(argv);
       expect(mocks.delegate).toHaveBeenCalledWith('/native/octocode', argv);
-      expect(mocks.printInstructions).toHaveBeenCalledTimes(1);
+      expect(mocks.delegate).toHaveBeenCalledTimes(1);
+      expect(mocks.schemaHandler).not.toHaveBeenCalled();
     }
   );
 
-  it('does not append instructions to subcommand help or failed parsing', async () => {
-    const { runCLI } = await import('../../src/cli/index.js');
-    await runCLI(['help', 'localSearch']);
-    await runCLI(['localSearch', '--help']);
-    expect(mocks.printInstructions).not.toHaveBeenCalled();
+  it('passes the native help exit code through', async () => {
     mocks.delegate.mockReturnValue(2);
-    await runCLI(['--help']);
-    expect(mocks.printInstructions).not.toHaveBeenCalled();
-    expect(process.exitCode).toBe(2);
-  });
-
-  it('keeps root help exit 0 when the instructions hit contract drift', async () => {
-    mocks.printInstructions.mockReturnValueOnce(5);
     const { runCLI } = await import('../../src/cli/index.js');
     await runCLI(['--help']);
-    expect(mocks.printInstructions).toHaveBeenCalledTimes(1);
-    expect(process.exitCode).toBe(0);
+    expect(process.exitCode).toBe(2);
   });
 
   it('normalizes boolean flags given as --flag=value', async () => {
@@ -262,7 +291,7 @@ describe('runCLI native boundary', () => {
     try {
       const result = await runCLI(['tools']);
       // Execution failure (exit 5), matching the native exit-code table and the
-      // `scheme` path — not a thrown generic exit 1.
+      // `schema` path — not a thrown generic exit 1.
       expect(result).toBe(false);
       expect(process.exitCode).toBe(5);
       expect(stderr).toHaveBeenCalledWith(

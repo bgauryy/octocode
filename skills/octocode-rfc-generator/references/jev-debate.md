@@ -1,6 +1,6 @@
 # Two agents, one bounded disagreement
 
-Load before spawning workers for the explicit protocol in `references/jev-review.md`. The protocol supplies frozen evidence.
+Load before spawning workers for the protocol in `references/jev-review.md`. Why: the packet, barriers, and roles stay frozen so both workers see the same evidence.
 
 ## Dispatch packet
 

@@ -9,8 +9,17 @@ use super::types::LineRange;
 /// Largest declaration a block read returns in one window.
 pub const BLOCK_MAX_LINES: usize = 400;
 
-/// 1-based inclusive spans of the multi-line declarations the engine outlines.
-pub(crate) fn declaration_spans(content: &str, path: &str) -> Option<Vec<(usize, usize)>> {
+/// One multi-line declaration of the engine outline, 1-based lines.
+pub(crate) struct Declared {
+    pub(crate) name: String,
+    /// Its name line.
+    pub(crate) line: usize,
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+}
+
+/// The multi-line declarations the engine outlines, in outline order.
+pub(crate) fn declarations(content: &str, path: &str) -> Option<Vec<Declared>> {
     // Shared with outline pages and search hits: one parse per file version.
     let raw = crate::tools::ast_search::declarations_cache::extract(content, path, false, || {
         octocode_engine::portable::extract_declarations(content, path)
@@ -23,17 +32,27 @@ pub(crate) fn declaration_spans(content: &str, path: &str) -> Option<Vec<(usize,
             .and_then(|line| usize::try_from(line).ok())
             .map(|line| line + 1)
     };
-    let spans: Vec<(usize, usize)> = facts["declarations"]
+    let declared: Vec<Declared> = facts["declarations"]
         .as_array()?
         .iter()
         .filter_map(|declaration| {
             let start = line(declaration, "/range/start/line")?;
             let end = line(declaration, "/range/end/line")?;
             // A one-line declaration is not a block to widen to.
-            (end > start).then_some((start, end))
+            (end > start).then(|| Declared {
+                name: declaration["name"].as_str().unwrap_or_default().to_owned(),
+                line: line(declaration, "/selectionRange/start/line").unwrap_or(start),
+                start,
+                end,
+            })
         })
         .collect();
-    (!spans.is_empty()).then_some(spans)
+    (!declared.is_empty()).then_some(declared)
+}
+
+/// 1-based inclusive spans of the multi-line declarations the engine outlines.
+pub(crate) fn declaration_spans(content: &str, path: &str) -> Option<Vec<(usize, usize)>> {
+    declarations(content, path).map(|declared| declared.iter().map(|d| (d.start, d.end)).collect())
 }
 
 /// Whether a source line is part of the doc comment or attribute run that
@@ -157,9 +176,26 @@ pub fn widen_ranges(
         .collect()
 }
 
+/// The innermost declaration containing `line`.
+fn innermost_declared(declared: &[Declared], line: usize) -> Option<&Declared> {
+    declared
+        .iter()
+        .filter(|d| d.start <= line && line <= d.end)
+        .min_by_key(|d| d.end - d.start)
+}
+
+/// Whether `hit` is a declaration's own head: its first line or its name
+/// line.
+fn declares(declared: &[Declared], hit: usize) -> bool {
+    innermost_declared(declared, hit).is_some_and(|d| d.start == hit || d.line == hit)
+}
+
 /// Replace each match window with the innermost declaration containing the
 /// matched line, when that declaration fits [`BLOCK_MAX_LINES`]; a larger
-/// one keeps the window and goes to `oversized_spans`.
+/// one keeps the window and goes to `oversized_spans`. When some hit is a
+/// declaration's own head, only those hits widen: a call site of the
+/// declared name keeps its window instead of reading its caller whole.
+/// Each widened declaration is named in `blocks`.
 pub fn widen_matches(
     content: &str,
     path: &str,
@@ -167,21 +203,39 @@ pub fn widen_matches(
     windows: Vec<LineRange>,
     warnings: &mut Vec<String>,
     oversized_spans: &mut Vec<LineRange>,
+    blocks: &mut Vec<super::types::DeclaredBlock>,
 ) -> Vec<LineRange> {
-    let Some(spans) = declaration_spans(content, path) else {
+    let Some(declared) = declarations(content, path) else {
         warnings.push(no_outline(path));
         return windows;
     };
+    let spans: Vec<(usize, usize)> = declared.iter().map(|d| (d.start, d.end)).collect();
+    let declaration_first = hits.iter().any(|&hit| declares(&declared, hit));
     let lines: Vec<&str> = content.lines().collect();
     let mut oversized = 0;
     let mut unenclosed = 0;
+    let mut call_sites = 0;
     let widened = hits
         .iter()
         .zip(windows)
         .map(|(&hit, window)| match innermost(&spans, hit) {
+            Some(_) if declaration_first && !declares(&declared, hit) => {
+                call_sites += 1;
+                window
+            }
             // A hit on the declaration's head reads it as written, docs
             // included; a hit inside reads the declaration it sits in.
             Some((start, end)) if end + 1 - start <= BLOCK_MAX_LINES => {
+                if let Some(owner) = innermost_declared(&declared, hit)
+                    && !owner.name.is_empty()
+                    && !blocks.iter().any(|block| block.line == owner.line)
+                {
+                    blocks.push(super::types::DeclaredBlock {
+                        symbol_name: owner.name.clone(),
+                        line: owner.line,
+                        end_line: owner.end,
+                    });
+                }
                 let (start, end) = if hit == start {
                     with_docs(&lines, path, (start, end))
                 } else {
@@ -201,6 +255,11 @@ pub fn widen_matches(
         })
         .collect();
     // `matchedLines` names every hit; the warning carries the count.
+    if call_sites > 0 {
+        warnings.push(format!(
+            "block: {call_sites} match(es) are not declaration heads; they keep their context window, and only the declarations matched by name widen."
+        ));
+    }
     if unenclosed > 0 {
         warnings.push(format!(
             "block: {unenclosed} match(es) sit outside any declaration; those keep their match context window. Read on with ranges."
@@ -297,6 +356,7 @@ mod tests {
             vec![LineRange { start: 18, end: 22 }],
             &mut warnings,
             &mut vec![],
+            &mut vec![],
         );
         assert_eq!(windows, vec![LineRange { start: 18, end: 22 }]);
     }
@@ -330,8 +390,8 @@ mod tests {
             vec![LineRange { start: 3, end: 8 }],
             "{warnings:?}"
         );
-        // A match on the declaration's own head reads it as written; a
-        // match inside its body reads the declaration it sits in.
+        // A match on the declaration's own head reads it as written; with
+        // a head hit present, a match inside a body keeps its window.
         let windows = widen_matches(
             source,
             "m.rs",
@@ -342,12 +402,13 @@ mod tests {
             ],
             &mut warnings,
             &mut vec![],
+            &mut vec![],
         );
         assert_eq!(
             windows,
             vec![
                 LineRange { start: 3, end: 8 },
-                LineRange { start: 6, end: 8 }
+                LineRange { start: 7, end: 7 }
             ]
         );
         // A blank line ends the doc run; a preprocessor line is not a doc.
@@ -372,6 +433,7 @@ mod tests {
             vec![LineRange { start: 9, end: 11 }],
             &mut warnings,
             &mut vec![],
+            &mut vec![],
         );
         assert_eq!(windows, vec![LineRange { start: 8, end: 11 }]);
         assert!(warnings.is_empty(), "{warnings:?}");
@@ -389,6 +451,7 @@ mod tests {
                 LineRange { start: 9, end: 11 },
             ],
             &mut warnings,
+            &mut vec![],
             &mut vec![],
         );
         assert_eq!(
@@ -416,8 +479,57 @@ mod tests {
             vec![LineRange { start: 1, end: 5 }],
             &mut warnings,
             &mut vec![],
+            &mut vec![],
         );
         assert_eq!(windows, vec![LineRange { start: 3, end: 9 }]);
         assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    /// A call-site hit keeps its window when a declaration hit exists; the
+    /// widened declaration is named.
+    #[test]
+    fn call_site_hits_keep_window_when_a_declaration_hit_exists() {
+        let source = PY.replace("return 1", "return first(1)");
+        let mut warnings = vec![];
+        let mut blocks = vec![];
+        let windows = widen_matches(
+            &source,
+            "m.py",
+            &[3, 10],
+            vec![
+                LineRange { start: 3, end: 3 },
+                LineRange { start: 10, end: 10 },
+            ],
+            &mut warnings,
+            &mut vec![],
+            &mut blocks,
+        );
+        assert_eq!(
+            windows,
+            vec![
+                LineRange { start: 3, end: 5 },
+                LineRange { start: 10, end: 10 }
+            ]
+        );
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(
+            (
+                blocks[0].symbol_name.as_str(),
+                blocks[0].line,
+                blocks[0].end_line
+            ),
+            ("first", 3, 5)
+        );
+        // No declaration hit: a call site still widens to its caller.
+        let windows = widen_matches(
+            PY,
+            "m.py",
+            &[10],
+            vec![LineRange { start: 10, end: 10 }],
+            &mut warnings,
+            &mut vec![],
+            &mut vec![],
+        );
+        assert_eq!(windows, vec![LineRange { start: 8, end: 11 }]);
     }
 }

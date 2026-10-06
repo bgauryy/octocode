@@ -1,6 +1,6 @@
 # Optional `clasify` review inside the RFC workflow
 
-Load when an admitted classification request or experiment needs the review protocol, and not otherwise. This optional protocol is not a verified research improvement.
+Load when an admitted classification request needs the review protocol. Why: this path is optional, and a missing capability stays an unjudged audit. It is not a verified research improvement.
 
 ## Availability and budget
 - Inspect the Octocode catalog once and check host subagent support. `references/jev-api.md` owns transport, schema discovery, credentials, and results. A catalog entry is not a successful provider call.
@@ -28,5 +28,5 @@ Read it as: the judge runs only for a disagreement that evidence and direct chec
 5. **Return.** Keep Draft while any decision blocker remains. Continue through `references/workflow.md`. Review does not authorize implementation.
 
 ## Receipts and delivery
-Store raw dispatches, both worker rounds, exact requests and results, revision or hash, requested model, provider-resolved models, availability/transport outcome, page-local coverage, usage, elapsed time, host checks, and ledger changes under `<output>/octocode-rfc-generator/{name}/review/`. Use the scratch directory for temporary packets. Write the cost receipt from `references/review-cost.md`. Keep transcripts outside the RFC and credentials and hidden reasoning out of all receipts. Chat-only work stays in chat.
+Store raw dispatches, both worker rounds, exact requests and results, revision or hash, requested model, provider-resolved models, availability/transport outcome, page-local coverage, usage, elapsed time, host checks, and ledger changes under `<output>/rfc/{name}/review/`. Use the scratch directory for temporary packets. Write the cost receipt from `references/review-cost.md`. Keep transcripts outside the RFC and credentials and hidden reasoning out of all receipts. Chat-only work stays in chat.
 Deliver changed answers, decisive evidence, remaining questions with owners and next checks, dissent, actual judge coverage, and measured cost. Include the contribution record from `references/jev-debate.md`. Provider availability, a passing preflight, and host verification are separate claims.

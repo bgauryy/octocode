@@ -335,7 +335,7 @@ fn load_layer(
     let mut value = load.config.unwrap_or_else(|| json!({}));
     let (issues, warnings) = config_issues(&value);
     for m in warnings {
-        diagnostics.push(warning("unknown_or_future_config", None, m, &load.path));
+        diagnostics.push(warning(UNKNOWN_CONFIG_CODE, None, m, &load.path));
     }
     for issue in issues {
         remove_path(&mut value, &issue.path);
@@ -471,7 +471,7 @@ pub fn get_config_value(resolved: &ResolvedConfig, path: &str) -> Option<Value> 
     get_path(&serde_json::to_value(resolved).ok()?, path).cloned()
 }
 pub fn is_stats_enabled(resolved: &ResolvedConfig) -> bool {
-    resolved.storage.mode == "persistent" && resolved.session.enable_stats
+    resolved.storage.mode == "persistent" && resolved.storage.stats
 }
 pub fn is_persistent_storage_enabled(resolved: &ResolvedConfig) -> bool {
     resolved.storage.mode == "persistent"

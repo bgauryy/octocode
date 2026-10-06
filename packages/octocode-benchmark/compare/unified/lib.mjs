@@ -113,7 +113,7 @@ export function buildPrompt(q) {
  *   isolation        { allowedToolPattern: regex source every offered/called tool must match,
  *                      requiredMcpServers: string[], forbidMcpServers: boolean }
  *   counters         [{ label, tool?: regex source, inputKey?: string }]  usage counters for the report
- *   familySelector   "checkout" (optional): per-session OCTOCODE_TOOL_FAMILY from sessionServerEnv
+ *   familySelector   "checkout" (optional): per-session TOOLS_TO_RUN family allowlist from sessionServerEnv
  *
  * mcpServers.octocode.env reaches the evaluator-owned native MCP server (isolation.mjs upstreamEnv),
  * so a catalog-shape arm is a profile env switch, e.g. OCTOCODE_DEFER_TOOLS=<tools>.
@@ -175,18 +175,29 @@ export function readJudgePlan(runDir) {
 }
 
 /**
+ * Tool families a host may start a session with, as TOOLS_TO_RUN allowlists:
+ * local = local + remote tools, github = GitHub + remote tools. The
+ * control's write tools (astRewrite, ghCloneRepo) stay out, since an
+ * allowlist overrides the isolation DISABLE_TOOLS.
+ */
+export const FAMILY_TOOLS = Object.freeze({
+  local: ['clasify', 'artifactSearch', 'localSearch', 'structureSearch', 'astSearch', 'localFetch', 'lspSearch', 'astTopology'],
+  github: ['clasify', 'artifactSearch', 'ghSearchRepo', 'ghSearchCode', 'ghStructure', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem'],
+});
+
+/**
  * Per-session server env from the profile's `familySelector` (none: {}).
  * `checkout` is the rule a host applies at session start, never the
  * question category: a session that opens in a local checkout (the prompt
- * names one, see buildPrompt) starts the local family (local + remote tools);
- * any other session starts the github family (GitHub + remote tools).
+ * names one, see buildPrompt) starts the local family; any other session
+ * starts the github family.
  */
 export function sessionServerEnv(profile, q) {
   const selector = profile.familySelector;
   if (!selector) return {};
   if (selector !== 'checkout') throw new Error(`unknown familySelector: ${selector}`);
   const checkout = (q?.repos ?? []).some((r) => r.path);
-  return { OCTOCODE_TOOL_FAMILY: checkout ? 'local' : 'github' };
+  return { TOOLS_TO_RUN: FAMILY_TOOLS[checkout ? 'local' : 'github'].join(',') };
 }
 
 /** Flags shared by every worker and the judge: clean lab, no settings/memory/skills, headless, stream-json. */

@@ -70,7 +70,7 @@ impl Workspace {
     #[cfg(unix)]
     pub fn fake_gh_path(&self) -> String {
         use std::os::unix::fs::PermissionsExt;
-        let script = self.write("bin/gh", "#!/bin/sh\n[ \"$1 $2 $3 $4\" = 'auth token --hostname 127.0.0.1' ] || exit 2\n[ -z \"$GH_TOKEN$GITHUB_TOKEN$OCTOCODE_TOKEN\" ] || exit 3\nprintf x >> \"$OCTOCODE_HOME/gh-calls\"\nprintf synthetic-gh-credential\n");
+        let script = self.write("bin/gh", "#!/bin/sh\n[ \"$1 $2 $3 $4\" = 'auth token --hostname 127.0.0.1' ] || exit 2\n[ -z \"$GH_TOKEN$GITHUB_TOKEN\" ] || exit 3\nprintf x >> \"$OCTOCODE_HOME/gh-calls\"\nprintf synthetic-gh-credential\n");
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o700))
             .expect("fake gh permissions");
         format!(
@@ -94,7 +94,7 @@ impl Workspace {
 
     pub fn config(&self, extra: &[(&str, String)]) -> ConfigInput {
         let mut env = BTreeMap::from([
-            ("ENABLE_LOCAL".into(), "true".into()),
+            ("OCTOCODE_ENABLE_LOCAL".into(), "true".into()),
             ("ENABLE_CLONE".into(), "false".into()),
             (
                 "ALLOWED_PATHS".into(),
@@ -108,7 +108,7 @@ impl Workspace {
                 "OCTOCODE_HOME".into(),
                 self.home.to_string_lossy().into_owned(),
             ),
-            ("OCTOCODE_TOKEN".into(), self.token.clone()),
+            ("GITHUB_TOKEN".into(), self.token.clone()),
             ("OCTOCODE_ENABLE_STATS".into(), "false".into()),
             ("MAX_RETRIES".into(), "0".into()),
             ("REQUEST_TIMEOUT".into(), "5000".into()),

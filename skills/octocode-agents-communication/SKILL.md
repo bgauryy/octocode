@@ -44,3 +44,6 @@ Follow read continuations unchanged. Check mail at task boundaries; avoid repeat
 Load `skill` for detailed setup, delivery recovery, and operating rules; use `schema <command>` for exact input fields.
 
 The default package command starts the MCP stdio server. Use `/cli` for operations.
+
+## Output
+One reply in chat. Shared state stays in the database the caller names. Do not write a second document for the same message.

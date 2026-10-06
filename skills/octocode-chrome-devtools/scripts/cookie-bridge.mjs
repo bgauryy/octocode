@@ -127,7 +127,7 @@ function filterCookies(cookies) {
     return URLS.some((u) => {
       try {
         const host = new URL(u).hostname;
-        return host === domain || host.endsWith(`.${domain}`) || domain.endsWith(host);
+        return host === domain || host.endsWith(`.${domain}`);
       } catch {
         return false;
       }
@@ -329,7 +329,7 @@ async function main() {
     cookies = filterCookies(cookies);
     const metas = cookies.map(cookieMeta);
     console.log(`[METRIC] cookies=${metas.length} domains=${new Set(metas.map(m => m.domain)).size}`);
-    console.log(`[FINDING] cookie-names=${metas.map(m => m.name).slice(0, 40).join(',')}${metas.length > 40 ? ',…' : ''}`);
+    console.log(`[FINDING] cookie-names=${metas.map(m => m.name).join(',')}`);
 
     if (EXPORT_STATE) {
       writeStorageState(EXPORT_STATE, cookies);

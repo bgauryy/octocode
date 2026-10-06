@@ -328,7 +328,7 @@ export async function createNativeMcp({
     // Availability-scoped instructions, built by core from the tools the
     // native runtime actually enables — the native catalog carries none.
     // Hosts truncate instructions near 2 KB, so the grammar inventory stays
-    // with `octocode scheme` rather than being appended here.
+    // with `octocode schema` rather than being appended here.
     instructions: buildMcpInstructions(
       listed.map(tool => tool.name),
       { deferred }

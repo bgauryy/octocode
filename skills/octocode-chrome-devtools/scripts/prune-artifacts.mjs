@@ -11,8 +11,13 @@ if (hasFlag('--help') || hasFlag('-h')) {
   process.exit(0);
 }
 
-const MAX_AGE_DAYS = parseFloat(getArg('--max-age-days', '3'));
-const MAX_COUNT    = parseInt(getArg('--max-count', '50'), 10);
+const MAX_AGE_DAYS = Number(getArg('--max-age-days', '3'));
+const MAX_COUNT    = Number(getArg('--max-count', '50'));
+if (!Number.isFinite(MAX_AGE_DAYS) || MAX_AGE_DAYS < 0 || !Number.isInteger(MAX_COUNT) || MAX_COUNT < 0) {
+  console.error('[PRUNE] Age must be nonnegative and count a nonnegative integer');
+  process.exit(2);
+}
+const failures = [];
 const DRY_RUN      = hasFlag('--dry-run');
 const BASE_OVERRIDE = getArg('--base', null);
 
@@ -45,11 +50,15 @@ function prune(dirs, label) {
   const overCap  = fresh.slice(MAX_COUNT);
   const toRemove = [...expired, ...overCap];
 
+  const removed = [];
   for (const d of toRemove) {
-    if (!DRY_RUN) { try { rmSync(d.path, { recursive: true, force: true }); } catch {} }
+    try {
+      if (!DRY_RUN) rmSync(d.path, { recursive: true, force: true });
+      removed.push(d.path);
+    } catch (error) { failures.push({ path: d.path, error: error.message }); }
   }
-  console.error(`[PRUNE] ${label}: ${dirs.length} found, ${toRemove.length} ${DRY_RUN ? 'would remove' : 'removed'}, ${dirs.length - toRemove.length} kept`);
-  return toRemove.map(d => d.name);
+  console.error(`[PRUNE] ${label}: ${dirs.length} found, ${removed.length} ${DRY_RUN ? 'would remove' : 'removed'}, ${dirs.length - removed.length} kept`);
+  return removed;
 }
 
 const runDirs = listDirs(BASE).filter(d => TIMESTAMP_RE.test(d.name));
@@ -60,11 +69,14 @@ const metaDirs = listDirs(sessionMetaBase).filter(d => PORT_DIR_RE.test(d.name))
 const removedMeta = prune(metaDirs, 'session-meta directories');
 
 console.log(JSON.stringify({
-  status: 'PRUNE_COMPLETE',
+  status: failures.length ? 'PRUNE_PARTIAL' : 'PRUNE_COMPLETE',
+  failures,
   dryRun: DRY_RUN,
   maxAgeDays: MAX_AGE_DAYS,
   maxCount: MAX_COUNT,
   base: BASE,
-  runDirs: { found: runDirs.length, removed: removedRuns.length },
-  sessionMetaDirs: { found: metaDirs.length, removed: removedMeta.length },
+  runDirs: { found: runDirs.length, removed: removedRuns.length, paths: removedRuns },
+  sessionMetaDirs: { found: metaDirs.length, removed: removedMeta.length, paths: removedMeta },
 }, null, 2));
+
+if (failures.length) process.exitCode = 1;

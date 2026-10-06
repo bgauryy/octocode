@@ -38,7 +38,7 @@ hex = { workspace = true }
 flate2 = { workspace = true }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 reqwest = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "io-util", "time"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

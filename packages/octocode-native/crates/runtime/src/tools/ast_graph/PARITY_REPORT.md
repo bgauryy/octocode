@@ -24,7 +24,7 @@ LANG=C.UTF-8
 LC_ALL=C.UTF-8
 NO_COLOR=1
 ALLOWED_PATHS=/Users/bgaryy/code/octocode/packages/octocode-native
-ENABLE_LOCAL=true
+OCTOCODE_ENABLE_LOCAL=true
 ```
 
 The reference always runs with the explicit supported Node 24 executable. The

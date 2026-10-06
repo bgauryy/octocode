@@ -1,6 +1,5 @@
 import {
   delegateToNative,
-  NODE_OWNED_COMMANDS,
   resolveNativeBin,
   shouldDelegateToNative,
 } from './native-delegate.js';
@@ -11,8 +10,8 @@ import { EXIT } from './exit-codes.js';
  * The npm CLI is a launcher, not a second implementation. The native Rust
  * binary owns command parsing, command help, validation, and execution.
  * Node retains presentation and management responsibilities:
- *  - `scheme`: joins core-owned presentation with the native machine catalog
- *    after a fail-closed fingerprint check (also supplies root help instructions),
+ *  - `schema`: joins core-owned presentation with the native machine catalog
+ *    after a fail-closed fingerprint check,
  *  - `skill`: bundled-skill materialization (the native `skill` command
  *    shells back to this CLI; delegating it would recurse), and
  *  - the TTY client picker for a bare `install` (selection only — every
@@ -43,26 +42,25 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
 
   const rawArgv = argv ?? process.argv.slice(2);
   const args = parseArgs(rawArgv);
-  if (args.options['no-color']) process.env.NO_COLOR = '1';
   if (
     args.command === 'help' &&
-    args.args[0] !== undefined &&
-    NODE_OWNED_COMMANDS.has(args.args[0])
+    args.args[0] === 'skill'
   ) {
     args.command = args.args.shift() ?? null;
     args.options.help = true;
   }
 
-  // A bare `octocode` (no command, no help/version flag) is the agent overview:
-  // the same catalog `scheme` emits — enabled tools' short descriptions, the
-  // `scheme <name>` route to a tool's params, and the canonical instructions.
-  // Root help appends the same instructions to the native command reference;
-  // a bare `--version` prints the release version (see version.ts).
+  // A bare `octocode` is the overview for whoever runs it: the command
+  // reference on a terminal, the tool catalog with agent instructions (the
+  // `schema` listing) on a pipe.
   if (args.command === null && !hasHelpFlag(args) && !hasVersionFlag(args)) {
-    await enterNodeOwnedSurface();
-    const { schemeCommand } = await import('./commands/scheme.js');
-    await schemeCommand.handler({ ...args, command: 'scheme', args: [] });
-    return true;
+    if (process.stdout.isTTY !== true) {
+      await enterNodeOwnedSurface();
+      const { schemaCommand } = await import('./commands/schema.js');
+      await schemaCommand.handler({ ...args, command: 'schema', args: [] });
+      return true;
+    }
+    rawArgv.push('--help');
   }
 
   if (args.command === null && hasVersionFlag(args) && !hasHelpFlag(args)) {
@@ -74,11 +72,15 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     }
   }
 
-  if (!shouldDelegateToNative(args.command)) {
+  // The binary owns command help, `schema --help` included.
+  const nodeOwned =
+    !shouldDelegateToNative(args.command) &&
+    !(args.command === 'schema' && hasHelpFlag(args));
+  if (nodeOwned) {
     await enterNodeOwnedSurface();
-    if (args.command === 'scheme') {
-      const { schemeCommand } = await import('./commands/scheme.js');
-      await schemeCommand.handler(args);
+    if (args.command === 'schema') {
+      const { schemaCommand } = await import('./commands/schema.js');
+      await schemaCommand.handler(args);
       return true;
     }
     const { skillCommand } = await import('./commands/skill.js');
@@ -89,7 +91,7 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   const bin = resolveNativeBin();
   if (!bin) {
     // Runtime-unavailable is an execution failure (exit 5), matching the native
-    // exit-code table and the `scheme` path; do not throw into main().catch,
+    // exit-code table and the `schema` path; do not throw into main().catch,
     // which would report a generic exit 1 for the same condition.
     process.stderr.write(
       'The native Octocode runtime is unavailable for this platform or installation.\n'
@@ -127,16 +129,6 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     process.exitCode = await runInteractiveInstall(bin, rawArgv);
   } else {
     process.exitCode = await delegateToNative(bin, rawArgv);
-    const rootHelp =
-      (args.command === null && hasHelpFlag(args)) ||
-      (args.command === 'help' && args.args.length === 0);
-    if (process.exitCode === EXIT.OK && rootHelp) {
-      await enterNodeOwnedSurface();
-      const { printAgentInstructions } = await import('./commands/scheme.js');
-      // Help must never fail: drift/unavailable-catalog diagnostics are
-      // already written to stderr by the presenter, so the exit code stays OK.
-      await printAgentInstructions();
-    }
   }
   return true;
 }

@@ -13,6 +13,7 @@ import {
   parseEnv,
   PROTECTED_KEYS,
   propagateOctocodeEnv,
+  resolveConfigFields,
 } from '../src/index.js';
 
 describe('storage policy', () => {
@@ -167,13 +168,8 @@ describe('PROTECTED_KEYS', () => {
     }
   });
 
-  it('allows all four auth token vars as trusted file fallbacks', () => {
-    for (const k of [
-      'OCTOCODE_TOKEN',
-      'GH_TOKEN',
-      'GITHUB_TOKEN',
-      'GITHUB_PERSONAL_ACCESS_TOKEN',
-    ]) {
+  it('allows both auth token vars as trusted file fallbacks', () => {
+    for (const k of ['GH_TOKEN', 'GITHUB_TOKEN']) {
       expect(PROTECTED_KEYS.has(k)).toBe(false);
     }
   });
@@ -188,8 +184,8 @@ describe('PROTECTED_KEYS', () => {
       'WORKSPACE_ROOT',
       'OCTOCODE_BETA',
       'OCTOCODE_CARGO',
-      'OCTOCODE_TS_SERVER_PATH',
-      'GH_HOST',
+      'OCTOCODE_LSP_AUTO_INSTALL',
+      'OCTOCODE_LSP_CACHE_DIR',
     ]) {
       expect(PROTECTED_KEYS.has(k), `${k} should be protected`).toBe(true);
     }
@@ -216,20 +212,12 @@ describe('PROTECTED_KEYS', () => {
       'TMPDIR',
       'NODE_OPTIONS',
       'PYTHON',
-      'GH_HOST',
       // A trusted-project .env must not relocate a child's config home.
       'OCTOCODE_HOME',
       // Home-only: a workspace .env must not redirect credentials, widen the
-      // sandbox, or pick executables.
-      'OCTOCODE_TS_SERVER_PATH',
-      'OCTOCODE_RUST_SERVER_PATH',
-      'OCTOCODE_GO_SERVER_PATH',
-      'OCTOCODE_PYTHON_SERVER_PATH',
-      'OCTOCODE_JAVA_SERVER_PATH',
-      'OCTOCODE_CLANGD_SERVER_PATH',
-      'OCTOCODE_CSHARP_SERVER_PATH',
-      'OCTOCODE_SCALA_SERVER_PATH',
-      'OCTOCODE_ASM_SERVER_PATH',
+      // sandbox, or pick or download executables.
+      'OCTOCODE_LSP_AUTO_INSTALL',
+      'OCTOCODE_LSP_CACHE_DIR',
       'OCTOCODE_TRUST_PROJECT_LSP_CONFIG',
       // Storage mode decides what persists on disk: home-trusted only.
       'OCTOCODE_STORAGE_MODE',
@@ -596,13 +584,8 @@ import {
 } from '../src/tokens/envTokens.js';
 
 describe('ENV_TOKEN_VARS', () => {
-  it('lists all four token vars in priority order', () => {
-    expect(ENV_TOKEN_VARS).toEqual([
-      'OCTOCODE_TOKEN',
-      'GH_TOKEN',
-      'GITHUB_TOKEN',
-      'GITHUB_PERSONAL_ACCESS_TOKEN',
-    ]);
+  it('lists both token vars in priority order', () => {
+    expect(ENV_TOKEN_VARS).toEqual(['GH_TOKEN', 'GITHUB_TOKEN']);
   });
 });
 
@@ -612,18 +595,23 @@ describe('getTokenFromEnv', () => {
   });
 
   it('returns the first non-empty token found', () => {
-    expect(getTokenFromEnv({ OCTOCODE_TOKEN: 'tok1' })).toBe('tok1');
-    expect(getTokenFromEnv({ GH_TOKEN: 'tok2' })).toBe('tok2');
-    expect(getTokenFromEnv({ GITHUB_TOKEN: 'tok3' })).toBe('tok3');
-    expect(getTokenFromEnv({ GITHUB_PERSONAL_ACCESS_TOKEN: 'tok4' })).toBe(
-      'tok4'
+    expect(getTokenFromEnv({ GH_TOKEN: 'tok1' })).toBe('tok1');
+    expect(getTokenFromEnv({ GITHUB_TOKEN: 'tok2' })).toBe('tok2');
+  });
+
+  it('GH_TOKEN beats GITHUB_TOKEN', () => {
+    expect(getTokenFromEnv({ GH_TOKEN: 'high', GITHUB_TOKEN: 'low' })).toBe(
+      'high'
     );
   });
 
-  it('OCTOCODE_TOKEN beats GH_TOKEN', () => {
-    expect(getTokenFromEnv({ OCTOCODE_TOKEN: 'high', GH_TOKEN: 'low' })).toBe(
-      'high'
-    );
+  it('ignores retired token names', () => {
+    expect(
+      getTokenFromEnv({
+        OCTOCODE_TOKEN: 'retired',
+        GITHUB_PERSONAL_ACCESS_TOKEN: 'retired',
+      })
+    ).toBeNull();
   });
 
   it('trims whitespace from token', () => {
@@ -637,13 +625,8 @@ describe('getEnvTokenSource', () => {
   });
 
   it('returns the correct source label', () => {
-    expect(getEnvTokenSource({ OCTOCODE_TOKEN: 'x' })).toBe(
-      'env:OCTOCODE_TOKEN'
-    );
     expect(getEnvTokenSource({ GH_TOKEN: 'x' })).toBe('env:GH_TOKEN');
-    expect(getEnvTokenSource({ GITHUB_PERSONAL_ACCESS_TOKEN: 'x' })).toBe(
-      'env:GITHUB_PERSONAL_ACCESS_TOKEN'
-    );
+    expect(getEnvTokenSource({ GITHUB_TOKEN: 'x' })).toBe('env:GITHUB_TOKEN');
   });
 });
 
@@ -1204,7 +1187,7 @@ describe('resolveLocal', () => {
 
   beforeEach(() => {
     for (const key of [
-      'ENABLE_LOCAL',
+      'OCTOCODE_ENABLE_LOCAL',
       'OCTOCODE_BETA',
       'ALLOWED_PATHS',
       'WORKSPACE_ROOT',
@@ -1256,7 +1239,7 @@ describe('resolveLocal', () => {
   });
 
   it('env overrides local file config', () => {
-    process.env['ENABLE_LOCAL'] = 'false';
+    process.env['OCTOCODE_ENABLE_LOCAL'] = 'false';
     process.env['OCTOCODE_BETA'] = 'true';
     process.env['ALLOWED_PATHS'] = ' /a, /b ,, ';
     process.env['WORKSPACE_ROOT'] = ' /workspace ';
@@ -1298,7 +1281,6 @@ describe('resolveTools', () => {
     expect(resolveTools({ enabled: ['a'], disabled: ['c'] })).toEqual({
       enabled: ['a'],
       disabled: ['c'],
-      family: 'all',
     });
 
     process.env['TOOLS_TO_RUN'] = 'x,y';
@@ -1306,7 +1288,6 @@ describe('resolveTools', () => {
     expect(resolveTools({ enabled: ['a'], disabled: ['c'] })).toEqual({
       enabled: ['x', 'y'],
       disabled: ['blocked'],
-      family: 'all',
     });
   });
 });
@@ -1321,18 +1302,18 @@ describe('resolveStorage', () => {
 
   it('defaults to persistent storage and accepts a file opt-out', () => {
     delete process.env['OCTOCODE_STORAGE_MODE'];
-    expect(resolveStorage()).toEqual({ mode: 'persistent' });
-    expect(resolveStorage({ mode: 'memory' })).toEqual({ mode: 'memory' });
+    expect(resolveStorage().mode).toBe('persistent');
+    expect(resolveStorage({ mode: 'memory' }).mode).toBe('memory');
   });
 
   it('lets the environment force memory-only operation', () => {
     process.env['OCTOCODE_STORAGE_MODE'] = 'memory';
-    expect(resolveStorage({ mode: 'persistent' })).toEqual({ mode: 'memory' });
+    expect(resolveStorage({ mode: 'persistent' }).mode).toBe('memory');
   });
 
   it('does not let an invalid environment value defeat a file privacy choice', () => {
     process.env['OCTOCODE_STORAGE_MODE'] = 'memroy';
-    expect(resolveStorage({ mode: 'memory' })).toEqual({ mode: 'memory' });
+    expect(resolveStorage({ mode: 'memory' }).mode).toBe('memory');
   });
 });
 
@@ -1450,43 +1431,27 @@ describe('resolveOutput', () => {
   });
 });
 
-// ─── resolveSession ───────────────────────────────────────────────────────────
+// ─── storage.stats ────────────────────────────────────────────────────────────
 
-import { resolveSession } from '../src/config/resolverSections.js';
-import { DEFAULT_SESSION_CONFIG } from '../src/config/defaults.js';
-
-describe('resolveSession', () => {
-  afterEach(() => {
-    delete process.env['OCTOCODE_ENABLE_STATS'];
+describe('storage.stats', () => {
+  it('defaults to false and follows OCTOCODE_ENABLE_STATS', () => {
+    expect(resolveConfigFields({}, {}).storage.stats).toBe(false);
+    for (const [raw, expected] of [
+      ['1', true],
+      ['true', true],
+      ['false', false],
+      ['0', false],
+    ] as const) {
+      expect(
+        resolveConfigFields({}, { OCTOCODE_ENABLE_STATS: raw }).storage.stats
+      ).toBe(expected);
+    }
   });
 
-  it('returns enableStats:false by default (env var unset)', () => {
-    delete process.env['OCTOCODE_ENABLE_STATS'];
-    expect(resolveSession().enableStats).toBe(false);
-  });
-
-  it('returns enableStats:true when OCTOCODE_ENABLE_STATS=1', () => {
-    process.env['OCTOCODE_ENABLE_STATS'] = '1';
-    expect(resolveSession().enableStats).toBe(true);
-  });
-
-  it('returns enableStats:true when OCTOCODE_ENABLE_STATS=true', () => {
-    process.env['OCTOCODE_ENABLE_STATS'] = 'true';
-    expect(resolveSession().enableStats).toBe(true);
-  });
-
-  it('returns enableStats:false when OCTOCODE_ENABLE_STATS=false', () => {
-    process.env['OCTOCODE_ENABLE_STATS'] = 'false';
-    expect(resolveSession().enableStats).toBe(false);
-  });
-
-  it('returns enableStats:false when OCTOCODE_ENABLE_STATS=0', () => {
-    process.env['OCTOCODE_ENABLE_STATS'] = '0';
-    expect(resolveSession().enableStats).toBe(false);
-  });
-
-  it('DEFAULT_SESSION_CONFIG.enableStats is false', () => {
-    expect(DEFAULT_SESSION_CONFIG.enableStats).toBe(false);
+  it('reads storage.stats from .octocoderc', () => {
+    expect(resolveConfigFields({ storage: { stats: true } }, {}).storage.stats).toBe(
+      true
+    );
   });
 });
 

@@ -356,11 +356,16 @@ fn verification_read(
             .as_ref()
             .is_ok_and(|data| data["answer"]["type"] == "locate")
     });
-    if located
-        || page.contains_key("next")
-        || receipt.get("read").is_some()
-        || !worth_reading(answers)
-    {
+    if located || !worth_reading(answers) {
+        return;
+    }
+    page_read(page, receipt);
+}
+
+/// The page's own read when it publishes none: the selected history page, or
+/// exactly its file lines (or byte page) from the direct-file template.
+fn page_read(page: &mut Map<String, Value>, receipt: &Value) {
+    if page.contains_key("next") || receipt.get("read").is_some() {
         return;
     }
     if let Some(read) = receipt.get("pageRead") {
@@ -435,6 +440,10 @@ pub(super) fn resource(
                     narrow_read_to_top_window(&mut page, read_template(&receipt), &answers);
                 } else if answers.iter().any(Result::is_ok) {
                     verification_read(&mut page, &receipt, &answers);
+                } else {
+                    // Nothing judged (quota, provider down): the page's own
+                    // read is the host's only way forward.
+                    page_read(&mut page, &receipt);
                 }
                 let mut by_question = Map::new();
                 for (id, answer) in question_ids.iter().zip(answers) {

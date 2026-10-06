@@ -11,6 +11,8 @@
 'use strict';
 
 const {
+  existsSync,
+  readFileSync,
   statSync,
   mkdirSync,
   mkdtempSync,
@@ -99,7 +101,7 @@ if (version.status !== 0 || !version.stdout.includes(pkg.version)) {
   );
 }
 
-const catalog = run(['scheme', '--compact'], {
+const catalog = run(['catalog'], {
   env: { ...process.env, ENABLE_CLONE: 'false' },
 });
 const parsed = parseOutput(catalog);
@@ -114,14 +116,17 @@ if (
   );
 }
 
-const schema = run(['scheme', 'lspSearch', '--view', 'query', '--compact']);
-const schemaText = JSON.stringify(parseOutput(schema)?.querySchema ?? {});
-if (
-  schema.status !== 0 ||
-  !schemaText.includes('"position"') ||
-  !schemaText.includes('"snapshot"') ||
-  !schemaText.includes('"contextLines"')
-) {
+// The embedded enforcement contract is the generated one: same fingerprint
+// (in the monorepo), and its lspSearch fields are the current ones.
+const generatedContract = join(__dirname, '..', '..', 'octocode-config', 'contract', 'tool-contract.json');
+if (existsSync(generatedContract)) {
+  const expected = JSON.parse(readFileSync(generatedContract, 'utf8')).fingerprint;
+  if (parsed?.fingerprint !== expected) {
+    fail(`binary embeds contract ${parsed?.fingerprint}, expected ${expected}`);
+  }
+}
+const lspFields = tools.find(tool => tool.name === 'lspSearch')?.fields ?? '';
+if (!lspFields.includes('position') || !lspFields.includes('workspaceSymbol')) {
   fail('binary does not embed the current lspSearch contract');
 }
 
@@ -143,7 +148,7 @@ try {
     ALLOWED_PATHS: fixture,
     WORKSPACE_ROOT: fixture,
     OCTOCODE_HOME: home,
-    ENABLE_LOCAL: 'true',
+    OCTOCODE_ENABLE_LOCAL: 'true',
     ENABLE_CLONE: 'false',
     OCTOCODE_ENABLE_STATS: 'false',
   };

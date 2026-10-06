@@ -127,7 +127,7 @@ pub(super) struct GitHubServices {
     provider: GitHubProvider<StaticCredentialResolver, GitHubContentCache>,
     timeout: Duration,
     home: PathBuf,
-    /// Resolved `cloneCache.*` limits for ghCloneRepo.
+    /// Resolved `storage.cloneCache.*` limits for ghCloneRepo.
     clone_limits: crate::config::CloneCacheConfig,
     /// `output.pagination.defaultCharLength`: patch pages are sized to fit it.
     auto_page_chars: usize,
@@ -163,7 +163,7 @@ impl GitHubServices {
                 .then(|| home.join("tmp").join("ratelimit")),
         );
         let timeout = Duration::from_secs_f64(config.resolved.network.timeout / 1000.0);
-        let clone_limits = config.resolved.clone_cache.clone();
+        let clone_limits = config.resolved.storage.clone_cache.clone();
         let auto_page_chars = config.resolved.output.pagination.default_char_length as usize;
         let credentials = Authentication::new(config);
         Ok(Self {
@@ -570,7 +570,7 @@ mod tests {
         ] {
             let rendered = result.data.to_string();
             assert!(rendered.contains("octocode auth login"), "{rendered}");
-            assert!(rendered.contains("OCTOCODE_TOKEN"), "{rendered}");
+            assert!(rendered.contains("GH_TOKEN"), "{rendered}");
             assert!(rendered.contains("invalid env token"), "{rendered}");
             assert!(!rendered.contains("octocode login"), "{rendered}");
         }
@@ -597,7 +597,7 @@ mod tests {
         ] {
             let text = result.data["error"].as_str().unwrap_or_default();
             assert!(text.contains("legal reasons"), "{}", result.data);
-            assert_eq!(result.data["retryable"], false);
+            assert!(result.data.get("retryable").is_none(), "{}", result.data);
             assert_eq!(result.data["errorCode"], "unavailable");
             let rendered = result.data.to_string();
             assert!(
@@ -712,7 +712,6 @@ mod tests {
             &json!({
                 "error": "Invalid search query or request parameters: repository rename not followed",
                 "errorCode": "invalidInput",
-                "retryable": false,
                 "httpStatus": 422,
                 "rateLimit": {"remaining": 11, "resetEpochSeconds": 1_700_000_000_u64},
                 "hints": ["Correct the invalid GitHub query fields."]
@@ -750,13 +749,14 @@ mod tests {
         assert_eq!(result.failure, Some(FailureKind::NotFound));
         assert_eq!(data["errorCode"], json!("notFound"));
         assert_eq!(data["httpStatus"], json!(404));
-        assert_eq!(data["retryable"], false);
+        assert!(data.get("retryable").is_none(), "{data}");
         assert_eq!(
             data["error"].as_str(),
             Some("Branch, tag, or SHA not found for a/b: \"no-such-branch\"")
         );
+        // The error names the ref; the hint leads to the ref listing.
         let hint = data["hints"][0].as_str().expect("ref hint");
-        assert!(hint.contains("no-such-branch"), "{hint}");
+        assert!(hint.contains("viewStructure"), "{hint}");
 
         // The commits-endpoint flavor (422 Validation) maps the same way.
         let error = ProviderError {
@@ -949,9 +949,10 @@ mod tests {
         assert!(!advised(secondary_with_quota(), true));
     }
 
-    /// Every provider/transport row says whether a retry can help.
+    /// N7: a provider/transport row states `retryable:true` when a retry can
+    /// help and omits the key otherwise (absence = do not retry unchanged).
     #[test]
-    fn every_github_provider_row_states_retryable() {
+    fn provider_rows_state_retryable_only_when_true() {
         for kind in [
             ProviderErrorKind::Transport,
             ProviderErrorKind::Timeout,
@@ -968,7 +969,8 @@ mod tests {
                 provider_error(error.clone()),
             ] {
                 assert_eq!(
-                    result.data["retryable"], expected,
+                    result.data.get("retryable"),
+                    expected.then_some(&json!(true)),
                     "{kind:?}: {}",
                     result.data
                 );

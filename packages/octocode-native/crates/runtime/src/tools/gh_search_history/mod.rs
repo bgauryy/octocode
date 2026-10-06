@@ -10,7 +10,7 @@ mod errors;
 mod filters;
 mod leads;
 mod query;
-mod rows;
+pub(crate) mod rows;
 mod shape;
 #[cfg(test)]
 mod tests;

@@ -14,7 +14,6 @@ struct ServerSpec {
     language_id: &'static str,
     command: &'static str,
     args: &'static [&'static str],
-    env_var: Option<&'static str>,
 }
 
 #[derive(Deserialize)]
@@ -47,8 +46,7 @@ pub struct LspDiscoveryOptions {
     pub config_path: Option<PathBuf>,
     pub trust_project_config: bool,
     /// The host's resolved settings (process env plus the trusted `.env`
-    /// layers): the `*_SERVER_PATH` overrides and
-    /// `OCTOCODE_TRUST_PROJECT_LSP_CONFIG` are read here, never from the
+    /// layers, and `lsp.cacheDir` as `OCTOCODE_LSP_CACHE_DIR`), never the
     /// process env directly.
     pub env: BTreeMap<String, String>,
     /// The octocode home: the user `lsp-servers.json`, managed server
@@ -77,22 +75,14 @@ impl LspDiscoveryOptions {
         resolve_cached_server(&self.managed_root()?, command, &platform_id())
     }
 
+    /// The host's resolved `lsp.trustProjectConfig` (or a trusted project).
     fn trusts_project(&self) -> bool {
         self.trust_project_config
-            || self
-                .setting("OCTOCODE_TRUST_PROJECT_LSP_CONFIG")
-                .is_some_and(|value| {
-                    matches!(
-                        value.trim().to_ascii_lowercase().as_str(),
-                        "1" | "true" | "yes" | "on"
-                    )
-                })
     }
 }
 
-/// The language server for `file_path`: an explicit `*_SERVER_PATH`
-/// override, then a user `lsp-servers.json` entry, then the built-in server
-/// (a managed install before `PATH`).
+/// The language server for `file_path`: a user `lsp-servers.json` entry,
+/// then the built-in server (a managed install before `PATH`).
 pub fn default_server_for_file(
     file_path: &str,
     workspace_root: &str,
@@ -101,31 +91,12 @@ pub fn default_server_for_file(
     let extension = extension_key(file_path)?;
 
     // Assembly has no built-in default server (ARCHITECTURE: it requires trusted
-    // custom configuration). An explicit `OCTOCODE_ASM_SERVER_PATH` is that
-    // configuration expressed via env and wins over a config file; without it,
-    // only a user `lsp-servers.json` entry can launch a server — never a default.
+    // custom configuration): only a user `lsp-servers.json` entry launches one.
     if matches!(extension.as_str(), ".asm" | ".assembly" | ".s") {
-        if let Some(command) = options.setting("OCTOCODE_ASM_SERVER_PATH") {
-            return Some(JsLanguageServerConfig {
-                command: command.to_owned(),
-                args: Some(Vec::new()),
-                workspace_root: workspace_root.to_owned(),
-                language_id: Some("asm".to_owned()),
-                initialization_options: None,
-                env: None,
-                max_memory_mb: None,
-            });
-        }
         return user_server_for_extension(&extension, workspace_root, options);
     }
 
     let spec = spec_for_extension(&extension);
-
-    // Explicit env overrides are the top of the resolution ladder for known
-    // languages. They must win even when .octocode/lsp-servers.json exists.
-    if let Some(spec) = spec.filter(|spec| spec_override(spec, options).is_some()) {
-        return Some(config_from_spec(spec, workspace_root, options));
-    }
 
     if let Some(mut config) = user_server_for_extension(&extension, workspace_root, options) {
         apply_server_default_options(&mut config, options.octocode_home.as_deref());
@@ -480,11 +451,6 @@ fn first_source_under(start: &Path, family: &[&str]) -> Option<String> {
     None
 }
 
-/// The spec's explicit `*_SERVER_PATH` override, if set.
-fn spec_override<'a>(spec: &ServerSpec, options: &'a LspDiscoveryOptions) -> Option<&'a str> {
-    options.setting(spec.env_var?)
-}
-
 fn config_from_spec(
     spec: ServerSpec,
     workspace_root: &str,
@@ -500,9 +466,9 @@ fn config_from_spec(
         env: None,
         max_memory_mb: None,
     };
-    // The built-in Rust route is rust-analyzer even when an override points
-    // at a differently named binary (e.g. `rust-analyzer-nightly`).
-    if spec.env_var == Some("OCTOCODE_RUST_SERVER_PATH") {
+    // The built-in Rust route is rust-analyzer even from a managed install
+    // whose file name differs.
+    if spec.language_id == "rust" {
         apply_rust_analyzer_defaults(&mut config);
     } else {
         apply_server_default_options(&mut config, options.octocode_home.as_deref());
@@ -510,62 +476,25 @@ fn config_from_spec(
     config
 }
 
-/// True for the JS/TS server spec (the one fronting the TS backend selection).
-fn is_typescript_spec(spec: &ServerSpec) -> bool {
-    spec.env_var == Some("OCTOCODE_TS_SERVER_PATH")
-}
-
-/// `tsgo` (Microsoft's Go-native TypeScript server) speaks LSP over stdio with
-/// `--lsp -stdio`, unlike `typescript-language-server`'s `--stdio`.
-fn command_is_tsgo(command: &str) -> bool {
-    Path::new(command)
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.eq_ignore_ascii_case("tsgo"))
-}
-
-fn tsgo_args() -> Vec<String> {
-    vec!["--lsp".to_owned(), "-stdio".to_owned()]
-}
-
-/// Resolve a spec's command + args. JS/TS keeps
-/// `typescript-language-server` as the stable default. An explicit
-/// `OCTOCODE_TS_SERVER_PATH` may select `tsgo`, whose invocation differs.
+/// Resolve a spec's command + args: a managed install, else the command on
+/// `PATH`; Python prefers an installed pyright-family server. Any other
+/// server (e.g. `tsgo`) is a user `lsp-servers.json` entry.
 fn resolve_spec_invocation(
     spec: &ServerSpec,
     workspace_root: &str,
     options: &LspDiscoveryOptions,
 ) -> (String, Vec<String>) {
     let trust_workspace = options.trusts_project();
-    let env_override = spec_override(spec, options).map(str::to_owned);
-
-    if is_typescript_spec(spec) {
-        // 1) Explicit override — pick args by whether it points at tsgo.
-        if let Some(command) = env_override {
-            let args = if command_is_tsgo(&command) {
-                tsgo_args()
-            } else {
-                spec.args.iter().map(|arg| (*arg).to_owned()).collect()
-            };
-            return resolve_server_invocation(&command, args, workspace_root, trust_workspace);
-        }
-        // Automatic tsgo preference is intentionally disabled until the
-        // held-out parity matrix covers all public LSP operations.
-    }
-
-    if is_python_spec(spec) && env_override.is_none() {
+    if spec.language_id == "python" {
         let path_var = std::env::var_os("PATH");
         if let Some(invocation) = resolve_pyright_family(workspace_root, path_var.as_deref()) {
             return invocation;
         }
     }
 
-    let command = env_override
-        .or_else(|| {
-            options
-                .managed_server(spec.command)
-                .map(|path| path.to_string_lossy().into_owned())
-        })
+    let command = options
+        .managed_server(spec.command)
+        .map(|path| path.to_string_lossy().into_owned())
         .unwrap_or_else(|| spec.command.to_owned());
     resolve_server_invocation(
         &command,
@@ -573,10 +502,6 @@ fn resolve_spec_invocation(
         workspace_root,
         trust_workspace,
     )
-}
-
-fn is_python_spec(spec: &ServerSpec) -> bool {
-    spec.env_var == Some("OCTOCODE_PYTHON_SERVER_PATH")
 }
 
 /// Python servers in preference order. basedpyright and pyright implement
@@ -587,8 +512,8 @@ const PYRIGHT_FAMILY: &[&str] = &["basedpyright-langserver", "pyright-langserver
 /// The first pyright-family server installed on `path_var`, as
 /// `(command, ["--stdio"])`. Only `PATH` is searched: this preference is
 /// automatic, so a checkout's own `node_modules/.bin` must not be able to
-/// swap in an executable it ships. Users who want a workspace-local server set
-/// `OCTOCODE_PYTHON_SERVER_PATH` or an LSP config entry. `None` means neither
+/// swap in an executable it ships. Users who want a workspace-local server add
+/// an `lsp-servers.json` entry. `None` means neither
 /// is installed and the caller falls back to `pylsp`.
 fn resolve_pyright_family(
     workspace_root: &str,
@@ -828,79 +753,66 @@ fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
             language_id: "typescript",
             command: "typescript-language-server",
             args: &["--stdio"],
-            env_var: Some("OCTOCODE_TS_SERVER_PATH"),
         },
         ".tsx" => ServerSpec {
             language_id: "typescriptreact",
             command: "typescript-language-server",
             args: &["--stdio"],
-            env_var: Some("OCTOCODE_TS_SERVER_PATH"),
         },
         ".js" | ".mjs" | ".cjs" => ServerSpec {
             language_id: "javascript",
             command: "typescript-language-server",
             args: &["--stdio"],
-            env_var: Some("OCTOCODE_TS_SERVER_PATH"),
         },
         ".jsx" => ServerSpec {
             language_id: "javascriptreact",
             command: "typescript-language-server",
             args: &["--stdio"],
-            env_var: Some("OCTOCODE_TS_SERVER_PATH"),
         },
         ".py" | ".pyi" => ServerSpec {
             language_id: "python",
             command: "pylsp",
             args: &[],
-            env_var: Some("OCTOCODE_PYTHON_SERVER_PATH"),
         },
         ".go" => ServerSpec {
             language_id: "go",
             command: "gopls",
             args: &["serve"],
-            env_var: Some("OCTOCODE_GO_SERVER_PATH"),
         },
         ".rs" => ServerSpec {
             language_id: "rust",
             command: "rust-analyzer",
             args: &[],
-            env_var: Some("OCTOCODE_RUST_SERVER_PATH"),
         },
         ".java" => ServerSpec {
             language_id: "java",
             command: "jdtls",
             args: &[],
-            env_var: Some("OCTOCODE_JAVA_SERVER_PATH"),
         },
         ".c" | ".h" => ServerSpec {
             language_id: "c",
             command: "clangd",
             args: &[],
-            env_var: Some("OCTOCODE_CLANGD_SERVER_PATH"),
         },
         ".cpp" | ".cc" | ".cxx" | ".hpp" | ".hh" | ".hxx" => ServerSpec {
             language_id: "cpp",
             command: "clangd",
             args: &[],
-            env_var: Some("OCTOCODE_CLANGD_SERVER_PATH"),
         },
         ".cu" | ".cuh" => ServerSpec {
             language_id: "cuda",
             command: "clangd",
             args: &[],
-            env_var: Some("OCTOCODE_CLANGD_SERVER_PATH"),
         },
         ".cs" => ServerSpec {
             language_id: "csharp",
             command: "csharp-ls",
             args: &[],
-            env_var: Some("OCTOCODE_CSHARP_SERVER_PATH"),
         },
         ".scala" | ".sc" | ".sbt" => ServerSpec {
             language_id: "scala",
             command: "metals",
             args: &[],
-            env_var: Some("OCTOCODE_SCALA_SERVER_PATH"),
         },
         _ => return None,
     };
@@ -1001,7 +913,7 @@ pub(crate) fn is_rust_analyzer_command(command: &str) -> bool {
 }
 
 /// Resolve a server command to `(program, args)`. `trust_workspace` is the
-/// explicit opt-in (`OCTOCODE_TRUST_PROJECT_LSP_CONFIG` / trusted project
+/// explicit opt-in (`lsp.trustProjectConfig` / trusted project
 /// config) that lets the workspace's own `node_modules` supply the
 /// TypeScript server; see [`resolve_typescript_server_cli`].
 fn resolve_server_invocation(
@@ -1209,7 +1121,7 @@ fn find_python_user_script(script_name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        LspDiscoveryOptions, command_is_tsgo, command_resolves_to_executable, current_node_command,
+        LspDiscoveryOptions, command_resolves_to_executable, current_node_command,
         default_server_for_file, default_server_for_workspace_root, detect_language_id,
         is_command_available, is_node_executable, is_rust_analyzer_command,
         resolve_known_server_command, resolve_server_invocation,
@@ -1291,18 +1203,6 @@ mod tests {
     }
 
     #[test]
-    fn recognizes_tsgo_command_by_stem() {
-        assert!(command_is_tsgo("tsgo"));
-        assert!(command_is_tsgo("/usr/local/bin/tsgo"));
-        assert!(command_is_tsgo("TSGO")); // case-insensitive
-        assert!(!command_is_tsgo("typescript-language-server"));
-        assert!(!command_is_tsgo(
-            "/opt/node_modules/.bin/typescript-language-server"
-        ));
-        assert!(!command_is_tsgo("tsserver"));
-    }
-
-    #[test]
     fn node_launcher_never_treats_the_native_octocode_binary_as_node() {
         assert!(is_node_executable(std::path::Path::new(
             "/usr/local/bin/node"
@@ -1320,7 +1220,6 @@ mod tests {
             assert_eq!(spec.language_id, "scala");
             assert_eq!(spec.command, "metals");
             assert!(spec.args.is_empty());
-            assert_eq!(spec.env_var, Some("OCTOCODE_SCALA_SERVER_PATH"));
         }
     }
 
@@ -1509,7 +1408,7 @@ mod tests {
     }
 
     #[test]
-    fn assembly_server_requires_an_explicit_override_or_config() {
+    fn assembly_server_requires_user_config() {
         for extension in ["asm", "assembly", "s", "S"] {
             assert!(
                 default_server_for_file(
@@ -1522,6 +1421,7 @@ mod tests {
             );
         }
 
+        // Retired `OCTOCODE_ASM_SERVER_PATH` launches nothing.
         let options = LspDiscoveryOptions {
             env: BTreeMap::from([(
                 "OCTOCODE_ASM_SERVER_PATH".to_owned(),
@@ -1529,14 +1429,7 @@ mod tests {
             )]),
             ..LspDiscoveryOptions::default()
         };
-        for extension in ["asm", "assembly", "s", "S"] {
-            let config =
-                default_server_for_file(&format!("fixture.{extension}"), "/workspace", &options)
-                    .expect("explicit Assembly server override");
-            assert_eq!(config.command, "/opt/asm-lsp");
-            assert_eq!(config.args.as_deref(), Some(&[][..]));
-            assert_eq!(config.language_id.as_deref(), Some("asm"));
-        }
+        assert!(default_server_for_file("fixture.asm", "/workspace", &options).is_none());
     }
 
     #[test]
@@ -1602,10 +1495,7 @@ mod tests {
             r#"{"languageServers":{".ts":{"command":"node","args":["-e","process.exit(99)"],"languageId":"typescript"}}}"#,
         );
         let options = LspDiscoveryOptions {
-            env: BTreeMap::from([(
-                "OCTOCODE_TRUST_PROJECT_LSP_CONFIG".to_owned(),
-                "true".to_owned(),
-            )]),
+            trust_project_config: true,
             ..LspDiscoveryOptions::default()
         };
 
@@ -1658,19 +1548,21 @@ mod tests {
         std::fs::create_dir_all(&home).expect("create home");
         std::fs::write(
             home.join("lsp-servers.json"),
-            r#"{"languageServers":{".php":{"command":"home-php-server","args":[],"languageId":"php"}}}"#,
+            r#"{"languageServers":{".php":{"command":"home-php-server","args":[],"languageId":"php"},".ts":{"command":"tsgo","args":["--lsp","-stdio"],"languageId":"typescript"}}}"#,
         )
         .expect("write user lsp config");
         let options = LspDiscoveryOptions {
-            env: BTreeMap::from([(
-                "OCTOCODE_TS_SERVER_PATH".to_owned(),
-                "home-env-ts-server".to_owned(),
-            )]),
             octocode_home: Some(home.clone()),
             ..LspDiscoveryOptions::default()
         };
+        // A user entry replaces a built-in server (the retired
+        // `OCTOCODE_TS_SERVER_PATH` route): here `tsgo` with its own args.
         let ts = default_server_for_file("demo.ts", "/workspace", &options).expect("ts server");
-        assert_eq!(ts.command, "home-env-ts-server");
+        assert_eq!(ts.command, "tsgo");
+        assert_eq!(
+            ts.args.as_deref(),
+            Some(&["--lsp".to_owned(), "-stdio".to_owned()][..])
+        );
         let php = default_server_for_file("demo.php", "/workspace", &options)
             .expect("user server from the octocode home");
         assert_eq!(php.command, "home-php-server");
@@ -1678,23 +1570,18 @@ mod tests {
     }
 
     #[test]
-    fn env_override_still_wins_over_workspace_lsp_config() {
-        let root = temp_test_root("octocode-engine-env-wins-lsp-config");
+    fn retired_server_path_env_does_not_override_the_trusted_workspace_config() {
+        let root = temp_test_root("octocode-engine-env-retired-lsp-config");
         write_lsp_config(
             &root,
             r#"{"languageServers":{".ts":{"command":"custom-language-server","args":["--stdio"],"languageId":"typescript"}}}"#,
         );
         let options = LspDiscoveryOptions {
-            env: BTreeMap::from([
-                (
-                    "OCTOCODE_TRUST_PROJECT_LSP_CONFIG".to_owned(),
-                    "true".to_owned(),
-                ),
-                (
-                    "OCTOCODE_TS_SERVER_PATH".to_owned(),
-                    "env-ts-server".to_owned(),
-                ),
-            ]),
+            trust_project_config: true,
+            env: BTreeMap::from([(
+                "OCTOCODE_TS_SERVER_PATH".to_owned(),
+                "env-ts-server".to_owned(),
+            )]),
             ..LspDiscoveryOptions::default()
         };
 
@@ -1704,7 +1591,7 @@ mod tests {
         let config = default_server_for_file("demo.ts", root_str, &options)
             .expect("default ts server config");
 
-        assert_eq!(config.command, "env-ts-server");
+        assert_eq!(config.command, "custom-language-server");
 
         let _ = std::fs::remove_dir_all(root);
     }
@@ -2275,12 +2162,6 @@ mod tests {
             managed.initialization_options.is_some(),
             "headless defaults"
         );
-
-        options.env =
-            BTreeMap::from([("OCTOCODE_RUST_SERVER_PATH".to_owned(), "/opt/ra".to_owned())]);
-        let overridden =
-            default_server_for_file("src/lib.rs", "/workspace", &options).expect("rust route");
-        assert_eq!(overridden.command, "/opt/ra");
 
         options.env = BTreeMap::from([(
             "OCTOCODE_LSP_CACHE_DIR".to_owned(),

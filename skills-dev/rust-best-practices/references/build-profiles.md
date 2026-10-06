@@ -5,15 +5,16 @@ Load when tuning `[profile.*]`, cutting dev/CI compile time, or when `target/` b
 ## Release
 ```toml
 [profile.release]
-lto = "fat"           # cross-crate opt for what ships; "thin" only while iterating
+lto = "thin"          # cross-crate optimization with lower link cost; benchmark fat as an alternative
 codegen-units = 1     # max optimization on hot crates (see per-package override)
 opt-level = 3         # "s"/"z" when size dominates (CLI, wasm, addons) — benchmark both
 strip = "symbols"
-panic = "abort"       # smaller/faster; pairs with denying unwrap/expect/panic
+# Keep the existing panic strategy; an addon abort terminates its Node host.
 ```
-- `panic = "abort"` breaks `#[should_panic]`/`catch_unwind`. For tests/coverage: `[profile.coverage] inherits = "release"` + `panic = "unwind"`.
+- `catch_unwind` cannot catch an aborting panic. Cargo test harnesses require unwinding and ignore the profile's `panic` setting; ordinary abort builds still terminate the process. [Cargo profiles](https://doc.rust-lang.org/cargo/reference/profiles.html#panic).
 - `codegen-units = 1` serializes a crate's codegen. Keep it on hot-CPU crates; give IO/glue crates `[profile.release.package.<crate>] codegen-units = 16`. Find "hot" with `--timings` + a benchmark.
-- Cohort (oxc, ruff, uv, deno) ships fat LTO; published binaries: `[profile.dist] inherits = "release"`.
+- Treat another project's LTO choice as a candidate, not a rule. Octocode ships thin LTO; preserve it without a measured reason to change.
+- Octocode keeps engine codegen units at 1 and runtime units at 16. The root manifest records a minify regression from engine units 8/16; remeasure before changing that override.
 - Profiling: `[profile.profiling] inherits = "release"`, `debug = true`, `strip = false`, `lto = false`; build with `--profile profiling`.
 
 ## Dev and test profiles
@@ -62,9 +63,9 @@ Fix, in order:
 
 ## target/ hygiene
 - Stable Cargo has no `target/` GC. `cargo clean gc` is nightly, Cargo 1.88+ auto-cleans only `~/.cargo` caches, and `cargo-sweep` is unmaintained. Unpruned copies plus `unpacked` `.o` files reached 303 GB and 1M files in one `deps/` here, slowing every crate lookup.
-- Reset with `cargo clean --workspace --profile dev` (1.93+). It drops every copy of your own crates (88% of `debug/` here) and keeps dependencies compiled. Full reset: `cargo clean`. Expose both as repo tasks, not cron scripts.
+- Reset with `cargo clean --workspace --profile dev` (1.93+). It drops workspace-crate copies while keeping dependencies compiled. In Octocode use `node skills-dev/octocode-dev/scripts/dev.mjs clean:cache`; full reset uses its `clean` task. Run cleanup only when requested or needed for a diagnosed build problem.
 - `build.build-dir` (stable 1.91) moves intermediates out of `target/` but does not shrink them.
-- Parallel agents or worktrees: Cargo has no safe shared cache yet (cargo#16804; `-Zfine-grain-locking` is nightly and can deadlock). Use one `CARGO_TARGET_DIR` per agent, outside the repo tree, and delete it when done. sccache softens the cold start.
+- Parallel agents or worktrees: share at most 3 `CARGO_TARGET_DIR`s in total, under a scratchpad, outside repo `target/` (Cargo's lock serializes builds in one dir; the same `--features` keeps units shared), and delete them when done. A solo build uses the warm workspace `target/`. In Octocode, do not commit local linker/sccache configuration.
 - One integration-test binary per crate: `tests/main.rs` declares each `tests/*.rs` as a `mod`, with `autotests = false` and `[[test]] path = "tests/main.rs"`. Add a test asserting every file is declared. Measured: 31 → 6 executables and −80% bytes per build.
 
 Next: workspace deps/lints/metadata → `references/workspace.md`; test tooling → `references/testing-and-tooling.md`.

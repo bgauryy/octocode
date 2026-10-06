@@ -1,6 +1,7 @@
-# PLAN.md / IMPLEMENTATION.md template — build document
+# Plan headings
 
-Load when writing a standalone `PLAN.md` or RFC-linked `IMPLEMENTATION.md`.
+Load when the plan stays inside `RFC.md`, or when it leaves that file as `PLAN.md` or `IMPLEMENTATION.md`. Why: these headings are the plan. Chat and the file use the same names.
+Inside `RFC.md`, paste the `##` headings only. A separate file uses the title below.
 ```markdown
 # {Plan | Implementation}: {Title}
 
@@ -42,4 +43,4 @@ Verification asks whether the build matches design; validation asks whether the 
 - Owner/approver
 ```
 Gate: reorder or split any step that breaks the lobby step rule. Include estimates only when requested and evidence-based.
-Next: record provenance with `references/research-playbook.md` § RESOURCES.md, then validate through `references/workflow.md` § Validate and deliver.
+Next: cite sources in the sections that use them. Open `references/research-playbook.md` § RESOURCES.md only when the inventory has its own lifecycle, then validate through `references/workflow.md` § Validate and deliver.

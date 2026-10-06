@@ -168,6 +168,9 @@ pub struct GitHubTransport<R> {
     /// a repeated search, even from a new CLI process, spends none of the
     /// 10/min budget. Clones share it.
     pub cache: Arc<dyn super::ConditionalCache>,
+    /// `owner/repo` (lowercase) whose requests GitHub redirected to
+    /// `/repositories/<id>`: a renamed repository. Clones share it.
+    renamed: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
 impl<R> Clone for GitHubTransport<R> {
     fn clone(&self) -> Self {
@@ -180,11 +183,12 @@ impl<R> Clone for GitHubTransport<R> {
             state_dir: self.state_dir.clone(),
             graphql_enabled: self.graphql_enabled,
             cache: self.cache.clone(),
+            renamed: self.renamed.clone(),
         }
     }
 }
 impl<R: CredentialResolver> GitHubTransport<R> {
-    async fn credential(
+    pub(crate) async fn credential(
         &self,
         context: &RequestContext,
     ) -> Result<Option<super::ResolvedCredential>, ProviderError> {
@@ -236,7 +240,39 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             state_dir: None,
             graphql_enabled: true,
             cache: Arc::new(super::NoCache),
+            renamed: Arc::default(),
         })
+    }
+
+    /// GitHub redirected a request under `/repos/{owner}/{repo}` to the
+    /// repository's id: the name is stale (renamed or transferred).
+    pub fn followed_rename(&self, owner: &str, repo: &str) -> bool {
+        let key = format!("{owner}/{repo}").to_ascii_lowercase();
+        self.renamed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(&key)
+    }
+
+    /// Remember the repository a followed `/repos/{owner}/{repo}/…` →
+    /// `/repositories/<id>/…` redirect names.
+    fn record_rename(&self, from: &Url, to: &Url) {
+        if !to.path().contains("/repositories/") {
+            return;
+        }
+        let Some(segments) = from.path_segments() else {
+            return;
+        };
+        let segments = segments.collect::<Vec<_>>();
+        let Some(at) = segments.iter().position(|segment| *segment == "repos") else {
+            return;
+        };
+        if let (Some(owner), Some(repo)) = (segments.get(at + 1), segments.get(at + 2)) {
+            self.renamed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(format!("{owner}/{repo}").to_ascii_lowercase());
+        }
     }
 
     /// Mirror blocking rate-limit facts under `dir` so separate processes
@@ -491,6 +527,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                     && self.endpoint.permits(&location)
                 {
                     redirects += 1;
+                    self.record_rename(&spec.url, &location);
                     spec.url = location;
                     continue;
                 }

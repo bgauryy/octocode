@@ -125,7 +125,7 @@ fn local_rows_exit_by_outcome() {
 fn disabled_tool_is_an_execution_failure() {
     let workspace = Workspace::new();
     let mut command = workspace.cli();
-    command.env("ENABLE_LOCAL", "false");
+    command.env("OCTOCODE_ENABLE_LOCAL", "false");
     assert_exit(
         &run(
             command,
@@ -150,7 +150,7 @@ async fn github(status: u16, headers: &[(&str, &str)]) -> (Workspace, MockServer
     let mut command = workspace.cli();
     command
         .env("GITHUB_API_URL", format!("{}/api/v3", server.uri()))
-        .env("OCTOCODE_TOKEN", &workspace.token)
+        .env("GITHUB_TOKEN", &workspace.token)
         .env("REQUEST_TIMEOUT", support::MOCK_PROVIDER_TIMEOUT_MS);
     let input = json!({"queries":[{"owner":"a","repo":"b","path":"x.rs",
         "ref":"0123456789abcdef0123456789abcdef01234567","forceRefresh":true}]});

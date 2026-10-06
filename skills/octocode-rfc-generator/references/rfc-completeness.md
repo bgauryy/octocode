@@ -1,6 +1,6 @@
 # RFC completeness and closure
 
-Load when discovering questions or validating the RFC. One unanswered safety or compatibility question can invalidate a polished RFC.
+Load when discovering questions or closing them. Why: one unanswered safety or compatibility question can invalidate a polished RFC, and the closure rules live here.
 
 ## Ask from the decision outward
 

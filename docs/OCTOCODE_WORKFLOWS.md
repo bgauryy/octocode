@@ -24,7 +24,7 @@ Owners of related detail:
 
 ## Research flow graph
 
-The MCP `initialize` instructions and CLI `scheme` show these lines (full catalog). Each tool is named only when it is enabled. The lines name tools, not leads: the runtime emits each lead (`hints.X`, optional) and page (`next.X`, the unread rest) in the result where it applies. Read `→` as "then", `|` as "or".
+The MCP `initialize` instructions and CLI `schema` show these lines (full catalog). Each tool is named only when it is enabled. The lines name tools, not leads: the runtime emits each lead (`hints.X`, optional) and page (`next.X`, the unread rest) in the result where it applies. Read `→` as "then", `|` as "or".
 
 | # | Instruction line | Graph edges below |
 |---|---|---|

@@ -1546,3 +1546,82 @@ async fn history_reads_revalidate_and_pinned_commits_are_served_from_cache() {
         assert_eq!(commit.value["sha"], sha.as_str());
     }
 }
+
+/// A ref GitHub cannot resolve (422 "No commit found") is not-found input
+/// with a typed reason, not a malformed request; a 404 stays the repository.
+#[tokio::test]
+async fn missing_ref_is_not_found_with_a_ref_reason() {
+    let server = MockServer::start().await;
+    mount_json(
+        &server,
+        "/api/v3/repos/o/r/commits/nope",
+        422,
+        serde_json::json!({"message": "No commit found for SHA: nope"}),
+    )
+    .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/o/gone/commits/main",
+        404,
+        serde_json::json!({"message": "Not Found"}),
+    )
+    .await;
+    let provider = provider(&server).await;
+    let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    let error = provider
+        .transport
+        .commit_sha("o", "r", "nope", &context)
+        .await
+        .expect_err("missing ref");
+    assert_eq!(error.kind, ProviderErrorKind::NotFound, "{error:?}");
+    assert_eq!(error.reason, Some(ProviderErrorReason::RefNotFound));
+    assert_eq!(error.status, Some(422));
+    let error = provider
+        .transport
+        .commit_sha("o", "gone", "main", &context)
+        .await
+        .expect_err("missing repository");
+    assert_eq!(error.reason, Some(ProviderErrorReason::RepositoryNotFound));
+}
+
+/// X9: a followed `/repos/a/b/…` → `/repositories/<id>/…` redirect marks
+/// `a/b` renamed; other repositories and plain reads stay unmarked.
+#[tokio::test]
+async fn a_followed_repository_redirect_marks_the_name_renamed() {
+    let server = MockServer::start().await;
+    let moved = format!("{}/api/v3/repositories/7/commits/main", server.uri());
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/main"))
+        .respond_with(ResponseTemplate::new(301).insert_header("location", moved.as_str()))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repositories/7/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("f".repeat(40)))
+        .mount(&server)
+        .await;
+    mount_json(
+        &server,
+        "/api/v3/repos/x/y/commits/main",
+        422,
+        serde_json::json!({"message":"No commit found for SHA: main"}),
+    )
+    .await;
+    let provider = provider(&server).await;
+    let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    assert!(!provider.transport.followed_rename("a", "b"));
+    let sha = provider
+        .transport
+        .commit_sha("a", "b", "main", &context)
+        .await
+        .expect("followed");
+    assert_eq!(sha, "f".repeat(40));
+    assert!(provider.transport.followed_rename("A", "b"));
+    let _ = provider
+        .transport
+        .commit_sha("x", "y", "main", &context)
+        .await;
+    assert!(!provider.transport.followed_rename("x", "y"));
+    // Clones share what was learned.
+    assert!(provider.transport.clone().followed_rename("a", "b"));
+}

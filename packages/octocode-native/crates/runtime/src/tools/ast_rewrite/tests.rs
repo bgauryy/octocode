@@ -964,3 +964,77 @@ fn embedded_engine_supports_inline_rules_without_an_executable() {
     assert_eq!(result["executable"]["capabilityDigest"], "native");
     fs::remove_dir_all(root).expect("cleanup");
 }
+
+/// B11: preview page 2 of an unchanged scope reuses page 1's prepared files
+/// (no second scan, rewrite, or syntax check) and shows the same result a
+/// fresh prepare would.
+#[test]
+fn preview_page_two_reuses_prepared_files() {
+    let (root, policy, security) = fixture();
+    let first = rewrite_row(
+        query(&root),
+        &policy,
+        &security,
+        &NeverCancel,
+        &Default::default(),
+    );
+    let next = first["next"]["nextPage"]["query"]["queries"][0].clone();
+    let before = prepares();
+    let second = rewrite_row(
+        next.clone(),
+        &policy,
+        &security,
+        &NeverCancel,
+        &Default::default(),
+    );
+    assert_eq!(
+        prepares(),
+        before,
+        "page 2 reused the prepared files: {second}"
+    );
+    assert_eq!(second["matches"][0]["line"], 2, "{second}");
+    assert_eq!(second["snapshot"], first["snapshot"], "{second}");
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// B11: a file edited between pages is never served from the memo: the
+/// page re-prepares and the changed snapshot restarts the preview.
+#[test]
+fn edited_file_between_preview_pages_restarts() {
+    let (root, policy, security) = fixture();
+    let first = rewrite_row(
+        query(&root),
+        &policy,
+        &security,
+        &NeverCancel,
+        &Default::default(),
+    );
+    let next = first["next"]["nextPage"]["query"]["queries"][0].clone();
+    fs::write(
+        root.join("a.ts"),
+        "const first = oldCall(1);\nconst second = oldCall(22);\n",
+    )
+    .expect("edit");
+    let before = prepares();
+    let second = rewrite_row(next, &policy, &security, &NeverCancel, &Default::default());
+    assert_eq!(prepares(), before + 1, "{second}");
+    assert_eq!(second["errorCode"], "staleSnapshot", "{second}");
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// B11: apply never uses the preview memo; it prepares under its lock.
+#[test]
+fn apply_always_reprepares() {
+    let (root, policy, security) = fixture();
+    let (_, preview) = full_preview(&root, &policy, &security);
+    let apply = preview["next"]["apply"]["query"]["queries"][0].clone();
+    let before = prepares();
+    let options = AstRewriteRuntimeOptions {
+        allow_apply: true,
+        ..Default::default()
+    };
+    let applied = rewrite_row(apply, &policy, &security, &NeverCancel, &options);
+    assert_eq!(prepares(), before + 1, "{applied}");
+    assert_eq!(applied["mode"], "apply", "{applied}");
+    fs::remove_dir_all(root).expect("cleanup");
+}

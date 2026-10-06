@@ -114,8 +114,8 @@ Run `npx octocode` and agents figure out the rest. The bare command prints the t
 
 ```bash
 npx octocode                                         # self-describing usage for agents
-npx octocode scheme                                  # compact catalog of every tool
-npx octocode scheme localSearch                      # one tool's input contract
+npx octocode schema                                  # compact catalog of every tool
+npx octocode schema localSearch                      # one tool's input contract
 ```
 
 Every MCP tool is also a plain command named after the tool: JSON in, structured JSON out (single-line by default to save agent tokens, `--pretty` for indented).
@@ -200,8 +200,8 @@ First full run (`full-1`, 2026-09-30, on a build that predates the schema slimmi
 
 **16 tools in the full discovery catalog.** By default MCP registers **12**.
 `ghCloneRepo`, `astTopology` and `astRewrite` are CLI-only; MCP never registers
-them. `clasify` needs `OCTOCODE_CLASSIFICATION_API` (or its
-`OCTOCODE_JEV_KEY` alias), while `astRewrite` and `astTopology` need
+them. `clasify` needs `OCTOCODE_CLASSIFICATION_API`, while `astRewrite` and
+`astTopology` need
 `OCTOCODE_BETA`. The CLI keeps all 16 commands discoverable; cloning requires
 persistent storage.
 
@@ -211,7 +211,7 @@ persistent storage.
 | CLI, no flags | 16 discoverable | Clone runs with persistent storage; other gated commands explain the gate to set. |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
-the default set. `ENABLE_LOCAL=false` disables local, graph, and LSP tools.
+the default set. `OCTOCODE_ENABLE_LOCAL=false` disables local, graph, and LSP tools.
 Flags: [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md).
 
 **Token knobs.** `concise:true` returns path/title-only lists. `minify` controls file read density: `none` = exact bytes (default), `standard` = comments/blanks stripped, `symbols` = skeleton with line numbers. Responses are minimal by default; `debug:true` adds scan stats, receipts, and snapshots.
@@ -262,7 +262,7 @@ Use it to classify an explicit list instead of reading every item, to locate an 
 **Enable classification** (restart CLI and MCP processes afterwards):
 
 ```bash
-export OCTOCODE_CLASSIFICATION_API='your-provider-key'   # or its OCTOCODE_JEV_KEY alias
+export OCTOCODE_CLASSIFICATION_API='your-provider-key'
 ```
 
 Without a nonblank key, `clasify` disappears from MCP, the instructions, and every `next.*`. `OCTOCODE_CLASSIFICATION_API_HOST` only overrides the provider endpoint. Modes, limits, and measurements: [OCTOCODE_CLASIFY.md](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md); key handling: [AUTHENTICATION.md](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md).
@@ -293,10 +293,10 @@ Same research engine, no MCP client needed. Every tool is a plain command named 
 
 | Command | What it does |
 |---------|--------------|
-| `npx octocode <toolName> '<json>'` | Run a tool (same tools as MCP), single-line JSON output (`--pretty` to indent) |
-| `npx octocode <toolName> --input <file>` | Run a tool with the JSON query read from a file |
-| `npx octocode scheme <toolName>` | Show one tool's public input contract: fields, types, bounds, defaults |
-| `npx octocode scheme` | Compact catalog of enabled tools |
+| `npx octocode <toolName> '<json>'` | Run a tool (same tools as MCP): readable text on a terminal, single-line JSON on a pipe (`--json` forces JSON) |
+| `npx octocode <toolName> --input <file\|->` | Run a tool with the JSON query read from a file, or `-` for stdin |
+| `npx octocode schema <toolName>` | Show one tool's public input contract: fields, types, bounds, defaults |
+| `npx octocode schema` | Compact catalog of enabled tools |
 
 Input is always `{"queries":[row, …]}`. A row may carry `mainGoal` and
 `reasoning`; a `next.*` continuation inherits its row's brief.
@@ -329,8 +329,8 @@ Some security-sensitive keys (for example `WORKSPACE_ROOT`, `ALLOWED_PATHS`, `OC
 
 | Env var | `.octocoderc` key | Default | What it does |
 |---------|-------------------|---------|--------------|
-| `ENABLE_LOCAL` | `local.enabled` | `true` | Local filesystem, graph, and LSP tools on or off. |
-| `WORKSPACE_ROOT` | `local.workspaceRoot` | process cwd | Default allowed root. Relative tool paths still resolve against the process cwd; pass absolute paths. |
+| `OCTOCODE_ENABLE_LOCAL` | `local.enabled` | `true` | Local filesystem, graph, and LSP tools on or off. |
+| `WORKSPACE_ROOT` | `local.workspaceRoot` | process cwd | Base for relative tool paths and display paths; also an allowed root. |
 | `ALLOWED_PATHS` | `local.allowedPaths` | `[]` | Extra allowed roots (comma-separated in env). |
 | `TOOLS_TO_RUN` / `DISABLE_TOOLS` | `tools.enabled` / `tools.disabled` | unset | Strict tool allowlist / tools removed from the default set. |
 | `OCTOCODE_BETA` | `local.beta` | `false` | Enable the CLI-only beta tools `astTopology` and `astRewrite` (preview and apply). |
@@ -360,10 +360,10 @@ GitHub tools work without a token at GitHub's lower public rate limit; a credent
 
 ```bash
 npx octocode auth login     # GitHub OAuth device flow; token stored encrypted in <octocode-home>
-npx octocode auth           # verify: active source, username, host (--json for machines)
+npx octocode auth status    # verify: active source, username, host (--json for machines)
 ```
 
-- **Environment token** — `OCTOCODE_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, or `GITHUB_PERSONAL_ACCESS_TOKEN` in the shell, CI, or MCP `env`. An environment token always wins over a stored login.
+- **Environment token** — `GH_TOKEN` or `GITHUB_TOKEN` in the shell, CI, or MCP `env`. An environment token always wins over a stored login.
 - **GitHub CLI** — if `gh auth login` is done, Octocode falls back to `gh auth token` automatically.
 
 Resolution order, refresh (`auth login --refresh`), logout, GitHub Enterprise, the `clasify` key, and npm registry credentials: [AUTHENTICATION.md](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md). Never commit tokens.
@@ -388,14 +388,14 @@ Resolution order, refresh (`auth login --refresh`), logout, GitHub Enterprise, t
 
 ## Language support
 
-Octocode has 11 first-class source-language families: JavaScript, TypeScript, Rust, Python, C, C++, Assembly, Java, Scala, Go, and C#. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from one registry of 12 grammars (TSX has its own) covering exactly 28 extensions in the default build; `npx octocode scheme` prints the live inventory. The CUDA grammar (`.cu`/`.cuh`) is opt-in and absent from release builds; those files still route to `clangd` for LSP. Built-in semantic-server routes cover 11 families and 27 extensions because generic Assembly requires trusted custom configuration.
+Octocode has 11 first-class source-language families: JavaScript, TypeScript, Rust, Python, C, C++, Assembly, Java, Scala, Go, and C#. Structural search/rewrite, signatures, graph facts, syntax inspection, and LSP grammar adapters derive from one registry of 12 grammars (TSX has its own) covering exactly 28 extensions in the default build; `npx octocode schema` prints the live inventory. The CUDA grammar (`.cu`/`.cuh`) is opt-in and absent from release builds; those files still route to `clangd` for LSP. Built-in semantic-server routes cover 11 families and 27 extensions because generic Assembly requires trusted custom configuration.
 
 | Axis | What it does | How to use it |
 |------|--------------|---------------|
-| **Structural AST** | Tree-sitter shape queries (`pattern` or YAML rule documents) over the 28 first-class extensions. | `astSearch operation:"match"` · CLI `scheme astSearch` |
-| **Signature outline** | Body-free skeleton with line numbers from the same grammar registry, no heuristics. | `minify:"symbols"` · CLI `scheme localFetch` |
+| **Structural AST** | Tree-sitter shape queries (`pattern` or YAML rule documents) over the 28 first-class extensions. | `astSearch operation:"match"` · CLI `schema astSearch` |
+| **Signature outline** | Body-free skeleton with line numbers from the same grammar registry, no heuristics. | `minify:"symbols"` · CLI `schema localFetch` |
 | **Content minification** | Broader best-effort comment/whitespace processing for code and data formats. A minifier route is not parser support. | `minify:"standard"` (default is `none`) |
-| **LSP navigation** | Semantic navigation through installed servers for the 11 built-in language families; trusted custom routes can support Assembly and other extensions. | `lspSearch` · CLI `scheme lspSearch` |
+| **LSP navigation** | Semantic navigation through installed servers for the 11 built-in language families; trusted custom routes can support Assembly and other extensions. | `lspSearch` · CLI `schema lspSearch` |
 
 Text search, ordinary reads, GitHub/history tools, and artifact lookup remain language-agnostic. YAML ast-grep rule documents do not imply YAML source parsing. Syntax graph facts are candidates; use LSP for semantic proof.
 
@@ -431,7 +431,7 @@ npx octocode skill help
 | Skill | Use when |
 |-------|----------|
 | [**octocode-brainstorming**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-brainstorming) | Disciplined idea exploration before building: options, worth-building tests, prior-art maps. Exploratory mode: awareness shifts where substance names are presences (18+). |
-| [**octocode-rfc-generator**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-rfc-generator) | Evidence-backed RFCs, design docs, migration plans, option comparisons. |
+| [**octocode-rfc-generator**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-rfc-generator) | Evidence-backed RFCs, execution plans, and audits of an existing RFC. |
 | [**octocode-documentation**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-documentation) | Writing or updating README, API docs, runbooks, AGENTS.md, ADRs. |
 
 ### Evaluation and review
@@ -526,8 +526,8 @@ npx node-doctor
 ```
 
 **Common pitfalls:**
-- **GitHub auth failures:** Run `npx octocode auth --json` to see which source is active (an environment token always wins over a stored login). Refresh with `npx octocode auth login --refresh`, or switch accounts with `--force`. See [AUTHENTICATION.md](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md).
-- **MCP connection issues:** If your AI assistant (like Cursor or Windsurf) fails to connect, ensure you have run `npx octocode auth login` in your terminal first, or explicitly pass your `OCTOCODE_TOKEN` in the MCP `env` configuration.
+- **GitHub auth failures:** Run `npx octocode auth status --json` to see which source is active (an environment token always wins over a stored login). Refresh with `npx octocode auth login --refresh`, or switch accounts with `--force`. See [AUTHENTICATION.md](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md).
+- **MCP connection issues:** If your AI assistant (like Cursor or Windsurf) fails to connect, ensure you have run `npx octocode auth login` in your terminal first, or explicitly pass your `GITHUB_TOKEN` in the MCP `env` configuration.
 - **Native engine errors:** Octocode uses a prebuilt Rust engine. Supported: macOS arm64/x64, Linux x64 (glibc or musl) and arm64 (glibc), Windows x64.
 
 ---

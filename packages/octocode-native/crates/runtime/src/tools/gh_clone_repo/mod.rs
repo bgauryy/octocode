@@ -77,11 +77,12 @@ pub struct CloneConfig {
 
 impl CloneConfig {
     /// A persistent clone cache under `cache_home` with the config
-    /// contract's `cloneCache.*` and `network.timeout` defaults.
+    /// contract's `storage.cloneCache.*` and `network.timeout` defaults.
     pub fn persistent(cache_home: impl Into<PathBuf>) -> Self {
         let defaults: serde_json::Value =
             serde_json::from_str(crate::config::DEFAULT_RESOLVED_CONFIG_JSON).unwrap_or_default();
-        let limits = serde_json::from_value(defaults["cloneCache"].clone()).unwrap_or_default();
+        let limits =
+            serde_json::from_value(defaults["storage"]["cloneCache"].clone()).unwrap_or_default();
         let timeout = defaults["network"]["timeout"].as_f64().unwrap_or_default();
         Self {
             cache_home: cache_home.into(),
@@ -103,7 +104,7 @@ impl CloneConfig {
         self
     }
 
-    /// Apply the resolved `cloneCache.*` settings. The config contract has
+    /// Apply the resolved `storage.cloneCache.*` settings. The config contract has
     /// already validated and clamped them (all minimums are positive).
     #[must_use]
     pub fn with_limits(mut self, limits: &crate::config::CloneCacheConfig) -> Self {
@@ -902,7 +903,7 @@ mod limit_tests {
     fn contract_defaults_match_persistent_defaults_and_env_overrides_apply() {
         let defaults = crate::config::resolve_sections(&[], &BTreeMap::new()).expect("defaults");
         let base = CloneConfig::persistent("/h");
-        let resolved = CloneConfig::persistent("/h").with_limits(&defaults.clone_cache);
+        let resolved = CloneConfig::persistent("/h").with_limits(&defaults.storage.clone_cache);
         assert_eq!(resolved.cache_ttl, base.cache_ttl);
         assert_eq!(resolved.max_cache_size_bytes, base.max_cache_size_bytes);
         assert_eq!(resolved.max_clone_count, base.max_clone_count);
@@ -914,7 +915,7 @@ mod limit_tests {
             ("OCTOCODE_MAX_CACHE_SIZE".to_owned(), "5".to_owned()),
         ]);
         let overridden = crate::config::resolve_sections(&[], &env).expect("env");
-        let config = CloneConfig::persistent("/h").with_limits(&overridden.clone_cache);
+        let config = CloneConfig::persistent("/h").with_limits(&overridden.storage.clone_cache);
         assert_eq!(config.cache_ttl, Duration::from_secs(120));
         assert_eq!(config.max_clone_count, 7);
         assert_eq!(config.max_cache_size_bytes, 1024 * 1024);

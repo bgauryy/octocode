@@ -1013,7 +1013,7 @@ async fn artifact_search_npm_userconfig_never_comes_from_the_workspace_env() {
     let port = server.address().port();
     let planted = workspace.write(
         "planted.npmrc",
-        format!("//127.0.0.1:{port}/:_authToken=${{OCTOCODE_TOKEN}}\n"),
+        format!("//127.0.0.1:{port}/:_authToken=${{GITHUB_TOKEN}}\n"),
     );
     let mut input = workspace.config(&[
         ("OCTOCODE_ALLOW_PRIVATE_REGISTRY", "true".to_owned()),
@@ -1704,7 +1704,7 @@ async fn anonymous_rate_limit_advises_authentication() {
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
         ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
-        ("OCTOCODE_TOKEN", String::new()),
+        ("GITHUB_TOKEN", String::new()),
     ]);
     let sha = "0123456789abcdef0123456789abcdef01234567";
     let outcome = call(
@@ -1904,7 +1904,8 @@ async fn gh_file_error_keeps_provider_diagnostics_for_debug_only() {
         let data = row_data(&outcome);
         assert_eq!(data["errorCode"], "notFound", "{data}");
         assert_eq!(data.get("httpStatus").is_some(), debug, "{data}");
-        assert_eq!(data.get("retryable").is_some(), debug, "{data}");
+        // N7: a 404 is not retryable, so no mode states `retryable`.
+        assert!(data.get("retryable").is_none(), "{data}");
         assert_eq!(data.get("requestId").is_some(), debug, "{data}");
         assert_eq!(data.get("documentationUrl").is_some(), debug, "{data}");
     }
@@ -2002,9 +2003,12 @@ async fn compare_pages_carry_one_collection_each_and_pin_both_refs() {
     assert_eq!(data["head"], HEAD_SHA, "{data}");
     assert_eq!(data["base"], BASE_SHA, "{data}");
     assert_ne!(data["filePagination"]["countScope"], "complete", "{data}");
-    // The commit list carries each whole message, not its headline.
+    // HI12(a): the commit list names each commit by its headline; the
+    // first one with more message leads to its whole-message read.
+    assert_eq!(data["commits"][0]["messageHeadline"], "c0", "{data}");
+    assert!(data["commits"][0].get("message").is_none(), "{data}");
     assert_eq!(
-        data["commits"][0]["message"], "c0\n\nWhy: detail 0",
+        data["hints"]["readCommit"]["query"]["queries"][0]["ref"], data["commits"][0]["sha"],
         "{data}"
     );
     let commit_page = data["next"]["nextPage"]["query"]["queries"][0].clone();
@@ -2192,8 +2196,8 @@ async fn compare_patch_windows_do_not_resend_the_commit_list() {
     runtime.close().await;
 }
 
-/// D6: a path-scoped commit read counts only the files in scope and labels
-/// the whole-commit line totals as such.
+/// HI6 (was D6): a path-scoped commit read keeps the whole commit's counts
+/// at the top level; the scope's own count is its file page's.
 #[tokio::test]
 async fn path_scoped_commit_labels_whole_commit_totals() {
     let server = MockServer::start().await;
@@ -2221,13 +2225,10 @@ async fn path_scoped_commit_labels_whole_commit_totals() {
     .await
     .expect("commit");
     let data = row_data(&outcome);
-    assert_eq!(data["changedFilesCount"], 1, "{data}");
-    assert!(
-        data.get("additions").is_none(),
-        "unlabeled whole-commit total: {data}"
-    );
-    assert_eq!(data["commitTotals"]["additions"], 30, "{data}");
-    assert_eq!(data["commitTotals"]["changedFilesCount"], 2, "{data}");
+    assert_eq!(data["changedFilesCount"], 2, "{data}");
+    assert_eq!(data["additions"], 30, "{data}");
+    assert!(data.get("commitTotals").is_none(), "{data}");
+    assert_eq!(data["files"].as_array().map(Vec::len), Some(1), "{data}");
     runtime.close().await;
 }
 
@@ -2636,7 +2637,9 @@ async fn compare_include_scopes_files_and_capped_scope_leads_to_path_history() {
         "{data}"
     );
     assert!(!files.contains("f002.rs"), "{data}");
-    assert_eq!(data["changedFilesCount"], 101, "{data}");
+    // HI6: the top-level count is the comparison's; the scope's is its page's.
+    assert_eq!(data["changedFilesCount"], 300, "{data}");
+    assert_eq!(data["filePagination"]["totalItems"], 101, "{data}");
     let beyond = call(
         &runtime,
         "ghGetHistoryItem",
@@ -2866,5 +2869,538 @@ async fn pr_summary_previews_the_body() {
     );
     let leads = data["hints"].to_string();
     assert!(leads.contains("\"body\""), "no whole-body read: {data}");
+    runtime.close().await;
+}
+
+/// X13: a ref that does not resolve is `notFound` (not `invalidInput`) on
+/// both GitHub read tools, with one runnable lead to the repository's refs.
+#[tokio::test]
+async fn gh_bad_ref_is_not_found_with_a_refs_lead() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/no-such-ref"))
+        .respond_with(
+            ResponseTemplate::new(422)
+                .set_body_json(json!({"message":"No commit found for SHA: no-such-ref"})),
+        )
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    for (tool, query) in [
+        (
+            "ghGetFileContent",
+            json!({"owner":"a","repo":"b","path":"README.md","ref":"no-such-ref","forceRefresh":true}),
+        ),
+        (
+            "ghStructure",
+            json!({"owner":"a","repo":"b","ref":"no-such-ref"}),
+        ),
+    ] {
+        let outcome = call(&runtime, tool, query).await.expect("error row");
+        let data = row_data(&outcome);
+        assert_eq!(data["errorCode"], "notFound", "{tool}: {data}");
+        assert!(
+            data["error"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("\"no-such-ref\""),
+            "{tool}: {data}"
+        );
+        let lead = &data["hints"]["viewStructure"];
+        assert_eq!(lead["tool"], "ghStructure", "{tool}: {data}");
+        let row = &lead["query"]["queries"][0];
+        for (field, value) in [("owner", "a"), ("repo", "b"), ("operation", "refs")] {
+            assert_eq!(row[field], value, "{tool}: {data}");
+        }
+    }
+    runtime.close().await;
+}
+
+// ── history lane A: PR/commit/compare/issue views ───────────────────────────
+
+const HISTORY_A_HEAD: &str = "0123456789abcdef0123456789abcdef01234567";
+const HISTORY_A_BASE: &str = "89abcdef0123456789abcdef0123456789abcdef";
+const HISTORY_A_MERGE: &str = "fedcba9876543210fedcba9876543210fedcba98";
+
+fn history_a_rest_pr(merged: bool) -> serde_json::Value {
+    json!({
+        "number": 9, "title": "Fix parser", "state": "closed",
+        "merged_at": merged.then_some("2024-01-03T00:00:00Z"),
+        "merge_commit_sha": HISTORY_A_MERGE, "draft": false, "body": "Fixes it.",
+        "user": {"login": "alice"}, "labels": [],
+        "head": {"sha": HISTORY_A_HEAD, "ref": "feat"},
+        "base": {"sha": HISTORY_A_BASE, "ref": "main"},
+        "created_at": "2024-01-01T00:00:00Z", "updated_at": "2024-01-02T00:00:00Z",
+        "closed_at": "2024-01-03T00:00:00Z", "comments": 2, "review_comments": 1,
+        "commits": 3, "changed_files": 2, "additions": 70000, "deletions": 1
+    })
+}
+
+fn history_a_file(name: &str, patch: Option<&str>, additions: u64) -> serde_json::Value {
+    let mut file = json!({
+        "sha": "1111111111111111111111111111111111111111", "filename": name,
+        "status": "modified", "additions": additions, "deletions": 1,
+        "changes": additions + 1
+    });
+    if let Some(patch) = patch {
+        file["patch"] = json!(patch);
+    }
+    file
+}
+
+async fn history_a_mount_pr(server: &MockServer, merged: bool, files: serde_json::Value) {
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/pulls/9"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(history_a_rest_pr(merged)))
+        .mount(server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/pulls/9/files"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(files))
+        .mount(server)
+        .await;
+}
+
+/// HI4: every PR view names the head, the recorded target-branch tip and
+/// (merged) the merge commit: patch, file-list, and matchString views.
+#[tokio::test]
+async fn history_a_every_pr_view_carries_source_target_and_merge_commits() {
+    let server = MockServer::start().await;
+    history_a_mount_pr(
+        &server,
+        true,
+        json!([
+            history_a_file(
+                "src/parse.rs",
+                Some("@@ -1,2 +1,2 @@\n-let a = 1;\n+let parsed = parse(input);\n ctx"),
+                1
+            ),
+            history_a_file("src/huge.rs", None, 69_999),
+        ]),
+    )
+    .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    for extra in [
+        json!({"sections":["patches"]}),
+        json!({"sections":["files"]}),
+        json!({"sections":["patches"],"matchString":"parsed"}),
+    ] {
+        let mut query =
+            json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,"debug":false});
+        for (key, value) in extra.as_object().expect("fields") {
+            query[key] = value.clone();
+        }
+        let outcome = call(&runtime, "ghGetHistoryItem", query)
+            .await
+            .expect("read");
+        let data = row_data(&outcome);
+        assert_eq!(row_status(&outcome), "success", "{extra}: {data}");
+        let pr = &data["pullRequests"][0];
+        assert_eq!(pr["sourceSha"], HISTORY_A_HEAD, "{extra}: {data}");
+        assert_eq!(pr["targetSha"], HISTORY_A_BASE, "{extra}: {data}");
+        assert_eq!(pr["mergeCommitSha"], HISTORY_A_MERGE, "{extra}: {data}");
+        assert!(
+            !outcome
+                .structured_content
+                .to_string()
+                .contains("outputContractViolation"),
+            "{extra}: {}",
+            outcome.structured_content
+        );
+    }
+    runtime.close().await;
+}
+
+/// HI8: a patch read whose page holds a file GitHub sent without a patch
+/// reads that file at both sides (its change is in no response), even on a
+/// merged PR whose merge read stands for the patched file's new side.
+#[tokio::test]
+async fn history_a_unpatched_file_gets_head_and_parent_reads() {
+    let server = MockServer::start().await;
+    history_a_mount_pr(
+        &server,
+        true,
+        json!([
+            history_a_file(
+                "src/parse.rs",
+                Some("@@ -1,2 +1,2 @@\n-let a = 1;\n+let parsed = parse(input);\n ctx"),
+                1
+            ),
+            history_a_file("src/huge.rs", None, 69_999),
+        ]),
+    )
+    .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"pullRequest","owner":"a","repo":"b","number":9,
+            "sections":["patches"],"debug":false}),
+    )
+    .await
+    .expect("patch read");
+    let data = row_data(&outcome);
+    // The response's lead cap keeps the head read (and the merge read, by
+    // priority); `readParent` is built the same way (unit-tested).
+    let head = &data["hints"]["readAtCommit"]["query"]["queries"][0];
+    assert_eq!(head["path"], "src/huge.rs", "{data}");
+    assert_eq!(head["ref"], HISTORY_A_HEAD, "{data}");
+    // HI11: the merge read locates the patched file's hunks by text.
+    let merge = &data["hints"]["readAtMerge"]["query"]["queries"][0];
+    assert_eq!(merge["ref"], HISTORY_A_MERGE, "{data}");
+    assert_eq!(
+        merge["matchString"],
+        json!(["let parsed = parse(input);"]),
+        "{data}"
+    );
+    assert!(merge.get("ranges").is_none(), "{data}");
+    runtime.close().await;
+}
+
+/// HI4/HI7: the GraphQL read carries `targetSha` from `baseRefOid` on every
+/// view, and a metadata view the commit and review-thread totals.
+#[tokio::test]
+async fn history_a_graphql_pr_reads_target_sha_and_totals() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
+            "repository": {"pullRequest": {
+                "number": 7, "title": "Fix parser", "url": "https://x", "state": "MERGED",
+                "body": "Fixes the parser.", "isDraft": false, "author": {"login": "bob"},
+                "labels": {"pageInfo": {"hasNextPage": false}, "nodes": []},
+                "baseRefName": "main", "baseRefOid": HISTORY_A_BASE,
+                "headRefName": "feat/parser", "headRefOid": HISTORY_A_HEAD,
+                "createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-02T00:00:00Z",
+                "closedAt": "2026-01-03T00:00:00Z", "mergedAt": "2026-01-03T00:00:00Z",
+                "mergeCommit": {"oid": HISTORY_A_MERGE},
+                "comments": {"totalCount": 0}, "changedFiles": 1, "additions": 1, "deletions": 0,
+                "commitsCount": {"totalCount": 4}, "reviewThreads": {"totalCount": 2},
+                "files": {"pageInfo": {"hasNextPage": false}, "nodes": [
+                    {"path": "src/a.rs", "additions": 1, "deletions": 0, "changeType": "MODIFIED"}
+                ]},
+                "reviews": {"pageInfo": {"hasNextPage": false}, "nodes": [
+                    {"databaseId": 11, "author": {"login": "ann"}, "state": "APPROVED",
+                     "body": "", "submittedAt": "2026-01-03T00:00:00Z", "commit": {"oid": HISTORY_A_HEAD}}
+                ]}
+            }}
+        }})))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    for (sections, totals) in [
+        (json!(["body", "reviews"]), true),
+        (json!(["body", "files"]), false),
+    ] {
+        let outcome = call(
+            &runtime,
+            "ghGetHistoryItem",
+            json!({"operation":"pullRequest","owner":"a","repo":"b","number":7,
+                "sections":sections,"debug":false}),
+        )
+        .await
+        .expect("GraphQL read");
+        let data = row_data(&outcome);
+        assert_eq!(row_status(&outcome), "success", "{data}");
+        assert!(data.get("graphqlFallback").is_none(), "{data}");
+        let pr = &data["pullRequests"][0];
+        assert_eq!(pr["targetSha"], HISTORY_A_BASE, "{sections}: {data}");
+        assert_eq!(pr["mergeCommitSha"], HISTORY_A_MERGE, "{sections}: {data}");
+        if totals {
+            assert_eq!(pr["commitsCount"], 4, "{data}");
+            assert_eq!(pr["reviewThreadsCount"], 2, "{data}");
+        }
+    }
+    let documents = server
+        .received_requests()
+        .await
+        .expect("recorded")
+        .into_iter()
+        .map(|request| String::from_utf8_lossy(&request.body).into_owned())
+        .collect::<Vec<_>>();
+    assert!(documents[0].contains("baseRefOid"), "{documents:?}");
+    runtime.close().await;
+}
+
+/// HI7: an issue summary counts its comments and offers the discussion
+/// read; an issue without comments offers neither.
+#[tokio::test]
+async fn history_a_issue_summary_counts_comments_and_offers_the_discussion() {
+    for (comments, offered) in [(105, true), (0, false)] {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v3/repos/a/b/issues/42"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "number": 42, "title": "Parser OOM", "state": "open", "body": "repro",
+                "user": {"login": "alice"}, "labels": [], "comments": comments,
+                "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-09-25T00:00:00Z"
+            })))
+            .mount(&server)
+            .await;
+        let workspace = Workspace::new();
+        let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+        let outcome = call(
+            &runtime,
+            "ghGetHistoryItem",
+            json!({"operation": "issue", "owner": "a", "repo": "b", "number": 42}),
+        )
+        .await
+        .expect("issue read");
+        let data = row_data(&outcome);
+        assert_eq!(row_status(&outcome), "success", "{data}");
+        let issue = &data["issues"][0];
+        let read = &data["hints"]["readDiscussion"];
+        if offered {
+            assert_eq!(issue["commentsCount"], 105, "{data}");
+            assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
+            let q = &read["query"]["queries"][0];
+            assert_eq!(q["sections"], json!(["comments"]), "{data}");
+            assert_eq!(q["number"], 42, "{data}");
+            octocode_native::contracts::validate_query("ghGetHistoryItem", q.clone())
+                .expect("the discussion read validates");
+        } else {
+            assert!(issue.get("commentsCount").is_none(), "{data}");
+            assert!(read.is_null(), "{data}");
+        }
+        runtime.close().await;
+    }
+}
+
+/// HI6 + N5: an `include` that matches none of a commit's files keeps the
+/// whole commit's counts and names the changed directories nearest it.
+#[tokio::test]
+async fn history_a_commit_include_matching_nothing_warns_with_nearest_dirs() {
+    let server = MockServer::start().await;
+    let sha = "abc123def456abc123def456abc123def456abc1";
+    let files = [
+        "docs/a.md",
+        "packages/react-dom/src/a.js",
+        "packages/react/src/b.js",
+        "packages/react/index.js",
+        "scripts/x.js",
+    ]
+    .iter()
+    .map(|name| json!({"filename": name, "status": "modified", "additions": 1, "deletions": 0}))
+    .collect::<Vec<_>>();
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/commits/{sha}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": sha,
+            "commit": {"message": "five files", "author": {"name": "A", "date": "2024-01-01T00:00:00Z"}},
+            "stats": {"additions": 5, "deletions": 0, "total": 5},
+            "files": files
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let read = |include: &str| json!({"operation":"commit","owner":"a","repo":"b","ref":sha,"include":[include],"debug":false});
+    let outcome = call(&runtime, "ghGetHistoryItem", read("packages/react/**"))
+        .await
+        .expect("commit");
+    let data = row_data(&outcome);
+    assert_eq!(data["changedFilesCount"], 5, "{data}");
+    assert_eq!(data["files"].as_array().map(Vec::len), Some(2), "{data}");
+    assert!(data.get("commitTotals").is_none(), "{data}");
+    assert!(
+        !data["warnings"].to_string().contains("matched 0"),
+        "{data}"
+    );
+    let outcome = call(&runtime, "ghGetHistoryItem", read("packages/reakt/**"))
+        .await
+        .expect("commit");
+    let data = row_data(&outcome);
+    assert_eq!(data["changedFilesCount"], 5, "{data}");
+    let warnings = data["warnings"].to_string();
+    assert!(
+        warnings.contains("include matched 0 of 5 changed files; changed directories: packages/react-dom/src/, packages/react/src/, packages/react/, docs/, scripts/."),
+        "{data}"
+    );
+    runtime.close().await;
+}
+
+/// HI12(a) + X5: a comparison lists commit headlines (login first) and
+/// one `readCommit` lead for the first commit with more message.
+#[tokio::test]
+async fn history_a_compare_commits_are_headlines_with_login_authors() {
+    let server = MockServer::start().await;
+    let head = "1111111111111111111111111111111111111111";
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/compare/v1...{head}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "status": "ahead", "ahead_by": 3, "behind_by": 0, "total_commits": 3,
+            "commits": [
+                {"sha": "c1", "author": {"login": "rickhanlonii"},
+                 "commit": {"message": "Fix A (#1)", "author": {"name": "Ricky", "date": "2024-01-01T00:00:00Z"}}},
+                {"sha": "c2", "author": null,
+                 "commit": {"message": "Fix B (#2)\n\nLong body explaining B.", "author": {"name": "Unlinked", "date": "2024-01-02T00:00:00Z"}}},
+                {"sha": "c3", "author": {"login": "acdlite"},
+                 "commit": {"message": "Fix C\n\nmore", "author": {"name": "Andrew", "date": "2024-01-03T00:00:00Z"}}}
+            ],
+            "files": [{"filename": "src/a.js", "status": "modified", "additions": 1, "deletions": 0}]
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetHistoryItem",
+        json!({"operation":"compare","owner":"a","repo":"b","base":"v1","head":head,"debug":false}),
+    )
+    .await
+    .expect("compare");
+    let data = row_data(&outcome);
+    assert_eq!(row_status(&outcome), "success", "{data}");
+    let commits = data["commits"].as_array().expect("commits");
+    assert_eq!(
+        commits
+            .iter()
+            .map(|c| (c["messageHeadline"].clone(), c["author"].clone()))
+            .collect::<Vec<_>>(),
+        [
+            (json!("Fix A (#1)"), json!("rickhanlonii")),
+            (json!("Fix B (#2)"), json!("Unlinked")),
+            (json!("Fix C"), json!("acdlite")),
+        ],
+        "{data}"
+    );
+    assert!(commits.iter().all(|c| c.get("message").is_none()), "{data}");
+    let read = &data["hints"]["readCommit"]["query"]["queries"][0];
+    assert_eq!(read["operation"], "commit", "{data}");
+    assert_eq!(read["ref"], "c2", "{data}");
+    runtime.close().await;
+}
+
+/// X9: a read of a renamed repository (GitHub answers 301 to
+/// `/repositories/<id>`) warns once and names the canonical repository; a
+/// later process reading from the immutable cache (no request, so no
+/// redirect) still knows the rename from the memo.
+#[tokio::test]
+async fn gh_file_read_of_a_renamed_repository_names_the_canonical_repository() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    for (from, to) in [
+        (
+            "/api/v3/repos/a/b/commits/main",
+            "/api/v3/repositories/1/commits/main",
+        ),
+        (
+            "/api/v3/repos/a/b/contents/README.md",
+            "/api/v3/repositories/1/contents/README.md",
+        ),
+    ] {
+        Mock::given(method("GET"))
+            .and(path(from))
+            .respond_with(
+                ResponseTemplate::new(301)
+                    .insert_header("location", format!("{}{to}?ref={sha}", server.uri())),
+            )
+            .mount(&server)
+            .await;
+    }
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repositories/1/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(sha))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repositories/1/contents/README.md"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type":"file","encoding":"base64","content":STANDARD.encode("hello\n"),
+            "size":6,"sha":"f".repeat(40),"path":"README.md"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"default_branch":"main","full_name":"c/d"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/c/d/commits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let settings = [("GITHUB_API_URL", format!("{}/api/v3", server.uri()))];
+    let renamed = |data: &serde_json::Value| {
+        let warnings = data["warnings"].to_string();
+        assert_eq!(
+            warnings.matches("renamed to c/d").count(),
+            1,
+            "one rename warning: {data}"
+        );
+        assert_eq!(data["owner"], "c", "{data}");
+        assert_eq!(data["repo"], "d", "{data}");
+    };
+    let first = workspace.runtime(&settings);
+    let outcome = call(
+        &first,
+        "ghGetFileContent",
+        json!({"owner":"a","repo":"b","path":"README.md","ref":"main"}),
+    )
+    .await
+    .expect("read");
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    renamed(row_data(&outcome));
+    first.close().await;
+
+    let second = workspace.runtime(&settings);
+    let outcome = call(
+        &second,
+        "ghGetFileContent",
+        json!({"owner":"a","repo":"b","path":"README.md","ref":sha}),
+    )
+    .await
+    .expect("cached read");
+    renamed(row_data(&outcome));
+    second.close().await;
+}
+
+/// X9: a repository GitHub never redirected costs no metadata request.
+#[tokio::test]
+async fn gh_file_read_of_a_standing_repository_reads_no_metadata() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents/README.md"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type":"file","encoding":"base64","content":STANDARD.encode("hello\n"),
+            "size":6,"sha":"f".repeat(40),"path":"README.md"
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(
+        &runtime,
+        "ghGetFileContent",
+        json!({"owner":"a","repo":"b","path":"README.md","ref":sha}),
+    )
+    .await
+    .expect("read");
+    let data = row_data(&outcome);
+    assert!(!data.to_string().contains("renamed"), "{data}");
     runtime.close().await;
 }

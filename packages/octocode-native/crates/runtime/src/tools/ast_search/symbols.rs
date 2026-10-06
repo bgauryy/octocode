@@ -230,10 +230,13 @@ fn check_language_scope(
     Err(error)
 }
 
+/// `(row path, declarations, engine diagnostics, error text)` of one parsed
+/// file; the error text is its recovered-parse error lines, when known.
+type OutlineFile = (String, Vec<Value>, Vec<String>, Option<String>);
+
 /// Declaration facts per file, before the kind and name filters.
 struct Outline {
-    /// `(row path, declarations, engine diagnostics)` per parsed file.
-    files: Vec<(String, Vec<Value>, Vec<String>)>,
+    files: Vec<OutlineFile>,
     /// Files the scan considered, including those the name prefilter skipped.
     scanned: usize,
     truncated: bool,
@@ -289,7 +292,10 @@ fn outline_file(
                 .filter_map(Value::as_str)
                 .map(str::to_owned)
                 .collect();
-            files.push((path, declarations, notes));
+            let spans = serde_json::from_value::<Vec<[u32; 2]>>(facts["errorLines"].take())
+                .unwrap_or_default();
+            let errors = (!spans.is_empty()).then(|| error_text(&source, &spans));
+            files.push((path, declarations, notes, errors));
         }
         Err(_) => {
             skipped = 1;
@@ -352,6 +358,8 @@ fn outline_directory(
     .unwrap_or_else(|_| Err("graph-facts scan failed on pathological input".to_owned()))
     .map_err(super::native_error)?;
     let rooted = |relative: &str| super::rooted_display(canonical, std::path::Path::new(relative));
+    // Only a name search weighs a recovered parse by its error lines.
+    let named = filter.is_some();
     let diagnostics = scan
         .skipped
         .iter()
@@ -365,10 +373,16 @@ fn outline_directory(
                 Ok(Value::Array(rows)) => rows,
                 _ => vec![],
             };
+            let spans = &entry.facts.error_lines;
+            let errors = (named && !spans.is_empty())
+                .then(|| std::fs::read(canonical.join(&entry.relative_path)).ok())
+                .flatten()
+                .map(|bytes| error_text(&String::from_utf8_lossy(&bytes), spans));
             (
                 rooted(&entry.relative_path),
                 declarations,
                 entry.facts.diagnostics,
+                errors,
             )
         })
         .collect::<Vec<_>>();
@@ -484,12 +498,20 @@ fn select(
     let mut recovered = false;
     // Per file: (path, its notes, index of its first candidate row).
     let mut file_notes: Vec<(&String, Vec<&String>, usize)> = Vec::new();
-    for (path, declarations, notes) in &files {
+    // A recovered parse hides a declaration of a queried name only where its
+    // syntax errors spell that name; elsewhere its note is irrelevant here.
+    let spelled = q.name_filter();
+    for (path, declarations, notes, errors) in &files {
+        let unrelated = spelled
+            .as_ref()
+            .zip(errors.as_ref())
+            .is_some_and(|(filter, errors)| !filter.spelled_in(errors));
         // The syntax-only caveat is static and already in the tool
         // description; repeating it costs every call.
         let kept: Vec<&String> = notes
             .iter()
             .filter(|m| !is_linking_only(m) && *m != SYNTAX_ONLY_NOTE)
+            .filter(|m| !(unrelated && m.starts_with(RECOVERED_PARSE_NOTE_PREFIX)))
             .collect();
         recovered |= kept
             .iter()
@@ -596,9 +618,22 @@ fn select(
     }
     // A name search that may be missing declarations (a recovered parse,
     // skipped files) completes with a text search for the same name.
-    let text_search = (recovered || skipped > 0 || truncated)
-        .then(|| text_search_lead(q, canonical))
-        .flatten();
+    // An empty name search leads to the name's text as well.
+    let text_search = if recovered || skipped > 0 || truncated {
+        text_search_lead(
+            q,
+            canonical,
+            "A recovered parse or skipped file may hide a declaration; search its text.",
+        )
+    } else if declarations.is_empty() {
+        text_search_lead(
+            q,
+            canonical,
+            "No declaration has this name; search its text.",
+        )
+    } else {
+        None
+    };
     Ok(SymbolSet {
         references,
         read,
@@ -638,7 +673,11 @@ fn references_lead(canonical: &std::path::Path, row: &Value) -> Option<Value> {
 
 /// A text search for the `symbolName` values under the outlined path: the
 /// completion when a recovered parse or a skipped file may hide one.
-fn text_search_lead(q: &AstSearchQuerySymbols, canonical: &std::path::Path) -> Option<Value> {
+fn text_search_lead(
+    q: &AstSearchQuerySymbols,
+    canonical: &std::path::Path,
+    why: &str,
+) -> Option<Value> {
     let filter = q.name_filter()?;
     let names: Vec<&str> = filter
         .entries
@@ -659,7 +698,7 @@ fn text_search_lead(q: &AstSearchQuerySymbols, canonical: &std::path::Path) -> O
     }
     Some(
         crate::tools::result::Continuation::new(ToolId::LocalSearch, query)
-            .why("A recovered parse or skipped file may hide a declaration; search its text.")
+            .why(why)
             .confidence("medium")
             .build(),
     )
@@ -812,7 +851,27 @@ fn render_page(q: &AstSearchQuerySymbols, set: &SymbolSet) -> Value {
         out["next"]["read"] = lead.clone();
     }
     if declarations.is_empty() && !incomplete {
-        out["status"] = json!("empty")
+        out["status"] = json!("empty");
+        // What was searched: the name (when asked) and the file count.
+        let named = q
+            .name_filter()
+            .map(|filter| {
+                let names = filter
+                    .entries
+                    .iter()
+                    .map(|entry| entry.text.as_str())
+                    .collect::<Vec<_>>();
+                format!("named {} ", names.join(", "))
+            })
+            .unwrap_or_default();
+        let lead = if text_search.is_some() {
+            "; next.textSearch searches the text"
+        } else {
+            "; broaden kinds, path, or filters"
+        };
+        out["hints"] = json!([format!(
+            "0 declarations {named}in {files_scanned} files{lead}."
+        )]);
     }
     out
 }
@@ -847,6 +906,22 @@ fn is_linking_only(message: &str) -> bool {
 
 /// Engine diagnostic for a tree-sitter parse that recovered from syntax errors.
 const RECOVERED_PARSE_NOTE_PREFIX: &str = "tree-sitter recovered from parse errors";
+
+/// The source lines of `spans` (1-based, inclusive), joined.
+fn error_text(source: &str, spans: &[[u32; 2]]) -> String {
+    let lines = source.lines().collect::<Vec<_>>();
+    spans
+        .iter()
+        .filter_map(|[start, end]| {
+            let start = (*start as usize).max(1) - 1;
+            let end = (*end as usize).min(lines.len());
+            lines.get(start..end)
+        })
+        .flatten()
+        .copied()
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 /// Static engine caveat attached to every tree-sitter graph-facts file.
 const SYNTAX_ONLY_NOTE: &str =

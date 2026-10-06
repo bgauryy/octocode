@@ -3,7 +3,7 @@
 Field-level reference for every tool exposed through MCP and the CLI. Schemas and descriptions are authored in `@octocodeai/octocode-core` and published in-repo through `@octocodeai/config/schema`; execution and native search/minify/security/LSP primitives live in `@octocodeai/octocode-native`. The cross-tool envelope, evidence, and continuation contract lives in [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md); tool selection strategy lives in the [research manifest](OCTOCODE_RESEARCH_MANIFEST.md); MCP setup lives in [OCTOCODE_MCP.md](OCTOCODE_MCP.md) and CLI usage in [OCTOCODE_CLI.md](../packages/octocode/docs/OCTOCODE_CLI.md). For the exact active schema, inspect the live contract; its `variants` and `defaults` preserve mode-specific required fields and defaults:
 
 ```bash
-npx octocode scheme <toolName> --view query --compact
+npx octocode schema <toolName> --view query
 ```
 
 ## Tool inventory
@@ -64,16 +64,16 @@ No tool requires a brief: a blank `mainGoal` or `reasoning` is dropped, and an o
 
 ```bash
 # Catalog: canonical names, availability, and agent instructions
-npx octocode scheme
+npx octocode schema
 
 # Branch names, required fields, and minimal examples
-npx octocode scheme localSearch --view variants
+npx octocode schema localSearch --view variants
 
 # Self-contained query schema, optionally isolated to one variant
-npx octocode scheme ghGetHistoryItem --view query --select variant=pullRequest
+npx octocode schema ghGetHistoryItem --view query --select variant=pullRequest
 
 # Full contract: variants, examples, defaults, prepare rules, and input schema
-npx octocode scheme ghGetHistoryItem --view full
+npx octocode schema ghGetHistoryItem --view full
 ```
 
 The contract lists `variants` (when a branch applies, its required fields, and a minimal example), `defaults` (values the runtime adds for each branch), and `rules` (preparation and validation steps). Runtime `hints` is one optional object per row. `hints.text` holds prose tips (on empty/error results, one concise recovery tip of at most 120 characters); every other `hints` entry is an executable lead `{tool, query}`. A tip or lead offers guidance and never proves absence or success. Pages and completeness recovery calls are never hints: they stay in `next`, and the response is incomplete until they are followed.
@@ -119,7 +119,7 @@ CLI exit codes: `0` success, `1` every row empty, `2` invalid input (including a
 | `lspSearch` | Internal/local with a language-server process | Resolves an anchored symbol and asks a real language server for definitions, references, calls, types, symbols, hierarchy, or diagnostics. It reports unavailable capabilities instead of returning a syntactic approximation as semantic proof. |
 | `clasify` | External Jev provider | Executes unread read-tool requests or accepts supplied state, applies Noul, Choice, or Score questions across a resource-question matrix, and returns correlated typed pages without retrieved bodies. |
 
-Remote GitHub tools require provider runtime and credentials ([authentication](AUTHENTICATION.md)). `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools are on unless `ENABLE_LOCAL`/`local.enabled` is `false`; `ghCloneRepo` is CLI-only and requires persistent storage. `astRewrite` and `astTopology` are CLI-only too, and additionally require `OCTOCODE_BETA=true` (or `local.beta: true`), their sole gate (for `astRewrite` it covers preview and apply); until then `scheme` and root help omit them, and `scheme <name>` reports `availability.enabled:false` with `envVar:"OCTOCODE_BETA"`. LSP availability also depends on a compatible server for the file language. `clasify` requires a resolved classification key (see [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md)); without one, MCP omits it and a CLI call returns an actionable missing-key error. Configuration keys are owned by [CONFIGURATION.md](CONFIGURATION.md).
+Remote GitHub tools require provider runtime and credentials ([authentication](AUTHENTICATION.md)). `artifactSearch` uses official registry APIs; `type:"npm"` honors the effective npm registry configuration. Local tools are on unless `OCTOCODE_ENABLE_LOCAL`/`local.enabled` is `false`; `ghCloneRepo` is CLI-only and requires persistent storage. `astRewrite` and `astTopology` are CLI-only too, and additionally require `OCTOCODE_BETA=true` (or `local.beta: true`), their sole gate (for `astRewrite` it covers preview and apply); until then `schema` and root help omit them, and `schema <name>` reports `availability.enabled:false` with `envVar:"OCTOCODE_BETA"`. LSP availability also depends on a compatible server for the file language. `clasify` requires a resolved classification key (see [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md)); without one, MCP omits it and a CLI call returns an actionable missing-key error. Configuration keys are owned by [CONFIGURATION.md](CONFIGURATION.md).
 
 ## Text, AST, graph, and LSP: choose the evidence you need
 
@@ -170,7 +170,7 @@ Concise reference for Octocode MCP remote research tools: GitHub code/repo/PR se
 
 Token variables, their precedence, `GITHUB_API_URL` (GitHub Enterprise), OAuth login, and token refresh are owned by [AUTHENTICATION.md](AUTHENTICATION.md).
 
-Every tool takes `{ "queries": [...] }`, up to 5 queries per call; the JSON examples below show one query row per line. Page-based tools use `page` and `pageSize`. When more results remain, run the matching schema-valid `next.*` call: `nextPage` or a content continuation (`continue`, `continuePatch`, `nextFilePage`, and similar). At an unexpandable public or provider cap, metadata reports `terminalLimitReached` and omits unusable continuations. Numeric page, offset, cursor, and raw `nextQuery` fields are not executable by themselves. `matchString` selects all matching slices; file chunks page that selected view without changing the selector. `ghCloneRepo` is atomic and does not paginate its input. Use `npx octocode scheme <toolName> --view query --compact` for the exact active schema and operation scopes.
+Every tool takes `{ "queries": [...] }`, up to 5 queries per call; the JSON examples below show one query row per line. Page-based tools use `page` and `pageSize`. When more results remain, run the matching schema-valid `next.*` call: `nextPage` or a content continuation (`continue`, `continuePatch`, `nextFilePage`, and similar). At an unexpandable public or provider cap, metadata reports `terminalLimitReached` and omits unusable continuations. Numeric page, offset, cursor, and raw `nextQuery` fields are not executable by themselves. `matchString` selects all matching slices; file chunks page that selected view without changing the selector. `ghCloneRepo` is atomic and does not paginate its input. Use `npx octocode schema <toolName> --view query` for the exact active schema and operation scopes.
 
 Search match values and provider text snippets are evidence previews, not collection pagination; read exact bytes before quoting them.
 
@@ -203,7 +203,7 @@ Discover repositories by keywords, topics, owner, and metadata filters.
 Fields: `keywords`, `topics`, `language`, `owner`, `stars` (`">100"`,
 `"10..50"`), `pushed` and `created` (ISO date or range such as `">2025-01-01"` or
 `"2024-01..2024-06"`, or a window such as `"30d"`), `license`, `archived`
-(`true` lists archived repositories only), `match` (array of `name`,
+(`true` also lists archived repositories; `qualifiers: "is:archived"` lists only them), `match` (array of `name`,
 `description`, `readme`), `qualifiers`, `sort`, `page`, `pageSize` (1-100,
 default 20), and `concise`. Malformed counts and dates fail validation with the
 accepted forms. `qualifiers` carries the rarer GitHub filters as one
@@ -212,15 +212,14 @@ keys are allowlisted, no `repo:`/`org:`/`user:`, and no key that has a typed
 field).
 
 Rows are compact: `owner`, `repo` (the name only), `stars`, `language`, `license`,
-`pushedAt`, `createdAt`, `archived: true` on an archived repository, the full
+`pushedAt`, `createdAt`, `archived: true` on an archived repository, `fork: true` on a fork, the full
 `description`, and every returned `topic`. `debug:true` adds `forks` and
 `updatedAt`. `pagination` holds `totalItems`, `hasMore`, `currentPage` and
 `totalPages`; the page cursor is `next.nextPage`. The top row leads to its root
-listing (`hints.viewRepo`) and, for a keyword search, to the same keywords in
-its code (`hints.searchContent`, ghSearchCode). Without `archived`, archived
+listing (`hints.viewRepo`). Without `archived`, archived
 repositories are excluded: page 1 of a search leads to them
-(`hints.includeArchived`, the same search with `archived:true`), ahead of
-`searchContent`. An empty filtered search leads to the keywords alone
+(`hints.includeArchived`, the same search with `archived:true`). An empty
+filtered search leads to the keywords alone
 (`hints.findRepository`).
 
 `ghSearchRepo` with only `owner` (optionally `sort:"updated"`) reads the REST
@@ -290,6 +289,13 @@ under `entries` keep the `dir`/`files`/`folders` shape. A listing names
 `resolvedRef` only when it resolved the default branch, and `commitSha` only when it differs from the
 requested ref; page totals ride `pagination`, and `debug: true` adds the
 per-page `summary`.
+Each listing page (not a `materialize` page) states freshness at the listed
+commit: every row's `updated` maps each listed file and folder name to the day
+(`YYYY-MM-DD`) of its last commit, and `commitDate` is the listed commit's day.
+The dates cost one GraphQL request per 100 entries of the page (1 rate-limit
+point each), are cached per commit and page, and need a GitHub token. A failed
+date request never fails the listing: the entries stay, undated, and one
+`warnings` line says how many are missing and why.
 For cross-file grep at a ref over MCP (where `ghCloneRepo` is unavailable),
 combine `include` with `materialize:true` (≤50 files, ≤300 KiB each), then run
 `localSearch` at the returned `location.localPath` (the listed directory;
@@ -301,7 +307,7 @@ first listing page leads to an outline read of its entry file (`hints.read`).
 A `ref` that does not exist is an error; it never falls back to the default
 branch. A missing `path` is a not-found error whose `hints.viewTree` lists the
 nearest existing directory (case-corrected).
-For exact field types and ref rules, inspect `scheme ghStructure --view query`.
+For exact field types and ref rules, inspect `schema ghStructure --view query`.
 
 ### `ghGetFileContent`
 
@@ -325,7 +331,7 @@ Key fields:
 
 Choose one extraction intent: whole file, line range, matching slices, or symbol outline. Both readers reject symbol outlines combined with match or line selectors. Selection precedes minification, redaction, and pagination. `unit` defaults to `lines` with `length:2000` (the 16384-byte page budget usually ends the page first); `bytes` defaults to 16384 UTF-8 bytes. Offsets are zero-based in the selected view. Line pages have a 16384-byte budget and oversized lines switch to bytes. Byte ends may extend by up to three bytes to finish a code point.
 
-`fullContent:true` requests an unpaged view and rejects window controls. A view over 50000 bytes (or a source over 100 KB) returns its first bounded line page inline, `partialReasons:["full-content-size-limit"]`, and `next.continue` (pinned to the resolved commit SHA) for the rest. Each read returns its file fields (`path`, `content`, `totalLines`, `commitSha`, …) directly on `data`. A range remains bounded by its original end line; continuing a match preserves its pattern and source-line context. `totalLines` (and, with `debug: true`, `sourceBytes`) describe the original file; `pagination.totalLines`/`totalBytes` describe the complete selected view. `matchedLines` contains source anchors on the current page; with `debug: true`, `selectedMatchCount` counts all selected matching lines and a first-page read adds `lastModified`/`lastModifiedBy` from the last commit touching the path (one more request, sent only after the content read succeeds). `minifyFallback` explains when match evidence or unavailable outlines prevent the requested transform.
+`fullContent:true` requests an unpaged view and rejects window controls. A view over 50000 bytes (or a source over 100 KB) returns its first bounded line page inline, `partialReasons:["full-content-size-limit"]`, and `next.continue` (pinned to the resolved commit SHA) for the rest. Each read returns its file fields (`path`, `content`, `totalLines`, `commitSha`, …) directly on `data`. A range remains bounded by its original end line; continuing a match preserves its pattern and source-line context. `totalLines` (and, with `debug: true`, `sourceBytes`) describe the original file; `pagination.totalLines`/`totalBytes` describe the complete selected view. `matchedLines` contains source anchors on the current page; with `debug: true`, `selectedMatchCount` counts all selected matching lines. A first-page read (offset 0) adds `lastModified`/`lastModifiedBy` (author login when GitHub links one, else name) from the last commit touching the path at the read commit (one more request, sent only after the content read succeeds); later pages omit them. `minifyFallback` explains when match evidence or unavailable outlines prevent the requested transform.
 
 File reads return content without creating a checkout. Use `ghStructure` to browse directories or `ghCloneRepo` with `path` to create a local subtree.
 
@@ -352,7 +358,7 @@ Behaviors worth knowing:
 - `minify: "symbols"` returns a paginated outline; read its source-line gutter, then follow up with `ranges` and `minify:"none"`.
 - Continuation offsets are exact — execute `next` unchanged rather than recomputing them. `next` and `hints` queries omit default view fields (`fullContent`, `minify:"none"`) and keep a chosen `minify`.
 - A match window that stops inside a declaration offers `hints.readBlock` for the rest; a small file the window mostly covers returns whole instead, with no lead.
-- A failed read keeps `errorCode`, `httpStatus`, and `retryable`; GitHub's `requestId` and `documentationUrl` appear only with `debug: true`.
+- A failed read keeps `errorCode`, and `retryable: true` when a retry can help (absent means do not retry unchanged); `httpStatus` and GitHub's `requestId` and `documentationUrl` appear only with `debug: true`.
 - `standard` removes comments and rewrites formatting but does no JS/TS optimization or type-declaration removal; use `none` for source quotes and comment-sensitive evidence. See [minification coverage](../packages/octocode-native/docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md#minification--file-reads-and-search-fragments).
 - Files too large for the `/contents/` API fall back to the Git tree/blob API automatically — no need to switch to `ghCloneRepo` for size alone.
 
@@ -718,7 +724,7 @@ Local tools are on by default. To turn the whole local surface off:
 }
 ```
 
-`ENABLE_LOCAL=false` does the same. To hide individual local tools while keeping the rest available, use `DISABLE_TOOLS` or `tools.disabled`; `TOOLS_TO_RUN` is a strict allowlist.
+`OCTOCODE_ENABLE_LOCAL=false` does the same. To hide individual local tools while keeping the rest available, use `DISABLE_TOOLS` or `tools.disabled`; `TOOLS_TO_RUN` is a strict allowlist.
 
 Relative local paths resolve against the workspace root (`WORKSPACE_ROOT`, default the process cwd). The allowed roots are the workspace root, `ALLOWED_PATHS`/`local.allowedPaths` entries, and the Octocode home; the user home directory is not allowed unless listed.
 
@@ -1266,7 +1272,7 @@ node packages/octocode/out/octocode.js astRewrite '{"queries":[{"path":"/ABS/rep
 
 Match `range.start`/`range.end` lines are one-based; columns are zero-based UTF-16 code units (an emoji counts 2). `range.byteOffset` is the UTF-8 byte span.
 
-Use the preview's identities and diff to review the change. Inspect `scheme astRewrite --view variants` for the current operation constraints before applying. A successful preview alone does not verify applied behavior.
+Use the preview's identities and diff to review the change. Inspect `schema astRewrite --view variants` for the current operation constraints before applying. A successful preview alone does not verify applied behavior.
 
 Apply returns the complete selected-match receipt in one page, with or without `debug` (which adds only the executable and isolation receipts). A committed transaction
 may include cleanup warnings; an error may report incomplete recovery. Inspect those
@@ -1282,7 +1288,7 @@ Octocode exposes **one** public semantic tool:
 |------|------------|
 | `lspSearch` | Definitions, references, callers, callees, bidirectional call hierarchy, hover, document, and workspace symbols, type definitions, implementations, type hierarchy, and diagnostics. |
 
-Semantic operations are local-only. Local tools default on for both CLI and MCP; set `ENABLE_LOCAL=false` to disable them. LSP needs a file that exists on disk. Use `localSearch` first when you need a symbol `lineHint`; `astSearch(operation:"match")` can provide AST-derived anchors before LSP proves symbol identity.
+Semantic operations are local-only. Local tools default on for both CLI and MCP; set `OCTOCODE_ENABLE_LOCAL=false` to disable them. LSP needs a file that exists on disk. Use `localSearch` first when you need a symbol `lineHint`; `astSearch(operation:"match")` can provide AST-derived anchors before LSP proves symbol identity.
 
 For external repos: clone first with `ghCloneRepo` (set `path` for a subtree), then use the returned `localPath` as the `path` prefix for `lspSearch`. The path is always absolute and immediately valid.
 
@@ -1504,11 +1510,12 @@ Every **other** semantic operation — `references`, `definition`, `hover`, `cal
 
 The TS/JS server resolves in this order:
 
-1. `OCTOCODE_TS_SERVER_PATH` — explicit override (args auto-selected: `--lsp -stdio` if the path is `tsgo`, else `--stdio`).
+1. An `lsp-servers.json` entry for the extension (see [Custom servers](#custom--bring-your-own-servers)); for `tsgo`, `{"command":"tsgo","args":["--lsp","-stdio"],"languageId":"typescript"}`.
 2. **`typescript-language-server`** — the stable zero-config default.
 
 Octocode does not automatically prefer `tsgo` merely because it is on `PATH`;
-select it explicitly until the held-out operation matrix establishes parity.
+select it with an `lsp-servers.json` entry until the held-out operation matrix
+establishes parity.
 
 For the bundled default, Octocode first honors an executable
 `typescript-language-server` already available on `PATH`. If the command is not
@@ -1516,7 +1523,7 @@ available, the resolver runs `node_modules/typescript-language-server/lib/cli.mj
 through the current Node executable, looking in Octocode's own install tree
 first, then in the workspace's `node_modules` **only when the workspace is
 trusted**, then in the directory Octocode was started in. The workspace is
-trusted when `OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true` or when it is the start
+trusted when `lsp.trustProjectConfig` (`OCTOCODE_TRUST_PROJECT_LSP_CONFIG=true`) is set or when it is the start
 directory (or inside it), so a scanned checkout, such as a clone, cannot supply
 the executable. Cloned and external workspaces still work through Octocode's
 own install or the start directory.
@@ -1546,18 +1553,8 @@ lone `\r` each end a line. A location in an allowed file whose content cannot
 be read (too large, not UTF-8) is kept, with `content` stating why it is
 unavailable.
 
-Common environment overrides:
-
-| Variable | Language |
-|----------|----------|
-| `OCTOCODE_TS_SERVER_PATH` | TypeScript/JavaScript (bundled — override only if needed) |
-| `OCTOCODE_PYTHON_SERVER_PATH` | Python |
-| `OCTOCODE_GO_SERVER_PATH` | Go |
-| `OCTOCODE_RUST_SERVER_PATH` | Rust |
-| `OCTOCODE_JAVA_SERVER_PATH` | Java |
-| `OCTOCODE_CLANGD_SERVER_PATH` | C/C++ |
-| `OCTOCODE_CSHARP_SERVER_PATH` | C# |
-| `OCTOCODE_SCALA_SERVER_PATH` | Scala |
+To use another binary for a built-in language (a different `rust-analyzer`,
+`tsgo`, a pinned `clangd`), add an `lsp-servers.json` entry for its extension.
 
 #### Custom / bring-your-own servers
 
@@ -1565,8 +1562,8 @@ To support another extension, or to replace a built-in server, register it in a
 JSON config. Octocode loads the
 configuration in this precedence order:
 
-1. `$OCTOCODE_LSP_CONFIG` (explicit file path)
-2. `<workspace>/.octocode/lsp-servers.json` (per-project)
+1. `lsp.configPath` / `$OCTOCODE_LSP_CONFIG` (explicit file path)
+2. `<workspace>/.octocode/lsp-servers.json` (per-project; only with `lsp.trustProjectConfig`)
 3. `~/.octocode/lsp-servers.json` (per-user)
 
 The file maps a file **extension** to a launch spec; a custom entry overrides the built-in spec
@@ -1652,7 +1649,7 @@ Workspace-symbol search:
 
 ## Semantic assessment reference
 
-`clasify` takes one to five matrices in `queries[]`, like every tool. Each matrix carries an optional `mainGoal` and `reasoning`, 1–25 `resources` (supplied `{value}` state or one unread `{tool,query}` read request), and 1–25 `questions`, and results are keyed by query, resource, and question IDs. Inspect `octocode scheme clasify --view query` before hand-authoring a call, and follow an executable `next.clasify` page unchanged. Question types, cell limits, result fields, credentials, and the research workflow are owned by [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md).
+`clasify` takes one to five matrices in `queries[]`, like every tool. Each matrix carries an optional `mainGoal` and `reasoning`, 1–25 `resources` (supplied `{value}` state or one unread `{tool,query}` read request), and 1–25 `questions`, and results are keyed by query, resource, and question IDs. Inspect `octocode schema clasify --view query` before hand-authoring a call, and follow an executable `next.clasify` page unchanged. Question types, cell limits, result fields, credentials, and the research workflow are owned by [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md).
 
 ---
 
@@ -1716,7 +1713,7 @@ ghCloneRepo(owner="microsoft", repo="TypeScript", path="src/compiler")
 
 ### Path validation: why it works
 
-Clones live under `<octocode-home>/tmp/...`, and both the path and execution-context validators automatically add the Octocode home as an allowed root, so a returned `location.localPath` is valid for all local and LSP tools even outside your shell workspace. LSP picks project context from the target file by walking up to the nearest marker (`package.json`, `tsconfig.json`, `.git`, `Cargo.toml`, `go.mod`, `pyproject.toml`); see [Root selection](#root-selection). Clone through the CLI with persistent storage; MCP does not expose `ghCloneRepo`. For TS/JS LSP, Octocode uses its bundled `typescript-language-server`; if unavailable, install it (plus `typescript`) on `PATH` or set `OCTOCODE_TS_SERVER_PATH`. LSP can read minified `.js`, but quality is far better on original source.
+Clones live under `<octocode-home>/tmp/...`, and both the path and execution-context validators automatically add the Octocode home as an allowed root, so a returned `location.localPath` is valid for all local and LSP tools even outside your shell workspace. LSP picks project context from the target file by walking up to the nearest marker (`package.json`, `tsconfig.json`, `.git`, `Cargo.toml`, `go.mod`, `pyproject.toml`); see [Root selection](#root-selection). Clone through the CLI with persistent storage; MCP does not expose `ghCloneRepo`. For TS/JS LSP, Octocode uses its bundled `typescript-language-server`; if unavailable, install it (plus `typescript`) on `PATH` or add an `lsp-servers.json` entry for `.ts`. LSP can read minified `.js`, but quality is far better on original source.
 
 ### Quick reference
 

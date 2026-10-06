@@ -60,7 +60,7 @@ Every local operation resolves through `packages/octocode-native/crates/runtime/
 
 Sensitive classes include environment files, private keys and certificates, credential stores, cloud configuration, shell history, browser login stores, infrastructure state, wallets, and application secret files. Denial messages name the path as requested or relative to `~`, and outside-root denials list the allowed roots; with `debug: true`, a `localFetch` row's `resolvedPath` carries the resolved path, which can be absolute.
 
-Set `ENABLE_LOCAL=false` to disable local tools. `OCTOCODE_BETA=true` (or `local.beta:true`, shell or
+Set `OCTOCODE_ENABLE_LOCAL=false` to disable local tools. `OCTOCODE_BETA=true` (or `local.beta:true`, shell or
 home config only), default off, gates `astTopology` and `astRewrite`. Both are
 CLI-only (MCP never exposes them); for `astRewrite` the gate permits both preview and its hash-guarded mutation path.
 

@@ -25,7 +25,7 @@ Load when you decide module boundaries or file placement inside a crate, what go
 - **By domain/capability, not technical kind.** `app-search`, `app-config`, `app-http` beat `app-models`, `app-traits`, `app-utils`. A crate answers "what does it do?".
 - **Along dependency weight.** Heavy deps (tokio, reqwest, oxc, napi) go in the edge crates that need them, so the core compiles fast and works without them.
 - **Pure core, I/O at the edges.** Core crates take filesystem, network, env, clock, and global state as parameters or traits, so wasm, napi, and CLI reuse them.
-- **Thin entry crates.** `*-cli`, `*-napi`, `*-server` parse transport → call library → map errors. Example: `octocode-native` keeps `crates/engine` (pure lib, denies printing) apart from `crates/runtime` (napi/CLI surface).
+- **Thin entry crates.** `*-cli`, `*-napi`, `*-server` parse transport → call library → map errors. Octocode separates engine algorithms, the runtime `rlib`, and CLI/N-API host crates. The engine denies stdout/stderr printing.
 - **Forced splits:** a proc-macro is its own crate (`app-macros`/`app-derive`); raw C bindings go in `foo-sys`, the safe wrapper in `foo`.
 - **No `common`/`utils` grab-bag crate**: everything depends on it, so every edit rebuilds everything. Give each helper a home domain, or name the crate after its one job (`app-paths`).
 
@@ -40,6 +40,13 @@ Load when you decide module boundaries or file placement inside a crate, what go
 - Each crate builds and tests alone: `cargo test -p <crate>`, `cargo hack check --each-feature -p <crate>`.
 - Enforce layering in CI over `cargo metadata` (or `cargo deny` `[bans]` with `wrappers`): fail if `app-core` depends on an edge crate.
 - Internal crates: `publish = false`, versioned together. Published crates: `cargo semver-checks` before every release.
+
+## Octocode ownership example
+- `crates/engine`: reusable algorithms; `crates/github`: protocol and transport. Runtime owns tool contracts, policy, configuration, credential selection, and caches.
+- `crates/runtime`: request admission, cancellation, dispatch, validation, and response shaping. It has no N-API dependency or executable target.
+- `crates/cli`: arguments, output, exits, and regex-worker executable. `crates/runtime-napi`: Node conversion and lifecycle over the same runtime.
+- Keep host adapters free of tool business logic and fallback execution. Check the actual manifest before assuming a dependency edge.
+- Verify with `yarn workspace @octocodeai/octocode-native check:crate-boundaries`; the check reads Cargo metadata rather than folder names.
 
 ## Extract a module into a crate
 1. In the current crate, make the module self-contained: only `pub(crate)` surface used by siblings, no `super::`/`crate::` reach-ins, its own error type.

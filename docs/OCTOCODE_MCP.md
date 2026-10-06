@@ -37,7 +37,7 @@ Otherwise, configure an MCP client directly to run `octocode-mcp`:
 }
 ```
 
-Set a token in the client `env` block (`GITHUB_TOKEN`, `GH_TOKEN`, or `OCTOCODE_TOKEN`), or run `npx octocode auth login` once on the same machine; the server also falls back to `gh auth token`. `.octocoderc` never supplies tokens. See [Authentication](AUTHENTICATION.md).
+Set a token in the client `env` block (`GH_TOKEN` or `GITHUB_TOKEN`), or run `npx octocode auth login` once on the same machine; the server also falls back to `gh auth token`. `.octocoderc` never supplies tokens. See [Authentication](AUTHENTICATION.md).
 
 ## Startup lifecycle
 
@@ -64,7 +64,7 @@ Configuration, security policy, providers, credentials, caches, and usage stats 
 The full discovery catalog contains 16 tools. With default settings and no
 provider key, the MCP server registers 12: `ghCloneRepo`, `astTopology` and
 `astRewrite` are CLI-only and always omitted, with or without `OCTOCODE_BETA`.
-`clasify` needs a nonblank resolved classification key: `OCTOCODE_CLASSIFICATION_API`, else the selected vendor's key (`OCTOCODE_JEV_KEY` for jev), else `.octocoderc` `classification.api` (a present-but-blank `OCTOCODE_CLASSIFICATION_API` disables it). At startup MCP sends one minimal clasify request; if the provider fails (bad key, exhausted quota, unreachable host, invalid response; a rate limit does not count), clasify is left out and stderr shows `clasify disabled: provider check failed (<code>)`. Unavailable tools
+`clasify` needs a nonblank resolved classification key: `OCTOCODE_CLASSIFICATION_API`, else `.octocoderc` `classification.api` (a present-but-blank `OCTOCODE_CLASSIFICATION_API` disables it). At startup MCP sends one minimal clasify request; if the provider fails (bad key, exhausted quota, unreachable host, invalid response; a rate limit does not count), clasify is left out and stderr shows `clasify disabled: provider check failed (<code>)`. Unavailable tools
 are omitted from MCP discovery entirely, not registered as failing calls. The
 CLI-only exclusion is enforced twice: the native runtime never lists them for
 the MCP surface, and the adapter filters core's `isCliOnlyTool` policy again
@@ -86,10 +86,10 @@ Server instructions are built for the registered tool subset and target at most
 2,000 characters, because hosts truncate near 2 KB. The budget is the core
 constant `MAX_MCP_INSTRUCTION_CHARS`; it is enforced by tests
 (`packages/octocode-mcp/tests/native/create-native-mcp.test.ts`), not by runtime
-truncation. The runtime grammar inventory and `scheme` guidance are CLI-only;
+truncation. The runtime grammar inventory and `schema` guidance are CLI-only;
 MCP clients get schemas through `tools/list`.
 
-To read the live CLI catalog, run `octocode scheme`.
+To read the live CLI catalog, run `octocode schema`.
 
 GitHub discovery is three tools with no `operation` field: `ghSearchRepo`
 (repositories), `ghSearchCode` (indexed code), and `ghStructure` (repository
@@ -112,13 +112,13 @@ settings that most often differ per MCP client:
 
 | Setting | Default | Why it matters |
 |---------|---------|----------------|
-| `GITHUB_TOKEN` / `GH_TOKEN` / `OCTOCODE_TOKEN` | — | GitHub API auth. See [Authentication](AUTHENTICATION.md). |
+| `GH_TOKEN` / `GITHUB_TOKEN` | — | GitHub API auth. See [Authentication](AUTHENTICATION.md). |
 | `GITHUB_API_URL` | `https://api.github.com` | GitHub Enterprise endpoint. |
-| `ENABLE_LOCAL` | `true` | Turns local filesystem and LSP tools on or off. |
+| `OCTOCODE_ENABLE_LOCAL` | `true` | Turns local filesystem and LSP tools on or off. |
 | `TOOLS_TO_RUN` / `DISABLE_TOOLS` | unset | Strict allowlist (replaces the default set) / removals from the default set. |
 | `WORKSPACE_ROOT`, `ALLOWED_PATHS` | — | Bound local path resolution and validation. |
 | `OCTOCODE_BETA` | `false` | Enables the CLI-only beta tools `astTopology` and `astRewrite`; registers nothing on MCP. |
-| `OCTOCODE_CLASSIFICATION_API` (or `OCTOCODE_JEV_KEY`) | unset | Registers `clasify`. See [Authentication](AUTHENTICATION.md#classification-key-clasify). |
+| `OCTOCODE_CLASSIFICATION_API` | unset | Registers `clasify`. See [Authentication](AUTHENTICATION.md#classification-key-clasify). |
 | `OCTOCODE_OUTPUT_FORMAT` | `yaml` | Encoding of the MCP text channel (`yaml` or `json`); `structuredContent` is always JSON. |
 
 Every other setting (timeouts, retries, storage mode, pagination budget, LSP config, classification host) is in the [configuration reference](CONFIGURATION.md#all-settings-reference). Development-only overrides (`OCTOCODE_NATIVE_BINDING`, `OCTOCODE_ALLOW_CONTRACT_DRIFT`) are listed in [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md#development-environment-variables).
@@ -164,7 +164,7 @@ Each runtime start (MCP or CLI) runs a best-effort sweep when the 24-hour marker
 
 The native runtime can record classification usage in `<octocode-home>/stats.json`
 (`stats.clasify.calls`, `input_tokens`, `output_tokens`). It is off by default:
-set `OCTOCODE_ENABLE_STATS=true` with persistent storage. Updates are
+set `storage.stats` (`OCTOCODE_ENABLE_STATS=true`) with persistent storage. Updates are
 best-effort, serialized with a `stats.json.lock` sidecar, and written through a
 temp file and atomic rename, so concurrent MCP and CLI processes can share one
 home. A stats failure never fails a tool call. Octocode does not write a

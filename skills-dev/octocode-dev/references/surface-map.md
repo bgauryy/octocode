@@ -24,7 +24,7 @@ Unprefixed paths are relative to the monorepo root.
 | Output shaping | `src/response/{pager,rows,stage,render,continuations,channels,pages}.rs`, `tools/result.rs` | Rows, evidence, `next.*` pages vs `hints.*` leads (`channels.rs`), compact CLI |
 | Security | `src/security/{content,walk,registry}.rs`, `src/policy/` | Redaction, path sandbox |
 | MCP registration | `packages/octocode-mcp/src/native/index.ts` (instructions), `src/public.ts` | Thin forward, no logic |
-| CLI | `packages/octocode/src/cli/{native-delegate,parser,options}.ts`, `commands/scheme.ts`; native CLI `crates/cli/src/cli/` | Rendering, flags |
+| CLI | `packages/octocode/src/cli/{native-delegate,parser,options}.ts`, `commands/schema.ts`; native CLI `crates/cli/src/cli/` | Rendering, flags |
 | Config | `packages/octocode-config/config-contract.json` → `packages/octocode-config/scripts/generate-config-contract.ts` → `src/config/contract.generated.ts`, `<repo>/docs/generated/CONFIG_SETTINGS.md`; native struct from `crates/runtime/build.rs`; runtime `src/config/` | One declared knob, one resolver |
 | Docs | `<repo>/docs/OCTOCODE_TOOLS.md`, `<repo>/docs/TOOL_DATA_CONTRACT.md`, `docs/TOOL_QUALITY.md` (this skill), `<repo>/docs/CONFIGURATION.md`, `<repo>/docs/OCTOCODE_MCP.md`, `packages/octocode/docs/OCTOCODE_CLI.md` | Match live behavior |
 
@@ -39,9 +39,9 @@ Unprefixed paths are relative to the monorepo root.
 ## Live views
 
 ```bash
-$OCTO scheme --compact                 # catalog + availability
-$OCTO scheme <tool> --view query       # full public query schema
-$OCTO scheme <tool> --compact          # what agents see compactly
+$OCTO schema --compact                 # catalog + availability
+$OCTO schema <tool> --view query       # full public query schema
+$OCTO schema <tool> --compact          # what agents see compactly
 ```
 
 `scripts/tool-inventory.mjs` reads the generated embed, so it reflects the last regen — if core changed since, regen first or its output is stale.

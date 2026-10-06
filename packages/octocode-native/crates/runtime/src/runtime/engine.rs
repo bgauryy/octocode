@@ -21,7 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 const LOCAL_DISABLED: &str =
-    "Local tools are disabled (ENABLE_LOCAL=false); graph commands read local files.";
+    "Local tools are disabled (OCTOCODE_ENABLE_LOCAL=false); graph commands read local files.";
 
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -89,7 +89,6 @@ pub struct ToolRuntime {
     available_tools: std::sync::RwLock<Arc<[&'static str]>>,
     /// Set when the startup probe found the classification provider unusable.
     classification_unreachable: std::sync::atomic::AtomicBool,
-    family_excluded: Arc<[&'static str]>,
     lsp_execution_config: Arc<crate::tools::lsp_search::LspExecutionConfig>,
 }
 
@@ -416,8 +415,12 @@ impl ToolRuntime {
         let mut runtime = Self::new(input)?;
         // Misconfiguration never fails startup; say what was ignored and
         // where. stderr only: stdout carries CLI results and MCP JSON-RPC.
+        // An unknown key changes nothing, so `octocode config` reports it
+        // instead of every call.
         for diagnostic in &runtime.config.diagnostics {
-            eprintln!("{diagnostic}");
+            if diagnostic.code != config::UNKNOWN_CONFIG_CODE {
+                eprintln!("{diagnostic}");
+            }
         }
         // storage.mode=memory must not touch the disk cache at all.
         if config::is_persistent_storage_enabled(&runtime.config.resolved) {
@@ -492,12 +495,22 @@ impl ToolRuntime {
             .map(|dir| Arc::new(crate::providers::artifact::ArtifactCache::new(Some(dir))));
         let lsp_execution_config = Arc::new(crate::tools::lsp_search::LspExecutionConfig {
             config_path: config.resolved.lsp.config_path.clone(),
-            trust_project_config: input.trusted_project,
+            trust_project_config: input.trusted_project || config.resolved.lsp.trust_project_config,
+            // Resolved settings the engine reads by name; `lsp.cacheDir` may
+            // come from `.octocoderc`, not only the environment.
             env: config
                 .effective_env
                 .iter()
                 .filter(|(key, _)| key.starts_with("OCTOCODE_"))
                 .map(|(key, value)| (key.clone(), value.clone()))
+                .chain(
+                    config
+                        .resolved
+                        .lsp
+                        .cache_dir
+                        .clone()
+                        .map(|dir| ("OCTOCODE_LSP_CACHE_DIR".to_owned(), dir)),
+                )
                 .collect(),
             octocode_home: Some(octocode_home),
         });
@@ -516,7 +529,6 @@ impl ToolRuntime {
             artifact_cache,
             available_tools: std::sync::RwLock::default(),
             classification_unreachable: std::sync::atomic::AtomicBool::new(false),
-            family_excluded: Arc::default(),
             lsp_execution_config,
         };
         runtime.available_tools = std::sync::RwLock::new(
@@ -526,11 +538,6 @@ impl ToolRuntime {
                 .map(|id| id.as_str())
                 .collect(),
         );
-        runtime.family_excluded = ToolId::ALL
-            .iter()
-            .map(|id| id.as_str())
-            .filter(|name| runtime.excluded_by_family(name))
-            .collect();
         Ok(runtime)
     }
 
@@ -557,18 +564,12 @@ impl ToolRuntime {
         self.github_cache.clear();
     }
 
-    /// Resolve the classification credential: the generic
-    /// `OCTOCODE_CLASSIFICATION_API` first, then the selected vendor's native
-    /// key env (e.g. `OCTOCODE_JEV_KEY` for the `jev` vendor).
+    /// The classification credential (`classification.api`): a blank value
+    /// is an explicit opt-out.
     fn classification_key(&self) -> Option<&str> {
-        let vendor = self.config.resolved.classification.r#type.as_str();
-        let provider = crate::providers::classification::provider_for(vendor);
-        // Present but blank is an explicit opt-out: no vendor-key fallback.
-        match self.config.env_value("OCTOCODE_CLASSIFICATION_API") {
-            Some(value) if value.trim().is_empty() => None,
-            Some(value) => Some(value),
-            None => self.config.env_value(provider.key_env()),
-        }
+        self.config
+            .env_value("OCTOCODE_CLASSIFICATION_API")
+            .filter(|value| !value.trim().is_empty())
     }
 
     /// Provider settings for one clasify call, resolved before the blocking
@@ -611,20 +612,6 @@ impl ToolRuntime {
                 .disabled
                 .as_ref()
                 .is_some_and(|names| names.iter().any(|name| name == tool))
-    }
-
-    /// True when the `tools.family` preset leaves the tool out: `local` keeps
-    /// local and remote tools, `github` keeps GitHub and remote tools (core
-    /// `TOOL_POLICIES` family). It only narrows the tool lists.
-    fn excluded_by_family(&self, tool: &str) -> bool {
-        let Some(id) = ToolId::from_name(tool) else {
-            return false;
-        };
-        match self.config.resolved.tools.family.as_str() {
-            "local" => id.is_github(),
-            "github" => id.is_local(),
-            _ => false,
-        }
     }
 
     /// MCP presentation switches (`mcp.*` config): the available tools served
@@ -734,10 +721,7 @@ impl ToolRuntime {
                 .is_some_and(|value| !value.is_empty()),
             _ => true,
         };
-        family
-            && prerequisite
-            && !self.excluded_by_tool_list(tool)
-            && !self.excluded_by_family(tool)
+        family && prerequisite && !self.excluded_by_tool_list(tool)
     }
 
     /// The resolved language-server settings `lspSearch` discovers with.
@@ -780,8 +764,6 @@ impl ToolRuntime {
                 });
                 if self.excluded_by_tool_list(name) {
                     entry["unavailableReason"] = json!("toolsList");
-                } else if self.excluded_by_family(name) {
-                    entry["unavailableReason"] = json!("family");
                 } else if self.input.runtime_surface != RuntimeSurface::Cli
                     && ToolId::from_name(name).is_some_and(ToolId::is_cli_only)
                 {
@@ -831,7 +813,22 @@ impl ToolRuntime {
         input: Value,
     ) -> Result<ToolOutcome, RuntimeError> {
         let input = contracts::normalize_input(&tool, input);
-        self.execute_channel(admission, tool, input, false).await
+        self.execute_channel(admission, tool, input, false, false)
+            .await
+    }
+
+    /// [`Self::execute`] that also renders the text channel MCP clients read
+    /// (`ToolOutcome::content`), for a CLI writing to a terminal.
+    pub async fn execute_rendered(
+        &self,
+        request_id: String,
+        tool: String,
+        input: Value,
+    ) -> Result<ToolOutcome, RuntimeError> {
+        let admission = self.admit(request_id)?;
+        let input = contracts::normalize_input(&tool, input);
+        self.execute_channel(admission, tool, input, false, true)
+            .await
     }
 
     pub async fn execute_mcp(
@@ -852,7 +849,7 @@ impl ToolRuntime {
     ) -> Result<Value, RuntimeError> {
         let input = contracts::normalize_input(&tool, input);
         let result = match self
-            .execute_channel(admission, tool.clone(), input, true)
+            .execute_channel(admission, tool.clone(), input, true, true)
             .await
         {
             Ok(result) => result,
@@ -867,6 +864,7 @@ impl ToolRuntime {
         tool: String,
         input: Value,
         mcp: bool,
+        render_text: bool,
     ) -> Result<ToolOutcome, RuntimeError> {
         let id = self.admit_tool(&tool, mcp)?;
         let clasify = if id.is_clasify() {
@@ -876,7 +874,8 @@ impl ToolRuntime {
             None
         };
         // Parse response-paging options before contract validation.
-        let options = ResponsePageOptions::deserialize(&input).unwrap_or_default();
+        let mut options = ResponsePageOptions::deserialize(&input).unwrap_or_default();
+        options.render_text = Some(render_text);
         let (queries, rejected_rows) = self.admit_queries(id, &input, mcp)?;
         let response_query = if queries.len() == 1 {
             queries[0].clone()
@@ -907,9 +906,6 @@ impl ToolRuntime {
             },
             replayed,
             replays: (self.page_replays.clone(), replay_key),
-            family_scope: (!self.family_excluded.is_empty())
-                .then(|| format!("tools.family {}", self.config.resolved.tools.family)),
-            family_excluded: self.family_excluded.clone(),
         };
         self.requests
             .execute_blocking_admitted(admission, move |context| run.run(&context))
@@ -959,10 +955,9 @@ impl ToolRuntime {
             return Err(RuntimeError::new(
                 "missingConfiguration",
                 format!(
-                    "clasify requires OCTOCODE_CLASSIFICATION_API (or the {vendor} \
-                         vendor's {}). Create a classification provider API key ({}) \
-                         and set OCTOCODE_CLASSIFICATION_API before retrying.",
-                    p.key_env(),
+                    "clasify requires OCTOCODE_CLASSIFICATION_API (the {vendor} vendor's key). \
+                     Create a classification provider API key ({}) and set \
+                     OCTOCODE_CLASSIFICATION_API before retrying.",
                     p.docs_url(),
                 ),
             ));
@@ -1117,8 +1112,6 @@ struct ChannelRun {
     output: OutputSettings,
     replayed: Option<PageReplay>,
     replays: (Arc<PageReplayMemo>, [u8; 32]),
-    family_excluded: Arc<[&'static str]>,
-    family_scope: Option<String>,
 }
 
 impl ChannelRun {
@@ -1149,15 +1142,8 @@ impl ChannelRun {
             !(mcp && ToolId::from_name(target).is_some_and(ToolId::is_cli_only))
                 && self.dispatcher.available_tools.contains(&target)
         };
-        // A family preset's cross-family drops are disclosed.
-        let disclose = |target: &str| {
-            self.family_scope
-                .as_deref()
-                .filter(|_| self.family_excluded.contains(&target))
-        };
         let scope = continuations::Scope {
             is_available: &available,
-            disclose: &disclose,
         };
         if self.clasify.is_some() {
             self.run_clasify(rejected, &scope, context)
@@ -1594,19 +1580,14 @@ mod construction_tests {
         let runtime = runtime(
             home.path(),
             &[
-                ("ENABLE_LOCAL", "false"),
-                ("OCTOCODE_TOOL_FAMILY", "github"),
+                ("OCTOCODE_ENABLE_LOCAL", "false"),
+                ("DISABLE_TOOLS", "ghSearchRepo"),
             ],
         );
         for id in ToolId::ALL {
             assert_eq!(
                 runtime.is_available(id.as_str()),
                 runtime.resolve_available(id),
-                "{id}"
-            );
-            assert_eq!(
-                runtime.family_excluded.contains(&id.as_str()),
-                runtime.excluded_by_family(id.as_str()),
                 "{id}"
             );
         }

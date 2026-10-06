@@ -22,8 +22,8 @@ Use the local CLI, MCP, or a relevant skill before raw reads/searches: `rg`/`gre
 
 ```bash
 OCTO='node packages/octocode/out/octocode.js'
-$OCTO scheme
-$OCTO scheme <name> --compact
+$OCTO schema
+$OCTO schema <name> --view query
 $OCTO <toolName> '{"queries":[…]}'
 ```
 
@@ -57,7 +57,7 @@ Authored `@octocodeai/octocode-core` → generated `@octocodeai/config` → nati
 - Never hand-edit `packages/octocode-config/contract/` or `src/contracts/toolTypes.generated.ts`. Native `build.rs` embeds that contract in place; no second copy/generator/pin.
 - Never hand-write tool wire types: no interface Zod/TS copies or native serde query/result structs. Use generated types; accessor `impl` blocks are allowed. TS imports config `/schema` or `/mcp`, never core directly. Keep open output payloads open; tighten them in core.
 - Implement new fields/discriminators and declare them in native `contracts/field-effect-coverage.json`. Public limit changes intentionally trip pinned-limit tests. Name shared/recursive vocabulary in core with `.meta({ title: "Name" })`.
-- Fingerprint drift fails closed at MCP startup and CLI `scheme`. Regenerate/rebuild; do not override drift for production.
+- Fingerprint drift fails closed at MCP startup and CLI `schema`. Regenerate/rebuild; do not override drift for production.
 - All config flows through `@octocodeai/config`; do not duplicate home/env/dotenv handling. Skills use injected `octocode-config.mjs`.
 - Publish core first; `yarn workspace @octocodeai/config check:core-contract-sync:published` is a release gate.
 
@@ -71,13 +71,13 @@ $DEV verify
 $DEV docs:verify
 ```
 
-Root package.json has no task wrappers. Use the dev skill runner for repo-wide tasks; `yarn workspace <package> <script>` remains valid for one package. Default local build is `build:dev` (debug native + TS, no clean/lint). Use `build` for release/performance artifacts. Verify exit codes, not target paths. Never lower coverage floors. Rust tests: `yarn workspace @octocodeai/octocode-native test:rust`; integration tests are one binary per crate (`tests/main.rs` declares each `tests/*.rs` as a `mod`). Do not commit local lld/sccache Cargo configuration. A private `CARGO_TARGET_DIR` goes in your scratchpad (never `target/<name>`), one per agent, deleted when done; reset a bloated `target/` with `$DEV clean:cache` (stale native copies) or `$DEV clean` (all build outputs).
+Root package.json has no task wrappers. Use the dev skill runner for repo-wide tasks; `yarn workspace <package> <script>` remains valid for one package. Default local build is `build:dev` (debug native + TS, no clean/lint). Use `build` for release/performance artifacts. Verify exit codes, not target paths. Never lower coverage floors. Rust tests: `yarn workspace @octocodeai/octocode-native test:rust`; integration tests are one binary per crate (`tests/main.rs` declares each `tests/*.rs` as a `mod`). Do not commit local lld/sccache Cargo configuration. A single lane uses the warm repo `target/`; parallel lanes share at most 3 Cargo target dirs in total (each in a scratchpad, never `target/<name>`; Cargo's lock serializes builds in one dir; same `--features` keeps units shared), deleted when done; reset a bloated `target/` with `$DEV clean:cache` (stale native copies) or `$DEV clean` (all build outputs).
 
-After native changes, rebuild native and affected interfaces, then exercise `$OCTO config --json`, `$OCTO scheme`, and actual tool calls. Setup, dedupe, prepublish, six-platform build, and publication gates are owned by the [dev skill](skills-dev/octocode-dev/SKILL.md) and [release guide](skills-dev/octocode-dev/docs/RELEASE.md); do not publish as a side effect of local verification.
+After native changes, rebuild native and affected interfaces, then exercise `$OCTO config --json`, `$OCTO schema`, and actual tool calls. Setup, dedupe, prepublish, six-platform build, and publication gates are owned by the [dev skill](skills-dev/octocode-dev/SKILL.md) and [release guide](skills-dev/octocode-dev/docs/RELEASE.md); do not publish as a side effect of local verification.
 
 ## Tools, skills, and documentation owners
 
-The [catalog](docs/OCTOCODE_TOOLS.md) has sixteen tools; `$OCTO scheme` is authoritative. [Workflows](docs/OCTOCODE_WORKFLOWS.md) maps each research flow (routes, `next` pages, `hints`, clasify, briefs) with one diagram per flow. `ghCloneRepo` and `astRewrite` are CLI-only. Topology/rewrite require `OCTOCODE_BETA=1`; classification requires `OCTOCODE_CLASSIFICATION_API`. MCP registers available read tools.
+The [catalog](docs/OCTOCODE_TOOLS.md) has sixteen tools; `$OCTO schema` is authoritative. [Workflows](docs/OCTOCODE_WORKFLOWS.md) maps each research flow (routes, `next` pages, `hints`, clasify, briefs) with one diagram per flow. `ghCloneRepo` and `astRewrite` are CLI-only. Topology/rewrite require `OCTOCODE_BETA=1`; classification requires `OCTOCODE_CLASSIFICATION_API`. MCP registers available read tools.
 
 Public skills live in [skills/](skills/README.md); tested skills in `skills-beta/`; repository development skills in `skills-dev/`. `.agents/skills/` entries must be symlinks to canonical folders, never copies. Edit canonical sources.
 

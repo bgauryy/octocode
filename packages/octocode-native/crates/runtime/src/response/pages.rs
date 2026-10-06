@@ -447,6 +447,10 @@ fn row_left(pagination: &Value, data: &Map<String, Value>, call: &Value) -> Opti
         let (key, singular, plural) = match pagination.get("unit").and_then(Value::as_str) {
             Some("bytes") => ("totalBytes", "byte", "bytes"),
             Some("chars") => ("totalChars", "char", "chars"),
+            // A symbols view pages its outline, not the source (LF3).
+            _ if data.get("contentView").and_then(Value::as_str) == Some("symbols") => {
+                ("totalLines", "outline line", "outline lines")
+            }
             _ => ("totalLines", "line", "lines"),
         };
         let total = pagination
@@ -476,7 +480,8 @@ fn row_left(pagination: &Value, data: &Map<String, Value>, call: &Value) -> Opti
 }
 
 /// The one text of a stale snapshot, whichever tool's cursor went stale.
-pub const STALE_SNAPSHOT_ERROR: &str = "The source changed since the earlier pages, so they cannot be combined with later ones. Follow next.restart to start over on the current source.";
+pub const STALE_SNAPSHOT_ERROR: &str =
+    "The source or the query changed since the earlier pages; follow next.restart to start over.";
 
 /// A stale-snapshot row: the shared text, no `isPartial` (nothing of the
 /// shown result remains to read), and `next.restart` when the tool built
@@ -822,6 +827,19 @@ mod tests {
             whole["warnings"],
             json!(["2666 more lines: follow next.continue"])
         );
+        // LF3: a symbols view pages outline lines, not source lines.
+        let outline = disclosed(json!({
+            "path": "a.rs",
+            "contentView": "symbols",
+            "content": "1\tfn a()",
+            "pagination": {"unit": "lines", "offset": 0, "length": 40,
+                "totalLines": 52, "hasMore": true, "nextOffset": 40},
+            "next": {"continue": page("localFetch")}
+        }));
+        assert_eq!(
+            outline["warnings"],
+            json!(["12 more outline lines: follow next.continue"])
+        );
         let bytes = disclosed(json!({
             "content": "x",
             "pagination": {"unit": "bytes", "offset": 0, "length": 100,
@@ -1011,5 +1029,14 @@ mod tests {
             patches["warnings"],
             json!(["3 unfinished patches: follow next.continuePatch"])
         );
+    }
+
+    /// LS6(b): a stale snapshot names both causes: the source or the query.
+    #[test]
+    fn stale_snapshot_names_source_or_query() {
+        assert!(
+            crate::response::pages::STALE_SNAPSHOT_ERROR.contains("source or the query changed")
+        );
+        assert!(crate::response::pages::STALE_SNAPSHOT_ERROR.contains("next.restart"));
     }
 }

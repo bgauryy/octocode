@@ -236,7 +236,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
         json!({"operation":"tree","mainGoal": "test", "reasoning":"test","path":root.0,"hidden":true}),
     )
     .expect("tree");
-    assert_eq!(tree["entries"], json!(["visible.rs (21B)"]), "{tree}");
+    assert_eq!(tree["entries"], json!(["visible.rs (21)"]), "{tree}");
 }
 
 #[test]
@@ -495,7 +495,7 @@ fn tree_outlines_in_path_order_with_bounded_depth() {
         json!({"operation":"tree","mainGoal": "test", "reasoning":"test","path":root.0,"maxDepth":1}),
     )
     .expect("top");
-    assert_eq!(top["entries"], json!(["README.md (0B)", "src/"]), "{top}");
+    assert_eq!(top["entries"], json!(["README.md (0)", "src/"]), "{top}");
     assert!(top.get("pagination").is_none(), "{top}");
     let all = run(
         &root.0,
@@ -508,13 +508,13 @@ fn tree_outlines_in_path_order_with_bounded_depth() {
     assert_eq!(
         all["entries"],
         json!([
-            "README.md (0B)",
-            {"dir":"src","entries":["lib.rs (2B)"]},
-            {"dir":"src/deep","entries":["leaf.rs (1B)"]}
+            "README.md (0)",
+            {"dir":"src","entries":["lib.rs (2)"]},
+            {"dir":"src/deep","entries":["leaf.rs (1)"]}
         ]),
         "{all}"
     );
-    assert_eq!(all["summary"], "5 entries (3 files, 2 dirs, 3B)");
+    assert_eq!(all["summary"], "3 files, 2 dirs, 3B");
     let dirs = run(
         &root.0,
         json!({"operation":"tree","mainGoal": "test", "reasoning":"test","path":root.0,"maxDepth":6,"entryType":"d"}),
@@ -545,9 +545,9 @@ fn tree_groups_follow_walk_order_and_name_filtered_parents() {
     assert_eq!(
         out["entries"],
         json!([
-            {"dir":"a","entries":["m.rs (1B)"]},
-            {"dir":"a/x","entries":["k.rs (1B)"]},
-            {"dir":"a-b","entries":["n.rs (1B)"]}
+            {"dir":"a","entries":["m.rs (1)"]},
+            {"dir":"a/x","entries":["k.rs (1)"]},
+            {"dir":"a-b","entries":["n.rs (1)"]}
         ]),
         "{out}"
     );
@@ -568,9 +568,9 @@ fn tree_groups_follow_walk_order_and_name_filtered_parents() {
     assert_eq!(
         rs["entries"],
         json!([
-            {"dir":"a","entries":["m.rs (1B)"]},
-            {"dir":"a/x","entries":["k.rs (1B)"]},
-            {"dir":"a-b","entries":["n.rs (1B)"]}
+            {"dir":"a","entries":["m.rs (1)"]},
+            {"dir":"a/x","entries":["k.rs (1)"]},
+            {"dir":"a-b","entries":["n.rs (1)"]}
         ]),
         "{rs}"
     );
@@ -592,7 +592,7 @@ fn a_tree_group_split_across_pages_repeats_its_dir() {
     .expect("page1");
     assert_eq!(
         page1["entries"],
-        json!([{"dir":"d","entries":["x (1B)","y (1B)"]}]),
+        json!([{"dir":"d","entries":["x (1)","y (1)"]}]),
         "{page1}"
     );
     let page2 = run(
@@ -602,7 +602,7 @@ fn a_tree_group_split_across_pages_repeats_its_dir() {
     .expect("page2");
     assert_eq!(
         page2["entries"],
-        json!([{"dir":"d","entries":["z (1B)"]}]),
+        json!([{"dir":"d","entries":["z (1)"]}]),
         "{page2}"
     );
     assert!(page2.get("next").is_none(), "{page2}");
@@ -626,7 +626,7 @@ fn tree_pages_through_next_and_rejects_stale_snapshots() {
     let page2 = run(&root.0, next["query"]["queries"][0].clone()).expect("page2");
     assert_eq!(
         page2["entries"],
-        json!(["f2.txt (1B)", "f3.txt (1B)"]),
+        json!(["f2.txt (1)", "f3.txt (1)"]),
         "{page2}"
     );
     // The walk summary (counts, hidden/ignored disclosure) rides page 1 only.
@@ -965,7 +965,7 @@ fn tree_filters_names_and_files_lists_ignored_entries_on_request() {
         json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0,"include":["*_test.rs"]}),
     )
     .expect("tree");
-    assert_eq!(tree["entries"], json!(["a_test.rs (2B)"]), "{tree}");
+    assert_eq!(tree["entries"], json!(["a_test.rs (2)"]), "{tree}");
     let prefix = format!("{}/", root.0.file_name().unwrap().to_string_lossy());
     let files = |extra: Value| {
         let mut query = json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0,"extensions":["rs"]});
@@ -1087,7 +1087,6 @@ fn files_rows_group_by_directory_in_listing_order() {
     assert_eq!(
         out["files"],
         json!([
-            "./",
             "a.rs (10)",
             "z.rs (2)",
             {"dir": "sub", "files": ["b.rs (2)"]},
@@ -1096,7 +1095,7 @@ fn files_rows_group_by_directory_in_listing_order() {
         "{out}"
     );
     // The directories' own groups name them; they are not listed twice.
-    assert_eq!(out["pagination"]["totalItems"], 5, "{out}");
+    assert_eq!(out["pagination"]["totalItems"], 4, "{out}");
     let paths = listed(&out)
         .iter()
         .map(|row| row["path"].as_str().expect("path").to_owned())
@@ -1104,7 +1103,6 @@ fn files_rows_group_by_directory_in_listing_order() {
     assert_eq!(
         paths,
         [
-            name.clone(),
             format!("{name}/a.rs"),
             format!("{name}/z.rs"),
             format!("{name}/sub/b.rs"),
@@ -1117,12 +1115,12 @@ fn files_rows_group_by_directory_in_listing_order() {
         json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0.join("sub/deep"),"detail":"full"}),
     )
     .expect("full");
-    let entry = full["files"][1].as_str().expect("entry");
+    let entry = full["files"][0].as_str().expect("entry");
     assert!(
         entry.starts_with("c (1).rs (4, lineCount=2, modifiedMs="),
         "{full}"
     );
-    let row = &listed(&full)[1];
+    let row = &listed(&full)[0];
     assert_eq!(row["size"], 4);
     assert_eq!(row["lineCount"], 2);
     assert!(row["modifiedMs"].is_i64(), "{row}");
@@ -1205,7 +1203,7 @@ fn tree_discloses_skipped_dot_entries_and_offers_include_hidden() {
     .expect("tree");
     assert_eq!(
         out["entries"],
-        json!([{"dir":"src","entries":["lib.rs (2B)"]}]),
+        json!([{"dir":"src","entries":["lib.rs (2)"]}]),
         "{out}"
     );
     // An unfiltered outline names the count; the retry lead is for a
@@ -1232,7 +1230,7 @@ fn tree_discloses_skipped_dot_entries_and_offers_include_hidden() {
     let all = run(&root.0, retry["query"]["queries"][0].clone()).expect("retry");
     assert_eq!(
         all["entries"],
-        json!([{"dir":"src","entries":["lib.rs (2B)"]}]),
+        json!([{"dir":"src","entries":["lib.rs (2)"]}]),
         "{all}"
     );
     assert!(all["next"].get("includeHidden").is_none(), "{all}");
@@ -1452,11 +1450,7 @@ fn tree_depth_defaults_to_children_and_include_searches_every_level() {
     std::fs::write(root.0.join("a/b/c/deep_helper.rs"), "x\n").expect("deep");
     std::fs::write(root.0.join("top.rs"), "x\n").expect("top");
     let outline = run(&root.0, json!({"operation":"tree","path":root.0})).expect("tree");
-    assert_eq!(
-        outline["entries"],
-        json!(["a/", "top.rs (2B)"]),
-        "{outline}"
-    );
+    assert_eq!(outline["entries"], json!(["a/", "top.rs (2)"]), "{outline}");
     let found = run(
         &root.0,
         json!({"operation":"tree","path":root.0,"include":["helper"]}),
@@ -1568,4 +1562,176 @@ fn files_at_the_walk_ceiling_page_every_listed_row_and_lead_to_narrow() {
     }
     assert_eq!(seen.len(), 10_000);
     assert!(pages > 1);
+}
+
+/// SS3: the files read lead skips generated and large files.
+#[test]
+fn files_read_lead_skips_generated_and_large() {
+    let root = Fixture::new();
+    std::fs::write(
+        root.0.join("a_types.generated.rs"),
+        "pub struct A;\n".repeat(8_000),
+    )
+    .expect("generated");
+    std::fs::write(root.0.join("b.rs"), "fn b() {}\n").expect("small");
+    let out = run(
+        &root.0,
+        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0}),
+    )
+    .expect("files");
+    let read = out["next"]["read"]["query"]["queries"][0]["path"]
+        .as_str()
+        .unwrap_or_else(|| panic!("read lead: {out}"));
+    assert!(read.ends_with("b.rs"), "{out}");
+}
+
+/// SS3: a root tree leads to its manifest, read whole.
+#[test]
+fn root_tree_leads_to_manifest() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("package.json"), "{\"name\":\"x\"}\n").expect("manifest");
+    std::fs::write(root.0.join("README.md"), "# x\n").expect("readme");
+    std::fs::create_dir(root.0.join("src")).expect("src");
+    let out = run(
+        &root.0,
+        json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0}),
+    )
+    .expect("tree");
+    let query = &out["next"]["read"]["query"]["queries"][0];
+    assert!(
+        query["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("package.json")),
+        "{out}"
+    );
+    assert!(query.get("minify").is_none(), "{out}");
+}
+
+/// SS4: tree and files print the same exact byte size.
+#[test]
+fn tree_and_files_print_exact_byte_sizes() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("f.txt"), "x".repeat(9216)).expect("file");
+    let tree = run(
+        &root.0,
+        json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0}),
+    )
+    .expect("tree");
+    let files = run(
+        &root.0,
+        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0}),
+    )
+    .expect("files");
+    assert_eq!(tree["entries"], json!(["f.txt (9216)"]), "{tree}");
+    assert_eq!(files["files"], json!(["f.txt (9216)"]), "{files}");
+}
+
+/// SS4: a directory root is the listing, never one of its rows.
+#[test]
+fn files_never_lists_root_dot() {
+    let root = Fixture::new();
+    std::fs::write(root.0.join("a.rs"), "a\n").expect("file");
+    let out = run(
+        &root.0,
+        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0}),
+    )
+    .expect("files");
+    assert!(!out["files"].to_string().contains("\"./\""), "{out}");
+    assert_eq!(out["files"], json!(["a.rs (2)"]), "{out}");
+}
+
+/// SS6: a gitignored directory named like a default-pruned one is lifted
+/// in one hop: the retry sets both flags and lists its files.
+#[test]
+fn include_ignored_lead_lifts_gitignore_and_prune_in_one_hop() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join(".git")).expect("repository marker");
+    std::fs::write(root.0.join(".gitignore"), "target/\n").expect("gitignore");
+    std::fs::create_dir_all(root.0.join("target/debug")).expect("target");
+    std::fs::write(root.0.join("target/debug/x.rlib"), "rlib\n").expect("rlib");
+    std::fs::write(root.0.join("main.rs"), "fn main() {}\n").expect("main");
+    let out = run(
+        &root.0,
+        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0,"include":["*.rlib"]}),
+    )
+    .expect("files");
+    assert_eq!(out["status"], "empty", "{out}");
+    let retry = out["next"]["includeIgnored"]["query"]["queries"][0].clone();
+    assert_eq!(retry["noIgnore"], true, "{out}");
+    assert_eq!(retry["defaultExcludes"], false, "{out}");
+    let hint = out["hints"][0].as_str().expect("hint");
+    assert!(hint.chars().count() <= 120, "{hint}");
+    let found = run(&root.0, retry).expect("retry");
+    assert!(found["files"].to_string().contains("x.rlib"), "{found}");
+}
+
+/// N8b: the tree summary states only the file and directory counts, and
+/// totalItems counts the strings the pages show.
+#[test]
+fn tree_summary_matches_paged_row_counts() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join("a/b")).expect("dirs");
+    std::fs::write(root.0.join("a/x.rs"), "x\n").expect("x");
+    std::fs::write(root.0.join("a/b/y.rs"), "y\n").expect("y");
+    std::fs::write(root.0.join("top.rs"), "t\n").expect("top");
+    let out = run(
+        &root.0,
+        json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0,"maxDepth":3,"pageSize":1}),
+    )
+    .expect("tree");
+    assert_eq!(out["summary"], "3 files, 2 dirs, 6B", "{out}");
+    let total = out["pagination"]["totalItems"].as_u64().expect("total");
+    let mut strings = 0;
+    let mut query = json!({"operation":"tree","mainGoal":"t","reasoning":"t","path":root.0,"maxDepth":3,"pageSize":1});
+    loop {
+        let page = run(&root.0, query.clone()).expect("page");
+        for entry in page["entries"].as_array().expect("entries") {
+            strings += entry
+                .get("entries")
+                .and_then(Value::as_array)
+                .map_or(1, Vec::len);
+        }
+        match page["next"].get("nextPage") {
+            Some(next) => query = next["query"]["queries"][0].clone(),
+            None => break,
+        }
+    }
+    assert_eq!(strings as u64, total, "{out}");
+}
+
+/// N8a: an empty files listing names withheld entries once (warnings).
+#[test]
+fn files_empty_withheld_not_duplicated() {
+    let root = Fixture::new();
+    std::fs::create_dir(root.0.join("secrets")).expect("secrets");
+    std::fs::write(root.0.join("secrets/a.ts"), "x\n").expect("secret");
+    std::fs::write(root.0.join("b.rs"), "x\n").expect("other");
+    let out = run(
+        &root.0,
+        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0,"extensions":["ts"]}),
+    )
+    .expect("files");
+    assert_eq!(out["status"], "empty", "{out}");
+    assert_eq!(
+        out.to_string().matches("withheld by path policy").count(),
+        1,
+        "{out}"
+    );
+}
+
+/// X7: a bare word include lists the files inside directories named by it.
+#[test]
+fn bare_word_include_lists_dir_files() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join("src/inner")).expect("dirs");
+    std::fs::write(root.0.join("src/inner/a.rs"), "a\n").expect("a");
+    std::fs::write(root.0.join("other.rs"), "o\n").expect("other");
+    let out = run(
+        &root.0,
+        json!({"operation":"files","mainGoal":"t","reasoning":"t","path":root.0,"include":["src"]}),
+    )
+    .expect("files");
+    let text = out["files"].to_string();
+    assert!(text.contains("a.rs"), "{out}");
+    assert!(!text.contains("other.rs"), "{out}");
 }

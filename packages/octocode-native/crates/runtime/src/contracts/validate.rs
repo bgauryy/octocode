@@ -77,7 +77,7 @@ pub struct ContractValidationError {
 
 /// Projects transport-neutral validation issues into the stable tool-error
 /// envelope. `mcp` selects the schema pointer: MCP clients read the tool's
-/// `inputSchema`; only the CLI has the `scheme` command.
+/// `inputSchema`; only the CLI has the `schema` command.
 #[must_use]
 pub fn format_input_error(tool_name: &str, error: &ContractValidationError, mcp: bool) -> Value {
     let unknown = error
@@ -123,7 +123,7 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, mcp:
         details.push(if mcp {
             format!("See the {tool_name} inputSchema for valid fields.")
         } else {
-            format!("Run scheme {tool_name} --view query --compact to see valid fields.")
+            format!("Run `octocode schema {tool_name} --view query` for the valid fields.")
         });
         return serde_json::json!({"kind":"octocode.toolError","version":1,"tool":tool_name,"error":format!("Unknown field(s): {}", fields.join(", ")),"details":details});
     }
@@ -999,7 +999,7 @@ mod tests {
             format_input_error("localFetch", &unknown, false),
             json!({
                 "kind":"octocode.toolError","version":1,"tool":"localFetch","error":"Unknown field(s): madeUp",
-                "details":["Remove unknown field(s) from queries[0]: madeUp", "Run scheme localFetch --view query --compact to see valid fields."]
+                "details":["Remove unknown field(s) from queries[0]: madeUp", "Run `octocode schema localFetch --view query` for the valid fields."]
             })
         );
     }
@@ -1016,7 +1016,7 @@ mod tests {
         .expect_err("unknown");
         let formatted = format_input_error("localFetch", &unknown, true);
         let details = formatted["details"].to_string();
-        assert!(!details.contains("scheme"), "{details}");
+        assert!(!details.contains("octocode schema"), "{details}");
         assert!(details.contains("localFetch inputSchema"), "{details}");
         assert!(details.contains("queries[1]"), "{details}");
     }

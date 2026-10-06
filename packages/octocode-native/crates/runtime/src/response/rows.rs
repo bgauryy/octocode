@@ -658,20 +658,22 @@ fn minimize_stats(data: &mut Map<String, Value>, more: bool) {
 /// Row `errorCode`s that reject the caller's input (CLI exit 2): the request
 /// is wrong, so broadening or retrying it cannot help.
 pub fn is_invalid_input_code(code: &str) -> bool {
-    matches!(code, "invalidInput" | "invalidPattern" | "invalid_query")
-        || [
-            ".input.invalid",
-            ".options.invalidLimit",
-            ".rewrite.invalid",
-            ".language.required",
-            ".language.unsupported",
-            ".language.mismatch",
-            ".language.fileRequired",
-            ".language.directoryRequired",
-            ".language.invalidGlob",
-        ]
-        .iter()
-        .any(|suffix| code.ends_with(suffix))
+    matches!(
+        code,
+        "invalidInput" | "invalidPattern" | "invalid_query" | "notAFile" | "notADirectory"
+    ) || [
+        ".input.invalid",
+        ".options.invalidLimit",
+        ".rewrite.invalid",
+        ".language.required",
+        ".language.unsupported",
+        ".language.mismatch",
+        ".language.fileRequired",
+        ".language.directoryRequired",
+        ".language.invalidGlob",
+    ]
+    .iter()
+    .any(|suffix| code.ends_with(suffix))
 }
 
 /// Row `errorCode`s that mean the requested local path does not exist

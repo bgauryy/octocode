@@ -24,11 +24,10 @@ use crate::contracts::{ContractValidationError, ValidationIssue, validate_query}
 use crate::tools::id::ToolId;
 use crate::tools::result::INTENT_FIELDS;
 
-/// Which cross-tool calls a surface can run, and which drops it discloses.
+/// Which cross-tool calls a surface can run; a call to a disabled tool drops
+/// silently.
 pub struct Scope<'a> {
     pub is_available: &'a dyn Fn(&str) -> bool,
-    /// The rule a dropped target falls outside of, when the row should say so.
-    pub disclose: &'a dyn Fn(&str) -> Option<&'a str>,
 }
 
 impl Scope<'static> {
@@ -37,7 +36,6 @@ impl Scope<'static> {
     pub fn everything() -> Self {
         Scope {
             is_available: &|_| true,
-            disclose: &|_| None,
         }
     }
 }
@@ -107,7 +105,6 @@ pub fn finalize(
         if let Some(object) = row.as_object_mut() {
             super::channels::move_text(object);
         }
-        let mut dropped = Vec::new();
         let mut row_issues = Vec::new();
         let mut path = vec![rows_key.to_owned(), position.to_string()];
         visit(
@@ -117,13 +114,11 @@ pub fn finalize(
                 recovery,
                 intent: source.as_ref().map(intent_of).unwrap_or_default(),
                 scope,
-                dropped: &mut dropped,
                 memo: &mut memo,
                 issues: &mut row_issues,
             },
             &mut path,
         );
-        disclose_drops(row, &dropped, scope);
         issues.extend(row_issues);
     }
     if issues.is_empty() {
@@ -148,7 +143,6 @@ struct Visit<'a, 's> {
     recovery: bool,
     intent: Map<String, Value>,
     scope: &'a Scope<'s>,
-    dropped: &'a mut Vec<String>,
     memo: &'a mut Memo,
     issues: &'a mut Vec<ValidationIssue>,
 }
@@ -237,11 +231,7 @@ fn keep(call: &Value, ctx: &mut Visit<'_, '_>) -> bool {
     else {
         return true;
     };
-    let kept = target == ctx.tool.as_str() || (ctx.scope.is_available)(target);
-    if !kept {
-        ctx.dropped.push(target.to_owned());
-    }
-    kept
+    target == ctx.tool.as_str() || (ctx.scope.is_available)(target)
 }
 
 /// The source row's intent fields on every row of the call (a field the
@@ -276,37 +266,6 @@ fn intent_of(query: &Value) -> Map<String, Value> {
                 .map(|value| (field.to_owned(), value.clone()))
         })
         .collect()
-}
-
-/// One warning per row that counts the drops a scope rule names, so a scoped
-/// surface never loses a lead silently; drops of a disabled tool stay silent.
-fn disclose_drops(row: &mut Value, dropped: &[String], scope: &Scope<'_>) {
-    let named: Vec<(&str, &str)> = dropped
-        .iter()
-        .filter_map(|target| (scope.disclose)(target).map(|reason| (target.as_str(), reason)))
-        .collect();
-    let Some(&(_, reason)) = named.first() else {
-        return;
-    };
-    let mut tools: Vec<&str> = named.iter().map(|(target, _)| *target).collect();
-    tools.sort_unstable();
-    tools.dedup();
-    let count = named.len();
-    let warning = Value::String(format!(
-        "Dropped {count} lead{} to {}: outside {reason}.",
-        if count == 1 { "" } else { "s" },
-        tools.join(", ")
-    ));
-    let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) else {
-        return;
-    };
-    match data
-        .entry("warnings")
-        .or_insert_with(|| Value::Array(Vec::new()))
-    {
-        Value::Array(warnings) => warnings.push(warning),
-        other => *other = Value::Array(vec![warning]),
-    }
 }
 
 /// Compact one `next`/`hints` entry: a call, or clasify's own `next.clasify`
@@ -686,7 +645,7 @@ mod tests {
     }
 
     #[test]
-    fn unavailable_cross_tool_calls_drop_and_a_scope_rule_says_so() {
+    fn unavailable_cross_tool_calls_drop_silently_and_own_pages_stay() {
         let mut out = json!({"results":[
             {"index":0,"data":{"next":{
                 "nextPage":call("ghStructure", json!({"owner":"o","repo":"r","page":2})),
@@ -698,7 +657,6 @@ mod tests {
         ]});
         let scope = Scope {
             is_available: &|_| false,
-            disclose: &|target| (target != "clasify").then_some("tools.family github"),
         };
         finalize(
             &mut out,
@@ -713,16 +671,11 @@ mod tests {
             "own pages stay: {first}"
         );
         assert!(first.get("hints").is_none(), "{first}");
-        assert_eq!(
-            first["warnings"],
-            json!([
-                "tool warning",
-                "Dropped 1 lead to localSearch: outside tools.family github."
-            ])
-        );
-        assert_eq!(
-            out["results"][1]["data"]["warnings"],
-            json!(["Dropped 1 lead to localFetch: outside tools.family github."])
+        assert_eq!(first["warnings"], json!(["tool warning"]));
+        assert!(
+            out["results"][1]["data"].get("warnings").is_none(),
+            "{}",
+            out["results"][1]
         );
     }
 

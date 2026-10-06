@@ -14,7 +14,7 @@ struct ServerSpec {
     env: BTreeMap<String, String>,
 }
 
-/// Primary env name bound to the `local.enabled` config key (`ENABLE_LOCAL`).
+/// The env name bound to the `local.enabled` config key (`OCTOCODE_ENABLE_LOCAL`).
 fn local_enabled_env() -> Option<&'static str> {
     octocode_native::config::CONFIG_FIELDS
         .iter()
@@ -143,7 +143,10 @@ pub fn run(args: InstallArgs) -> u8 {
         return 0;
     }
     let Some(requested_ide) = args.ide.as_deref().filter(|value| !value.is_empty()) else {
-        eprintln!("Usage: octocode install --ide <id> [--force] [--dry-run] [--check] [--json]");
+        super::emit_error(
+            "Usage: octocode install --ide <id> [--force] [--dry-run] [--check] [--json]; ids: octocode install --list",
+            args.json,
+        );
         return 2;
     };
     let client = mcp_clients::client(requested_ide);
@@ -155,7 +158,7 @@ pub fn run(args: InstallArgs) -> u8 {
     }
     let Some((client, config_path)) = client.and_then(|client| Some((client, client.home_path()?)))
     else {
-        eprintln!("Unknown --ide {requested_ide}");
+        super::emit_error(&unknown_client_message(requested_ide), args.json);
         return 2;
     };
     match install(client, &config_path, &args) {
@@ -164,6 +167,22 @@ pub fn run(args: InstallArgs) -> u8 {
             eprintln!("{message}");
             1
         }
+    }
+}
+
+/// An unknown client id, with the ids that contain it (`claude` names both
+/// `claude-code` and `claude-desktop`) or else every id.
+fn unknown_client_message(requested: &str) -> String {
+    let ids: Vec<&str> = CLIENTS.iter().map(|client| client.id).collect();
+    let near: Vec<&str> = ids
+        .iter()
+        .copied()
+        .filter(|id| id.contains(requested))
+        .collect();
+    if near.is_empty() {
+        format!("Unknown --ide {requested}. Ids: {}", ids.join(", "))
+    } else {
+        format!("Unknown --ide {requested}. Did you mean: {}?", near.join(", "))
     }
 }
 
@@ -518,10 +537,16 @@ mod tests {
     }
 
     #[test]
-    fn ide_aliases_resolve_to_supported_json_clients() {
-        assert_eq!(spec("claude").id, "claude-desktop");
-        assert_eq!(spec("vscode").id, "vscode-cline");
+    fn client_ids_resolve_exactly_and_near_misses_are_named() {
+        assert_eq!(spec("claude-desktop").id, "claude-desktop");
         assert_eq!(spec("cursor").id, "cursor");
+        assert!(mcp_clients::client("claude").is_none());
+        assert!(mcp_clients::client("vscode").is_none());
+        let message = super::unknown_client_message("claude");
+        assert!(
+            message.contains("claude-code") && message.contains("claude-desktop"),
+            "{message}"
+        );
     }
 
     #[test]

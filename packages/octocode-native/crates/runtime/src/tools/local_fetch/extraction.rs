@@ -11,6 +11,8 @@ pub struct Extraction {
     pub warnings: Vec<String>,
     /// Continuations to the data this view selected but did not return.
     pub next: NextCalls,
+    /// The declarations a `block:true` match read widened hits to.
+    pub blocks: Vec<super::types::DeclaredBlock>,
 }
 
 fn follow_up(query: LocalFetchQuery, why: &str) -> Option<super::types::Continuation> {
@@ -69,6 +71,7 @@ pub fn extract(
         count: None,
         warnings: vec![],
         next: NextCalls::default(),
+        blocks: vec![],
     })
 }
 /// Line ranges joined into one view: sorted, overlapping or adjacent ranges
@@ -156,6 +159,7 @@ fn ranges_extract(
         count: None,
         warnings,
         next,
+        blocks: vec![],
     })
 }
 
@@ -315,16 +319,90 @@ fn finish_cut_declarations(
         *ranges = merge_ranges(std::mem::take(ranges).into_iter().chain(rest).collect());
         return None;
     }
-    let read = blocks.into_iter().find_map(|block| {
-        let inside = ranges
-            .iter()
-            .filter(|seen| seen.start <= block.end && seen.end >= block.start);
-        let first = inside.clone().map(|seen| seen.start).min()?;
-        let last = inside.map(|seen| seen.end).max()?;
-        let cut = !uncovered(std::slice::from_ref(&block), ranges).is_empty();
-        cut.then(|| block_lead(block, ranges, (first, last)))
-    })?;
-    line_read(q, &read).and_then(|query| follow_up(query, "Read the top hit's declaration."))
+    // Every cut declaration's read, in hit order: one lead covers them all.
+    let reads: Vec<Vec<LineRange>> = blocks
+        .into_iter()
+        .filter_map(|block| {
+            let inside = ranges
+                .iter()
+                .filter(|seen| seen.start <= block.end && seen.end >= block.start);
+            let first = inside.clone().map(|seen| seen.start).min()?;
+            let last = inside.map(|seen| seen.end).max()?;
+            let cut = !uncovered(std::slice::from_ref(&block), ranges).is_empty();
+            cut.then(|| block_lead(block, ranges, (first, last)))
+        })
+        .collect();
+    let bytes = |read: &[LineRange]| -> usize {
+        read.iter()
+            .flat_map(|range| &lines[range.start - 1..range.end.min(lines.len())])
+            .map(|line| line.len())
+            .sum()
+    };
+    let all = merge_ranges(reads.iter().flatten().cloned().collect());
+    // A lead past the cap (a minified bundle's IIFE) would page for many
+    // calls: fall back to the top hit's declaration alone, or offer none.
+    let read = if bytes(&all) <= READ_BLOCK_MAX_BYTES {
+        all
+    } else {
+        reads
+            .into_iter()
+            .next()
+            .filter(|top| bytes(top) <= READ_BLOCK_MAX_BYTES)?
+    };
+    let why = if read.len() > 1 {
+        "Read the declarations the hit windows cut."
+    } else {
+        "Read the top hit's declaration."
+    };
+    line_read(q, &read).and_then(|query| follow_up(query, why))
+}
+
+/// Largest read a cut-declaration lead points at.
+const READ_BLOCK_MAX_BYTES: usize = 32 * 1024;
+
+/// Most bytes of whole lines a default match window (no `contextLines`, no
+/// `contextBytes`) shows around each hit: long-line sources get fewer
+/// lines, and `next.expandContext` shows the full default window.
+const MATCH_WINDOW_BYTES: usize = 2 * 1024;
+
+/// The default window around `hit` (1-based): up to `context` lines on
+/// each side while the window's line bytes fit [`MATCH_WINDOW_BYTES`]; the
+/// hit line is always whole. `true` when the window was narrowed.
+fn byte_bounded_window(lines: &[&str], hit: usize, context: usize) -> (LineRange, bool) {
+    let mut used = lines[hit - 1].len();
+    let (mut start, mut end) = (hit, hit);
+    let (mut before, mut after) = (true, true);
+    for _ in 0..context {
+        if before && start > 1 && used + lines[start - 2].len() <= MATCH_WINDOW_BYTES {
+            start -= 1;
+            used += lines[start - 1].len();
+        } else {
+            before = false;
+        }
+        if after && end < lines.len() && used + lines[end].len() <= MATCH_WINDOW_BYTES {
+            end += 1;
+            used += lines[end - 1].len();
+        } else {
+            after = false;
+        }
+    }
+    let full = LineRange {
+        start: hit.saturating_sub(context).max(1),
+        end: (hit + context).min(lines.len()),
+    };
+    let narrowed = start > full.start || end < full.end;
+    (LineRange { start, end }, narrowed)
+}
+
+/// The same read with the full default window around each hit.
+fn expand_context_lead(q: &LocalFetchQuery) -> Option<super::types::Continuation> {
+    let mut wide = q.clone();
+    wide.context_lines = Some(DEFAULT_MATCH_CONTEXT_LINES as i64);
+    wide.offset = None;
+    wide.unit = None;
+    wide.length = None;
+    wide.snapshot = None;
+    follow_up(wide, "Show the full ±10-line window around each hit.")
 }
 
 /// The whole matched lines a long-line match showed only byte windows of.
@@ -363,6 +441,7 @@ fn match_extract(
             count: Some(0),
             warnings: vec![],
             next: NextCalls::default(),
+            blocks: vec![],
         });
     }
     let context = q.context_lines().unwrap_or(if q.context_bytes().is_none() {
@@ -371,14 +450,27 @@ fn match_extract(
         0
     });
     let mut warnings = vec![];
+    // An unset context sizes each window by bytes as well as lines, so a
+    // long-line (minified) source does not return kilobytes per hit.
+    let default_window = q.context_lines().is_none() && q.context_bytes().is_none();
+    let mut narrowed = false;
     let windows: Vec<LineRange> = hits
         .iter()
-        .map(|&line| LineRange {
-            start: line.saturating_sub(context).max(1),
-            end: (line + context).min(lines.len()),
+        .map(|&line| {
+            if default_window {
+                let (window, cut) = byte_bounded_window(lines, line, context);
+                narrowed |= cut;
+                window
+            } else {
+                LineRange {
+                    start: line.saturating_sub(context).max(1),
+                    end: (line + context).min(lines.len()),
+                }
+            }
         })
         .collect();
     let mut oversized = vec![];
+    let mut blocks = vec![];
     let windows = if q.block() && q.context_bytes().is_none() {
         super::block::widen_matches(
             content,
@@ -387,6 +479,7 @@ fn match_extract(
             windows,
             &mut warnings,
             &mut oversized,
+            &mut blocks,
         )
     } else {
         windows
@@ -419,6 +512,22 @@ fn match_extract(
         && hits
             .iter()
             .any(|line| lines[line - 1].len() > LONG_LINE_BYTES);
+    if narrowed && !long_lines {
+        let full = merge_ranges(
+            hits.iter()
+                .map(|&line| LineRange {
+                    start: line.saturating_sub(context).max(1),
+                    end: (line + context).min(lines.len()),
+                })
+                .collect(),
+        );
+        if !uncovered(&full, &ranges).is_empty() {
+            warnings.push(format!(
+                "Long lines: each hit shows whole lines within {MATCH_WINDOW_BYTES} bytes, fewer than ±{DEFAULT_MATCH_CONTEXT_LINES}; next.expandContext shows the full window."
+            ));
+            next.expand_context = expand_context_lead(q);
+        }
+    }
     if long_lines {
         warnings.push(format!(
             "longMatchedLines: a matched line exceeds {LONG_LINE_BYTES} bytes (minified source), so each match is shown with {LONG_LINE_CONTEXT_BYTES} bytes of context; `... [N bytes omitted] ...` marks gaps. next.wholeLines (contextLines:0) reads the whole matched lines; contextBytes resizes the windows."
@@ -442,6 +551,7 @@ fn match_extract(
         count: Some(hits.len()),
         warnings,
         next,
+        blocks,
     })
 }
 

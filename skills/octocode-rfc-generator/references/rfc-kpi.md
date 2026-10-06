@@ -1,6 +1,6 @@
 # KPI.md template — success and verification
 
-Load when defining acceptance and post-ship success. Bind RFC goals to testable behavior, measurable outcomes, guardrails, and a decision rule.
+Load when acceptance or post-ship success needs its own file. Why: `KPI.md` owns measurable targets and the rollback threshold. The plan owns the procedure. Bind each RFC goal to a check.
 
 ````markdown
 # Success and Verification: {Title}
@@ -44,4 +44,4 @@ Feature: {feature}
 Gate: every requirement maps to implementation step IDs, a pass/fail check, verification method, and current status; every step maps back to a requirement. Add a user story when it clarifies behavior.
 Use outcome, leading, and guardrail metrics when they are decision-relevant. Mark omitted, untracked, or stale signals honestly rather than inventing targets.
 
-Next: build dependency-ordered steps with `references/rfc-implementation.md`, then record provenance and validate per `references/workflow.md` § Validate and deliver.
+Next: build dependency-ordered steps with `references/rfc-implementation.md`, then validate per `references/workflow.md` § Validate and deliver.

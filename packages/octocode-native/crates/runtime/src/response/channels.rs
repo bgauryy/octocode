@@ -68,15 +68,22 @@ pub(super) fn shape(object: &mut Map<String, Value>, tool: ToolId, recovery: boo
     split(object, tool);
     for key in [PAGES_KEY, HINTS_KEY] {
         if let Some(Value::Object(calls)) = object.get_mut(key) {
-            for call in calls.values_mut().filter_map(Value::as_object_mut) {
+            for (name, call) in calls.iter_mut() {
+                let Some(call) = call.as_object_mut() else {
+                    continue;
+                };
                 call.shift_remove("confidence");
-                if key == HINTS_KEY {
+                if key == HINTS_KEY && !ALTERNATIVE_ROW_LEADS.contains(&name.as_str()) {
                     top_hit(call);
                 }
             }
         }
     }
 }
+
+/// Leads whose rows are alternatives to try (drop-one-keyword variants), not
+/// other rows already shown: they keep every row.
+const ALTERNATIVE_ROW_LEADS: [&str; 1] = ["broadenSearch"];
 
 /// A lead is an optional route, so it carries the minimal runnable row:
 /// the top hit's row. The other rows are already shown, and withheld
@@ -323,7 +330,7 @@ mod tests {
         for name in [
             "restart",
             "restartDiagnostics",
-            "retryRenamed",
+            "readBody",
             "readTopMatch",
             "nextpage",
         ] {
@@ -534,6 +541,24 @@ mod tests {
         let once = structured.clone();
         split_hints(&mut structured, ToolId::AstSearch);
         assert_eq!(structured, once, "idempotent");
+    }
+
+    /// SH5: `broadenSearch` rows are alternatives (drop-one-keyword
+    /// variants), not other rows already shown: the lead keeps them all.
+    #[test]
+    fn a_broaden_search_lead_keeps_every_alternative_row() {
+        let rows = json!([
+            {"owner":"o","repo":"r","operation":"pullRequest","keywords":["a"]},
+            {"owner":"o","repo":"r","operation":"pullRequest","keywords":["b"]}
+        ]);
+        let mut structured = json!({"results":[{"index":0,"status":"empty","data":{
+            "next":{"broadenSearch":{"tool":"ghSearchHistory","query":{"queries":rows}}}
+        }}]});
+        split_hints(&mut structured, ToolId::GhSearchHistory);
+        assert_eq!(
+            structured["results"][0]["data"]["hints"]["broadenSearch"]["query"]["queries"], rows,
+            "{structured}"
+        );
     }
 
     #[test]

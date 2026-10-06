@@ -10,9 +10,9 @@ const getArg = (flag, def) => {
 };
 const hasFlag = (flag) => argv.includes(flag);
 
-if (!harArg || hasFlag('--help')) {
+if (!harArg || hasFlag('--help') || hasFlag('-h')) {
   console.error(`Usage: node har-pager.mjs <file.har> [--page 1] [--page-size 25] [--filter all|failures|slow|domain:<host>] [--kind <type>] [--status <code>] [--url-regex <re>] [--min-ms 1000] [--format text|json]\n\nReads a HAR 1.2 file and prints one compact page for agent review.`);
-  process.exit(harArg ? 0 : 1);
+  process.exit(hasFlag('--help') || hasFlag('-h') ? 0 : 1);
 }
 
 const page = Math.max(1, Number.parseInt(getArg('--page', '1'), 10));
@@ -91,6 +91,15 @@ const aggregate = {
   pageRows,
 };
 
+aggregate.next = {};
+if (page < totalPages) {
+  const args = [process.argv[1], harPath, '--filter', filter, '--page', String(page + 1), '--page-size', String(pageSize), '--min-ms', String(minMs), '--format', format];
+  for (const [flag, value] of [['--kind', kindFilter], ['--status', statusFilter], ['--url-regex', urlRegexStr]]) {
+    if (value) args.push(flag, value);
+  }
+  aggregate.next.continue = { command: process.execPath, args };
+}
+
 if (format === 'json') {
   console.log(JSON.stringify(aggregate, null, 2));
 } else {
@@ -104,5 +113,5 @@ if (format === 'json') {
       console.log(`[HAR_DETAIL] #${row.index} error=${row.errorText ?? ''} blocked=${row.blockedReason ?? ''}`);
     }
   }
-  if (page < totalPages) console.log(`[HAR_NEXT] node ${process.argv[1]} ${harPath} --filter ${filter} --page ${page + 1} --page-size ${pageSize} --min-ms ${minMs}`);
+  if (aggregate.next.continue) console.log(`[HAR_NEXT] ${JSON.stringify(aggregate.next.continue)}`);
 }

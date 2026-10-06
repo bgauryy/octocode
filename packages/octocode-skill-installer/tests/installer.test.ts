@@ -41,17 +41,12 @@ describe('portable skill-sync registry contract', () => {
     const payload = JSON.parse(result.stdout) as {
       vendors: Array<{
         id: string;
-        canonical: string;
         userRelativePath: string;
         project: string;
       }>;
-      aliases: Record<string, string>;
     };
-    const canonical = payload.vendors.filter(
-      vendor => vendor.id === vendor.canonical
-    );
     expect(
-      canonical.map(({ id, userRelativePath, project }) => ({
+      payload.vendors.map(({ id, userRelativePath, project }) => ({
         platform: id,
         globalRelativePath: userRelativePath,
         projectRelativePath: project,
@@ -64,13 +59,6 @@ describe('portable skill-sync registry contract', () => {
           projectRelativePath,
         })
       ).sort((left, right) => left.platform.localeCompare(right.platform))
-    );
-    expect(payload.aliases).toEqual(
-      Object.fromEntries(
-        SKILL_PLATFORMS.flatMap(({ platform, aliases }) =>
-          aliases.map(alias => [alias, platform])
-        )
-      )
     );
   });
 });
@@ -98,9 +86,9 @@ afterEach(() => {
 });
 
 describe('platform contract', () => {
-  it('formats canonical platform values and aliases from the shared registry', () => {
+  it('formats platform values from the shared registry', () => {
     expect(formatSkillPlatformHelp()).toBe(
-      'pi | cursor | claude | codex | opencode | copilot | gemini | all (aliases: claude-desktop -> claude; shared, common, agents, codex-native -> codex)'
+      'pi, cursor, claude, codex, opencode, copilot, gemini, all'
     );
   });
 
@@ -114,13 +102,18 @@ describe('platform contract', () => {
     ).toBe(join(homedir(), '.agents/skills'));
   });
 
-  it('normalizes aliases and expands all without duplicate destinations', () => {
-    expect(parseSkillPlatforms('shared,common,agents,codex')).toEqual({
-      platforms: ['codex'],
+  it('de-duplicates platforms, rejects retired aliases, and expands all', () => {
+    expect(parseSkillPlatforms('codex,claude,codex')).toEqual({
+      platforms: ['codex', 'claude'],
     });
-    expect(
-      parseSkillPlatforms('claude-desktop,claude,codex-native,codex')
-    ).toEqual({ platforms: ['claude', 'codex'] });
+    for (const retired of [
+      'shared',
+      'common',
+      'agents',
+      'codex-native',
+      'claude-desktop',
+    ])
+      expect(parseSkillPlatforms(retired).error).toContain('Unknown platform');
     expect(parseSkillPlatforms('all').platforms).toEqual([
       'pi',
       'cursor',
@@ -157,8 +150,6 @@ describe('platform contract', () => {
         projectDir,
       })
     ).toBe(join(projectDir, '.github/skills'));
-    expect(parseSkillPlatforms('claude-desktop').platforms).toEqual(['claude']);
-    expect(parseSkillPlatforms('codex-native').platforms).toEqual(['codex']);
   });
 
   it('owns every supported global destination consistently across operating systems', () => {

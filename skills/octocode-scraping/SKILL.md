@@ -34,8 +34,6 @@ flowchart LR
 ```
 Caption: search before refetching; escalate to a browser only on evidence; stop at the first hard stop; dotted edges load a page in `references/` or `docs/`.
 
-Corpora/runs: `<output>/tmp/scrape/`; reports: `<output>/octocode-scraping/`. Chat answers stay in chat; approved source/config edits keep their paths.
-
 Frame URL/domain, goal, depth, and output before fetching. Default to one public URL, `--mode html`, no explicit provider (bounded direct HTTP), `.octocode/tmp/scrape/{sessionId}`, and compact stdout. **CDP escalation:** when the result has `next.route: octocode-chrome-devtools` (blocked or thin application shell), or target text stays absent after checking wording and extraction quality, load `octocode-chrome-devtools`, render that URL once with `open-browser + page-snapshot + dom-operations-check`, then bridge with `scripts/har-ingest.mjs --session-dir <existing-session> --from-cdp-dir <run>`. Do not start a new scrape session. Live interaction belongs to `octocode-chrome-devtools`.
 
 **Context gate:** query metadata and exact text first. When an unread saved artifact needs semantic location and a small direct read does not decide, use `references/clasify-screen.md`; the `octocode-research` clasify gate owns admission and result rules.
@@ -58,3 +56,7 @@ Ask before auth, cookie/profile transfer, hosted spend, anti-bot escalation, cra
 Every runnable script accepts `--help`. Before changing scripts or providers, read `scripts/README.md`; shared modules live in `scripts/lib/`, vendored env resolution in `scripts/octocode-config.mjs`, and JSON contracts in `scripts/schemas/`.
 
 After corpus-search changes, run `node --test scripts/tests/corpus-find.test.mjs`; after fetch/session changes, run `node --test scripts/tests/fetch-session.test.mjs`; after robots/pacing/body-cap changes, run `node --test scripts/tests/http-policy.test.mjs`; after CDP client changes, run `node --test scripts/tests/cdp-client.test.mjs`. These finite local regressions need no browser or hosted provider; they do not replace a live browser check for CDP integration changes.
+
+## Output
+One answer in chat, with the cited path. A fetch writes one session under `<output>/tmp/scrape/`.
+Add a report under `<output>/octocode-scraping/` only when the task asks for a report. Approved source edits keep their paths.

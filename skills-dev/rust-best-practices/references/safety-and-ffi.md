@@ -15,7 +15,7 @@ Load when you review `unsafe`, validate untrusted input, build a Node addon (nap
 - **Regex ReDoS:** use `regex` (linear-time). A PCRE-style engine (`pcre2`, `fancy-regex`) on untrusted patterns/inputs needs a backtracking bound.
 - **SSRF / path traversal:** canonicalize URLs/paths for anything that fetches or reads for a caller; allowlist hosts/roots, do not blocklist. Filesystem: `cap-std` (capability dirs) or canonicalize-then-`starts_with(root)`; reject symlink escapes.
 - Secrets: never log them; scrub tokens/keys from error chains and debug output. Wrap in `secrecy::SecretString` (redacted `Debug`, zeroized on drop); compare tokens/MACs with `subtle` (constant-time), never `==`.
-- Deserialization: `#[serde(deny_unknown_fields)]` on config/API inputs; size-cap bytes *before* parsing; keep `serde_json`'s default recursion limit.
+- Deserialization: reject unknown fields only where the input contract is closed; preserve documented extension fields. Size-cap bytes *before* parsing; keep `serde_json`'s default recursion limit. Octocode wire types follow `references/parsing-and-codegen.md`.
 - Crypto: never hand-roll. `rustls`, `ring`/`aws-lc-rs`, RustCrypto crates; randomness from `getrandom`/`rand::rngs::OsRng`.
 - Arithmetic: debug panics on overflow, release wraps. Untrusted arithmetic uses `checked_*` / `saturating_*` / `try_into()`. Security-critical binaries can keep `overflow-checks = true` in `[profile.release]`.
 
@@ -27,14 +27,15 @@ Load when you review `unsafe`, validate untrusted input, build a Node addon (nap
 - `cargo auditable build` embeds the dep list so shipped binaries stay scannable. `deny.toml` bans duplicates, yanked crates, unknown registries, and git sources.
 
 ## FFI: panic must not cross the boundary
-- Unwinding across an FFI boundary is undefined behavior. Guard every `extern "C"` / exported entry point: `std::panic::catch_unwind` at the boundary and convert to an error code, or build with `panic = "abort"`.
+- A Rust panic reaching a non-unwinding ABI aborts; a foreign exception entering Rust there is undefined behavior. `C-unwind` permits unwinding but requires a compatible caller. [Rustonomicon FFI](https://doc.rust-lang.org/nomicon/ffi.html#ffi-and-unwinding).
+- Where the host must survive, catch unwinding Rust panics inside the export and return an error. `catch_unwind` cannot catch aborts or safely handle foreign exceptions; `panic = "abort"` terminates the host.
 - Return `napi::Result` (`references/napi.md`); map core errors with `napi::Error::new(Status::InvalidArg, msg)`. Never `panic!`/`unwrap()` in exports; enforce with `unwrap_used = "deny"` (this repo does).
 
 ## FFI: napi-rs threads
 - **Async rule:** any call > ~1ms is `#[napi]` on an `async fn` (napi's tokio runtime, for I/O), an `AsyncTask` (`Task` trait, libuv's pool, supports `AbortSignal`) for short jobs, or CPU work on `spawn_blocking` / a dedicated pool. Never block Node's event loop.
 - **Don't flood libuv's shared pool.** libuv threads also serve Node's fs/DNS/crypto. Route CPU-heavy parse/search work to your own `rayon`/Tokio pool; keep libuv for the thin async boundary. Bound concurrency at the JS API.
 - **`ThreadsafeFunction` payloads must be `'static` owned data.** Convert to `String`/`Buffer`/owned structs before crossing the thread boundary; never store borrowed `Object<'env>`/`Function<'env>`.
-- Feature-gate the addon (`#[cfg(feature = "napi-addon")]`) so the core crate still builds as a plain `rlib`/CLI without Node.
+- Isolate Node dependencies in a binding crate so runtime libraries build without Node. For an existing single-crate addon, a feature gate is an alternative.
 
 ## FFI: crate types, linking, data
 - `crate-type = ["cdylib", "rlib"]`: `cdylib` for the loadable `.node`/`.so`, `rlib` so Rust consumers and integration tests link the same code (this repo uses exactly this); drop `rlib` without a Rust consumer.

@@ -1,9 +1,9 @@
 // Integration test crate — assertions use unwrap/expect/panic freely.
 #![allow(clippy::expect_used, clippy::panic)]
 
-//! Catalog-shape switches (S13 arms): `tools.family` narrows availability by
-//! core policy family, and the `mcp.*` presentation switches reach hosts
-//! through the runtime catalog. Defaults keep the full catalog.
+//! Catalog-shape switches (S13 arms): `tools.enabled`/`tools.disabled` narrow
+//! availability, and the `mcp.*` presentation switches reach hosts through the
+//! runtime catalog. Defaults keep the full catalog.
 
 use crate::support;
 
@@ -32,54 +32,22 @@ async fn default_family_keeps_every_family() {
 }
 
 #[tokio::test]
-async fn github_family_keeps_github_and_remote_tools() {
+async fn tool_lists_select_tools_and_name_the_reason() {
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("OCTOCODE_TOOL_FAMILY", "github".into())]);
+    let runtime = workspace.runtime(&[("TOOLS_TO_RUN", "localSearch,ghSearchCode".into())]);
+    assert!(runtime.is_available("localSearch"));
     assert!(runtime.is_available("ghSearchCode"));
-    assert!(runtime.is_available("artifactSearch"));
-    assert!(!runtime.is_available("localSearch"));
-    assert!(!runtime.is_available("lspSearch"));
-    let catalog = runtime.catalog().expect("catalog");
-    assert_eq!(tool(&catalog, "localFetch")["unavailableReason"], "family");
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn local_family_keeps_local_and_remote_tools() {
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[("OCTOCODE_TOOL_FAMILY", "local".into())]);
-    assert!(runtime.is_available("localSearch"));
-    assert!(runtime.is_available("artifactSearch"));
-    assert!(!runtime.is_available("ghSearchCode"));
-    assert!(!runtime.is_available("ghGetHistoryItem"));
-    let catalog = runtime.catalog().expect("catalog");
-    assert_eq!(tool(&catalog, "ghStructure")["unavailableReason"], "family");
-    runtime.close().await;
-}
-
-#[tokio::test]
-async fn family_intersects_the_tool_lists_and_never_widens_them() {
-    let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[
-        ("OCTOCODE_TOOL_FAMILY", "local".into()),
-        ("TOOLS_TO_RUN", "localSearch,ghSearchCode".into()),
-    ]);
-    assert!(runtime.is_available("localSearch"));
-    assert!(
-        !runtime.is_available("ghSearchCode"),
-        "family narrows TOOLS_TO_RUN"
-    );
-    assert!(
-        !runtime.is_available("localFetch"),
-        "family never widens TOOLS_TO_RUN"
-    );
-    assert!(!runtime.is_available("artifactSearch"));
+    assert!(!runtime.is_available("localFetch"));
+    // The retired family preset no longer narrows anything.
+    let retired = workspace.runtime(&[("OCTOCODE_TOOL_FAMILY", "local".into())]);
+    assert!(retired.is_available("ghSearchCode"));
     let catalog = runtime.catalog().expect("catalog");
     assert_eq!(
         tool(&catalog, "localFetch")["unavailableReason"],
         "toolsList"
     );
     runtime.close().await;
+    retired.close().await;
 }
 
 #[tokio::test]

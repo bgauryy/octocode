@@ -210,6 +210,30 @@ pub struct NextCalls {
     /// The whole declarations a `block` match kept only a context window of.
     #[serde(rename = "readBlock", skip_serializing_if = "Option::is_none", default)]
     pub read_block: Option<Continuation>,
+    /// The full default match window a byte-bounded window narrowed.
+    #[serde(
+        rename = "expandContext",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub expand_context: Option<Continuation>,
+    /// A structureSearch tree of a path that is a directory, not a file.
+    #[serde(rename = "viewTree", skip_serializing_if = "Option::is_none", default)]
+    pub view_tree: Option<serde_json::Value>,
+    /// A structureSearch listing that finds a missing file by its stem.
+    #[serde(
+        rename = "viewStructure",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub view_structure: Option<serde_json::Value>,
+    /// A localSearch for a missed matchString in the file's directory.
+    #[serde(
+        rename = "searchContent",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub search_content: Option<serde_json::Value>,
 }
 
 impl NextCalls {
@@ -222,6 +246,10 @@ impl NextCalls {
             whole_lines,
             continue_block,
             read_block,
+            expand_context,
+            view_tree,
+            view_structure,
+            search_content,
         } = other;
         for (mine, theirs) in [
             (&mut self.r#continue, r#continue),
@@ -230,6 +258,16 @@ impl NextCalls {
             (&mut self.whole_lines, whole_lines),
             (&mut self.continue_block, continue_block),
             (&mut self.read_block, read_block),
+            (&mut self.expand_context, expand_context),
+        ] {
+            if mine.is_none() {
+                *mine = theirs;
+            }
+        }
+        for (mine, theirs) in [
+            (&mut self.view_tree, view_tree),
+            (&mut self.view_structure, view_structure),
+            (&mut self.search_content, search_content),
         ] {
             if mine.is_none() {
                 *mine = theirs;
@@ -342,6 +380,16 @@ pub enum PartialReason {
     SecuritySelectedViewSizeLimit,
 }
 
+/// A declaration a `block:true` read widened a hit to: its name, name line
+/// and last line, an lspSearch anchor without parsing the text.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeclaredBlock {
+    pub symbol_name: String,
+    pub line: usize,
+    pub end_line: usize,
+}
+
 /// Internal read result. Rust callers see every field; the wire form (the
 /// manual `Serialize` below) omits values an agent can already derive from
 /// another emitted field.
@@ -382,6 +430,9 @@ pub struct LocalFetchResult {
     pub match_ranges: Vec<LineRange>,
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub matched_lines: Vec<usize>,
+    /// The declarations a `block:true` match read widened hits to.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub blocks: Vec<DeclaredBlock>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected_match_count: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -434,6 +485,7 @@ impl LocalFetchResult {
             source_line_ranges: vec![],
             match_ranges: vec![],
             matched_lines: vec![],
+            blocks: vec![],
             selected_match_count: None,
             modified: None,
             source_chars: None,
@@ -626,6 +678,7 @@ impl Serialize for LocalFetchResult {
         list(&mut map, "warnings", &self.warnings)?;
         list(&mut map, "hints", &self.hints)?;
         self.serialize_anchors(&mut map)?;
+        list(&mut map, "blocks", &self.blocks)?;
         self.serialize_counters(&mut map)?;
         if !self.pagination_is_redundant()
             && let Some(page) = &self.pagination
@@ -673,6 +726,11 @@ pub struct PathFailure {
     /// The missing path lies in a sparse git checkout, so it may exist
     /// upstream outside the checked-out paths.
     pub sparse_checkout: bool,
+    /// The path is a directory, not a file.
+    pub directory: bool,
+    /// A missing path's closest existing ancestor directory, named as the
+    /// policy displays it.
+    pub nearest_dir: Option<String>,
 }
 pub trait PathAccess {
     fn validate_read(&self, path: &Path) -> Result<ValidatedRead, PathFailure>;
@@ -739,12 +797,18 @@ impl PathAccess for crate::policy::path::PathPolicy {
             })
             .map_err(|error| {
                 let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
+                let resolved = self.expand_and_resolve(path);
                 PathFailure {
                     code: error.local_error_code("pathValidationFailed").into(),
                     message: error.message,
                     safe_path: error.safe_path,
                     resource_missing: missing,
-                    sparse_checkout: missing && in_sparse_checkout(&self.expand_and_resolve(path)),
+                    sparse_checkout: missing && in_sparse_checkout(&resolved),
+                    directory: error.code == crate::policy::PolicyErrorCode::NotRegular
+                        && resolved.is_dir(),
+                    nearest_dir: missing
+                        .then(|| self.nearest_existing_dir(&path.to_string_lossy()))
+                        .flatten(),
                 }
             })
     }

@@ -465,22 +465,13 @@ fn workspace_credential_beats_global_file_but_not_any_dotenv() {
         out.env_value("OCTOCODE_CLASSIFICATION_API"),
         Some("from-workspace-rc")
     );
-    for (label, layers) in [
-        (
-            "global .env",
-            Layers {
-                global_env: Some("OCTOCODE_CLASSIFICATION_API=from-dotenv"),
-                ..NONE
-            },
-        ),
-        (
-            "global .env alias",
-            Layers {
-                global_env: Some("OCTOCODE_JEV_KEY=from-dotenv"),
-                ..NONE
-            },
-        ),
-    ] {
+    for (label, layers) in [(
+        "global .env",
+        Layers {
+            global_env: Some("OCTOCODE_CLASSIFICATION_API=from-dotenv"),
+            ..NONE
+        },
+    )] {
         let out = resolve(Layers {
             global_rc: Some(global_rc),
             project_rc: Some(project_rc),

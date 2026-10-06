@@ -27,7 +27,7 @@ crates/
 xtask/                # dev automation in Rust (codegen, release checks), publish = false
 ```
 - Flat `crates/*`; folder name == crate name (kebab in Cargo, snake in `use`). Do not nest crates.
-- The virtual root sets `resolver = "3"` explicitly (edition 2024; `"2"` on 2021): it has no edition to infer from.
+- A virtual root sets its resolver explicitly; it has no package edition to infer from. For a new 2024 workspace, use `"3"`. Preserve an existing choice unless dependency resolution is in scope: Octocode uses edition 2024 with resolver `"2"`. [Cargo resolver versions](https://doc.rust-lang.org/cargo/reference/resolver.html#resolver-versions).
 - One `Cargo.lock`, one `target/`.
 - Add one: `cargo new --lib crates/app-fs` (auto-joins `members`), `cargo add -p app-cli --path crates/app-fs`, then move the dep into `[workspace.dependencies]`.
 
@@ -57,6 +57,7 @@ Members: `edition.workspace = true`, `serde = { workspace = true }`, `tokio = { 
 - **One edition.** Mixed 2021/2024 means different macro hygiene, lifetime capture, and temporary scopes between crates that call each other. Migrate with `cargo fix --edition` + verify; do not just flip the string.
 - `version` may live in `[workspace.package]` only if release tooling reads it there; regex scripts that rewrite per-crate `version = "…"` break on `version.workspace = true`.
 - A `rust-toolchain.toml` channel above the `rust-version` floor is normal: toolchain = what CI builds with; MSRV = the compatibility promise (enforce with `clippy::incompatible_msrv` or `cargo msrv verify`).
+- In Octocode, inherit version and metadata from `[workspace.package]`; internal Cargo crates stay `publish = false`. Extracting a Rust crate does not create an npm package.
 
 ## Split mechanics and hygiene
 - **Crates are not free**: each adds a link/metadata step and blocks cross-crate inlining without `#[inline]`/LTO. Tens of meaningful crates beat hundreds of 50-line ones; a file-sized concern stays a module.

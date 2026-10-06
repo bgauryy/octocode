@@ -148,3 +148,97 @@ async fn searches_without_line_reads_resolve_no_commit() {
         requests.iter().map(|r| r.url.path()).collect::<Vec<_>>()
     );
 }
+
+/// Two owner-wide hits in different repositories, indexed at `SHA`.
+async fn mount_owner_wide_search(server: &MockServer) {
+    let item = |repo: &str| {
+        json!({"name":"x.py","path":"src/x.py","sha":"1",
+         "html_url": format!("https://github.com/o/{repo}/blob/{SHA}/src/x.py"),
+         "repository":{"full_name":format!("o/{repo}"),"html_url":"https://x","url":"https://x"},
+         "text_matches":[{"fragment":"class HTTPAdapter(BaseAdapter):\n    pass","matches":[{"text":"HTTPAdapter","indices":[6,17]}]}]})
+    };
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/code"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count":2,"incomplete_results":false,"items":[item("a"), item("b")]
+        })))
+        .mount(server)
+        .await;
+}
+
+async fn run_owner_wide(server: &MockServer) -> crate::tools::result::ToolData {
+    let provider = mock_provider(
+        server,
+        RetryPolicy {
+            max_attempts: 1,
+            ..Default::default()
+        },
+    );
+    let query: GhSearchCodeQuery =
+        serde_json::from_value(json!({"owner":"o","keywords":["HTTPAdapter"]})).expect("query");
+    let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    execute(&provider, &query, &context, &Passthrough)
+        .await
+        .expect("search")
+}
+
+/// GC2: owner-wide rows are read at the commit each hit was indexed at
+/// (`html_url`): numbered `lines` replace fragments, and the top read is
+/// pinned to that commit instead of a `contextLines` fragment read.
+#[tokio::test]
+async fn owner_wide_rows_list_numbered_lines_at_the_indexed_commit() {
+    let server = MockServer::start().await;
+    mount_owner_wide_search(&server).await;
+    for repo in ["a", "b"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/o/{repo}/contents/src%2Fx.py")))
+            .and(wiremock::matchers::query_param("ref", SHA))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "type":"file","encoding":"base64",
+                "content":STANDARD.encode("import x\n\nclass HTTPAdapter(BaseAdapter):\n    pass\n")
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    let out = run_owner_wide(&server).await;
+    let files = out.data["files"].as_array().expect("files");
+    assert_eq!(files.len(), 2, "{}", out.data);
+    for row in files {
+        assert_eq!(
+            row["lines"],
+            json!(["3\tclass HTTPAdapter(BaseAdapter):"]),
+            "{}",
+            out.data
+        );
+        assert!(row.get("matches").is_none(), "{}", out.data);
+        assert!(row["owner"].is_string(), "{}", out.data);
+    }
+    // One commit for every row is stated once.
+    assert_eq!(out.data["commitSha"], SHA, "{}", out.data);
+    let read = &out.data["next"]["readTopMatch"]["query"]["queries"][0];
+    assert_eq!(read["ref"], SHA, "{}", out.data);
+    assert_eq!(read["owner"], "o", "{}", out.data);
+    assert_eq!(read["repo"], "a", "{}", out.data);
+    assert!(read.get("contextLines").is_none(), "{}", out.data);
+}
+
+/// GC2: a row whose file is gone at its indexed commit keeps its fragment
+/// and says its lines were not read.
+#[tokio::test]
+async fn owner_wide_row_missing_at_its_commit_keeps_fragments() {
+    let server = MockServer::start().await;
+    mount_owner_wide_search(&server).await;
+    Mock::given(method("GET"))
+        .and(wiremock::matchers::path_regex(
+            "^/api/v3/repos/o/[ab]/contents/",
+        ))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
+        .mount(&server)
+        .await;
+    let out = run_owner_wide(&server).await;
+    let row = &out.data["files"][0];
+    assert_eq!(row["lineResolved"], false, "{}", out.data);
+    assert!(row["matches"][0]["value"].is_string(), "{}", out.data);
+    assert!(row.get("lines").is_none(), "{}", out.data);
+}

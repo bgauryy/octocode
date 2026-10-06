@@ -41,7 +41,7 @@ Paths: `<repo>` is the monorepo root. `CORE` is `../octocode-mcp-host/packages/o
 - Declare and implement each new contract field or discriminator in `crates/runtime/src/contracts/field-effect-coverage.json`.
 - Config flows through `@octocodeai/config`. Never reimplement home, env propagation, or `.env` parsing.
 - Never lower coverage floors or special-case tests.
-- After a native, engine, or CLI change: `yarn workspace @octocodeai/octocode-native build:dev` → `yarn workspace octocode build:dev` (or `octocode-mcp`) → `$OCTO config --json && $OCTO scheme` → call the changed tool.
+- After a native, engine, or CLI change: `yarn workspace @octocodeai/octocode-native build:dev` → `yarn workspace octocode build:dev` (or `octocode-mcp`) → `$OCTO config --json && $OCTO schema` → call the changed tool.
 - An MCP server started before the rebuild serves the old contract. Restart it before you judge behavior.
 - A core/native fingerprint mismatch means regenerate and rebuild. Never use `OCTOCODE_ALLOW_CONTRACT_DRIFT`.
 
@@ -79,7 +79,7 @@ When a script flag or path rule is unclear, read `scripts/README.md`. Scripts:
 1. Map: run `scripts/tool-inventory.mjs <tool>`. Locate every layer with `references/surface-map.md`.
 2. Work the lanes in order; load each reference only while you work it: contract → implementation → output.
 3. When a finding is confirmed, fix the owning layer and verify with `references/fix-and-verify.md`.
-4. Write the report from `assets/audit-report.md` to `<repo>/.octocode/octocode-dev/<tool>-<date>.md`. Give each finding `path:line`, severity, evidence, fix, and the verification command and result.
+4. Write one report from `assets/audit-report.md`. Give each finding `path:line`, severity, evidence, fix, and the verification command and result. The path is in `## Output`.
 
 A multi-tool audit may run one subagent per tool. Give each the tool name, this skill path, and the report template.
 
@@ -89,3 +89,7 @@ A multi-tool audit may run one subagent per tool. Give each the tool name, this 
 - `$DEV build:dev` (or the package build) exited 0. The changed path ran through `$OCTO` or MCP.
 - Focused tests pass. Before a handoff that spans packages, `$DEV verify` and `$DEV docs:verify` pass.
 - Report the exact commands and results. Name anything not verified.
+
+## Output
+One result in chat: the commands and what they returned. A plain task writes no file.
+An audit writes one report at `<repo>/.octocode/octocode-dev/<tool>-<date>.md`.

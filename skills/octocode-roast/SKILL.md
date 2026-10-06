@@ -23,8 +23,6 @@ flowchart LR
 ```
 Skill map: CHECKPOINT is the consent gate; dotted edges load a reference.
 
-Reports: `<output>/octocode-roast/`; scratch: `<output>/tmp/octocode-roast/`. Chat-only critiques stay in chat; approved source edits keep their named paths.
-
 ## Rules
 - Punch the code, not the coder: no insults about ability, identity, or experience.
 - Cite or drop it: every major finding needs an exact anchor, mechanism, impact, confidence, and repair move. Pattern-only matches stay leads with stated confidence.
@@ -36,3 +34,6 @@ Reports: `<output>/octocode-roast/`; scratch: `<output>/tmp/octocode-roast/`. Ch
 
 ## Routes
 - Evidence comes from `octocode-research`; if unavailable, use `octocode-mcp` / `npx octocode` and mark reduced coverage. `octocode-eval-benchmark` measures usefulness, `octocode-agentic-prompts` handles wording, `octocode-skills` owns changes to this folder. No scripts: verification runs the target project's own checks.
+
+## Output
+One critique in chat. Save one file under `<output>/octocode-roast/` only when the task asks to keep it. Scratch stays in `<output>/tmp/octocode-roast/`. Approved edits keep their paths.

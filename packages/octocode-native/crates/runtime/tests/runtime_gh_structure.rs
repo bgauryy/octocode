@@ -366,3 +366,368 @@ async fn languages_list_bytes_per_language_largest_first() {
     );
     runtime.close().await;
 }
+
+/// Answers each `history` alias with `2025-03-<len(path)>` and the commit
+/// with `2026-01-31`, so a test can tell which entry got which date.
+struct DatesEcho;
+impl wiremock::Respond for DatesEcho {
+    fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
+        let body: serde_json::Value = serde_json::from_slice(&request.body).expect("graphql body");
+        let mut commit = serde_json::Map::new();
+        commit.insert("committedDate".into(), json!("2026-01-31T23:59:59Z"));
+        for (name, value) in body["variables"].as_object().expect("variables") {
+            if name.starts_with('p') {
+                let day = value.as_str().expect("path").len() % 28 + 1;
+                commit.insert(
+                    name.clone(),
+                    json!({"nodes":[{"committedDate": format!("2025-03-{day:02}T12:00:00Z")}]}),
+                );
+            }
+        }
+        ResponseTemplate::new(200).set_body_json(json!({"data":{"repository":{"object": commit}}}))
+    }
+}
+
+/// A repository `a/b` at [`SHA`] whose root lists `entries` (name, type).
+async fn listing_server(entries: &[(String, &str)]) -> MockServer {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex("/api/v3/repos/a/b/commits/(main|HEAD)$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": SHA})))
+        .mount(&server)
+        .await;
+    let rows = entries
+        .iter()
+        .map(|(name, kind)| json!({"name": name, "path": name, "type": kind, "size": 10}))
+        .collect::<Vec<_>>();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents"))
+        .and(query_param("ref", SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!(rows)))
+        .mount(&server)
+        .await;
+    server
+}
+
+async fn graphql_requests(server: &MockServer) -> Vec<serde_json::Value> {
+    server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|request| request.url.path() == "/api/graphql")
+        .map(|request| serde_json::from_slice(&request.body).expect("graphql body"))
+        .collect()
+}
+
+/// Freshness: a tree page dates every listed file and folder at the listed
+/// commit and states that commit's date, in one GraphQL request, by default.
+#[tokio::test]
+async fn a_tree_page_dates_every_entry_and_the_listed_commit() {
+    let server = listing_server(&[
+        ("one.rs".into(), "file"),
+        ("src".into(), "dir"),
+        ("a \"q\"\\b.md".into(), "file"),
+    ])
+    .await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(DatesEcho)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json!({"owner": "a", "repo": "b", "debug": false}),
+    )
+    .await
+    .expect("listing");
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    let data = row_data(&outcome);
+    assert_eq!(data["commitDate"], "2026-01-31", "{data}");
+    assert_eq!(
+        data["entries"][0]["updated"],
+        json!({"one.rs": "2025-03-07", "src": "2025-03-04", "a \"q\"\\b.md": "2025-03-11"}),
+        "{data}"
+    );
+    assert!(data.get("warnings").is_none(), "{data}");
+    let requests = graphql_requests(&server).await;
+    assert_eq!(requests.len(), 1, "one GraphQL request per page");
+    assert_eq!(requests[0]["variables"]["oid"], SHA);
+    runtime.close().await;
+}
+
+/// A page past one GraphQL request's 100 aliases is dated in ordered
+/// chunks; every entry still carries its date.
+#[tokio::test]
+async fn a_page_of_more_than_one_hundred_entries_is_dated_in_chunks() {
+    let names = (0..150)
+        .map(|n| (format!("f{n:03}.rs"), "file"))
+        .collect::<Vec<_>>();
+    let server = listing_server(&names).await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(DatesEcho)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(&runtime, "ghStructure", json!({"owner": "a", "repo": "b"}))
+        .await
+        .expect("listing");
+    let data = row_data(&outcome);
+    let updated = data["entries"][0]["updated"].as_object().expect("updated");
+    assert_eq!(updated.len(), 150, "{data}");
+    assert!(updated.values().all(|date| date == "2025-03-08"), "{data}");
+    assert_eq!(graphql_requests(&server).await.len(), 2);
+    runtime.close().await;
+}
+
+/// A failed date request never fails the listing: every entry is listed,
+/// no entry is dated, and one warning says the dates are missing.
+#[tokio::test]
+async fn a_graphql_failure_keeps_the_listing_and_warns_once() {
+    let server = listing_server(&[("one.rs".into(), "file"), ("src".into(), "dir")]).await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "data": null,
+            "errors": [{"message": "Something unexpected"}]
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json!({"owner": "a", "repo": "b", "debug": false}),
+    )
+    .await
+    .expect("listing");
+    assert_eq!(
+        row_status(&outcome),
+        "success",
+        "{}",
+        outcome.structured_content
+    );
+    let data = row_data(&outcome);
+    assert_eq!(data["entries"][0]["files"], json!(["one.rs"]), "{data}");
+    assert_eq!(data["entries"][0]["folders"], json!(["src"]), "{data}");
+    assert!(data["entries"][0].get("updated").is_none(), "{data}");
+    assert!(data.get("commitDate").is_none(), "{data}");
+    let warnings = data["warnings"].as_array().expect("warnings");
+    assert_eq!(warnings.len(), 1, "{data}");
+    assert!(
+        warnings[0]
+            .as_str()
+            .is_some_and(|text| text.contains("2 entries")),
+        "{data}"
+    );
+    runtime.close().await;
+}
+
+/// Materialize writes files for local tools; its listing stays undated.
+#[tokio::test]
+async fn materialize_sends_no_date_request() {
+    let server = tree_server(1).await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json!({"owner": "a", "repo": "b", "materialize": true}),
+    )
+    .await
+    .expect("materialize");
+    let data = row_data(&outcome);
+    assert!(data["entries"][0].get("updated").is_none(), "{data}");
+    assert!(graphql_requests(&server).await.is_empty());
+    runtime.close().await;
+}
+
+/// GS1: a listing under `path` names each row's `dir` repo-relative (the
+/// same base as `path` and `include`), and every listed name keeps its date.
+#[tokio::test]
+async fn a_scoped_listing_names_repo_relative_dirs_and_dates_every_name() {
+    let server = listing_server(&[]).await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/git/trees/{SHA}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "sha": SHA, "truncated": false, "tree": [
+                {"path":"pkg","type":"tree"},
+                {"path":"pkg/a.rs","type":"blob","size":1},
+                {"path":"pkg/src","type":"tree"},
+                {"path":"pkg/src/lib.rs","type":"blob","size":1},
+                {"path":"other.rs","type":"blob","size":1}
+            ]
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(DatesEcho)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json!({"owner": "a", "repo": "b", "path": "pkg", "maxDepth": 2}),
+    )
+    .await
+    .expect("listing");
+    let data = row_data(&outcome);
+    let entries = data["entries"].as_array().expect("entries");
+    assert_eq!(entries[0]["dir"], "pkg", "{data}");
+    assert_eq!(entries[0]["files"], json!(["a.rs"]), "{data}");
+    assert_eq!(entries[0]["folders"], json!(["src"]), "{data}");
+    assert_eq!(entries[1]["dir"], "pkg/src", "{data}");
+    // Dates key on the full path: `pkg/a.rs` (8) and `pkg/src` (7) and
+    // `pkg/src/lib.rs` (14).
+    assert_eq!(
+        entries[0]["updated"],
+        json!({"a.rs": "2025-03-09", "src": "2025-03-08"}),
+        "{data}"
+    );
+    assert_eq!(
+        entries[1]["updated"],
+        json!({"lib.rs": "2025-03-15"}),
+        "{data}"
+    );
+    runtime.close().await;
+}
+
+/// X9: a listing of a renamed repository at a ref (GitHub answers 301 to
+/// `/repositories/<id>`) lists the canonical repository after one metadata
+/// read, warns once, and leads under the canonical name.
+#[tokio::test]
+async fn a_renamed_repository_is_listed_and_continued_under_its_canonical_name() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/main"))
+        .respond_with(ResponseTemplate::new(301).insert_header(
+            "location",
+            format!("{}/api/v3/repositories/1/commits/main", server.uri()),
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repositories/1/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"default_branch":"main","full_name":"c/d"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/c/d/contents"))
+        .and(query_param("ref", SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"name":"lib.rs","path":"lib.rs","type":"file","size":10}
+        ])))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(DatesEcho)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(
+        &runtime,
+        "ghStructure",
+        json!({"owner": "a", "repo": "b", "ref": "main"}),
+    )
+    .await
+    .expect("listing");
+    let data = row_data(&outcome);
+    assert_eq!(row_status(&outcome), "success", "{data}");
+    assert_eq!(
+        data["warnings"]
+            .to_string()
+            .matches("renamed to c/d")
+            .count(),
+        1,
+        "{data}"
+    );
+    let read = &data["hints"]["read"]["query"]["queries"][0];
+    assert_eq!(
+        (read["owner"].as_str(), read["repo"].as_str()),
+        (Some("c"), Some("d")),
+        "{data}"
+    );
+    let dates = graphql_requests(&server).await;
+    assert_eq!(dates[0]["variables"]["owner"], "c", "{dates:?}");
+    runtime.close().await;
+}
+
+/// X9: without a ref, the default-branch lookup already names the
+/// canonical repository: no extra metadata request.
+#[tokio::test]
+async fn a_renamed_repository_without_a_ref_costs_no_extra_metadata_read() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"default_branch":"main","full_name":"c/d"})),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/HEAD"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(SHA))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/c/d/contents"))
+        .and(query_param("ref", SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"name":"lib.rs","path":"lib.rs","type":"file","size":10}
+        ])))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(DatesEcho)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(&runtime, "ghStructure", json!({"owner": "a", "repo": "b"}))
+        .await
+        .expect("listing");
+    let data = row_data(&outcome);
+    assert!(
+        data["warnings"].to_string().contains("renamed to c/d"),
+        "{data}"
+    );
+    assert_eq!(
+        data["hints"]["read"]["query"]["queries"][0]["owner"], "c",
+        "{data}"
+    );
+    runtime.close().await;
+}

@@ -10,7 +10,7 @@ related-skill: `octocode-architect`
 output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 routes: load/run a reference, doc, script, or scheme only when it changes the next action; otherwise keep the rule here.
 
-Turn a repository into one self-contained, interactive HTML architecture map that a developer can read in minutes and verify line by line. Artifacts (`scan.json`, `model.json`, `architecture.html`) go to `<output>/architecture-view/`.
+Turn a repository into one self-contained, interactive HTML architecture map that a developer can read in minutes and verify line by line.
 
 Flow: `SCAN → MODEL → RENDER → VERIFY → OPEN`.
 
@@ -35,4 +35,8 @@ Flow: `SCAN → MODEL → RENDER → VERIFY → OPEN`.
 
 - Ask before you scan outside the workspace or add network enrichment. The views load D3 and 3d-force-graph from jsdelivr, so say so when the user needs an offline artifact.
 - For review-only or decision requests, hand findings to `octocode-architect`. This skill maps; it does not refactor.
-- Keep outputs in `<output>/architecture-view/`. Do not write into source directories or commit.
+- Do not write into source directories or commit.
+
+## Output
+One page: `architecture.html` in `<output>/architecture-view/`.
+`scan.json` and `model.json` sit beside it because the scan and the overlay have their own lifecycles.

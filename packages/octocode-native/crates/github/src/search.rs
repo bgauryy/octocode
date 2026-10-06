@@ -100,6 +100,8 @@ pub struct RepositorySearchItem {
     pub license: Option<License>,
     #[serde(default)]
     pub archived: bool,
+    #[serde(default)]
+    pub fork: bool,
 }
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct License {

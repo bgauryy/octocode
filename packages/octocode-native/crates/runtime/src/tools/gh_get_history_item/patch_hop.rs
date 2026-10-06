@@ -2,6 +2,7 @@
 //! commit/comparison file-page cursors.
 use super::pr_menu::*;
 use super::{HistoryItemRequest, ItemOperation};
+pub(super) use crate::tools::gh_search_history::rows::headline_pull_request;
 use crate::tools::id::ToolId;
 use crate::tools::result::Continuation;
 use serde_json::{Map, Value, json};
@@ -85,7 +86,51 @@ pub(super) fn patch_continuation(mut nq: Value, entry: &Value, q: &HistoryItemRe
         nq["offset"] = cursor.clone();
     }
     clamp_hop_length(&mut nq, q);
-    menu_read(nq)
+    with_hop_page(menu_read(nq), q)
+}
+
+/// The response page a patch-walk hop (`continuePatch`, or the next file
+/// page of a patch read) asks for. A hop reads patches only, so the hop
+/// that leaves a walk's opening call (no `offset`) doubles the call's page
+/// (up to the contract's `responseLength` maximum) and every later hop keeps
+/// the page it ran with: every hop names an `offset`, so a page doubles once
+/// per walk, and the walk takes about half the calls at a page that scales
+/// with the configured one instead of overriding it. A caller's explicit
+/// `length` keeps its page. `None` when the runtime named no page.
+pub(super) fn hop_response_length(q: &HistoryItemRequest) -> Option<usize> {
+    let page = q.auto_page_chars.filter(|page| *page > 0)?;
+    let max = crate::contracts::tool_contract(ToolId::GhGetHistoryItem)
+        .ok()?
+        .pointer("/inputSchema/properties/responseLength/maximum")?
+        .as_u64()
+        .and_then(|max| usize::try_from(max).ok())?;
+    let first_window = q.char_offset().is_none() && q.char_length().is_none();
+    let page = if first_window {
+        page.saturating_mul(2)
+    } else {
+        page
+    };
+    Some(page.min(max))
+}
+
+/// The next file page of a patch walk: it opens at stream offset 0, said
+/// explicitly so the hop keeps the walk's page ([`hop_response_length`]).
+pub(super) fn patch_walk_file_page(mut lead: Value, q: &HistoryItemRequest) -> Value {
+    if let Some(row) = crate::tools::result::continuation_row_mut(&mut lead) {
+        row["offset"] = json!(0);
+    }
+    with_hop_page(lead, q)
+}
+
+/// `lead` asking for the [`hop_response_length`] page.
+pub(super) fn with_hop_page(mut lead: Value, q: &HistoryItemRequest) -> Value {
+    if let (Some(page), Some(input)) = (
+        hop_response_length(q),
+        lead.get_mut("query").and_then(Value::as_object_mut),
+    ) {
+        input.insert("responseLength".into(), json!(page));
+    }
+    lead
 }
 
 /// A hop carries the caller's `length` as the window it got, so a length
@@ -220,8 +265,11 @@ pub(super) fn commit_query(q: &HistoryItemRequest, reference: &str, nested: bool
             reasoning: None,
             ref_: GhGetHistoryItemQueryRef::try_from(reference).ok()?,
             repo: HiRepo::try_from(q.repo()).ok()?,
-            sections: (nested || q.include_diff())
-                .then_some([GhGetHistoryItemQuerySectionsItem::Patches]),
+            sections: if nested || q.include_diff() {
+                vec![GhGetHistoryItemQuerySectionsItem::Patches]
+            } else {
+                Vec::new()
+            },
         })
     };
     let mut value = typed()
@@ -278,13 +326,16 @@ pub(super) fn attach_diff_continuations(
         let mut nq = base.clone();
         nq["filePage"] = json!(page);
         remove_key(&mut nq, "offset");
-        next.insert(
-            "nextFilePage".into(),
-            make(
-                nq,
-                "Continue the changed-file list from the beginning of each new patch.",
-            ),
+        let lead = make(
+            nq,
+            "Continue the changed-file list from the beginning of each new patch.",
         );
+        let lead = if q.include_diff() {
+            patch_walk_file_page(lead, q)
+        } else {
+            lead
+        };
+        next.insert("nextFilePage".into(), lead);
     }
     // Files were listed without patches: offer the same page with diffs.
     if base.get("sections").is_none() && cursors.files_listed {
@@ -303,7 +354,7 @@ pub(super) fn attach_diff_continuations(
         clamp_hop_length(&mut nq, q);
         next.insert(
             "continuePatch".into(),
-            make(nq, "Continue the current patch window."),
+            with_hop_page(make(nq, "Continue the current patch window."), q),
         );
     }
     if matches!(operation, ItemOperation::Commit)
@@ -348,10 +399,4 @@ pub(super) fn commit_pull_request_lead(
         .confidence("high")
         .build(),
     ))
-}
-
-/// The pull request a squash-merge headline ends with: `subject (#123)`.
-pub(super) fn headline_pull_request(headline: &str) -> Option<u64> {
-    let digits = headline.trim_end().strip_suffix(')')?.rsplit_once("(#")?.1;
-    digits.parse().ok().filter(|number| *number > 0)
 }

@@ -122,19 +122,42 @@ pub(super) fn candidate_hit_lines(file: &Value) -> Vec<u64> {
 /// hit cluster, densest first: each centers on the densest remaining run of
 /// hits (an incidental first hit must not pull a window off its cluster), and
 /// the hits it covers leave the pool. No hits yields the opening window.
-pub(super) fn hit_cluster_windows(mut lines: Vec<u64>) -> Vec<(u64, u64)> {
-    let mut windows = Vec::new();
-    while let Some((first, last)) = densest_run(&lines, HYDRATED_LINE_RADIUS * 2) {
-        let center = first + (last - first) / 2;
-        let start = center.saturating_sub(HYDRATED_LINE_RADIUS).max(1);
-        let end = center.saturating_add(HYDRATED_LINE_RADIUS);
-        windows.push((start, end));
-        lines.retain(|line| *line < start || *line > end);
-    }
+pub(super) fn hit_cluster_windows(lines: Vec<u64>) -> Vec<(u64, u64)> {
+    let mut windows = hit_cluster_windows_at(HYDRATED_LINE_RADIUS, lines);
     if windows.is_empty() {
         windows.push((1, HYDRATED_LINE_RADIUS * 2 + 1));
     }
     windows
+}
+
+/// [`hit_cluster_windows`] at any `radius`; no hits yields no window.
+fn hit_cluster_windows_at(radius: u64, mut lines: Vec<u64>) -> Vec<(u64, u64)> {
+    let mut windows = Vec::new();
+    while let Some((first, last)) = densest_run(&lines, radius * 2) {
+        let center = first + (last - first) / 2;
+        let start = center.saturating_sub(radius).max(1);
+        let end = center.saturating_add(radius);
+        windows.push((start, end));
+        lines.retain(|line| *line < start || *line > end);
+    }
+    windows
+}
+
+/// Sub-windows of a hit window cut short by its byte budget, at the fitted
+/// `radius`, densest first: the window's own hits re-clustered, so no
+/// sub-window sits between hits with none in it. A window without hits (the
+/// opening window) narrows on its center.
+pub(super) fn recut_window(hits: &[u64], (start, end): (u64, u64), radius: u64) -> Vec<(u64, u64)> {
+    let inside = hits
+        .iter()
+        .copied()
+        .filter(|hit| (start..=end).contains(hit))
+        .collect::<Vec<_>>();
+    if inside.is_empty() {
+        let center = end.saturating_sub(HYDRATED_LINE_RADIUS).max(start);
+        return vec![(center.saturating_sub(radius).max(1), center + radius)];
+    }
+    hit_cluster_windows_at(radius, inside)
 }
 
 /// Windows judged per candidate within `budget` pages: every candidate gets
@@ -580,20 +603,29 @@ pub(super) fn fitted_radius(radius: u64, state: &Value) -> u64 {
     ((radius as f64 * ratio).floor() as u64).min(radius.saturating_sub(1))
 }
 
-/// Resolve one hit window. A byte budget cuts a window from its first line,
-/// which can drop the hit it is centered on; such a window is re-read narrower
-/// around its center until it fits (the last successful read is kept).
-pub(super) fn resolve_window(
-    mut read: Value,
-    dispatcher: &DomainDispatcher,
-    execution: &ExecutionContext,
-) -> (
+/// The read a window resolved with, its result, and the reads of the hits a
+/// narrowed window left out.
+pub(super) type ResolvedWindow = (
     Value,
     Result<(Value, Option<Value>), crate::tools::clasify::context::ContextFailure>,
-) {
+    Vec<Value>,
+);
+
+/// Resolve one hit window. A byte budget cuts a window from its first line,
+/// which can drop the hits it holds; such a window is re-read narrower on its
+/// densest hits until it fits (the last successful read is kept), and the
+/// reads of its other hits come back as `rest` so none drops out.
+pub(super) fn resolve_window(
+    mut read: Value,
+    hits: &[u64],
+    dispatcher: &DomainDispatcher,
+    execution: &ExecutionContext,
+) -> ResolvedWindow {
     let mut resolved = crate::tools::clasify::context::resolve(&read, dispatcher, execution);
-    let Some((center, mut radius)) = window_center(&read) else {
-        return (read, resolved);
+    let mut rest = Vec::new();
+    let window = output::read_range(&read["query"]);
+    let (Some((_, mut radius)), Some(window)) = (window_center(&read), window) else {
+        return (read, resolved, rest);
     };
     for _ in 0..RECENTER_ATTEMPTS {
         let Ok((state, receipt)) = &resolved else {
@@ -608,21 +640,37 @@ pub(super) fn resolve_window(
             break;
         }
         radius = fitted_radius(radius, state);
-        let mut narrower = read.clone();
-        output::set_read_range(
-            &mut narrower["query"],
-            center.saturating_sub(radius).max(1),
-            center + radius,
-        );
+        let windows = recut_window(hits, window, radius);
+        let with_range = |(start, end): (u64, u64)| {
+            let mut narrower = read.clone();
+            output::set_read_range(&mut narrower["query"], start, end);
+            narrower
+        };
+        let narrower = with_range(windows[0]);
         match crate::tools::clasify::context::resolve(&narrower, dispatcher, execution) {
             Ok(fitted) => {
+                rest = windows[1..].iter().copied().map(with_range).collect();
                 read = narrower;
                 resolved = Ok(fitted);
             }
             Err(_) => break,
         }
     }
-    (read, resolved)
+    (read, resolved, rest)
+}
+
+/// A hit window the byte budget left unjudged: reported with its read.
+fn recut_rest_page(source: &Value, candidate: &Value, read: Value) -> CapturedPage {
+    let mut context = crate::tools::clasify::context::candidate_receipt(source, candidate);
+    crate::tools::clasify::context::attach_read(&mut context, read);
+    CapturedPage::Failed {
+        error: ClassificationError::new(
+            "classificationBudgetSpent",
+            "This hit window was not judged: the byte budget narrowed its window to denser hits.",
+            "Run its hints.read to classify it.",
+        ),
+        context,
+    }
 }
 
 /// One candidate read judged as one page. With `whole`, a read the byte
@@ -631,19 +679,22 @@ pub(super) fn hydrate_candidate(
     source: &Value,
     candidate: Value,
     mut read: Value,
+    hits: &[u64],
     anchored: bool,
     whole: bool,
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
-) -> Option<CapturedPage> {
+) -> Option<Vec<CapturedPage>> {
+    let mut rest = Vec::new();
     let resolved = if whole {
         crate::tools::clasify::context::resolve(&read, dispatcher, execution)
     } else {
-        let (recentered, resolved) = resolve_window(read, dispatcher, execution);
+        let (recentered, resolved, unjudged) = resolve_window(read, hits, dispatcher, execution);
         read = recentered;
+        rest = unjudged;
         resolved
     };
-    Some(match resolved {
+    let page = match resolved {
         Ok((hydrated_state, hydrated_receipt)) => {
             if whole
                 && hydrated_receipt
@@ -709,7 +760,13 @@ pub(super) fn hydrate_candidate(
                 context,
             }
         }
-    })
+    };
+    let mut pages = vec![page];
+    pages.extend(
+        rest.into_iter()
+            .map(|read| recut_rest_page(source, &candidate, read)),
+    );
+    Some(pages)
 }
 
 /// One hydration: a read judged as one page, or a merged span of several
@@ -719,6 +776,8 @@ pub(super) struct HydrationJob {
     read: Value,
     anchored: bool,
     parts: Vec<Value>,
+    /// Hit lines of the candidate, so a cut window narrows onto its hits.
+    hits: Vec<u64>,
 }
 
 impl HydrationJob {
@@ -727,6 +786,7 @@ impl HydrationJob {
             read,
             anchored,
             parts: Vec::new(),
+            hits: Vec::new(),
         }
     }
 
@@ -742,18 +802,20 @@ impl HydrationJob {
                 source,
                 candidate.clone(),
                 read,
+                &self.hits,
                 self.anchored,
                 whole,
                 dispatcher,
                 execution,
             )
         };
-        if let Some(page) = hydrate(self.read.clone(), !self.parts.is_empty()) {
-            return vec![page];
+        if let Some(pages) = hydrate(self.read.clone(), !self.parts.is_empty()) {
+            return pages;
         }
         self.parts
             .iter()
             .filter_map(|part| hydrate(part.clone(), false))
+            .flatten()
             .collect()
     }
 }
@@ -778,8 +840,13 @@ pub(super) fn candidate_jobs(
     }
     allotted_windows(candidates, page_budget)
         .into_iter()
-        .map(|entry| {
+        .zip(candidates)
+        .map(|(entry, candidate)| {
             let (path, mut windows, taken) = entry?;
+            let hits = candidate
+                .pointer("/results/0/data/files/0")
+                .map(candidate_hit_lines)
+                .unwrap_or_default();
             windows.truncate(taken);
             // Judge a file's windows in source order.
             windows.sort_unstable();
@@ -809,6 +876,7 @@ pub(super) fn candidate_jobs(
                             } else {
                                 Vec::new()
                             },
+                            hits: hits.clone(),
                         }
                     })
                     .collect(),
@@ -1190,6 +1258,40 @@ mod tests {
         let cut = json!({"results":[{"data":{"pagination":{"length":3000,"totalBytes":12000}}}]});
         assert_eq!(fitted_radius(60, &cut), 15);
         assert_eq!(fitted_radius(1, &cut), 0);
+    }
+
+    /// N1: a cut window holding two far hits re-clusters its own hits at the
+    /// fitted radius: every sub-window holds a hit (never the empty midpoint
+    /// between them), the densest is read first, and together they cover
+    /// every hit, so the rest stay reachable as reads.
+    #[test]
+    fn cut_window_recenters_on_hits_and_keeps_the_rest() {
+        let [window] = hit_cluster_windows(vec![429, 483])[..] else {
+            panic!("one cluster");
+        };
+        assert_eq!(window, (396, 516));
+        let cut = json!({"results":[{"data":{"pagination":{"length":600,"totalBytes":12000}}}]});
+        let radius = fitted_radius(60, &cut);
+        assert_eq!(radius, 3);
+        let windows = recut_window(&[429, 483], window, radius);
+        assert_eq!(windows.len(), 2, "{windows:?}");
+        for (start, end) in &windows {
+            assert!(
+                [429, 483].iter().any(|hit| (start..=end).contains(&hit)),
+                "{windows:?}"
+            );
+        }
+        for hit in [429, 483] {
+            assert!(
+                windows
+                    .iter()
+                    .any(|(start, end)| (*start..=*end).contains(&hit))
+            );
+        }
+        // A window without hits (the opening window) narrows on its center.
+        assert_eq!(recut_window(&[], (1, 121), 3), [(58, 64)]);
+        // Hits outside the window are not this window's.
+        assert_eq!(recut_window(&[10, 450], (396, 516), 3), [(447, 453)]);
     }
 
     #[test]
