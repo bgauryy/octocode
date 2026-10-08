@@ -248,7 +248,7 @@ describe('AgentsView', () => {
       const widget = factory({ requestRender }, theme);
       widget.invalidate();
       const lines = widget.render(120).join('\n');
-      expect(lines).toContain('1 working · 1 idle · 2 in this session');
+      expect(lines).toContain('1 working · 1 idle');
       expect(lines).toContain('reviewer-1a2b');
       // Only traffic between subagents: this session's own messages are already in its transcript.
       expect(lines).toContain('#3');

@@ -1,5 +1,0 @@
-# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec/creds.ts", "matchString": "AKIA", "contextLines": 0}
-# env: None
-# exit: 1
-# stderr: 
-{"results":[{"index":0,"data":{"path":"creds.ts","content":"","errorCode":"noMatches","hints":["No visible line matches; this file has secrets, and matchString runs on [REDACTED…] placeholders, never secret text."],"totalLines":11,"returnedLines":0},"status":"empty"}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec"}

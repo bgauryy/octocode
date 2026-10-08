@@ -1,6 +1,6 @@
 use super::{GhSearchCodeQuery, GhSearchCodeQueryMatch};
 use crate::providers::github::{
-    CredentialResolver, GitHubTransport, ProviderErrorKind, ProviderErrorReason, RequestContext,
+    GitHubTransport, ProviderErrorKind, ProviderErrorReason, RequestContext,
 };
 use crate::tools::id::ToolId;
 use crate::tools::result::{Continuation, continuation_row_mut};
@@ -11,11 +11,11 @@ use crate::{
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
-pub(super) async fn empty_scope<R: CredentialResolver>(
+pub(super) async fn empty_scope(
     value: &mut Value,
     diagnostics: &mut crate::tools::result::ToolDiagnostics,
     query: &GhSearchCodeQuery,
-    transport: &GitHubTransport<R>,
+    transport: &GitHubTransport,
     context: &RequestContext,
 ) -> Result<(), ProviderError> {
     let GhSearchCodeQuery {
@@ -42,7 +42,7 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
             return Err(error.with_reason(ProviderErrorReason::RepositoryNotFound));
         }
         Ok(metadata) if metadata.archived => (
-            "viewStructure",
+            "viewTree",
             ToolId::GhStructure,
             json!({"owner":owner,"repo":repo,"path":""}),
             "Inspect the archived repository outside the code-search index.",
@@ -51,11 +51,11 @@ pub(super) async fn empty_scope<R: CredentialResolver>(
         ),
         // The repository exists: only a scoped path is left to verify.
         _ => {
-            let hint = "No indexed matches is unproven absence; verify the repository structure and search a bounded local copy before concluding.";
+            let hint = "No indexed matches is unproven absence; verify the repo structure and search a bounded local copy before concluding.";
             diagnostics.add("ghScopedZeroUnproven", hint, false);
             let scope = query.path.as_deref().map_or("", |path| path.as_str());
             (
-                "viewStructure",
+                "viewTree",
                 ToolId::GhStructure,
                 json!({"owner":owner,"repo":repo,"path":scope}),
                 "Verify the structure the search covered before concluding absence.",
@@ -177,8 +177,7 @@ type RepoCommit = (String, String, String);
 fn indexed_commit(html_url: &str) -> Option<String> {
     let (_, rest) = html_url.split_once("/blob/")?;
     let sha = rest.split('/').next()?;
-    (sha.len() == 40 && sha.bytes().all(|byte| byte.is_ascii_hexdigit()))
-        .then(|| sha.to_ascii_lowercase())
+    octocode_github::is_full_sha(sha).then(|| sha.to_ascii_lowercase())
 }
 
 /// The ref hits are verified at; `None` is the default branch.
@@ -193,11 +192,8 @@ fn requested_ref(query: &GhSearchCodeQuery) -> Option<&str> {
 /// The commit a page's hit lines are read at, resolved while the index
 /// search runs (`None`: the page lists no lines — owner-wide, path-only,
 /// or concise).
-pub(super) async fn line_commit<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &crate::providers::github::GitHubProvider<R, C>,
+pub(super) async fn line_commit<C: crate::providers::github::ConditionalCache>(
+    provider: &crate::providers::github::GitHubProvider<C>,
     query: &GhSearchCodeQuery,
     context: &RequestContext,
 ) -> Option<Result<String, ProviderError>> {
@@ -212,11 +208,8 @@ pub(super) async fn line_commit<
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn resolve_lines<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &crate::providers::github::GitHubProvider<R, C>,
+pub(super) async fn resolve_lines<C: crate::providers::github::ConditionalCache>(
+    provider: &crate::providers::github::GitHubProvider<C>,
     query: &GhSearchCodeQuery,
     items: &[Value],
     found: &[CodeSearchItem],
@@ -271,8 +264,8 @@ pub(super) async fn resolve_lines<
 /// Line hits of an owner-wide `match:"file"` page: each row is read at the
 /// commit its hit was indexed at, one concurrent batch per repository and
 /// commit. A row without an indexed commit keeps its fragments.
-async fn owner_wide_lines<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
-    provider: &crate::providers::github::GitHubProvider<R, C>,
+async fn owner_wide_lines<C: crate::providers::github::ConditionalCache>(
+    provider: &crate::providers::github::GitHubProvider<C>,
     query: &GhSearchCodeQuery,
     items: &[Value],
     found: &[CodeSearchItem],
@@ -364,11 +357,8 @@ async fn owner_wide_lines<R: CredentialResolver, C: crate::providers::github::Co
 /// and unresolved rows show default-branch text. Warn with the index commit
 /// and lead first to the ref's own listing. `resolved_sha` is the ref's
 /// commit when the hit lines were read at it.
-pub(super) async fn disclose_index_ref<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &crate::providers::github::GitHubProvider<R, C>,
+pub(super) async fn disclose_index_ref<C: crate::providers::github::ConditionalCache>(
+    provider: &crate::providers::github::GitHubProvider<C>,
     value: &mut Value,
     query: &GhSearchCodeQuery,
     resolved_sha: Option<String>,
@@ -450,8 +440,8 @@ fn moved_names(value: &Value) -> Vec<String> {
 
 /// The commit `reference` (`None`: the default-branch head) names, or
 /// `None` when it does not resolve; only cancellation fails.
-async fn commit_or_none<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
-    provider: &crate::providers::github::GitHubProvider<R, C>,
+async fn commit_or_none<C: crate::providers::github::ConditionalCache>(
+    provider: &crate::providers::github::GitHubProvider<C>,
     owner: &str,
     repo: &str,
     reference: Option<&str>,

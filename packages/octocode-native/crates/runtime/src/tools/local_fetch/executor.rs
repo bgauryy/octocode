@@ -25,32 +25,37 @@ fn source_too_large(path: &str, len: u64, limit: SourceSizeLimit) -> LocalFetchR
     let (message, hint) = match limit {
         SourceSizeLimit::Streaming => (
             format!(
-                "File too large: {len} bytes (streaming source ceiling: {} bytes / 1 GiB). localFetch cannot read this path, including bounded ranges.",
+                "File too large: {len} bytes (streaming ceiling: {} bytes / 1 GiB). localFetch cannot read this path, even in ranges.",
                 super::large_source::MAX_STREAM_SOURCE_BYTES
             ),
-            "Changing ranges, matchString, or fullContent cannot lift this ceiling. Choose a smaller text source or split the source outside localFetch.",
+            "No ranges, matchString, or fullContent lift this ceiling; choose a smaller text source or split it outside localFetch.",
         ),
         SourceSizeLimit::InMemoryGrowth => (
             format!(
-                "Source grew beyond the in-memory read guard: observed at least {len} bytes (guard: {MAX_SOURCE_BYTES} bytes / 10 MiB). The bounded read stopped before extraction."
+                "Source grew past the in-memory read guard: at least {len} bytes (guard: {MAX_SOURCE_BYTES} bytes / 10 MiB); the read stopped."
             ),
-            "Retry a fresh bounded line-window query after the source stops changing; sources above 10 MiB use streaming, up to the 1 GiB source ceiling.",
+            "Retry a bounded line window once the source stops changing; sources over 10 MiB stream, up to the 1 GiB ceiling.",
         ),
     };
     let mut result = LocalFetchResult::error(path.to_owned(), "fileTooLarge", message);
     result.source_bytes = Some(len as usize);
     result.is_partial = Some(true);
     result.terminal_limit = Some(true);
-    result.partial_reasons = vec![PartialReason::FullContentSourceSizeLimit];
+    result.partial_reasons = vec![PartialReason::FullContentSource];
     result.hints = vec![hint.into()];
     result
 }
 
-fn read_in_memory_source(reader: impl Read) -> std::io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    reader.take(MAX_SOURCE_BYTES + 1).read_to_end(&mut bytes)?;
+/// Read the rest of `reader` after the `bytes` already read from its start,
+/// up to the in-memory guard plus one sentinel byte.
+fn read_in_memory_source(reader: impl Read, mut bytes: Vec<u8>) -> std::io::Result<Vec<u8>> {
+    let left = (MAX_SOURCE_BYTES + 1).saturating_sub(bytes.len() as u64);
+    reader.take(left).read_to_end(&mut bytes)?;
     Ok(bytes)
 }
+
+/// Bytes of the binary sniff: one read from the start of the file.
+const BINARY_SAMPLE_BYTES: usize = 8192;
 
 pub fn execute_local_fetch(
     q: &LocalFetchQuery,
@@ -88,10 +93,35 @@ pub fn execute_local_fetch(
     if meta.len() > super::large_source::MAX_STREAM_SOURCE_BYTES {
         return source_too_large(&q.path, meta.len(), SourceSizeLimit::Streaming);
     }
-    if let Some(refused) = refuse_binary(q, &path, &display_path) {
-        return refused;
+    // One open serves the binary sniff and the whole read: the sniffed
+    // bytes start the buffer, sized from the stat.
+    let in_memory = meta.len() <= MAX_SOURCE_BYTES;
+    let opened = fs::File::open(&path).and_then(|mut file| {
+        let capacity = if in_memory {
+            usize::try_from(meta.len()).map_or(BINARY_SAMPLE_BYTES, |len| len + 1)
+        } else {
+            BINARY_SAMPLE_BYTES
+        };
+        let mut bytes = Vec::with_capacity(capacity.max(BINARY_SAMPLE_BYTES));
+        let mut sample = [0_u8; BINARY_SAMPLE_BYTES];
+        let read = file.read(&mut sample)?;
+        bytes.extend_from_slice(&sample[..read]);
+        Ok((file, bytes))
+    });
+    let (file, sample) = match opened {
+        Ok(opened) => opened,
+        Err(error) => {
+            return LocalFetchResult::error(
+                q.path.to_string(),
+                "fileReadFailed",
+                error.to_string(),
+            );
+        }
+    };
+    if is_binary(&sample) {
+        return refuse_binary(q, &display_path);
     }
-    if meta.len() > MAX_SOURCE_BYTES {
+    if !in_memory {
         let mut result = super::large_source::fetch_window(
             q,
             &path,
@@ -108,7 +138,7 @@ pub fn execute_local_fetch(
     }
     // Read at most the cap (+1 sentinel byte). Re-check the length in case the
     // file grew past the ceiling between the stat above and this read (TOCTOU).
-    let bytes = match fs::File::open(&path).and_then(read_in_memory_source) {
+    let bytes = match read_in_memory_source(file, sample) {
         Ok(b) if b.len() as u64 > MAX_SOURCE_BYTES => {
             return source_too_large(&q.path, b.len() as u64, SourceSizeLimit::InMemoryGrowth);
         }
@@ -210,29 +240,15 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
             .and_then(|nearest| missing_file_listing(q, nearest))
     {
         result.next = Some(NextCalls {
-            view_structure: Some(listing),
+            find_file: Some(listing),
             ..NextCalls::default()
         });
     }
     result
 }
 
-/// The refusal for a file whose leading bytes are binary (or unreadable).
-fn refuse_binary(q: &LocalFetchQuery, path: &Path, display_path: &str) -> Option<LocalFetchResult> {
-    let mut sample = [0_u8; 8192];
-    let sample_len = match fs::File::open(path).and_then(|mut file| file.read(&mut sample)) {
-        Ok(length) => length,
-        Err(error) => {
-            return Some(LocalFetchResult::error(
-                q.path.to_string(),
-                "fileReadFailed",
-                error.to_string(),
-            ));
-        }
-    };
-    if !is_binary(&sample[..sample_len]) {
-        return None;
-    }
+/// The refusal for a file whose leading bytes are binary.
+fn refuse_binary(q: &LocalFetchQuery, display_path: &str) -> LocalFetchResult {
     let mut result = LocalFetchResult::error(
         q.path.to_string(),
         "binaryFileUnsupported",
@@ -244,7 +260,7 @@ fn refuse_binary(q: &LocalFetchQuery, path: &Path, display_path: &str) -> Option
     // instead of the generic "remove matchString" recovery.
     result.hints =
         vec!["Do not retry this path with other ranges; choose a text source file instead.".into()];
-    Some(result)
+    result
 }
 
 /// Bind the next page of a local view to the file version it was cut from, so
@@ -373,10 +389,12 @@ pub fn process_fetched_content(
         returned_bytes: Some(ret_bytes),
         returned_lines: Some(ret_lines),
         pagination: Some(pg.pagination),
-        is_partial: (next.as_ref().is_some_and(NextCalls::leaves_more) && !out_of_range)
+        // A capped regex scan selected a prefix of the matches (H1).
+        is_partial: ((next.as_ref().is_some_and(NextCalls::leaves_more) && !out_of_range)
+            || ext.match_limited)
             .then_some(true),
         partial_reasons: if view_limited {
-            vec![PartialReason::FullContentLimit]
+            vec![PartialReason::FullContent]
         } else {
             vec![]
         },
@@ -476,7 +494,7 @@ fn extraction_error(q: &LocalFetchQuery, error: String) -> LocalFetchResult {
     let code = if error.starts_with("Invalid regex") {
         "invalidPattern"
     } else if error.starts_with("Regex execution unavailable") {
-        "toolExecutionFailed"
+        "executionFailed"
     } else {
         "invalidInput"
     };
@@ -490,17 +508,25 @@ fn no_match(q: &LocalFetchQuery, source: &Source) -> LocalFetchResult {
     // that explanation replaces the generic advice. It depends only on the
     // file, never on the guess (no oracle), and reveals no more than a
     // plain fetch (which shows the placeholders).
-    let hint = if source.match_redacted || source.key_blocks_redacted {
+    let redacted = source.match_redacted || source.key_blocks_redacted;
+    let case_sensitive = q
+        .match_strings()
+        .iter()
+        .any(|pattern| q.case_sensitive_for(pattern));
+    let hint = if redacted {
         REDACTED_MATCH_HINT.into()
     } else {
-        no_match_hint(
-            q.is_regex(),
-            q.match_strings()
-                .iter()
-                .any(|pattern| q.case_sensitive_for(pattern)),
-            ToolId::LocalSearch.as_str(),
-        )
+        no_match_hint(q.is_regex(), case_sensitive, ToolId::LocalSearch.as_str())
     };
+    // A case-sensitive miss reruns as the same read, case-insensitive.
+    let ignore_case = (case_sensitive && !redacted).then(|| {
+        let mut query = q.clone();
+        query.case_mode = Some(ReadCaseMode::Insensitive);
+        Continuation {
+            query,
+            reason: Some("Match the text case-insensitively.".into()),
+        }
+    });
     // The text may live in another file of this directory: one localSearch
     // there finds it (not offered when redactions hide the text).
     let search = (!(source.match_redacted || source.key_blocks_redacted))
@@ -525,10 +551,12 @@ fn no_match(q: &LocalFetchQuery, source: &Source) -> LocalFetchResult {
         source_sha256: Some(source.sha256.clone()),
         content: Some(String::new()),
         content_view: Some(MinifyMode::None),
-        next: search.map(|search| NextCalls {
-            search_content: Some(search),
+        next: Some(NextCalls {
+            text_search: search,
+            ignore_case,
             ..NextCalls::default()
-        }),
+        })
+        .filter(|next| !next.is_empty()),
         hints: vec![hint],
         total_lines: Some(source.total_lines),
         selected_match_count: Some(0),
@@ -747,7 +775,7 @@ fn security_limit(
     result.source_bytes = Some(source.bytes);
     result.is_partial = Some(true);
     result.terminal_limit = Some(true);
-    result.partial_reasons = vec![PartialReason::SecuritySelectedViewSizeLimit];
+    result.partial_reasons = vec![PartialReason::SecuritySelectedView];
     if source.total_lines > 1 && (q.start_line().is_none() || q.start_line() != q.end_line()) {
         let line = first_line.or(q.start_line()).unwrap_or(1);
         result.next = Some(NextCalls {
@@ -973,16 +1001,8 @@ pub(crate) fn compress_ranges(lines: &[usize]) -> Vec<LineRange> {
 }
 fn system_time_iso(t: std::time::SystemTime) -> Option<String> {
     let elapsed = t.duration_since(std::time::UNIX_EPOCH).ok()?;
-    let secs = elapsed.as_secs() as i64;
-    let millis = elapsed.subsec_millis();
-    let days = secs.div_euclid(86400);
-    let sod = secs.rem_euclid(86400);
-    let (y, m, d) = crate::civil_date::civil_from_days(days);
-    Some(format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.{millis:03}Z",
-        sod / 3600,
-        (sod % 3600) / 60,
-        sod % 60
+    Some(crate::civil_date::iso8601_millis(
+        i64::try_from(elapsed.as_millis()).ok()?,
     ))
 }
 
@@ -1056,7 +1076,8 @@ mod source_size_tests {
     #[test]
     fn growing_in_memory_source_stops_at_guard_with_specific_recovery() {
         let source = vec![b'x'; (MAX_SOURCE_BYTES + 100) as usize];
-        let bytes = read_in_memory_source(std::io::Cursor::new(source)).expect("bounded read");
+        let bytes =
+            read_in_memory_source(std::io::Cursor::new(source), Vec::new()).expect("bounded read");
         assert_eq!(bytes.len() as u64, MAX_SOURCE_BYTES + 1);
         let result = source_too_large(
             "growing.txt",
@@ -1071,7 +1092,7 @@ mod source_size_tests {
                 .expect("error")
                 .contains("in-memory read guard")
         );
-        assert!(result.hints.join(" ").contains("fresh bounded line-window"));
+        assert!(result.hints.join(" ").contains("bounded line window"));
         assert!(!result.hints.join(" ").contains("remove matchString"));
         assert_eq!(result.terminal_limit, Some(true));
     }
@@ -1152,13 +1173,112 @@ mod source_size_tests {
             ..LocalFetchQuery::test_default()
         });
         assert_eq!(matched.error_code.as_deref(), Some("largeSourceWindowOnly"));
+        // The localSearch is an executable lead, and the tip stays short.
+        let search = matched
+            .next
+            .as_ref()
+            .and_then(|next| next.text_search.clone())
+            .expect("textSearch lead");
+        assert_eq!(search["tool"], "localSearch", "{search}");
+        assert_eq!(search["query"]["queries"][0]["matchString"], "line 7 ");
         assert!(
-            matched
-                .hints
-                .iter()
-                .any(|hint| hint.contains("localSearch")),
+            matched.hints.iter().all(|hint| hint.len() <= 120),
             "{matched:?}"
         );
+    }
+
+    // Several `ranges` on an oversized source are each streamed window reads:
+    // one response holds every requested line once, with an omission marker
+    // between non-adjacent ranges, instead of a rejection whose repair
+    // restarts at line 1.
+    #[test]
+    fn oversized_source_serves_several_ranges_in_one_read() {
+        let temp = Temp::new();
+        let dir = temp.0.clone();
+        let path = dir.join("big.log");
+        let mut text = String::new();
+        let mut lines = 0usize;
+        while text.len() as u64 <= MAX_SOURCE_BYTES {
+            lines += 1;
+            text.push_str(&format!("line {lines} payload payload payload payload\n"));
+        }
+        fs::write(&path, &text).expect("write");
+        let far = lines - 2;
+        let result = fetch(
+            &LocalFetchQuery {
+                path: path.to_string_lossy().parse().expect("path"),
+                ranges: vec![
+                    format!("{far}-{}", far + 1).parse().expect("range"),
+                    "1-2".parse().expect("range"),
+                    "2-3".parse().expect("range"),
+                ],
+                ..LocalFetchQuery::test_default()
+            },
+            &Paths(dir.clone()),
+        );
+        assert_eq!(result.status, "success", "{result:?}");
+        assert_eq!(result.total_lines, Some(lines));
+        assert_eq!(
+            result.content.as_deref(),
+            Some(
+                format!(
+                    "line 1 payload payload payload payload\nline 2 payload payload payload payload\nline 3 payload payload payload payload\n... [lines 4-{} not requested] ...\nline {far} payload payload payload payload\nline {} payload payload payload payload\n",
+                    far - 1,
+                    far + 1
+                )
+                .as_str()
+            )
+        );
+        let spans: Vec<(usize, usize)> = result
+            .source_line_ranges
+            .iter()
+            .map(|range| (range.start, range.end))
+            .collect();
+        assert_eq!(spans, [(1, 3), (far, far + 1)]);
+        assert!(result.next.is_none(), "{result:?}");
+        assert_eq!(result.error_code, None);
+    }
+
+    // A line chunk of an oversized source larger than one response page
+    // pages inside the chunk and then goes on past it: every line from the
+    // first is reached once, in order, across the chunk boundary.
+    #[test]
+    fn oversized_source_line_chunks_continue_past_a_paged_chunk() {
+        let temp = Temp::new();
+        let dir = temp.0.clone();
+        let path = dir.join("big.log");
+        let mut text = String::new();
+        let mut lines = 0usize;
+        while text.len() as u64 <= MAX_SOURCE_BYTES {
+            lines += 1;
+            text.push_str(&format!("line {lines} payload payload payload payload\n"));
+        }
+        fs::write(&path, &text).expect("write");
+        let mut query = LocalFetchQuery {
+            path: path.to_string_lossy().parse().expect("path"),
+            unit: Some(WindowUnit::Lines),
+            length: super::super::types::wire_positive(1_000),
+            ..LocalFetchQuery::test_default()
+        };
+        let mut next_line = 1usize;
+        for _ in 0..12 {
+            let page = fetch(&query, &Paths(dir.clone()));
+            assert_eq!(page.status, "success", "{page:?}");
+            for row in page.content.as_deref().unwrap_or_default().lines() {
+                assert_eq!(
+                    row,
+                    format!("line {next_line} payload payload payload payload")
+                );
+                next_line += 1;
+            }
+            query = page
+                .next
+                .as_ref()
+                .and_then(|next| next.r#continue.clone())
+                .unwrap_or_else(|| panic!("no continuation after line {}", next_line - 1))
+                .query;
+        }
+        assert!(next_line > 2_001, "walked past two chunks: {next_line}");
     }
 
     #[test]
@@ -1314,17 +1434,13 @@ pub(crate) fn no_match_hint(regex: bool, case_sensitive: bool, finder: &str) -> 
             format!("No line contains this text; try a shorter token, regex:\"rust\", or {finder}.")
         }
         (false, true) => {
-            format!(
-                "No line contains this case-sensitive text; try caseMode:\"insensitive\" or {finder}."
-            )
+            format!("No line contains this case-sensitive text; run hints.ignoreCase, or {finder}.")
         }
         (true, false) => {
             format!("No line matches this regex (^/$ per line); simplify it or use {finder}.")
         }
         (true, true) => {
-            format!(
-                "No line matches this case-sensitive regex; try caseMode:\"insensitive\" or {finder}."
-            )
+            format!("No line matches this case-sensitive regex; run hints.ignoreCase, or {finder}.")
         }
     }
 }

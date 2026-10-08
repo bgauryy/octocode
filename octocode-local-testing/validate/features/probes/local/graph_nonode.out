@@ -1,1 +1,0 @@
-{"error":"no node matches \"src/zzz.ts#nope\"; try `octocode graph query find <text>`","errorCode":"graph.nodeNotFound"}

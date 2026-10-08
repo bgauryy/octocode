@@ -2,9 +2,10 @@
  * prepublishOnly gate for a single platform package.
  *
  * Runs from inside the platform package dir (npm/<platform>/) right before
- * `npm publish`. Aborts the publish if either the octocode or
- * octocode-regex-worker binary is missing or empty — preventing an empty
- * platform package from ever reaching the registry.
+ * `npm publish`. Aborts the publish unless the octocode and
+ * octocode-regex-worker binaries and the runtime addon are present and
+ * non-empty, the binary reports this package's version and a catalog with
+ * the local tools, and smoke runs of the local tools succeed.
  *
  * Not listed in any package `files`, so it is never included in a tarball.
  */
@@ -101,9 +102,7 @@ if (version.status !== 0 || !version.stdout.includes(pkg.version)) {
   );
 }
 
-const catalog = run(['catalog'], {
-  env: { ...process.env, ENABLE_CLONE: 'false' },
-});
+const catalog = run(['catalog']);
 const parsed = parseOutput(catalog);
 const tools = parsed && Array.isArray(parsed.tools) ? parsed.tools : [];
 const required = ['localSearch', 'structureSearch', 'astSearch', 'lspSearch'];
@@ -149,7 +148,6 @@ try {
     WORKSPACE_ROOT: fixture,
     OCTOCODE_HOME: home,
     OCTOCODE_ENABLE_LOCAL: 'true',
-    ENABLE_CLONE: 'false',
     OCTOCODE_ENABLE_STATS: 'false',
   };
 
@@ -218,7 +216,7 @@ try {
   if (
     lsp.status !== 5 ||
     lspResult?.results?.[0]?.status !== 'error' ||
-    lspResult?.results?.[0]?.data?.errorCode !== 'lsp.serverUnavailable'
+    lspResult?.results?.[0]?.data?.errorCode !== 'serverUnavailable'
   ) {
     fail(`lspSearch typed-failure smoke failed: ${lsp.stderr.trim()}`);
   }

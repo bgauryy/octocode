@@ -7,6 +7,13 @@ use std::path::Path;
 use crate::security::ContentSecurity;
 pub(crate) use octocode_engine::lsp::BoundedRead;
 
+/// Metadata identity for cache reuse. A missing change time cannot prove that
+/// a write preserving size and mtime left the source unchanged.
+pub(crate) fn cache_stamp(meta: &std::fs::Metadata) -> Option<octocode_engine::graph::SourceStamp> {
+    let stamp = octocode_engine::graph::SourceStamp::of(meta)?;
+    (stamp.changed_ns != 0).then_some(stamp)
+}
+
 /// Bytes of the regular file at `path`, at most `max_bytes`.
 pub(crate) fn read_bounded(path: &Path, max_bytes: usize) -> Result<Vec<u8>, BoundedRead> {
     octocode_engine::lsp::read_regular_bounded(path, u64::try_from(max_bytes).unwrap_or(u64::MAX))

@@ -83,6 +83,6 @@ Public skills live in [skills/](skills/README.md); tested skills in `skills-beta
 
 - User docs: [docs/](docs/README.md), [protocol](docs/OCTOCODE_PROTOCOL.md), [handoffs](docs/TOOL_DATA_CONTRACT.md), [configuration](docs/CONFIGURATION.md), [authentication](docs/AUTHENTICATION.md), [security](docs/SECURITY.md). Edit source docs, not build copies or generated settings.
 - Developer docs: [development](skills-dev/octocode-dev/docs/DEVELOPMENT.md), [config changes](skills-dev/octocode-dev/docs/ADDING_CONFIG.md), [tool quality](skills-dev/octocode-dev/docs/TOOL_QUALITY.md), [automation scripts](skills-dev/octocode-dev/scripts/README.md). Each package owns its architecture.
-- Benchmark: [unified harness](packages/octocode-benchmark/compare/unified/README.md), [results](docs/BENCHMARKS.md). Functional suites: [octocode-local-testing](octocode-local-testing/README.md); cloned repos are not committed.
+- Benchmark: [unified harness](packages/octocode-benchmark/compare/unified/README.md), [results](packages/octocode-benchmark/compare/unified/RESULTS.md). Functional suites: [octocode-local-testing](octocode-local-testing/README.md); cloned repos are not committed.
 
 Use `npx -y` to avoid prompts and bounded deadlines for slow calls. On macOS, use `gtimeout` or `perl -e 'alarm N; exec @ARGV' -- cmd`.

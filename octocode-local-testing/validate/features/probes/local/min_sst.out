@@ -1,5 +1,0 @@
-# cmd: octocode structureSearch {"goal": "g", "reasoning": "r", "operation": "tree", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"path":"src","entries":["a.ts (210B)","b.ts (117B)","big.txt (20.5KB)","index.ts (75B)","manyhits.txt (702B)"],"summary":"5 entries (5 files, 0 dirs, 21.6KB)"}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx"}

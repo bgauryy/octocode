@@ -6,11 +6,8 @@ use super::*;
 /// an error (like ghGetFileContent), never a silent default-branch listing,
 /// and every page of one listing reads the same tree. The recursive tree is
 /// fetched by the resolved commit SHA, never by the ref name.
-pub(super) async fn resolve_listing_ref<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &GitHubProvider<R, C>,
+pub(super) async fn resolve_listing_ref<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhStructureQuery,
     context: &RequestContext,
 ) -> Result<(String, String), ProviderError> {
@@ -32,22 +29,19 @@ pub(super) async fn resolve_listing_ref<
 
 /// The default branch's name, memoized per repository for the cache's
 /// volatile lifetime (like the HEAD commit memo beside it).
-pub(super) async fn default_branch<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &GitHubProvider<R, C>,
+pub(super) async fn default_branch<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     owner: &str,
     repo: &str,
     context: &RequestContext,
 ) -> Result<String, ProviderError> {
     let key = repo_key("repo-default-branch", owner, repo);
-    let partition = provider.transport.cache_partition(context, None).await.ok();
+    let partition = provider.transport.cache_partition(context, None).ok();
     if let Some(partition) = &partition
         && let Some(cached) = provider.cache.get(partition, &key).await
-        && let Ok(branch) = String::from_utf8(cached.bytes)
+        && let Ok(branch) = std::str::from_utf8(&cached.bytes)
     {
-        return Ok(branch);
+        return Ok(branch.to_owned());
     }
     let metadata = provider
         .transport
@@ -68,7 +62,7 @@ pub(super) async fn default_branch<
                 key,
                 crate::providers::github::CachedContent {
                     etag: None,
-                    bytes: branch.as_bytes().to_vec(),
+                    bytes: branch.as_bytes().to_vec().into(),
                     resolved_ref: branch.clone(),
                 },
             )
@@ -117,13 +111,12 @@ impl<'a> ListingPage<'a> {
 
     pub(super) fn paginate(&self, value: &mut Value) {
         if self.total_pages > 1 {
-            value["pagination"] = json!({
-                "currentPage": self.current,
-                "totalPages": self.total_pages,
-                "hasMore": self.has_more(),
-                "pageSize": self.per_page,
-                "totalItems": self.total_entries,
-            });
+            value["pagination"] = crate::response::pages::PageFacts::counted(
+                self.current,
+                self.per_page,
+                self.total_entries,
+            )
+            .to_value();
         }
     }
 }
@@ -305,6 +298,57 @@ pub(super) fn file_name(path: &str) -> &str {
 
 /// Listing rows grouped by directory. `dir` is repo-relative (the same base
 /// as `path` and `include`), `"."` only for the repository root.
+/// GS3: each listed entry carries its facts in the structureSearch entry
+/// form, `"<name> (<fields>)"` (the last `" ("` opens them): a file its
+/// size in bytes, then the day of its last commit; a folder that day. The
+/// row's `updated` map ([`super::dates::attach`], keyed by bare name) folds
+/// into the entries, so no name is written twice.
+pub(super) fn attach_fields(value: &mut Value, entries: &[TreeEntry]) {
+    let sizes = entries
+        .iter()
+        .filter(|entry| entry.kind == EntryKind::File)
+        .filter_map(|entry| Some((entry.path.as_str(), entry.size?)))
+        .collect::<std::collections::HashMap<_, _>>();
+    let Some(rows) = value.get_mut("entries").and_then(Value::as_array_mut) else {
+        return;
+    };
+    for row in rows {
+        let dir = row["dir"].as_str().unwrap_or(".").to_owned();
+        let mut updated = match row
+            .as_object_mut()
+            .and_then(|fields| fields.shift_remove("updated"))
+        {
+            Some(Value::Object(updated)) => updated,
+            _ => Map::new(),
+        };
+        for key in ["files", "folders"] {
+            let Some(names) = row.get_mut(key).and_then(Value::as_array_mut) else {
+                continue;
+            };
+            for entry in names {
+                let Some(name) = entry.as_str() else { continue };
+                let path = if dir == "." {
+                    name.to_owned()
+                } else {
+                    format!("{dir}/{name}")
+                };
+                let mut fields = Vec::new();
+                if key == "files"
+                    && let Some(size) = sizes.get(path.as_str())
+                {
+                    fields.push(size.to_string());
+                }
+                if let Some(Value::String(day)) = updated.shift_remove(name) {
+                    fields.push(day);
+                }
+                if !fields.is_empty() {
+                    *entry = json!(format!("{name} ({})", fields.join(", ")));
+                }
+            }
+        }
+    }
+}
+
 pub(super) fn build_structure(entries: &[TreeEntry]) -> Vec<Value> {
     let mut dirs = Map::<String, Value>::new();
     for entry in entries {

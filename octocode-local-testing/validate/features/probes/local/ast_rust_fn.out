@@ -1,5 +1,0 @@
-# cmd: octocode astSearch {"goal": "g", "reasoning": "r", "operation": "match", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/lib.rs", "pattern": "fn $N() {}"}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"complete":true,"files":[{"path":"lib.rs","totalMatchRows":1,"returnedMatchRows":1,"matches":[{"line":2,"value":"fn hidden() {}","column":0,"endColumn":14,"metavarRanges":{"N":[{"text":"hidden","line":2,"column":3,"endColumn":9}]}}]}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

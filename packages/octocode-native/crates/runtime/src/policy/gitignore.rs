@@ -73,17 +73,27 @@ impl GitignoreFilter {
             .cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        cache
-            .entry(directory.to_path_buf())
-            .or_insert_with(|| Self::load(directory, &directory.join(".gitignore")).map(Arc::new))
-            .clone()
+        // A hit (every ancestor after the first visit) allocates no key.
+        if let Some(matcher) = cache.get(directory) {
+            return matcher.clone();
+        }
+        let matcher = Self::load(directory, &directory.join(".gitignore")).map(Arc::new);
+        cache.insert(directory.to_path_buf(), matcher.clone());
+        matcher
     }
 
     pub(crate) fn is_ignored(&self, path: &Path) -> bool {
+        self.is_ignored_as(path, None)
+    }
+
+    /// [`Self::is_ignored`] for a path whose directory bit the caller already
+    /// has (a walk's directory-entry type); `None` stats the path for it.
+    pub(crate) fn is_ignored_as(&self, path: &Path, is_dir: Option<bool>) -> bool {
         if path == self.root || !path.starts_with(&self.root) {
             return false;
         }
-        let is_dir = std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir());
+        let is_dir = is_dir
+            .unwrap_or_else(|| std::fs::symlink_metadata(path).is_ok_and(|meta| meta.is_dir()));
         let decide = |matcher: &ignore::gitignore::Gitignore| match matcher.matched(path, is_dir) {
             ignore::Match::Ignore(_) => Some(true),
             ignore::Match::Whitelist(_) => Some(false),

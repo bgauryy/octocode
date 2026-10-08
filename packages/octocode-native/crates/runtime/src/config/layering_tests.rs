@@ -11,6 +11,20 @@ const HOME: &str = "/synthetic/.octocode";
 const WORKSPACE_RC: &str = "/synthetic/cwd/.octocode/.octocoderc";
 const GLOBAL_RC: &str = "/synthetic/.octocode/.octocoderc";
 
+/// Sets `field_path` in `root`, creating missing sections.
+fn insert_path(root: &mut serde_json::Value, field_path: &str, value: serde_json::Value) {
+    let mut current = root;
+    let mut parts = field_path.split('.').peekable();
+    while let Some(part) = parts.next() {
+        let object = current.as_object_mut().expect("object path");
+        if parts.peek().is_none() {
+            object.insert(part.to_owned(), value);
+            return;
+        }
+        current = object.entry(part).or_insert_with(|| serde_json::json!({}));
+    }
+}
+
 fn file(path: &str, text: Option<&str>) -> FileInput {
     match text {
         Some(text) => FileInput::Read {
@@ -465,24 +479,17 @@ fn workspace_credential_beats_global_file_but_not_any_dotenv() {
         out.env_value("OCTOCODE_CLASSIFICATION_API"),
         Some("from-workspace-rc")
     );
-    for (label, layers) in [(
-        "global .env",
-        Layers {
-            global_env: Some("OCTOCODE_CLASSIFICATION_API=from-dotenv"),
-            ..NONE
-        },
-    )] {
-        let out = resolve(Layers {
-            global_rc: Some(global_rc),
-            project_rc: Some(project_rc),
-            ..layers
-        });
-        assert_ne!(
-            out.env_value("OCTOCODE_CLASSIFICATION_API"),
-            Some("from-workspace-rc"),
-            "{label} must beat the workspace file"
-        );
-    }
+    let out = resolve(Layers {
+        global_rc: Some(global_rc),
+        project_rc: Some(project_rc),
+        global_env: Some("OCTOCODE_CLASSIFICATION_API=from-dotenv"),
+        ..NONE
+    });
+    assert_ne!(
+        out.env_value("OCTOCODE_CLASSIFICATION_API"),
+        Some("from-workspace-rc"),
+        "the global .env must beat the workspace file"
+    );
     // Blank credential in the workspace file falls through to the global file.
     let out = resolve(Layers {
         global_rc: Some(global_rc),
@@ -587,7 +594,7 @@ fn every_protected_field_is_ignored_in_workspace_but_honored_globally() {
         .filter(|field| field.file && !super::resolver::workspace_file_allowed(field))
     {
         let mut doc = serde_json::json!({});
-        super::resolver::insert_path(&mut doc, field.path, sample(field));
+        insert_path(&mut doc, field.path, sample(field));
         let text = doc.to_string();
         let workspace = resolve(Layers {
             project_rc: Some(&text),

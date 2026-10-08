@@ -1,9 +1,9 @@
 //! Sanitized discovery and revision-checked edits of Octocode entries only.
 use super::config::ManageError;
 use super::mcp_clients::{self, CLIENTS, ClientSpec, ConfigFormat, EnableFlag, EntryShape};
-use super::mcp_install;
 use octocode_native::config::{config_revision, read_private_config, replace_private_config};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 struct Target {
@@ -418,20 +418,59 @@ fn update(target: &Target, request: &Value, remove: bool) -> Result<Value, Manag
     Ok(result)
 }
 
-pub(super) fn default_entry(client: &ClientSpec, method: &str) -> Value {
-    let args = mcp_install::InstallArgs {
-        ide: Some(client.id.into()),
-        force: false,
-        dry_run: false,
-        check: false,
-        list: false,
-        json: true,
-        enable_local: None,
-        pass_env: false,
-        method: Some(method.into()),
-        rollback: None,
+/// Format-independent description of the octocode MCP server entry.
+pub(super) struct ServerSpec {
+    pub command: &'static str,
+    pub args: &'static [&'static str],
+    pub env: BTreeMap<String, String>,
+}
+
+impl ServerSpec {
+    /// The server run by `method` (`npx`, `bunx`, or `pnpm`; `npx` otherwise),
+    /// with no env.
+    pub(super) fn new(method: &str) -> Self {
+        let (command, args): (&str, &[&str]) = match method {
+            "bunx" => ("bunx", &["octocode-mcp@latest"]),
+            "pnpm" => ("pnpm", &["dlx", "octocode-mcp@latest"]),
+            _ => ("npx", &["-y", "octocode-mcp@latest"]),
+        };
+        Self {
+            command,
+            args,
+            env: BTreeMap::new(),
+        }
+    }
+}
+
+/// The octocode entry in `shape`'s format; a non-empty env goes under the
+/// shape's env key.
+pub(super) fn server_entry(shape: EntryShape, spec: &ServerSpec) -> Value {
+    let mut server = match shape {
+        EntryShape::Opencode => {
+            let command: Vec<&str> = std::iter::once(spec.command)
+                .chain(spec.args.iter().copied())
+                .collect();
+            json!({"type": "local", "command": command})
+        }
+        EntryShape::Goose => json!({
+            "cmd": spec.command,
+            "type": "stdio",
+            "args": spec.args,
+            "name": "octocode",
+            "enabled": true,
+            "envs": {}
+        }),
+        EntryShape::Untyped => json!({"command": spec.command, "args": spec.args}),
+        EntryShape::Stdio => json!({"command": spec.command, "type": "stdio", "args": spec.args}),
     };
-    mcp_install::json_server(client.shape, &args)
+    if !spec.env.is_empty() {
+        server[shape.env_key()] = json!(spec.env);
+    }
+    server
+}
+
+pub(super) fn default_entry(client: &ClientSpec, method: &str) -> Value {
+    server_entry(client.shape, &ServerSpec::new(method))
 }
 
 pub(super) fn render_document(

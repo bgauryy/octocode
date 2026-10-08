@@ -115,12 +115,12 @@ export class TeamStore {
   save(member: Member): void {
     this.db
       .prepare(
-        `INSERT INTO agents (id, workspace, role, parent_id, pid, status, task, activity, joined_at, seen_at, tool_calls, input, output, cost)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET status=excluded.status, task=excluded.task, activity=excluded.activity, seen_at=excluded.seen_at,
+        `INSERT INTO agents (id, workspace, role, parent_id, pid, status, task, activity, model, joined_at, seen_at, tool_calls, input, output, cost)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET status=excluded.status, task=excluded.task, activity=excluded.activity, model=excluded.model, seen_at=excluded.seen_at,
            tool_calls=excluded.tool_calls, input=excluded.input, output=excluded.output, cost=excluded.cost`,
       )
-      .run(member.id, this.workspace, member.role, member.parentId ?? null, member.pid, member.status, member.task ?? null, member.activity ?? null,
+      .run(member.id, this.workspace, member.role, member.parentId ?? null, member.pid, member.status, member.task ?? null, member.activity ?? null, member.model ?? null,
         member.joinedAt, member.updatedAt, member.toolCalls, member.input, member.output, member.cost);
   }
 

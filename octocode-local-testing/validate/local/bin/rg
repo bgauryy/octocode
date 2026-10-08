@@ -1,2 +1,0 @@
-#!/bin/bash
-exec -a rg /Users/bgaryy/.local/bin/claude "$@"

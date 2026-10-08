@@ -1,7 +1,4 @@
-use super::{
-    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, RequestContext,
-    RequestSpec,
-};
+use super::{GitHubTransport, ProviderError, ProviderErrorKind, RequestContext, RequestSpec};
 use serde_json::Value;
 
 #[derive(Clone, Debug)]
@@ -59,7 +56,7 @@ pub struct PullListRequest {
     pub page: usize,
     pub per_page: usize,
 }
-impl<R: CredentialResolver> GitHubTransport<R> {
+impl GitHubTransport {
     pub async fn list_commits(
         &self,
         r: &CommitListRequest,
@@ -226,8 +223,20 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 reqwest::header::HeaderValue::from_static("application/vnd.github+json"),
             );
         }
-        let (value, _): (Value, bool) = self
-            .revalidated_json(spec, false, context, "history search")
+        // Search answers come from the search index: cached like code search.
+        let mut value: Value = self
+            .cached_search(
+                "github-history-search",
+                spec,
+                context,
+                "invalid GitHub history search response",
+                |value: &Value| {
+                    !value
+                        .get("incomplete_results")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+                },
+            )
             .await?;
         Ok(HistoryPage {
             total_count: value
@@ -238,11 +247,10 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 .get("incomplete_results")
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
-            items: value
-                .get("items")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
+            items: match value.get_mut("items").map(Value::take) {
+                Some(Value::Array(items)) => items,
+                _ => Vec::new(),
+            },
             provider_page: request.page,
             warnings: Vec::new(),
             listed: false,

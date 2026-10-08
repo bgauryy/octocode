@@ -39,53 +39,53 @@ describe('resolveNativeBin', () => {
     const bin = makeFakeBin('process.exit(0)');
     expect(resolveNativeBin({ OCTOCODE_NATIVE_BIN: bin })).toBe(bin);
   });
+
+  it('ignores OCTOCODE_NATIVE_BIN in production, like MCP OCTOCODE_NATIVE_BINDING', () => {
+    const bin = makeFakeBin('process.exit(0)');
+    expect(
+      resolveNativeBin({ OCTOCODE_NATIVE_BIN: bin, NODE_ENV: 'production' })
+    ).toBe(resolveNativeBin({}));
+    expect(
+      resolveNativeBin({
+        OCTOCODE_NATIVE_BIN: '/no/such/octocode',
+        NODE_ENV: 'production',
+      })
+    ).toBe(resolveNativeBin({}));
+  });
 });
 
 describe('shouldDelegateToNative', () => {
-  const bin = makeFakeBin('process.exit(0)');
-  const nativeEnv = { OCTOCODE_NATIVE_BIN: bin };
-
   it('delegates covered commands without an opt-in flag', () => {
-    expect(shouldDelegateToNative('search', { OCTOCODE_NATIVE_BIN: bin })).toBe(
-      true
-    );
+    expect(shouldDelegateToNative('search')).toBe(true);
   });
 
   it('delegates top-level help when no command is present', () => {
-    expect(shouldDelegateToNative(undefined, nativeEnv)).toBe(true);
+    expect(shouldDelegateToNative(undefined)).toBe(true);
   });
 
   it('does not delegate Node-owned commands', () => {
     for (const command of NODE_OWNED_COMMANDS) {
-      expect(shouldDelegateToNative(command, nativeEnv)).toBe(false);
+      expect(shouldDelegateToNative(command)).toBe(false);
     }
   });
 
-  it('keeps native ownership when the binary is missing so the caller fails closed', () => {
-    expect(
-      shouldDelegateToNative('search', {
-        OCTOCODE_NATIVE_BIN: '/no/such/octocode',
-      })
-    ).toBe(true);
-  });
-
-  it('delegates covered commands when the binary resolves', () => {
-    expect(shouldDelegateToNative('ast', nativeEnv)).toBe(true);
-    expect(shouldDelegateToNative('graph', nativeEnv)).toBe(true);
-    expect(shouldDelegateToNative('tools', nativeEnv)).toBe(true);
+  it('delegates every other command', () => {
+    expect(shouldDelegateToNative('ast')).toBe(true);
+    expect(shouldDelegateToNative('graph')).toBe(true);
+    expect(shouldDelegateToNative('tools')).toBe(true);
   });
 
   it('delegates lsp-server', () => {
-    expect(shouldDelegateToNative('lsp-server', nativeEnv)).toBe(true);
+    expect(shouldDelegateToNative('lsp-server')).toBe(true);
   });
 
   it('delegates flag-only install', () => {
     // Interactive install is selected in index.ts from the absence of --ide.
-    expect(shouldDelegateToNative('install', nativeEnv)).toBe(true);
+    expect(shouldDelegateToNative('install')).toBe(true);
   });
 
   it('keeps skill materialization in Node to avoid native re-entry', () => {
-    expect(shouldDelegateToNative('skill', nativeEnv)).toBe(false);
+    expect(shouldDelegateToNative('skill')).toBe(false);
   });
 });
 

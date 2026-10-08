@@ -78,17 +78,19 @@ describe('Octocode MCP on Pi built-in MCP', () => {
     expect(isOctocodeTool('mcp__other__x')).toBe(false);
   });
 
-  it('declares local and LSP tools directly and defers GitHub and npm tools, unless OCTOCODE_MCP_DIRECT=1', async () => {
+  it('declares local and LSP tools directly and defers GitHub and package registry tools, unless OCTOCODE_MCP_DIRECT=1', async () => {
     type Exposure = (config: unknown, tool: string) => string;
     const servers = (await import(pathToFileURL(path.join(piDist, 'core', 'mcp-servers.js')).href)) as { getMcpToolExposure: Exposure; validateMcpServerConfig: (name: string, raw: unknown) => unknown };
     const config = octocodeServerConfig('/w', {}, '/x/bin.js');
     // Pi accepts the config as is.
-    expect(servers.validateMcpServerConfig('octocode', config)).toMatchObject({ toolExposure: { 'gh*': 'deferred', npmSearch: 'deferred' } });
-    const exposures = Object.fromEntries(['localSearch', 'localGetFileContent', 'localAnalyzeGraph', 'lspGetSemantics', 'ghSearch', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'npmSearch'].map((tool) => [tool, servers.getMcpToolExposure(config, tool)]));
-    expect(exposures).toEqual({ localSearch: 'direct', localGetFileContent: 'direct', localAnalyzeGraph: 'direct', lspGetSemantics: 'direct', ghSearch: 'deferred', ghGetFileContent: 'deferred', ghSearchHistory: 'deferred', ghGetHistoryItem: 'deferred', npmSearch: 'deferred' });
+    expect(servers.validateMcpServerConfig('octocode', config)).toMatchObject({ toolExposure: { 'gh*': 'deferred', artifactSearch: 'deferred' } });
+    const local = ['localSearch', 'localFetch', 'structureSearch', 'astSearch', 'astTopology', 'lspSearch'];
+    const remote = ['ghSearchRepo', 'ghSearchCode', 'ghStructure', 'ghGetFileContent', 'ghSearchHistory', 'ghGetHistoryItem', 'artifactSearch'];
+    const exposures = Object.fromEntries([...local, ...remote].map((tool) => [tool, servers.getMcpToolExposure(config, tool)]));
+    expect(exposures).toEqual(Object.fromEntries([...local.map((tool) => [tool, 'direct']), ...remote.map((tool) => [tool, 'deferred'])]));
     const direct = octocodeServerConfig('/w', { OCTOCODE_MCP_DIRECT: '1' }, '/x/bin.js');
     expect(direct).not.toHaveProperty('toolExposure');
-    expect(servers.getMcpToolExposure(direct, 'ghSearch')).toBe('direct');
+    expect(servers.getMcpToolExposure(direct, 'ghSearchCode')).toBe('direct');
   });
 
   it('sanitizes Octocode tool results: text parts and structured content, other tools untouched', async () => {
@@ -98,8 +100,8 @@ describe('Octocode MCP on Pi built-in MCP', () => {
     expect(result.content).toEqual([{ type: 'text', text: 'abcdef' }, { type: 'image', data: 'x', mimeType: 'image/png' }]);
     expect(result.structuredContent).toEqual({ files: [{ path: 'p', text: 'abcdef', n: 1 }] });
     // Content without structuredContent stays that way; clean results and other tools pass through.
-    expect(sanitizeOctocodeResult({ toolName: 'mcp__octocode__ghSearch', content: [{ type: 'text', text: dirty }] })).toEqual({ content: [{ type: 'text', text: 'abcdef' }] });
-    expect(sanitizeOctocodeResult({ toolName: 'mcp__octocode__ghSearch', content: [{ type: 'text', text: 'clean\ttext\n' }], structuredContent: { a: ['x'] } })).toBeUndefined();
+    expect(sanitizeOctocodeResult({ toolName: 'mcp__octocode__ghSearchCode', content: [{ type: 'text', text: dirty }] })).toEqual({ content: [{ type: 'text', text: 'abcdef' }] });
+    expect(sanitizeOctocodeResult({ toolName: 'mcp__octocode__ghSearchCode', content: [{ type: 'text', text: 'clean\ttext\n' }], structuredContent: { a: ['x'] } })).toBeUndefined();
     expect(sanitizeOctocodeResult({ toolName: 'mcp__other__x', content: [{ type: 'text', text: dirty }] })).toBeUndefined();
     // Registered as a tool_result handler, also when the built-in server is off (a user's own octocode server).
     vi.stubEnv('OCTOCODE_MCP', '0');

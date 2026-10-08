@@ -67,6 +67,7 @@ fn absolute_string(path: &Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use std::fs;
 
     fn temp_path(name: &str) -> std::path::PathBuf {

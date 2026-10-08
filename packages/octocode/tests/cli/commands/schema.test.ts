@@ -9,7 +9,10 @@ import {
   getNativeContractFingerprint,
   type SchemaJsonObject,
 } from '@octocodeai/config/schema';
-import { buildMcpInstructions } from '@octocodeai/config/mcp';
+import {
+  buildCliInstructions,
+  buildMcpInstructions,
+} from '@octocodeai/config/mcp';
 
 const catalog = getPublicToolCatalog();
 const tools = catalog.tools as unknown as readonly SchemaJsonObject[];
@@ -34,14 +37,12 @@ describe('core public catalog', () => {
     expect(getNativeContractFingerprint()).toBe(catalog.fingerprint);
   });
 
-  it('builds availability-scoped instructions without a native instruction table', () => {
-    const instructions = buildMcpInstructions(
-      tools.map(tool => String(tool.name))
-    );
-    expect(buildMcpInstructions([])).not.toMatch(/\bclasify\b/i);
-    expect(instructions).toContain('clasify');
+  it('serves the core prompt without a native instruction table', () => {
+    const instructions = buildCliInstructions();
+    expect(instructions).toBe(buildMcpInstructions());
+    expect(instructions).toMatch(/^<clasify>Needs a provider key\. /m);
+    expect(instructions).toMatch(/^<cli>CLI only: ghCloneRepo; /m);
     // Hard cutover: the pre-rename public name never appears in instructions.
-    expect(buildMcpInstructions([])).not.toContain('semanticAssess');
     expect(instructions).not.toContain('semanticAssess');
   });
 });
@@ -320,7 +321,7 @@ describe('compact query view', () => {
   const briefNotes = (tool: SchemaJsonObject): Record<string, string> => ({
     mainGoal:
       tool.name === 'clasify'
-        ? 'Research question; sent to the judge.'
+        ? 'Research question, sent to the judge. Name the artifact kind.'
         : 'Multi-call research only.',
     reasoning:
       tool.name === 'clasify' ? 'Sent to the judge.' : 'Research only.',
@@ -424,10 +425,11 @@ describe('compact query view', () => {
 
   it('halves the astRewrite read while full keeps the rule grammar', () => {
     const rewrite = toolNamed('astRewrite');
-    // Regression guard: 9,587 B before compaction (plan target 4,500 B).
+    // Regression guard: 9,587 B before compaction (plan target 4,500 B);
+    // +~120 B since AS5 added the rule-file object `{rule, constraints?, …}`.
     expect(
       Buffer.byteLength(JSON.stringify(project(rewrite, 'query')))
-    ).toBeLessThanOrEqual(4_700);
+    ).toBeLessThanOrEqual(4_900);
     expect(JSON.stringify(project(rewrite, 'full'))).toContain('"precedes"');
   });
 });
@@ -513,8 +515,8 @@ describe('project with --select', () => {
   });
 
   it.each([
-    ['definition', ['anchored', 'position']],
-    ['references', ['anchored', 'position']],
+    ['definition', ['anchored']],
+    ['references', ['anchored']],
     ['diagnostic', ['document']],
     ['workspaceSymbol', ['workspace:path', 'workspace:root']],
   ])('selects all LSP shapes accepting operation=%s', (operation, titles) => {
@@ -530,22 +532,19 @@ describe('project with --select', () => {
     expect(JSON.stringify(schema)).not.toContain('outputSchema');
   });
 
-  it.each([
-    'anchored',
-    'position',
-    'document',
-    'workspace:path',
-    'workspace:root',
-  ])('selects the exact named LSP variant %s', variant => {
-    const schema = project(
-      toolNamed('lspSearch'),
-      'query',
-      `variant=${variant}`
-    ).querySchema as SchemaJsonObject;
-    expect(
-      (schema.anyOf as SchemaJsonObject[]).map(branch => branch.title)
-    ).toEqual([variant]);
-  });
+  it.each(['anchored', 'document', 'workspace:path', 'workspace:root'])(
+    'selects the exact named LSP variant %s',
+    variant => {
+      const schema = project(
+        toolNamed('lspSearch'),
+        'query',
+        `variant=${variant}`
+      ).querySchema as SchemaJsonObject;
+      expect(
+        (schema.anyOf as SchemaJsonObject[]).map(branch => branch.title)
+      ).toEqual([variant]);
+    }
+  );
 
   it('follows chained local refs but never treats a default as an enum', () => {
     const branch = (operation: SchemaJsonObject): SchemaJsonObject => ({

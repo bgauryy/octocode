@@ -7,7 +7,7 @@ use crate::tools::output::ToolOutput;
 impl ToolId {
     /// The output facts this tool owns.
     #[must_use]
-    pub fn output(self) -> &'static dyn ToolOutput {
+    pub(crate) fn output(self) -> &'static dyn ToolOutput {
         match self {
             ToolId::LocalSearch => &crate::tools::local_search::Output,
             ToolId::LocalFetch => &crate::tools::local_fetch::Output,

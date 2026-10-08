@@ -26,26 +26,13 @@ export function isTrueFlag(value: unknown): boolean {
   );
 }
 
-/**
- * Mark the in-process config surface as the CLI before Node itself handles a
- * command. Plain native delegation reads no config in-process, so a tool call
- * never loads the config module (~5 ms of the per-call floor).
- */
-async function enterNodeOwnedSurface(): Promise<void> {
-  const { setRuntimeSurface } = await import('@octocodeai/config');
-  setRuntimeSurface('cli');
-}
-
 export async function runCLI(argv?: string[]): Promise<boolean> {
   const { maybeWarnAboutStaleBuild } = await import('./stale-build.js');
   maybeWarnAboutStaleBuild();
 
   const rawArgv = argv ?? process.argv.slice(2);
   const args = parseArgs(rawArgv);
-  if (
-    args.command === 'help' &&
-    args.args[0] === 'skill'
-  ) {
+  if (args.command === 'help' && args.args[0] === 'skill') {
     args.command = args.args.shift() ?? null;
     args.options.help = true;
   }
@@ -55,7 +42,6 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
   // `schema` listing) on a pipe.
   if (args.command === null && !hasHelpFlag(args) && !hasVersionFlag(args)) {
     if (process.stdout.isTTY !== true) {
-      await enterNodeOwnedSurface();
       const { schemaCommand } = await import('./commands/schema.js');
       await schemaCommand.handler({ ...args, command: 'schema', args: [] });
       return true;
@@ -77,7 +63,6 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     !shouldDelegateToNative(args.command) &&
     !(args.command === 'schema' && hasHelpFlag(args));
   if (nodeOwned) {
-    await enterNodeOwnedSurface();
     if (args.command === 'schema') {
       const { schemaCommand } = await import('./commands/schema.js');
       await schemaCommand.handler(args);
@@ -124,7 +109,6 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     process.stdout.isTTY === true;
 
   if (interactiveInstall) {
-    await enterNodeOwnedSurface();
     const { runInteractiveInstall } = await import('./interactive-install.js');
     process.exitCode = await runInteractiveInstall(bin, rawArgv);
   } else {

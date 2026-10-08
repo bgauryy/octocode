@@ -42,11 +42,7 @@ fn global_config_roundtrip_preserves_other_lines_and_hides_values() {
         serde_json::from_slice::<serde_json::Value>(&check.stdout).unwrap()["set"],
         true
     );
-    let show = workspace
-        .cli()
-        .args(["config", "--json"])
-        .output()
-        .unwrap();
+    let show = workspace.cli().args(["config", "--json"]).output().unwrap();
     assert!(show.status.success());
     let shown = serde_json::from_slice::<serde_json::Value>(&show.stdout).unwrap();
     assert_eq!(
@@ -97,12 +93,7 @@ fn config_rejects_invalid_edits_without_changing_the_file() {
         vec!["config", "set", "GOOD", "v", "extra"],
         vec!["config", "unset", "KEEP", "extra"],
     ] {
-        let output = workspace
-            .cli()
-            .args(args)
-            .arg("--json")
-            .output()
-            .unwrap();
+        let output = workspace.cli().args(args).arg("--json").output().unwrap();
         assert_eq!(output.status.code(), Some(2));
         serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "KEEP=original\n");

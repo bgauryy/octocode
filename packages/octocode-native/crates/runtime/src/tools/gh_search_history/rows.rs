@@ -1,6 +1,6 @@
 //! Result rows: provider items mapped to the published row shapes.
-use crate::providers::github::{ProviderError, ProviderErrorKind, utc_timestamp};
-use crate::security::scan::ContentScan;
+use crate::providers::github::{ProviderError, utc_timestamp};
+use crate::security::scan::{ContentScan, sanitize_provider_text};
 use crate::tools::result::remove_null_fields;
 use serde_json::{Value, json};
 use std::path::Path;
@@ -11,12 +11,7 @@ pub(super) fn sanitize_items(
     items: &mut [Value],
     security: &impl ContentScan,
 ) -> Result<(), ProviderError> {
-    let clean = |text: &str| {
-        security
-            .sanitize(text, Path::new("github-history"))
-            .map(|(text, _)| text)
-            .map_err(|(message, _)| ProviderError::new(ProviderErrorKind::Validation, message))
-    };
+    let clean = |text: &str| sanitize_provider_text(security, text, Path::new("github-history"));
     for item in items {
         for key in ["title", "body"] {
             if let Some(text) = item.get(key).and_then(Value::as_str) {

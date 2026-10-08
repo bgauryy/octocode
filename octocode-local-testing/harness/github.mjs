@@ -5,10 +5,11 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { REPOS, checks, collect, inventoryRows, patchNumbersOk, rawPatch, rowData, sourceView, startServer, writeResults } from './mcp-client.mjs';
+import { REPOS, checks, clasifyUnavailable, collect, inventoryRows, patchNumbersIssue, rawPatch, rowData, sourceView, startServer, writeResults } from './mcp-client.mjs';
 
-const { check, summary } = checks('github');
+const { check, skip, summary } = checks('github');
 const client = await startServer();
+const noClasify = clasifyUnavailable(client);
 const { call, raw } = client;
 
 const git = (dir, ...args) => execFileSync('git', ['-C', path.join(REPOS, dir), ...args], { encoding: 'utf8', maxBuffer: 256 << 20 });
@@ -206,16 +207,19 @@ for (const r of Object.values(pinned)) {
   let treeTool;
   for (let page = 0; treeQuery && page < 10; page++) {
     data = rowData(await search(treeQuery, treeTool));
+    // `entries[].dir` is repo-relative (the root row is the requested path), so names join to repo paths.
     for (const node of data?.entries ?? []) {
-      for (const f of node.files ?? []) listed.add(node.dir === '.' ? f : `${node.dir}/${f}`);
-      for (const d of node.folders ?? node.dirs ?? []) listed.add(`${node.dir === '.' ? '' : `${node.dir}/`}${d}/`);
+      const at = node.dir === '.' ? '' : `${node.dir}/`;
+      // GS3: a file entry is "<name> (<bytes>[, <YYYY-MM-DD>])", a folder "<name>[ (<YYYY-MM-DD>)]"; the last " (" opens the fields.
+      for (const f of node.files ?? []) listed.add(`${at}${String(f).replace(/ \(\d+(?:, \d{4}-\d{2}-\d{2})?\)$/, '')}`);
+      for (const d of node.folders ?? node.dirs ?? []) listed.add(`${at}${String(d).replace(/ \(\d{4}-\d{2}-\d{2}\)$/, '')}/`);
     }
     const pageHint = data?.pagination?.hasMore ? Object.values(data?.next ?? {}).find(n => n?.query?.queries?.[0]?.page) : null;
     treeQuery = pageHint?.query;
     treeTool = pageHint?.tool;
   }
   const truth = new Set(git(r.dir, 'ls-tree', '--name-only', `HEAD:${dir}`).trim().split('\n').filter(Boolean)
-    .map(n => git(r.dir, 'cat-file', '-t', `HEAD:${dir}/${n}`).trim() === 'tree' ? `${n}/` : n));
+    .map(n => git(r.dir, 'cat-file', '-t', `HEAD:${dir}/${n}`).trim() === 'tree' ? `${dir}/${n}/` : `${dir}/${n}`));
   const truthFiles = [...truth].filter(n => !n.endsWith('/'));
   const listedFiles = [...listed].filter(n => !n.endsWith('/'));
   const missingFiles = truthFiles.filter(n => !listed.has(n));
@@ -276,7 +280,11 @@ for (const r of Object.values(pinned)) {
     });
     check(`PR #${prNumber}: patches equal git diff of the squash commit`, prPatchOk);
     const prRows = collect(patches, o => typeof o.path === 'string' && typeof o.patch === 'string' && o.patch.startsWith('@@'));
-    check(`PR #${prNumber}: every patch line cites its new-side line number`, prRows.length > 0 && prRows.every(o => patchNumbersOk(o.patch)), prRows.find(o => !patchNumbersOk(o.patch))?.path);
+    // Both-side gutters (native number_patch): ` `/`+` lines cite the new file, `-` lines the old file, and each
+    // cited line equals that file's line in the clone (squash commit = new side, its parent = old side).
+    const sideLines = (rev, file) => { try { return git(r.dir, 'show', `${rev}:${file}`).replace(/\n$/, '').split('\n'); } catch { return []; } };
+    const numberIssues = prRows.map(o => ({ path: o.path, issue: patchNumbersIssue(o.patch, { oldLines: sideLines(parent, o.path), newLines: sideLines('HEAD', o.path) }) })).filter(x => x.issue);
+    check(`PR #${prNumber}: every patch line cites its own side's line number, equal to the file at that side`, prRows.length > 0 && numberIssues.length === 0, JSON.stringify(numberIssues.slice(0, 2)));
   }
   // Commit search: bounded at the pinned HEAD's commit time, HEAD is listed
   // however far upstream has moved since; rows resolve.
@@ -306,7 +314,8 @@ for (const r of Object.values(pinned)) {
 }
 
 // ── E. clasify over GitHub resources (ground truth from the pinned clone) ──
-{
+if (noClasify) skip('clasify GitHub: locate, absent and scout checks', noClasify);
+else {
   const LOCATE = [
     { dir: 'rust', file: 'tokio/src/sync/mpsc/bounded.rs', re: /^pub fn channel</, target: 'The public function that creates a bounded multi-producer channel with a given buffer capacity.' },
     { dir: 'c', file: 'src/server.c', re: /^int serverCron\(/, target: 'The periodic timer function that runs background housekeeping tasks many times per second.' },
@@ -331,12 +340,14 @@ for (const r of Object.values(pinned)) {
       const out = await raw('clasify', request);
       host += out.bytes;
       const q = out.sc?.queries?.[0];
+      // A resource whose pages share one source states `path` and `ref` once.
       for (const res of q?.resources ?? []) for (const page of res.pages ?? []) {
-        if (page.source?.ref) refs.add(page.source.ref);
-        if (page.source?.path) { paths.add(page.source.path); sources.push(page.source); }
+        const source = page.source ?? (res.path || res.ref ? { path: res.path, ref: res.ref } : null);
+        if (source?.ref) refs.add(source.ref);
+        if (source?.path) { paths.add(source.path); sources.push(source); }
       }
-      // Best rows: `{lines:[start,end], exists, probability}`, ranked server-side.
-      for (const b of q?.best?.t ?? []) windows.push({ startLine: b.lines[0], endLine: b.lines[1], exists: b.exists, probability: b.probability });
+      // Best rows: `{line, endLine, exists, probability}`, ranked server-side.
+      for (const b of q?.best?.t ?? []) windows.push({ startLine: b.line, endLine: b.endLine, exists: b.exists, probability: b.probability });
       request = q?.next?.clasify;
     }
     windows.sort((a, b) => b.exists - a.exists || b.probability - a.probability);

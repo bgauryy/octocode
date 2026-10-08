@@ -105,9 +105,10 @@ export function describeMembers(members: Member[], selfId: string | undefined, n
     .map((member) => {
       const you = member.id === selfId ? ' (you)' : '';
       const parent = member.parentId ? ` · parent ${member.parentId}` : '';
+      const model = member.model ? ` · ${member.model}` : '';
       const doing = member.status === 'working' ? (member.activity ?? member.task ?? 'working') : (member.task ?? 'idle');
       return [
-        `${member.id}${you} · ${member.status}${parent}`,
+        `${member.id}${you} · ${member.status}${model}${parent}`,
         `  joined ${formatClock(member.joinedAt)} (${ago(member.joinedAt, now)}) · seen ${ago(member.updatedAt, now)} · ${memberStats(member)}`,
         `  ${firstLine(doing)}`,
         ...(member.pending ? [`  ${member.pending} message${member.pending === 1 ? '' : 's'} awaiting its reply`] : []),

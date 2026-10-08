@@ -5,6 +5,7 @@ import { visibleWidth } from '@earendil-works/pi-tui';
 import { widgetLines } from '../src/team/panel.js';
 import type { Member } from '../src/team/model.js';
 import { TeamStore } from '../src/team/store.js';
+import { describeMembers } from '../src/team/routing.js';
 import { theme } from './fake-pi.js';
 import { tmp } from './helpers.js';
 
@@ -16,37 +17,40 @@ const member = (id: string, extra: Partial<Member> = {}): Member => ({
 describe('agents panel', () => {
   const team = [
     member('main-aaaaaa'),
-    member('researcher-3fa9', { parentId: 'main-aaaaaa', status: 'working', joinedAt: NOW - 134_000, toolCalls: 12, input: 12_000, output: 3_000, cost: 0.04, task: 'Find where tools register', activity: 'localSearch registerTool' }),
-    member('reviewer-a1b2', { parentId: 'main-aaaaaa', joinedAt: NOW - 45_000, toolCalls: 3, input: 4_000, output: 1_000, task: 'Review the diff', pending: 1, locks: ['src/a.ts'] }),
-    member('general-77aa', { parentId: 'researcher-3fa9', status: 'working', joinedAt: NOW - 5_000, toolCalls: 1, activity: 'bash yarn test' }),
+    member('researcher-3fa9', { parentId: 'main-aaaaaa', status: 'working', joinedAt: NOW - 134_000, toolCalls: 12, input: 12_000, output: 3_000, cost: 0.04, task: 'Find where tools register', activity: 'localSearch registerTool', model: 'anthropic/claude-opus-4-5' }),
+    member('reviewer-a1b2', { parentId: 'main-aaaaaa', joinedAt: NOW - 45_000, toolCalls: 3, input: 4_000, output: 1_000, task: 'Review the diff', pending: 1, locks: ['src/a.ts'], model: 'gpt-5' }),
+    member('general-77aa', { parentId: 'researcher-3fa9', status: 'working', joinedAt: NOW - 5_000, toolCalls: 1, activity: 'bash yarn test', model: 'claude-haiku-4-5' }),
   ];
 
-  it('aligns the columns: every row puts state, time and tools at the same offsets', () => {
+  it('aligns the columns: every row puts model, state, time and tools at the same offsets', () => {
     const lines = widgetLines(team, 'main-aaaaaa', NOW, theme, 160);
     const rows = lines.slice(1, 4);
     const at = (needle: RegExp) => rows.map((row) => row.search(needle));
     expect(new Set(at(/working|idle/)).size).toBe(1);
-    // Right-aligned: every tool-call count ends at the same offset.
-    expect(new Set(rows.map((row) => { const hit = /\d+ tool calls?/.exec(row)!; return hit.index + hit[0].length; })).size).toBe(1);
+    expect(new Set(at(/claude-opus|claude-haiku|gpt-5/)).size).toBe(1);
+    // Right-aligned: every tool count ends at the same offset.
+    expect(new Set(rows.map((row) => { const hit = /\d+ tools?/.exec(row)!; return hit.index + hit[0].length; })).size).toBe(1);
     expect(rows.every((row) => visibleWidth(row) <= 160)).toBe(true);
   });
 
-  it('shows the header totals, state, age, stats and what each agent is doing, working first', () => {
+  it('shows the header totals, model, state, age, tools and what each agent is doing now, working first', () => {
     const lines = widgetLines(team, 'main-aaaaaa', NOW, theme, 160);
-    expect(lines[0]).toBe(' agents  2 working · 1 idle · 3 in this session · ↑16k ↓4k · $0.04');
-    expect(lines[1]).toMatch(/^ ● researcher-3fa9 +working +2m14s +12 tool calls +↑12k +↓3k +\$0\.04 +Find where tools register › localSearch registerTool$/);
+    expect(lines[0]).toBe(' agents  2 working · 1 idle · $0.04');
+    expect(lines[1]).toMatch(/^ ● researcher-3fa9 +claude-opus-4-5 +working +2m14s +12 tools +\$0\.04 +localSearch registerTool$/);
     // A grandchild sits under its parent, indented.
-    expect(lines[2]).toMatch(/^ ● {2}└ general-77aa +working +5s +1 tool call +↑0 +↓0 +bash yarn test$/);
-    expect(lines[3]).toMatch(/^ ○ reviewer-a1b2 +idle +45s +3 tool calls +↑4k +↓1k +✉ 1 +locks 1 +Review the diff$/);
+    expect(lines[2]).toMatch(/^ ● {2}└ general-77aa +claude-haiku-4-5 +working +5s +1 tool +bash yarn test$/);
+    expect(lines[3]).toMatch(/^ ○ reviewer-a1b2 +gpt-5 +idle +45s +3 tools +✉ 1 waiting +1 lock$/);
+    // The task prompt and raw token counters stay out of the panel.
+    expect(lines.join('\n')).not.toMatch(/Find where tools register|Review the diff|↑|↓|anthropic\//);
   });
 
   it('drops the stats columns before the activity on narrow terminals', () => {
     const narrow = widgetLines(team, 'main-aaaaaa', NOW, theme, 70);
     expect(narrow.every((line) => visibleWidth(line) <= 70)).toBe(true);
     expect(narrow[1]).not.toContain('$0.04');
-    expect(narrow[1]).not.toContain('↑12k');
+    expect(narrow[1]).not.toContain('12 tools');
     expect(narrow[1]).toContain('working');
-    expect(narrow[1]).toContain('Find where tools');
+    expect(narrow[1]).toContain('localSearch');
   });
 
   it('hides agents whose heartbeat stopped (killed or hung) and shows nothing when none are left', () => {
@@ -67,6 +71,18 @@ const repo = () => {
 };
 const open = (cwd: string, db: string) => TeamStore.open(cwd, db);
 const sent = (result: { id: number | undefined }) => result.id!;
+
+describe('agent model', () => {
+  it('stores each agent\'s model and shows it in `coordinate list`', () => {
+    const store = open(repo(), path.join(tmp(), 'team.sqlite'));
+    store.save(live('main-aaaaaa'));
+    store.save(live('researcher-bbbbbb', { parentId: 'main-aaaaaa', model: 'claude-opus-4-5' }));
+    const listed = store.list();
+    expect(listed.find((agent) => agent.id === 'researcher-bbbbbb')?.model).toBe('claude-opus-4-5');
+    expect(listed.find((agent) => agent.id === 'main-aaaaaa')?.model).toBeUndefined();
+    expect(describeMembers(listed, 'main-aaaaaa')).toContain('researcher-bbbbbb · idle · claude-opus-4-5 · parent main-aaaaaa');
+  });
+});
 
 describe('panel traffic', () => {
   it('keeps this session\'s subagent messages when other sessions are busier', () => {

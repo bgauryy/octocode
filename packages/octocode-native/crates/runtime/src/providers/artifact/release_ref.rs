@@ -184,8 +184,9 @@ fn declares_project_dependencies(pyproject: &str) -> bool {
 /// A pending release-tag check.
 pub type TagFuture<'a> = std::pin::Pin<Box<dyn std::future::Future<Output = Option<bool>> + 'a>>;
 
-/// Checks that a tag exists in a GitHub repository, through the configured
-/// GitHub API (its URL, the caller's credential and request budget).
+/// Checks that a ref (a tag or a commit SHA) exists in a GitHub repository,
+/// through the configured GitHub API (its URL, the caller's credential and
+/// request budget).
 pub trait ReleaseTags: Send + Sync {
     /// `Some(true)` when `tag` names a commit of `owner/repo`, `Some(false)`
     /// when the repository has no such ref, `None` when the check failed.
@@ -208,6 +209,20 @@ pub(crate) async fn github_release_tag(
         }
     }
     None
+}
+
+/// Whether GitHub says `repository` has no commit `reference`: `false` when
+/// it has one, when the repository is not on GitHub, or when no check could
+/// run (no GitHub access, rate limit), so only a definite answer drops a ref.
+pub(crate) async fn github_ref_missing(
+    repository: &str,
+    reference: &str,
+    client: &RegistryClient<'_>,
+) -> bool {
+    let (Some(tags), Some((owner, repo))) = (client.tags, github_slug(repository)) else {
+        return false;
+    };
+    tags.exists(&owner, &repo, reference).await == Some(false)
 }
 
 /// `owner/repo` of a `https://github.com/<owner>/<repo>…` URL.
@@ -302,13 +317,15 @@ mod tests {
     impl super::super::ArtifactHttp for ArchiveOnce {
         fn get<'a>(
             &'a self,
-            _request: super::super::ArtifactHttpRequest,
+            _request: super::super::http::ArtifactHttpRequest,
             _budget: &'a crate::providers::RequestBudget,
-        ) -> super::super::ArtifactHttpFuture<'a> {
+        ) -> super::super::http::ArtifactHttpFuture<'a> {
             self.downloads
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let body = self.archive.clone();
-            Box::pin(async move { Ok(super::super::ArtifactHttpResponse { status: 200, body }) })
+            Box::pin(
+                async move { Ok(super::super::http::ArtifactHttpResponse { status: 200, body }) },
+            )
         }
     }
 

@@ -201,13 +201,13 @@ describe('agents view', () => {
     const foreign = [member('main-cccccc', { status: 'working' }), member('c-0003', { parentId: 'main-cccccc', status: 'working' })];
     const list = [member('main-aaaaaa'), member('a-0001', { parentId: 'main-aaaaaa', joinedAt: 90_000 }), member('b-0002', { parentId: 'a-0001', status: 'working', activity: '→ localSearch foo', joinedAt: 40_000 }), ...foreign];
     const lines = widgetLines(list, 'main-aaaaaa', now, theme, 120);
-    expect(lines[0]).toContain('1 working · 1 idle · 2 in this session');
+    expect(lines[0]).toContain('1 working · 1 idle');
     expect(lines.join('\n')).not.toMatch(/main-cccccc|c-0003/);
     expect(lines[1]).toContain('a-0001');
     expect(lines[2]).toContain('└ b-0002');
     expect(lines[2]).toMatch(/working\s+1m\s/);
     expect(lines[2]).toContain('→ localSearch foo');
-    expect(widgetLines([member('a-0001', { parentId: 'main-aaaaaa', status: 'working', task: 'Find where tools register', activity: 'localSearch x' })], 'main-aaaaaa', now, theme, 200)[1]).toContain('Find where tools register › localSearch x');
+    expect(widgetLines([member('a-0001', { parentId: 'main-aaaaaa', status: 'working', task: 'Find where tools register', activity: 'localSearch x' })], 'main-aaaaaa', now, theme, 200)[1]).toMatch(/localSearch x$/);
     expect(widgetLines(list, undefined, now, theme, 200)).toEqual([]);
     expect(lines.join('\n')).not.toContain('main-aaaaaa');
     expect(widgetLines([member('main-aaaaaa')], 'main-aaaaaa', now, theme, 80)).toEqual([]);

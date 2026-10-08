@@ -35,6 +35,7 @@ flowchart LR
 Caption: every batch loops through VERIFY; disguised failures and knots never enter a batch.
 
 ## Gates
+- Architecture and quality come before a patch. Solve the class through the contract, protocol, or generic mechanism that already owns it. Do not hand-pick one case. Do not add a rigid value or a one-off patch.
 - Never change behavior. For instruction text, behavior is every outcome, constraint, and contract it decides. If a removal needs a behavior change, flag it and stop.
 - Report code that disguises a failure (error masking, null defaults on required values, stubs, unverified success); do not delete it. Never widen the mask to pass a check.
 - Test or grader gaming (edited assertions, special-cased inputs, patched graders, CI weakening) is report-only.
@@ -50,7 +51,7 @@ Caption: every batch loops through VERIFY; disguised failures and knots never en
 - **INVENTORY:** one row per item: file, line, class, confidence, callers, safe to delete. Set confidence from completed evidence only; missing edges alone never prove dead.
 - **TRIAGE:** rank high-confidence deletions, then prose-only trims, then hierarchy moves, then medium-confidence items that need proof. Low confidence: report, do not edit.
 - **CONSENT:** apply what existing authorization covers. A finished inventory adds no approval step.
-- **EXCISE:** keep each batch small enough to revert atomically. For duplicates, keep the canonical copy and update all callers first.
+- **EXCISE:** keep each batch small enough to revert atomically. For duplicates, keep the canonical copy and update all callers first. Stop the batch when the edit would hand-pick one case, add a rigid value, or leave a one-off patch. Report it and name the contract or mechanism that should own the class.
 - **VERIFY:** run the repo's build, test, typecheck, and lint; read the output, not a summary. Repair failures you introduced; list pre-existing ones. Never lower a coverage floor or threshold; restore useful coverage a deleted test removed.
 
 ## Thresholds

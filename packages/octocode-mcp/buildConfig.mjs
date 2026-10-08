@@ -1,22 +1,10 @@
-// Pure, side-effect-free build configuration consumed by the shared package runner and tests.
+// Pure, side-effect-free build configuration consumed by the shared package runner.
 // Importing this module must NOT trigger a build — it only computes config.
-import { builtinModules } from 'node:module';
 import { createRequire } from 'node:module';
+import { packageExternals } from '../../skills-dev/octocode-dev/scripts/package-build.mjs';
 
 const require = createRequire(import.meta.url);
 const pkg = require('./package.json');
-
-// Node core modules are always external.
-export const nodeExternals = [
-  ...builtinModules,
-  ...builtinModules.map(m => `node:${m}`),
-];
-
-// Published runtime dependencies stay external. Consumers install them from this
-// package's manifest, preserving the interface boundary in the emitted bundle.
-export const runtimeExternals = Object.keys(pkg.dependencies ?? {});
-
-export const external = [...nodeExternals, ...runtimeExternals];
 
 // Only the executable marker is needed; runtime dependencies stay external.
 export const shimBanner = '#!/usr/bin/env node';
@@ -28,10 +16,10 @@ export const sharedBuildOptions = {
   format: 'esm',
   minify: true,
   treeShaking: true,
-  external,
-  loader: { '.md': 'text' },
+  // Published runtime dependencies stay external; consumers install them from
+  // this package's manifest, preserving the interface boundary.
+  external: packageExternals(pkg),
   define: {
-    'process.env.NODE_ENV': '"production"',
     __OCTOCODE_BUNDLED__: 'true',
   },
   logLevel: 'info',

@@ -17,20 +17,22 @@ mod rewrite;
 mod syntax_tree;
 mod types;
 
-pub use files::{StructuralRewriteFileResult, StructuralRewriteFilesResult, rewrite_files};
-pub use files::{search_files_detailed, search_files_detailed_filtered_with_extension};
+pub use files::rewrite_files;
+#[cfg(test)]
+use files::search_files_detailed;
+pub use files::search_files_detailed_filtered_with_extension;
+#[cfg(test)]
+use rewrite::rewrite;
 pub use rewrite::{
-    CompiledRewrite, MAX_REWRITE_CONTENT_BYTES, RewriteScan, StructuralRewriteCapture,
-    StructuralRewriteMatch, StructuralRewritePosition, StructuralRewriteRange, compile_rewrite,
-    count_syntax_errors, rewrite as structural_rewrite, rewrite_parser_for_path,
+    CompiledRewrite, MAX_REWRITE_CONTENT_BYTES, compile_rewrite, count_syntax_errors,
+    rewrite_parser_for_path,
 };
-pub use syntax_tree::{
-    SyntaxTreeInspectOptions, SyntaxTreeInspectResult, inspect as inspect_syntax_tree,
-    inspect_with_extension as inspect_syntax_tree_with_extension,
-};
+pub use syntax_tree::{SyntaxTreeInspectOptions, SyntaxTreeInspectResult, inspect_with_extension};
+#[cfg(test)]
+use types::StructuralMatch;
 pub use types::StructuralRewriteFilesOptions;
 pub use types::{
-    StructuralDetailedMatch, StructuralDiagnostic, StructuralMatch, StructuralSearchDetailedResult,
+    StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchDetailedResult,
     StructuralSearchFilesDetailedResult, StructuralSearchFilesOptions,
 };
 
@@ -38,7 +40,6 @@ use crate::signatures::languages;
 use language::AgLanguage;
 use octo::{ExecutionError, compile_matcher};
 use query::{StructuralQuery, invalid_query_explanation};
-use types::{STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION, structural_query_fingerprint};
 
 /// Defense-in-depth cap on content handed to the single-content structural
 /// entry points (`search`, `search_detailed`). The file walker already bounds
@@ -47,21 +48,14 @@ use types::{STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION, structural_query_f
 /// timeoutMs escape. At-or-below passes; over returns an error / `truncated`.
 const MAX_STRUCTURAL_CONTENT_BYTES: usize = crate::signatures::MAX_PARSE_SIZE;
 
-/// Run a structural search over `content`, parsed with the grammar resolved
-/// from `ext`. Exactly one of `pattern` / `rule` must be `Some`.
+/// Test helper: a structural search over `content`, parsed with the grammar
+/// resolved from `ext`, returning bare matches. Exactly one of `pattern` /
+/// `rule` must be `Some`. Production runs [`search_detailed`].
 ///
 /// Returns `Err` for: an unsupported extension, an invalid pattern, invalid
-/// rule YAML, or both/neither query supplied, so the caller can surface
-/// guidance instead of a silent empty set.
-#[must_use]
-pub fn supported_structural_extensions() -> Vec<String> {
-    languages::supported_extensions()
-        .into_iter()
-        .map(str::to_owned)
-        .collect()
-}
-
-pub fn search(
+/// rule YAML, or both/neither query supplied.
+#[cfg(test)]
+pub(crate) fn search(
     content: &str,
     ext: &str,
     pattern: Option<&str>,
@@ -99,8 +93,6 @@ fn no_matches(
 ) -> StructuralSearchDetailedResult {
     StructuralSearchDetailedResult {
         path: file_path.to_owned(),
-        analyzer: STRUCTURAL_ANALYZER.to_owned(),
-        analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
         status: status.to_owned(),
         language_id,
         query,
@@ -116,7 +108,6 @@ pub fn search_detailed(
     pattern: Option<&str>,
     rule: Option<&str>,
 ) -> StructuralSearchDetailedResult {
-    let query_fingerprint = structural_query_fingerprint(pattern, rule);
     if content.len() > MAX_STRUCTURAL_CONTENT_BYTES {
         let diagnostic = StructuralDiagnostic::new(
             "structural.content.tooLarge",
@@ -223,15 +214,11 @@ pub fn search_detailed(
         }
     }
     .into_iter()
-    .map(|m| {
-        StructuralDetailedMatch::from_match(file_path, &query_fingerprint, m.matched, m.node_kind)
-    })
+    .map(|m| StructuralDetailedMatch::from_match(m.matched, m.node_kind))
     .collect();
 
     StructuralSearchDetailedResult {
         path: file_path.to_owned(),
-        analyzer: STRUCTURAL_ANALYZER.to_owned(),
-        analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
         status: "ok".to_owned(),
         language_id: entry.language_id.map(str::to_owned),
         query: query_explanation,

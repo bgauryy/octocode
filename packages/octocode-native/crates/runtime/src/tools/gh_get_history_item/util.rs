@@ -215,6 +215,15 @@ pub(super) fn view_dropped_text(raw: &str, view: &str) -> bool {
     raw != view && words(raw) != words(view)
 }
 
+/// A body window a continuation hop (`offset` > 0) finds empty: an earlier
+/// window of the same page delivered the whole body (an empty one
+/// included), so the hop does not list its item again.
+pub(super) fn delivered_earlier(offset: Option<usize>, body_page: &Value) -> bool {
+    offset.is_some_and(|offset| offset > 0)
+        && body_page["length"].as_u64() == Some(0)
+        && body_page["hasMore"] != true
+}
+
 /// Window one item body through the body view, remembering the first window
 /// that has more text (the surface's body continuation) and whether the view
 /// dropped text (`bodyView` + `next.readRawBody`).
@@ -228,8 +237,16 @@ pub(super) fn window_body(
     let view = history_body_view(body, query);
     *dropped |= view_dropped_text(body, &view);
     let (text, page) = paginate_text(&view, offset, query.char_length());
-    if page["hasMore"] == true && first_more.is_none() {
-        *first_more = Some(page.clone());
+    if page["hasMore"] == true {
+        // One shared `offset` continues every cut body of the page: the
+        // first cut body's page carries the chars left in all of them.
+        let left = page["totalChars"]
+            .as_u64()
+            .zip(page["nextOffset"].as_u64())
+            .map_or(0, |(total, next)| total.saturating_sub(next));
+        let first = first_more.get_or_insert_with(|| page.clone());
+        let so_far = first["remainingChars"].as_u64().unwrap_or(0);
+        first["remainingChars"] = json!(so_far + left);
     }
     (text, page)
 }
@@ -299,7 +316,27 @@ mod tests {
         assert_eq!(text, raw);
     }
 
-    /// A view that only reflows whitespace keeps the body verbatim, so body
+    /// QA2 (microsoft/TypeScript#57465: seven 26–37k-char comments on one
+    /// page): one shared `offset` continues every cut body of a page, so
+    /// the page's body entry counts the chars left in all of them, not only
+    /// in the first cut one.
+    #[test]
+    fn cut_bodies_of_one_page_count_every_remaining_char() {
+        let pr = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","owner":"o","repo":"r","number":1,"minify":"none","length":10
+        }))
+        .expect("pr query");
+        let mut first_more = None;
+        let mut dropped = false;
+        for body in ["a".repeat(25), "b".repeat(5), "c".repeat(40)] {
+            window_body(&body, None, &pr, &mut first_more, &mut dropped);
+        }
+        let page = first_more.expect("a cut body");
+        assert_eq!(page["nextOffset"], 10, "{page}");
+        assert_eq!(page["remainingChars"], 15 + 30, "{page}");
+    }
+
+    /// A view that only reflows whitespace keeps the body verbatim, so body    /// A view that only reflows whitespace keeps the body verbatim, so body
     /// offsets are GitHub's own character offsets.
     #[test]
     fn whitespace_only_views_keep_the_source_text() {

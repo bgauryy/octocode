@@ -1,5 +1,0 @@
-# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec", "searchText": "AKIA|ghp_|PRIVATE KEY|MIIE", "contextLines": 1}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"warnings":["redactedMatches: 5 returned match value(s) had secret-shaped text replaced by [REDACTED…] placeholders; those values are not verbatim source."],"files":[{"path":"creds.ts","matches":[{"line":2,"value":"// fake credentials for redaction testing\nexport const awsKey = \"[REDACTED-AWSACCESSKEYID]\";\nexport const awsSecret = \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\";"},{"line":4,"value":"export const ghToken = \"[REDACTED-GITHUBTOKENS]\";"},{"line":6,"value":"[REDACTED-PRIVATEKEYFRAGMENT]"},{"line":7,"value":"[REDACTED-PRIVATEKEYFRAGMENT]"},{"line":9,"value":"[REDACTED-PRIVATEKEYFRAGMENT]"}]}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec"}

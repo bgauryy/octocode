@@ -1,13 +1,10 @@
 //! 1-based inclusive line spans: merging, run compression, the `a-b` range
-//! text, and the `moreLines` run list (`711-717,802,+40 more`) that
-//! localSearch writes and clasify reads back.
+//! text, and the bounded `moreLines` list localSearch writes.
 
 /// A line number type the span helpers accept.
 pub(crate) trait LineNumber: Copy + Ord + std::fmt::Display {
     /// The next line, saturating at the type's maximum.
     fn succ(self) -> Self;
-    /// Lines in `start..=end`, for counts.
-    fn span_len(start: Self, end: Self) -> u64;
 }
 
 macro_rules! line_number {
@@ -15,9 +12,6 @@ macro_rules! line_number {
         impl LineNumber for $ty {
             fn succ(self) -> Self {
                 self.saturating_add(1)
-            }
-            fn span_len(start: Self, end: Self) -> u64 {
-                u64::try_from(end - start).unwrap_or(u64::MAX) + 1
             }
         }
     )*};
@@ -57,47 +51,19 @@ pub(crate) fn parse_span<T: std::str::FromStr>(range: &str) -> Option<(T, T)> {
     Some((start.parse().ok()?, end.parse().ok()?))
 }
 
-/// Sorted, distinct line numbers as runs: `711-717,802`. Past `max_ranges`
-/// runs the rest is a count (`,+40 more`), so a file with thousands of
-/// scattered hits costs a bounded hint, and the match pages still hold them.
-pub(crate) fn more_lines(lines: &[u32], max_ranges: usize) -> String {
-    let runs = runs(lines.iter().copied());
-    let mut out = runs
-        .iter()
-        .take(max_ranges)
-        .map(|&(start, end)| {
-            if start == end {
-                start.to_string()
-            } else {
-                format!("{start}-{end}")
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    let omitted: u64 = runs
-        .iter()
-        .skip(max_ranges)
-        .map(|&(start, end)| u32::span_len(start, end))
-        .sum();
-    if omitted > 0 {
-        out.push_str(&format!(",+{omitted} more"));
-    }
-    out
-}
-
-/// Every line a [`more_lines`] text names; the trailing `+N more` count names
-/// no line and is skipped.
-pub(crate) fn more_lines_named(text: &str) -> impl Iterator<Item = u64> + '_ {
-    text.split(',').flat_map(|run| {
-        let run = run.trim();
-        let (start, end) = run.split_once('-').unwrap_or((run, run));
-        match (start.parse::<u64>(), end.parse::<u64>()) {
-            (Ok(start), Ok(end)) => Some(start..=end),
-            _ => None,
-        }
-        .into_iter()
-        .flatten()
-    })
+/// The first `max_lines` of sorted, distinct `lines`, and how many more
+/// there are: a file with thousands of scattered hits costs a bounded
+/// hint, and the match pages still hold the rest.
+pub(crate) fn more_lines(lines: &[u32], max_lines: usize) -> (Vec<u32>, Option<u32>) {
+    let mut distinct = lines.to_vec();
+    distinct.sort_unstable();
+    distinct.dedup();
+    let unlisted = distinct.len().saturating_sub(max_lines);
+    distinct.truncate(max_lines);
+    (
+        distinct,
+        (unlisted > 0).then(|| u32::try_from(unlisted).unwrap_or(u32::MAX)),
+    )
 }
 
 #[cfg(test)]
@@ -105,24 +71,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn more_lines_compress_runs_and_cap_scattered_hits_with_a_count() {
-        assert_eq!(more_lines(&[2], 24), "2");
+    fn more_lines_list_the_first_lines_and_count_the_rest() {
+        assert_eq!(more_lines(&[2], 24), (vec![2], None));
         assert_eq!(
-            more_lines(&[711, 712, 713, 714, 715, 716, 717, 802], 24),
-            "711-717,802"
+            more_lines(&[717, 711, 712, 711, 802], 24),
+            (vec![711, 712, 717, 802], None)
         );
-        let scattered = (1..=100).map(|n| n * 10).collect::<Vec<u32>>();
-        assert_eq!(more_lines(&scattered, 3), "10,20,30,+97 more");
-    }
-
-    #[test]
-    fn more_lines_round_trip_names_every_shown_line() {
-        let text = more_lines(&[711, 712, 713, 802, 900], 2);
-        assert_eq!(text, "711-713,802,+1 more");
-        assert_eq!(
-            more_lines_named(&text).collect::<Vec<_>>(),
-            vec![711, 712, 713, 802]
-        );
+        let scattered = (1..=100).map(|n| n * 10).collect::<Vec<_>>();
+        assert_eq!(more_lines(&scattered, 3), (vec![10, 20, 30], Some(97)));
     }
 
     #[test]

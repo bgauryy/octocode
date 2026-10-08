@@ -123,7 +123,7 @@ for (const [label, query] of [['default', {}], ['fullContent', { fullContent: tr
   const file = path.join(ROOT, LARGE);
   const lineHint = fs.readFileSync(file, 'utf8').split('\n').findIndex(l => l.startsWith('fn suggest_field')) + 1;
   const first = await call('lspSearch', { path: file, symbolName: 'suggest_field', lineHint, operation: 'references' });
-  check('U17 MCP: cold lspSearch references answers without lsp.timeout', !first.isError && !/lsp\.timeout/.test(first.text) && first.ms < 90_000, `${first.ms}ms`);
+  check('U17 MCP: cold lspSearch references answers without a timeout', !first.isError && !/errorCode\W+timeout\b/.test(first.text) && first.ms < 90_000, `${first.ms}ms`);
   const warm = await call('lspSearch', { path: file, symbolName: 'suggest_field', lineHint, operation: 'references' });
   check('U17 MCP: a warm lspSearch repeat answers within 15 s', !warm.isError && warm.ms < 15_000, `${warm.ms}ms`);
 }
@@ -196,7 +196,7 @@ for (const [label, query] of [['default', {}], ['fullContent', { fullContent: tr
   const hits = data => (data.files ?? []).flatMap(f => (f.matches ?? []).map(m => `${f.path}:${m.line}`));
   const files = data => structureFiles(data.files, data.path).map(f => f.path);
   for (const [label, tool, query, rowsOf, totalOf] of [
-    ['localSearch .unwrap() over runtime tools', 'localSearch', { path: `${RUNTIME}/tools`, matchString: '.unwrap()' }, hits, d => d.stats?.totalMatchedLines ?? hits(d).length],
+    ['localSearch .unwrap() over runtime tools', 'localSearch', { path: `${RUNTIME}/tools`, matchString: '.unwrap()' }, hits, d => d.stats?.matchedLineCount ?? hits(d).length],
     // About 2.9k .py files: several pages even with directory-grouped rows.
     ['structureSearch **/*.py over the python corpus', 'structureSearch', { operation: 'files', path: 'octocode-local-testing/repos/python', include: ['**/*.py'] }, files, d => d.pagination?.totalItems ?? files(d).length],
   ]) {

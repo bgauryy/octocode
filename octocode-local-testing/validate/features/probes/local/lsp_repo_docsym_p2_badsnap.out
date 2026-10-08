@@ -1,5 +1,0 @@
-# cmd: octocode lspSearch {"queries": [{"snapshot": "lsp-v1:0000000000000000000000000000000000000000000000000000000000000000", "operation": "documentSymbols", "page": 2, "pageSize": 5, "uri": "/Users/bgaryy/code/octocode/packages/octocode-mcp/src/native/index.ts", "followUp": true}]}
-# env: None
-# exit: 5
-# stderr: 
-{"results":[{"index":0,"data":{"next":{"restart":{"tool":"lspSearch","confidence":"exact","query":{"followUp":true,"operation":"documentSymbols","pageSize":5,"uri":"/Users/bgaryy/code/octocode/packages/octocode-mcp/src/native/index.ts"}}},"errorCode":"lsp.snapshot.changed","error":"The LSP result or query changed, or this continuation omitted its snapshot. Discard earlier pages and restart.","type":"documentSymbols","snapshot":"lsp-v1:d3da8549eb9b315cab259376be98a5b6cfa1d4c0cd0e720d9b1b2a26a5edc722","complete":false,"path":"index.ts"},"status":"error"}],"base":"/Users/bgaryy/code/octocode/packages/octocode-mcp/src/native"}

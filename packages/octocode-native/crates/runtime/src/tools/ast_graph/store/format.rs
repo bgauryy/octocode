@@ -15,6 +15,8 @@
 //! - `EDGE` sorted by source: source delta, zig-zag target delta, one byte for
 //!   kind and confidence, detail, line.
 //! - `KEYX`/`NAMX` lookup permutations; `DIAG`, `FDIG`, `FCMP`, `ENTR` extras.
+//! - `FSTM` (optional) size and change times of the bytes each `FDIG` digest
+//!   hashed, so an unchanged-tree check can skip the re-hash.
 //!
 //! Adjacency (both CSR directions) is rebuilt on load in O(V + E) instead of
 //! being stored. Readers reject an unknown major version and ignore unknown
@@ -209,6 +211,9 @@ pub(crate) struct GraphTables {
     pub diagnostics: Vec<DiagRec>,
     /// `(file node, digest string)` for staleness checks.
     pub digests: Vec<(u32, u32)>,
+    /// `(file node, stamp)` of the bytes each digest hashed, for files that
+    /// were settled when read: an equal stamp skips the re-hash.
+    pub stamps: Vec<(u32, octocode_engine::graph::SourceStamp)>,
     /// `(file node, component dir, component name, meta)`: owning build
     /// unit; meta is `ecosystem[;library][;templates]`.
     pub components: Vec<(u32, u32, u32, u32)>,
@@ -219,6 +224,11 @@ pub(crate) struct GraphTables {
 impl GraphTables {
     pub(crate) fn str(&self, id: u32) -> &str {
         self.strings.get(id as usize).map_or("", String::as_str)
+    }
+
+    /// Recorded source stamps by file node.
+    pub(crate) fn stamps_by_node(&self) -> HashMap<u32, octocode_engine::graph::SourceStamp> {
+        self.stamps.iter().copied().collect()
     }
 
     /// Computes both CSR directions and both lookup indexes. Call once after
@@ -400,7 +410,31 @@ pub(crate) fn encode(tables: &GraphTables) -> (Vec<u8>, String) {
             bytes: varints(&entries),
         },
     ]);
+    if !t.stamps.is_empty() {
+        sections.push(Section {
+            tag: *b"FSTM",
+            bytes: stamp_section(&t.stamps),
+        });
+    }
     assemble(sections)
+}
+
+/// Count, then per file: node, size, modified, changed and inode varints.
+fn stamp_section(stamps: &[(u32, octocode_engine::graph::SourceStamp)]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(stamps.len() * 24 + 5);
+    put(&mut out, stamps.len() as u64);
+    for (node, stamp) in stamps {
+        for value in [
+            u64::from(*node),
+            stamp.size,
+            stamp.modified_ns,
+            stamp.changed_ns,
+            stamp.inode,
+        ] {
+            put(&mut out, value);
+        }
+    }
+    out
 }
 
 /// The string table every section references by id.
@@ -636,8 +670,8 @@ impl<'a> Reader<'a> {
     }
     /// A varint count checked against the bytes left (each item needs one).
     fn count(&mut self) -> Result<usize, String> {
-        let count = self.var()? as usize;
-        if count > self.bytes.len() - self.at {
+        let count = usize::try_from(self.var()?).map_err(|_| self.truncated())?;
+        if count > MAX_DECODED_ITEMS || count > self.bytes.len() - self.at {
             return Err(self.truncated());
         }
         Ok(count)
@@ -651,6 +685,18 @@ impl<'a> Reader<'a> {
 /// Decodes and fully validates a snapshot: magic, version, body digest, and
 /// every cross-reference, so queries can index without bounds panics.
 pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
+    decode_with(bytes, true)
+}
+
+/// [`decode`] of what an unchanged-tree check reads: strings, nodes and the
+/// per-file tables (digests, stamps). Edges, adjacency and the lookup
+/// indexes are not decoded; the body digest is still verified, so a corrupt
+/// file is still rejected.
+pub(crate) fn decode_files(bytes: &[u8]) -> Result<(GraphTables, String), String> {
+    decode_with(bytes, false)
+}
+
+fn decode_with(bytes: &[u8], full: bool) -> Result<(GraphTables, String), String> {
     if bytes.len() < HEADER_LEN || &bytes[..8] != MAGIC {
         return Err("not an octocode graph (bad magic); re-run `octocode graph ingest`".into());
     }
@@ -662,6 +708,9 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
         ));
     }
     let section_count = header.fixed_u32()? as usize;
+    if section_count > MAX_SECTIONS {
+        return Err("graph section count exceeds the format limit".into());
+    }
     let stored = header.take(32)?;
     let body = &bytes[HEADER_LEN..];
     let digest = Sha256::digest(body);
@@ -674,6 +723,10 @@ pub(crate) fn decode(bytes: &[u8]) -> Result<(GraphTables, String), String> {
     // String ids stored in the file; symbol keys expanded below come after.
     let strings = tables.strings.len() as u32;
     read_nodes(&mut sections.get(b"NODE", "NODE")?, &mut tables)?;
+    if !full {
+        read_file_tables(&sections, &mut tables, strings)?;
+        return Ok((tables, hex::encode(digest)));
+    }
     read_edges(&mut sections.get(b"EDGE", "EDGE")?, &mut tables, strings)?;
     tables.index_adjacency();
     let node_count = tables.nodes.len();
@@ -729,10 +782,36 @@ fn read_section_table(
     Ok(sections)
 }
 
+const MAX_DECODED_STRING_BYTES: usize = 512 * 1024 * 1024;
+const MAX_DECODED_ITEMS: usize = 5_000_000;
+const MAX_DECODED_EDGES: usize = 2_000_000;
+const MAX_SECTIONS: usize = 64;
+
 fn read_strings(strs: &mut Reader, tables: &mut GraphTables) -> Result<(), String> {
+    read_strings_with_budget(strs, tables, MAX_DECODED_STRING_BYTES)
+}
+
+fn read_strings_with_budget(
+    strs: &mut Reader,
+    tables: &mut GraphTables,
+    max_decoded_bytes: usize,
+) -> Result<(), String> {
+    read_strings_with_limits(strs, tables, max_decoded_bytes, MAX_DECODED_ITEMS)
+}
+
+fn read_strings_with_limits(
+    strs: &mut Reader,
+    tables: &mut GraphTables,
+    max_decoded_bytes: usize,
+    max_items: usize,
+) -> Result<(), String> {
     let count = strs.count()?;
+    if count > max_items {
+        return Err("graph string table exceeds item limit; re-ingest a narrower scope".into());
+    }
     tables.strings.reserve(count);
     let mut previous = Vec::<u8>::new();
+    let mut decoded_bytes = 0usize;
     for _ in 0..count {
         let shared = strs.var()? as usize;
         let suffix = strs.var()? as usize;
@@ -741,6 +820,10 @@ fn read_strings(strs: &mut Reader, tables: &mut GraphTables) -> Result<(), Strin
         }
         previous.truncate(shared);
         previous.extend_from_slice(strs.take(suffix)?);
+        decoded_bytes = decoded_bytes
+            .checked_add(previous.len())
+            .filter(|total| *total <= max_decoded_bytes)
+            .ok_or("graph string table exceeds decoded byte limit; re-ingest a narrower scope")?;
         tables.strings.push(
             std::str::from_utf8(&previous)
                 .map_err(|_| "graph string table is not UTF-8")?
@@ -821,6 +904,9 @@ fn read_nodes(nodes: &mut Reader, tables: &mut GraphTables) -> Result<(), String
 fn read_edges(edges: &mut Reader, tables: &mut GraphTables, strings: u32) -> Result<(), String> {
     let node_count = tables.nodes.len() as u32;
     let count = edges.count()?;
+    if count > MAX_DECODED_EDGES {
+        return Err("graph edge table exceeds item limit; re-ingest a narrower scope".into());
+    }
     tables.edges.reserve(count);
     let mut src = 0u32;
     for _ in 0..count {
@@ -888,6 +974,24 @@ fn read_file_tables(
             tables.components.push((quad[0], quad[1], quad[2], quad[3]));
         }
     }
+    if sections.0.contains_key(b"FSTM") {
+        let mut stamps = sections.get(b"FSTM", "FSTM")?;
+        let count = stamps.count()?;
+        tables.stamps.reserve(count);
+        for _ in 0..count {
+            let node = stamps.var_u32()?;
+            if !node_ok(node) {
+                return Err("graph stamp references are out of range".into());
+            }
+            let stamp = octocode_engine::graph::SourceStamp {
+                size: stamps.var()?,
+                modified_ns: stamps.var()?,
+                changed_ns: stamps.var()?,
+                inode: stamps.var()?,
+            };
+            tables.stamps.push((node, stamp));
+        }
+    }
     if sections.0.contains_key(b"ENTR") {
         for pair in sections.get(b"ENTR", "ENTR")?.var_vec()?.chunks_exact(2) {
             if !node_ok(pair[0]) || !string_ok(pair[1]) {
@@ -902,6 +1006,23 @@ fn read_file_tables(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn front_coded_strings_cannot_expand_past_decode_budget() {
+        // Two identical strings occupy five payload bytes but expand to six.
+        let bytes = [2, 0, 3, b'a', b'b', b'c', 3, 0];
+        let mut tables = GraphTables::default();
+        let mut reader = Reader::new(&bytes, "STRS");
+        assert!(read_strings_with_budget(&mut reader, &mut tables, 5).is_err());
+    }
+
+    #[test]
+    fn empty_front_coded_strings_cannot_bypass_item_budget() {
+        let bytes = [3, 0, 0, 0, 0, 0, 0];
+        let mut tables = GraphTables::default();
+        let mut reader = Reader::new(&bytes, "STRS");
+        assert!(read_strings_with_limits(&mut reader, &mut tables, 100, 2).is_err());
+    }
 
     #[test]
     fn varints_and_zigzag_round_trip() {

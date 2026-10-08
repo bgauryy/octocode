@@ -4,13 +4,24 @@ use super::capture::page_context_mut;
 use super::*;
 
 /// The resource a walk resumes: its own fields, reading the continuation's
-/// tool and query (and evidence mode, when the continuation names one).
+/// tool and query (and evidence mode, when the continuation names one). The
+/// list grid a resume left (`resumePageSize`) rides only while the
+/// continuation is still off it.
 pub(super) fn continued_resource(resource: &Value, continuation: &Value) -> Value {
     let mut pending = resource.clone();
     for field in ["tool", "query", "candidateEvidence"] {
         if let Some(value) = continuation.get(field) {
             pending[field] = value.clone();
         }
+    }
+    match (continuation.get("resumePageSize"), pending.as_object_mut()) {
+        (Some(size), Some(fields)) => {
+            fields.insert("resumePageSize".into(), size.clone());
+        }
+        (None, Some(fields)) => {
+            fields.remove("resumePageSize");
+        }
+        _ => {}
     }
     pending
 }
@@ -157,6 +168,40 @@ impl Rendered {
     }
 }
 
+/// The tip an open walk's `best` carries: its rows rank only the pages
+/// judged so far, and a confident window there can still be a near miss.
+pub(super) const OPEN_WALK_BEST: &str = "best ranks only pages judged so far; if its read lacks the answer, run next.clasify (it carries this ranking).";
+
+/// The tip a whole-list question over a path list carries: a bare path list
+/// stays one page (`items`), so `relevant`/`sufficient` judge the list, not a path.
+pub(super) const PATH_LIST_CHOICE: &str = "A path list is judged whole: relevant/sufficient give one list verdict. Ask choice over its paths to pick one.";
+
+/// Tools whose results are bare path lists, judged as one page.
+const PATH_LIST_TOOLS: [ToolId; 3] = [
+    ToolId::StructureSearch,
+    ToolId::GhStructure,
+    ToolId::AstTopology,
+];
+
+/// Whether `query` asks a whole-list question (`relevant`, `sufficient`) of a
+/// path-list resource.
+fn whole_list_question_over_paths(query: &Value) -> bool {
+    let whole = |question: &Value| {
+        matches!(
+            question.get("type").and_then(Value::as_str),
+            Some("relevant" | "sufficient")
+        )
+    };
+    let paths =
+        |resource: &Value| tool_of(resource).is_some_and(|tool| PATH_LIST_TOOLS.contains(&tool));
+    query["questions"]
+        .as_array()
+        .is_some_and(|questions| questions.iter().any(whole))
+        && query["resources"]
+            .as_array()
+            .is_some_and(|resources| resources.iter().any(paths))
+}
+
 /// The matrix output: rendered resources, the located `best`, literal-target
 /// tips, and the walk's next steps.
 pub(super) fn matrix_output(
@@ -179,33 +224,57 @@ pub(super) fn matrix_output(
         // Public rows gain an exact read; `carry` keeps the copyable rows.
         .map(|visible| with_row_reads(visible, locate_reads));
     drop_redundant_page_reads(&mut rendered, visible.as_ref());
-    // A strong window needs no prose: its exact read is `hints.read`, which
-    // comes before the walk in `next.clasify`.
-    if let Some(visible) = visible {
-        output["best"] = visible;
-    }
-    let (tips, literal) = literal_routes(query, resources);
-    if let Some(tips) = tips {
-        // Already in its public shape, so the tips keep their place ahead of
-        // the walk.
-        output[crate::response::channels::HINTS_KEY] = tips;
-    }
     // A walk with no answer (e.g. the provider refused every page) has no
     // next step: continuing would skip the failed pages.
+    // A page only too large to judge keeps its read, so continuing past it
+    // skips nothing.
     let answered = rendered
         .iter()
-        .any(|resource| resource["coverage"] != "error");
+        .any(|resource| resource["coverage"] != "error" || only_unjudgeable(resource));
+    let walk_open = answered && !continuations.is_empty();
+    let mut tips = Vec::new();
+    // A strong window's exact read is `hints.read`. On an open walk that
+    // window ranks only the pages judged so far, so one line says so.
+    if let Some(visible) = visible {
+        if walk_open {
+            tips.push(OPEN_WALK_BEST.to_owned());
+        }
+        output["best"] = visible;
+    }
+    if whole_list_question_over_paths(query) {
+        tips.push(PATH_LIST_CHOICE.to_owned());
+    }
+    let (literal_tips, literal) = literal_routes(query, resources);
+    tips.extend(literal_tips);
+    if !tips.is_empty() {
+        // Already in its public shape, so the tips keep their place ahead of
+        // the walk.
+        output[crate::response::channels::HINTS_KEY] =
+            json!({(crate::response::channels::HINT_TEXT_KEY): tips});
+    }
     if !answered {
         disclose_withheld(&mut rendered, withheld);
     }
     output["resources"] = Value::Array(rendered);
-    if answered && !continuations.is_empty() {
+    if walk_open {
         output["next"] = json!({(ToolId::Clasify.as_str()): walk(query, continuations, best)});
     }
     if let Some(literal) = literal {
         output["next"]["textSearch"] = literal;
     }
     output
+}
+
+/// Every page of `resource` failed only for being above `maxChars` and keeps
+/// its exact read.
+fn only_unjudgeable(resource: &Value) -> bool {
+    resource["pages"].as_array().is_some_and(|pages| {
+        !pages.is_empty()
+            && pages.iter().all(|page| {
+                page.pointer("/error/errorCode").and_then(Value::as_str) == Some(output::TOO_LARGE)
+                    && page.pointer("/next/read").is_some_and(Value::is_object)
+            })
+    })
 }
 
 /// A walk that judged nothing offers no `next.clasify`, so each resource
@@ -246,16 +315,19 @@ pub(super) fn locate_targets(query: &Value) -> Vec<(&str, &str)> {
         .collect()
 }
 
-/// Literal-target tips (public `hints` shape) and the exact localSearch for
-/// them. Both are local facts, so a call the provider never judged routes too.
-pub(super) fn literal_routes(query: &Value, resources: &[Value]) -> (Option<Value>, Option<Value>) {
+/// Literal-target tips and the exact localSearch for them. Both are local
+/// facts, so a call the provider never judged routes too.
+pub(super) fn literal_routes(query: &Value, resources: &[Value]) -> (Vec<String>, Option<Value>) {
     let targets = locate_targets(query);
-    let tips = targets
+    let mut tips = Vec::new();
+    for tip in targets
         .iter()
         .filter_map(|(_, target)| literal_target_hint(target))
-        .collect::<Vec<_>>();
-    let tips =
-        (!tips.is_empty()).then(|| json!({(crate::response::channels::HINT_TEXT_KEY): tips}));
+    {
+        if !tips.contains(&tip) {
+            tips.push(tip);
+        }
+    }
     (
         tips,
         literal_search(targets.iter().map(|(_, target)| *target), resources),
@@ -318,24 +390,30 @@ pub(super) fn shared_kind(
         .then_some(first)
 }
 
-/// Every question locates a bare identifier over local sources: an exact
-/// literal search answers it, so the matrix routes to `next.localSearch`
+/// Every question locates a literal over local sources (a bare identifier,
+/// or a target whose only content is one identifier or quoted literal; see
+/// `identifier_target`): one exact search reaches every literal (an
+/// alternation when they differ), so the matrix routes to `hints.textSearch`
 /// without a read or provider request.
 pub(super) fn literal_route(query: &Value) -> Option<Value> {
-    let identifiers = query["questions"]
+    let asks = query["questions"]
         .as_array()
         .filter(|questions| !questions.is_empty())?
         .iter()
         .map(|question| {
             clasify::is_locate(question)
-                .then(|| question["ask"].as_str().and_then(bare_identifier))
+                .then(|| question["ask"].as_str())
                 .flatten()
         })
         .collect::<Option<Vec<_>>>()?;
-    let search = literal_search(identifiers.iter().copied(), query["resources"].as_array()?)?;
+    let literals = asks
+        .iter()
+        .map(|ask| identifier_target(ask))
+        .collect::<Option<Vec<_>>>()?;
+    let search = literal_search(asks.iter().copied(), query["resources"].as_array()?)?;
     let mut hints = Vec::<String>::new();
-    for identifier in identifiers {
-        let hint = bare_target_hint(identifier);
+    for literal in literals {
+        let hint = bare_target_hint(literal);
         if !hints.contains(&hint) {
             hints.push(hint);
         }

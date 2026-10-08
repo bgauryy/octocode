@@ -12,11 +12,18 @@
 //! occurrence only when its definition chain resolves to the anchor's own
 //! declaration: identity is proven by the server, never guessed from text.
 //! Verified occurrences become extra anchors for the same request.
+//!
+//! Candidates are verified [`MAX_CANDIDATE_FILES`] per request. The sorted
+//! candidate list is cut into windows of that size; `importerPage` picks the
+//! window, and `next.nextImporterPage` (on the window's last location page)
+//! carries the candidate digest as its `snapshot`, so every candidate is
+//! verified in exactly one window and a changed list restarts the walk.
 
-use super::failure::LspFailure;
+use super::LspSearchQuery;
+use super::failure::{LspFailure, flag_partial, query_value};
 use super::recovery::{get_locations, resolve_definition_chain, snippet_identity};
 use super::render::{TS_LANGUAGE_IDS, uri_to_path};
-use super::scope::Scope;
+use super::scope::{Scope, canonical};
 use super::source::SourceCache;
 use crate::policy::path::PathPolicy;
 use crate::tools::cancel::CancellationCheck;
@@ -24,8 +31,13 @@ use octocode_engine::lsp::client::{LocationRequest, NativeLspClient, SnippetRead
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashSet};
 use std::path::Path;
-/// Candidate files opened and verified per request.
+/// Candidate files opened and verified per request: one importer window.
 pub(super) const MAX_CANDIDATE_FILES: usize = 24;
+/// Prefix of a candidate-list digest (the `snapshot` of
+/// `next.nextImporterPage`).
+const DIGEST_PREFIX: &str = "lsp-imp:";
+/// Partial reason of a window that leaves later windows unverified.
+pub(super) const CAPPED_REASON: &str = "importerScanCapped";
 /// Settle/ready bounds for the last candidate open; the load it triggers
 /// covers every candidate opened before it.
 const OPEN_SETTLE_MS: u32 = 200;
@@ -43,8 +55,12 @@ pub(super) struct Anchor {
 #[derive(Default)]
 pub(super) struct Importers {
     pub(super) anchors: Vec<Anchor>,
-    /// Lexical candidates beyond [`MAX_CANDIDATE_FILES`] were not checked.
-    pub(super) capped: bool,
+    /// The importer window this request verified; `None` when no candidate
+    /// list was computed.
+    pub(super) window: Option<Window>,
+    /// The request's `importerPage` snapshot no longer matches the
+    /// candidate list: the caller restarts from the first window.
+    pub(super) stale: bool,
     /// A candidate could not be read, opened, or resolved, or the scan failed.
     pub(super) failed: bool,
     /// Candidates whose every occurrence the server resolved to another
@@ -52,10 +68,117 @@ pub(super) struct Importers {
     pub(super) rejected: Vec<String>,
 }
 
+/// Which importer window a request verifies (`importerPage`, one-based),
+/// and the candidate digest a later window's first location page must
+/// match (`snapshot`, copied from `next.nextImporterPage`).
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct WindowRequest<'a> {
+    pub(super) page: u32,
+    pub(super) expected: Option<&'a str>,
+}
+
+impl<'a> WindowRequest<'a> {
+    pub(super) fn of(query: &'a LspSearchQuery) -> Self {
+        let page = query.importer_page();
+        // A later location page carries its location snapshot instead; that
+        // snapshot is salted with the candidate digest (see [`Window::digest`]).
+        let entering = page > 1 && query.page().unwrap_or(1) == 1;
+        Self {
+            page,
+            expected: entering.then(|| query.snapshot().unwrap_or_default()),
+        }
+    }
+}
+
+/// One importer window of the sorted candidate list.
+#[derive(Debug)]
+pub(super) struct Window {
+    /// One-based window index and window count.
+    pub(super) page: u32,
+    pub(super) pages: u32,
+    /// Digest of the whole candidate list.
+    pub(super) digest: String,
+    /// Candidates in the whole list.
+    pub(super) total: usize,
+    /// Every candidate, sorted; window `n` is the `n`th run of
+    /// [`MAX_CANDIDATE_FILES`].
+    candidates: Vec<String>,
+}
+
+/// A window cut from the candidate list, or a stale request.
+#[derive(Debug)]
+pub(super) enum Cut {
+    Window(Window),
+    Stale,
+}
+
+impl Window {
+    /// Cut window `request.page` from the sorted `candidates`. A request for
+    /// a window past the last, or whose expected digest differs, is stale.
+    pub(super) fn cut(candidates: Vec<String>, request: WindowRequest<'_>) -> Cut {
+        let digest = format!(
+            "{DIGEST_PREFIX}{}",
+            crate::digest::sha256(candidates.join("\u{0}").as_bytes())
+        );
+        let total = candidates.len();
+        let pages = u32::try_from(total.div_ceil(MAX_CANDIDATE_FILES).max(1)).unwrap_or(u32::MAX);
+        let page = request.page.max(1);
+        if page > pages || request.expected.is_some_and(|expected| expected != digest) {
+            return Cut::Stale;
+        }
+        Cut::Window(Self {
+            page,
+            pages,
+            digest,
+            total,
+            candidates,
+        })
+    }
+
+    fn range(&self, page: u32) -> std::ops::Range<usize> {
+        let start = (page as usize - 1) * MAX_CANDIDATE_FILES;
+        start.min(self.total)..(start + MAX_CANDIDATE_FILES).min(self.total)
+    }
+
+    /// This window's candidates.
+    pub(super) fn files(&self) -> &[String] {
+        &self.candidates[self.range(self.page)]
+    }
+
+    /// Candidates of this window and every earlier one: the files the walk
+    /// has verified once this page is read.
+    pub(super) fn covered(&self) -> &[String] {
+        &self.candidates[..self.range(self.page).end]
+    }
+
+    /// Candidates of every other window.
+    pub(super) fn foreign(&self) -> impl Iterator<Item = &String> {
+        let own = self.range(self.page);
+        self.candidates[..own.start]
+            .iter()
+            .chain(&self.candidates[own.end..])
+    }
+
+    /// The window that owns a file (canonical path): its candidate window,
+    /// or this one for a file outside the list.
+    pub(super) fn owner(&self, file: &str) -> u32 {
+        self.candidates
+            .binary_search_by(|candidate| candidate.as_str().cmp(file))
+            .map_or(self.page, |index| {
+                u32::try_from(index / MAX_CANDIDATE_FILES + 1).unwrap_or(u32::MAX)
+            })
+    }
+
+    /// Whether a later window remains.
+    pub(super) fn more(&self) -> bool {
+        self.page < self.pages
+    }
+}
+
 /// True for operations whose answer lists places that point *at* the anchor.
 pub(super) fn applies(language_id: Option<&str>, operation: &str) -> bool {
     language_id.is_some_and(|id| TS_LANGUAGE_IDS.contains(&id))
-        && matches!(operation, "references" | "callers" | "callHierarchy")
+        && matches!(operation, "references" | "callers")
 }
 
 /// Zero-based (line, UTF-16 character, is-call) of word-bounded `symbol`
@@ -87,65 +210,30 @@ fn occurrences(content: &str, symbol: &str) -> Vec<(u32, u32, bool)> {
     found
 }
 
-fn canonical(path: &str) -> String {
-    std::fs::canonicalize(path)
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| path.to_owned())
-}
-
 /// TS/JS files under the request's search scope that mention `symbol` as
-/// a word, excluding `skip`, capped at [`MAX_CANDIDATE_FILES`]. The scan is
-/// the scope's text scan (shared with `textOnlyFiles`) and observes
-/// `cancel`; `None` means the scan itself failed, which is neither
-/// cancellation nor an empty candidate set.
+/// a word, excluding `skip`, sorted. The scan is the scope's text scan
+/// (shared with `textOnlyFiles`) and observes `cancel`; `None` means the
+/// scan itself failed, which is neither cancellation nor an empty
+/// candidate set.
 async fn candidate_files(
     scope: &Scope,
     symbol: &str,
     skip: &HashSet<String>,
     policy: &PathPolicy,
     cancel: &dyn CancellationCheck,
-) -> Result<Option<(Vec<String>, bool)>, LspFailure> {
+) -> Result<Option<Vec<String>>, LspFailure> {
     let Some(files) = scope.text_files(symbol, policy, cancel).await? else {
         return Ok(None);
     };
-    let files = files
-        .iter()
-        .filter(|path| !skip.contains(*path))
-        .cloned()
-        .collect::<BTreeSet<_>>();
-    let capped = files.len() > MAX_CANDIDATE_FILES;
-    Ok(Some((
-        files.into_iter().take(MAX_CANDIDATE_FILES).collect(),
-        capped,
-    )))
-}
-
-/// The identifier covering a zero-based UTF-16 position, for anchors given
-/// as `position` instead of `symbolName`.
-pub(super) fn word_at(content: &str, line: u32, character: u32) -> Option<String> {
-    let text = content.lines().nth(usize::try_from(line).ok()?)?;
-    let is_word = |c: char| c.is_alphanumeric() || c == '_' || c == '$';
-    let mut units = 0u32;
-    let mut at = None;
-    for (index, c) in text.char_indices() {
-        if units >= character {
-            at = Some(index);
-            break;
-        }
-        units += u32::try_from(c.len_utf16()).ok()?;
-    }
-    let at = at?;
-    let start = text[..at]
-        .char_indices()
-        .rev()
-        .take_while(|(_, c)| is_word(*c))
-        .last()
-        .map_or(at, |(index, _)| index);
-    let end = text[at..]
-        .char_indices()
-        .find(|(_, c)| !is_word(*c))
-        .map_or(text.len(), |(index, _)| at + index);
-    (start < end).then(|| text[start..end].to_owned())
+    Ok(Some(
+        files
+            .iter()
+            .filter(|path| !skip.contains(*path))
+            .cloned()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect(),
+    ))
 }
 
 impl Importers {
@@ -170,26 +258,91 @@ impl Importers {
         chosen
     }
 
+    /// Whether a recovered location in `file` (canonical) belongs to this
+    /// request's window: a candidate's locations belong to its own window.
+    pub(super) fn owns(&self, file: &str) -> bool {
+        self.window
+            .as_ref()
+            .is_none_or(|window| window.owner(file) == window.page)
+    }
+
+    /// The candidate digest, salted into this request's location snapshot so
+    /// a changed candidate list stales the window's later location pages.
+    pub(super) fn digest(&self) -> Option<&str> {
+        self.window.as_ref().map(|window| window.digest.as_str())
+    }
+
+    /// Candidates verified by this window and every earlier one.
+    pub(super) fn covered(&self) -> &[String] {
+        self.window.as_ref().map_or(&[], Window::covered)
+    }
+
     /// Record the scan on the row's coverage so readers and
-    /// `inferred_project::annotate` know importers were checked.
-    pub(super) fn annotate(&self, row: &mut Value) {
+    /// `inferred_project::annotate` know importers were checked. A window
+    /// with later windows left is partial (not a terminal limit) and, on
+    /// its last location page, carries `next.nextImporterPage`.
+    pub(super) fn annotate(&self, row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
         if row.get("status").and_then(Value::as_str) == Some("error") {
             return;
         }
         let files = self.per_file().count();
+        let more = self.window.as_ref().is_some_and(Window::more);
         if let Some(payload) = row.get_mut("payload").and_then(Value::as_object_mut) {
             let coverage = payload
                 .entry("coverage")
                 .or_insert_with(|| json!({"scope":"languageServer","exhaustive":false}));
             coverage["importerScan"] = json!(if self.failed {
                 SCAN_FAILED
-            } else if self.capped {
+            } else if more {
                 SCAN_CAPPED
             } else {
                 SCAN_COMPLETE
             });
             coverage["verifiedImporterFiles"] = json!(files);
         }
+        let Some(window) = self.window.as_ref().filter(|window| window.more()) else {
+            return;
+        };
+        let range = window.range(window.page + 1);
+        let last_location_page =
+            row.pointer("/pagination/hasMore").and_then(Value::as_bool) != Some(true);
+        if !self.failed {
+            let warning = format!(
+                "{} candidate files mention this name outside the server's answer; importer recovery verifies {MAX_CANDIDATE_FILES} per importer page. This is importer page {} of {}; {}next.nextImporterPage verifies candidates {}-{}.",
+                window.total,
+                window.page,
+                window.pages,
+                if last_location_page {
+                    ""
+                } else {
+                    "after this window's last location page (next.nextPage), "
+                },
+                range.start + 1,
+                range.end,
+            );
+            flag_partial(row, query, CAPPED_REASON, &warning, scope);
+        }
+        if !last_location_page {
+            return;
+        }
+        let mut next = query_value(query);
+        if let Some(fields) = next.as_object_mut() {
+            fields.remove("page");
+            fields.insert("importerPage".into(), json!(window.page + 1));
+            fields.insert("snapshot".into(), json!(window.digest));
+        }
+        row["next"]["nextImporterPage"] =
+            crate::tools::result::Continuation::new(crate::tools::id::ToolId::LspSearch, next)
+                .why(format!(
+                    "Verify importer candidates {}-{} of {} (importer page {} of {}).",
+                    range.start + 1,
+                    range.end,
+                    window.total,
+                    window.page + 1,
+                    window.pages
+                ))
+                .confidence("exact")
+                .build();
     }
 }
 
@@ -197,8 +350,9 @@ pub(super) const SCAN_COMPLETE: &str = "complete";
 pub(super) const SCAN_CAPPED: &str = "capped";
 pub(super) const SCAN_FAILED: &str = "failed";
 
-/// Verified importer anchors for `symbol` declared at the request anchor.
-/// `known_files` are files the server already reported; they are skipped.
+/// Verified importer anchors for `symbol` declared at the request anchor,
+/// from the importer window `request` names. `known_files` are files the
+/// server already reported; they are not candidates.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn verified_anchors(
     client: &NativeLspClient,
@@ -211,10 +365,34 @@ pub(super) async fn verified_anchors(
     line: u32,
     character: u32,
     known_files: &HashSet<String>,
+    request: WindowRequest<'_>,
 ) -> Result<Importers, LspFailure> {
     if symbol.trim().is_empty() || scope.root.is_empty() {
-        return Ok(Importers::default());
+        // No candidate list: a later window cannot be placed.
+        return Ok(Importers {
+            stale: request.page > 1,
+            ..Importers::default()
+        });
     }
+    let mut skip = known_files.clone();
+    skip.insert(canonical(anchor_path));
+    let Some(candidates) = candidate_files(scope, symbol, &skip, sources.policy(), cancel).await?
+    else {
+        return Ok(Importers {
+            failed: true,
+            stale: request.page > 1,
+            ..Importers::default()
+        });
+    };
+    let window = match Window::cut(candidates, request) {
+        Cut::Window(window) => window,
+        Cut::Stale => {
+            return Ok(Importers {
+                stale: true,
+                ..Importers::default()
+            });
+        }
+    };
     let declaration = identities(
         client,
         sources,
@@ -227,21 +405,13 @@ pub(super) async fn verified_anchors(
     .await?;
     let Some(declaration) = declaration.filter(|declaration| !declaration.is_empty()) else {
         return Ok(Importers {
+            window: Some(window),
             failed: true,
             ..Importers::default()
         });
     };
-    let mut skip = known_files.clone();
-    skip.insert(canonical(anchor_path));
-    let Some((files, capped)) =
-        candidate_files(scope, symbol, &skip, sources.policy(), cancel).await?
-    else {
-        return Ok(Importers {
-            failed: true,
-            ..Importers::default()
-        });
-    };
-    let (opened, open_failed) = open_candidates(client, sources, cancel, &files, symbol).await?;
+    let (opened, open_failed) =
+        open_candidates(client, sources, cancel, window.files(), symbol).await?;
     let (anchors, rejected, verify_failed) = verify_occurrences(
         client,
         sources,
@@ -254,7 +424,8 @@ pub(super) async fn verified_anchors(
     let failed = open_failed || verify_failed;
     Ok(Importers {
         anchors,
-        capped,
+        window: Some(window),
+        stale: false,
         failed,
         rejected,
     })
@@ -289,16 +460,14 @@ async fn open_candidates(
             client
                 .open_document_and_wait(
                     file.clone(),
-                    source.content.clone(),
+                    &source.content,
                     Some(OPEN_SETTLE_MS),
                     Some(OPEN_READY_TIMEOUT_MS),
                 )
                 .await
                 .map(|_| ())
         } else {
-            client
-                .open_document(file.clone(), source.content.clone())
-                .await
+            client.open_document(file.clone(), &source.content).await
         };
         if synced.is_ok() {
             opened.push((file.clone(), spots));
@@ -434,7 +603,7 @@ pub(super) async fn callers_from_references(
         let symbols = client
             .get_document_symbols(anchor.path.clone())
             .await
-            .unwrap_or(Value::Null);
+            .unwrap_or_default();
         let mut flat = Vec::new();
         flatten_symbols(&symbols, &mut flat);
         for call in calls {
@@ -449,7 +618,7 @@ pub(super) async fn callers_from_references(
                         "kind": symbol["kind"],
                         "uri": call.uri,
                         "range": symbol["range"],
-                        "selectionRange": symbol.get("selectionRange").unwrap_or(&symbol["range"]),
+                        "selectionRange": symbol["selectionRange"],
                     })
                 })
                 .unwrap_or_else(|| {
@@ -476,6 +645,11 @@ pub(super) async fn callers_from_references(
 fn own_file_policy(paths: &PathPolicy, file: &str) -> SnippetReadPolicy {
     let (paths, file) = (paths.clone(), file.to_owned());
     SnippetReadPolicy::with_authorizer(move |path| {
+        // A reference answer names every file using the symbol: refuse the
+        // others by their (memoized) canonical form before any validation.
+        if canonical(&path.to_string_lossy()) != file {
+            return None;
+        }
         let valid = paths.validate_read(path).ok()?.canonical;
         (valid.to_string_lossy() == file).then_some(valid)
     })
@@ -501,27 +675,61 @@ fn is_call_at(content: &str, line: u32, character: u32) -> bool {
     text[at..].trim_start().starts_with('(')
 }
 
+/// One symbol of a flattened `documentSymbol` answer, borrowed from it,
+/// with its range points read once. Indexing by `name`, `kind`, `range`,
+/// or `selectionRange` (defaults to `range`) gives the answer's field.
+pub(super) struct FlatSymbol<'a> {
+    name: &'a Value,
+    kind: &'a Value,
+    range: &'a Value,
+    selection: &'a Value,
+    start: (u64, u64),
+    end: (u64, u64),
+}
+
+impl std::ops::Index<&str> for FlatSymbol<'_> {
+    type Output = Value;
+
+    fn index(&self, field: &str) -> &Value {
+        match field {
+            "name" => self.name,
+            "kind" => self.kind,
+            "range" => self.range,
+            "selectionRange" => self.selection,
+            _ => &Value::Null,
+        }
+    }
+}
+
 /// DocumentSymbol trees (and flat SymbolInformation lists) as one flat list
-/// of `{name, kind, range, selectionRange}` (`selectionRange` defaults to
-/// `range`), in one pass.
-pub(super) fn flatten_symbols(value: &Value, out: &mut Vec<Value>) {
+/// of borrowed symbols, in one pass.
+pub(super) fn flatten_symbols<'a>(value: &'a Value, out: &mut Vec<FlatSymbol<'a>>) {
+    let point = |range: &Value, edge: &str| {
+        let at = |field: &str| {
+            range
+                .get(edge)
+                .and_then(|point| point.get(field))
+                .and_then(Value::as_u64)
+                .unwrap_or(0)
+        };
+        (at("line"), at("character"))
+    };
     for symbol in value.as_array().into_iter().flatten() {
-        let range = symbol
+        if let Some(range) = symbol
             .get("range")
             .or_else(|| symbol.pointer("/location/range"))
-            .cloned();
-        if let Some(range) = range {
-            let selection = symbol
-                .get("selectionRange")
-                .filter(|selection| !selection.is_null())
-                .cloned()
-                .unwrap_or_else(|| range.clone());
-            out.push(json!({
-                "name": symbol.get("name").cloned().unwrap_or(Value::Null),
-                "kind": symbol.get("kind").cloned().unwrap_or(Value::Null),
-                "range": range,
-                "selectionRange": selection,
-            }));
+        {
+            out.push(FlatSymbol {
+                name: symbol.get("name").unwrap_or(&Value::Null),
+                kind: symbol.get("kind").unwrap_or(&Value::Null),
+                range,
+                selection: symbol
+                    .get("selectionRange")
+                    .filter(|selection| !selection.is_null())
+                    .unwrap_or(range),
+                start: point(range, "start"),
+                end: point(range, "end"),
+            });
         }
         if let Some(children) = symbol.get("children") {
             flatten_symbols(children, out);
@@ -530,29 +738,22 @@ pub(super) fn flatten_symbols(value: &Value, out: &mut Vec<Value>) {
 }
 
 /// Innermost callable symbol whose range contains the position.
-pub(super) fn enclosing_callable(symbols: &[Value], line: u32, character: u32) -> Option<&Value> {
-    let point = |symbol: &Value, edge: &str| {
-        (
-            symbol
-                .pointer(&format!("/range/{edge}/line"))
-                .and_then(Value::as_u64)
-                .unwrap_or(0),
-            symbol
-                .pointer(&format!("/range/{edge}/character"))
-                .and_then(Value::as_u64)
-                .unwrap_or(0),
-        )
-    };
+pub(super) fn enclosing_callable<'s, 'a>(
+    symbols: &'s [FlatSymbol<'a>],
+    line: u32,
+    character: u32,
+) -> Option<&'s FlatSymbol<'a>> {
     let at = (u64::from(line), u64::from(character));
     symbols
         .iter()
         .filter(|symbol| {
-            symbol["kind"]
+            symbol
+                .kind
                 .as_u64()
                 .is_some_and(|kind| CALLABLE_KINDS.contains(&kind))
         })
-        .filter(|symbol| point(symbol, "start") <= at && at <= point(symbol, "end"))
-        .max_by_key(|symbol| point(symbol, "start"))
+        .filter(|symbol| symbol.start <= at && at <= symbol.end)
+        .max_by_key(|symbol| symbol.start)
 }
 
 /// Declaration identities reached by the definition chain at a position.
@@ -581,7 +782,7 @@ async fn identities(
         }
         // A retained pre-failure alias is not terminal declaration proof.
         Ok(_) => Ok(None),
-        Err(failure) if failure.code == "lsp.cancelled" => Err(failure),
+        Err(failure) if failure.code == "cancelled" => Err(failure),
         Err(_) => Ok(None),
     }
 }
@@ -616,17 +817,12 @@ mod tests {
             ..Importers::default()
         };
         let mut row = json!({"status": "success", "payload": {}});
-        importers.annotate(&mut row);
+        let query = serde_json::from_value(json!({
+            "operation": "references", "path": "/r/a.ts", "symbolName": "x", "lineHint": 1
+        }))
+        .expect("query");
+        importers.annotate(&mut row, &query, &Scope::new("/r".into(), Vec::new()));
         assert_eq!(row["payload"]["coverage"]["importerScan"], SCAN_FAILED);
-    }
-
-    #[test]
-    fn word_at_finds_identifier_around_utf16_position() {
-        let content = "const é = stageFile(a);\n";
-        assert_eq!(word_at(content, 0, 10).as_deref(), Some("stageFile"));
-        assert_eq!(word_at(content, 0, 14).as_deref(), Some("stageFile"));
-        assert_eq!(word_at(content, 0, 8), None);
-        assert_eq!(word_at(content, 3, 0), None);
     }
 
     #[test]
@@ -643,9 +839,7 @@ mod tests {
                 anchor("b", 2, true),
                 anchor("c", 1, false),
             ],
-            capped: false,
-            failed: false,
-            rejected: Vec::new(),
+            ..Importers::default()
         };
         let sites = importers
             .call_sites()
@@ -746,7 +940,7 @@ mod tests {
         let failure = blocking_cancellable(&cancel, observed_worker(started_tx, finished_tx))
             .await
             .expect_err("cancelled after launch");
-        assert_eq!(failure.code, "lsp.cancelled");
+        assert_eq!(failure.code, "cancelled");
         assert_eq!(failure.message, "Cancelled");
         canceller.join().expect("canceller");
         assert!(
@@ -769,7 +963,7 @@ mod tests {
             .await
             .expect_err("deadline expired");
         started_rx.try_recv().expect("worker had started");
-        assert_eq!(failure.code, "lsp.cancelled");
+        assert_eq!(failure.code, "cancelled");
         assert_eq!(failure.message, "Timeout");
         assert_worker_stopped(&finished_rx);
     }
@@ -824,7 +1018,7 @@ mod tests {
         )
         .await
         .expect_err("cancellation is not an empty or complete scan");
-        assert_eq!(failure.code, "lsp.cancelled");
+        assert_eq!(failure.code, "cancelled");
         let scope = Scope::new(root_str, vec!["*.ts".into()]);
         let complete = candidate_files(
             &scope,
@@ -836,8 +1030,97 @@ mod tests {
         .await
         .expect("scan")
         .expect("scan succeeded");
-        assert_eq!(complete.0.len(), MAX_CANDIDATE_FILES);
-        assert!(complete.1, "more candidates than the cap");
+        assert_eq!(complete.len(), 200, "every candidate, uncut");
+        let Cut::Window(window) = Window::cut(complete, WindowRequest::default()) else {
+            panic!("first window");
+        };
+        assert_eq!(window.files().len(), MAX_CANDIDATE_FILES);
+        assert!(window.more(), "more candidates than one window");
+    }
+
+    fn candidates(count: usize) -> Vec<String> {
+        (0..count)
+            .map(|index| format!("/r/f{index:03}.ts"))
+            .collect()
+    }
+
+    /// Following each window's digest from window 1 verifies every
+    /// candidate in exactly one window, in order, with no gap.
+    #[test]
+    fn importer_windows_cover_every_candidate_exactly_once() {
+        for count in [0, 1, 23, 24, 25, 48, 60, 73] {
+            let list = candidates(count);
+            let mut reached: Vec<String> = Vec::new();
+            let (mut page, mut digest) = (1, None::<String>);
+            loop {
+                let request = WindowRequest {
+                    page,
+                    expected: digest.as_deref(),
+                };
+                let Cut::Window(window) = Window::cut(list.clone(), request) else {
+                    panic!("window {page} of {count} is stale");
+                };
+                assert!(window.files().len() <= MAX_CANDIDATE_FILES);
+                assert_eq!(window.covered().len(), reached.len() + window.files().len());
+                assert_eq!(
+                    window.foreign().count() + window.files().len(),
+                    count,
+                    "own and foreign windows partition the list"
+                );
+                for file in window.files() {
+                    assert_eq!(window.owner(file), page, "{file} belongs to its window");
+                }
+                assert_eq!(window.owner("/elsewhere.ts"), page, "non-candidates stay");
+                reached.extend(window.files().iter().cloned());
+                if !window.more() {
+                    assert_eq!(window.pages, page);
+                    break;
+                }
+                page += 1;
+                digest = Some(window.digest.clone());
+            }
+            assert_eq!(reached, list, "{count} candidates: once each, in order");
+            assert_eq!(page as usize, count.div_ceil(MAX_CANDIDATE_FILES).max(1));
+        }
+    }
+
+    /// A later window whose candidate list changed (or that no longer
+    /// exists) is stale; the first window never is.
+    #[test]
+    fn a_changed_candidate_list_stales_a_later_window() {
+        let Cut::Window(first) = Window::cut(candidates(60), WindowRequest::default()) else {
+            panic!("first window");
+        };
+        let mut changed = candidates(60);
+        changed.insert(5, "/r/f004a.ts".into());
+        let entering = WindowRequest {
+            page: 2,
+            expected: Some(&first.digest),
+        };
+        assert!(matches!(Window::cut(changed.clone(), entering), Cut::Stale));
+        assert!(matches!(
+            Window::cut(candidates(60), entering),
+            Cut::Window(_)
+        ));
+        // A missing snapshot is not a match.
+        let unsnapshotted = WindowRequest {
+            page: 2,
+            expected: Some(""),
+        };
+        assert!(matches!(
+            Window::cut(candidates(60), unsnapshotted),
+            Cut::Stale
+        ));
+        // Past the last window.
+        let past = WindowRequest {
+            page: 4,
+            expected: None,
+        };
+        assert!(matches!(Window::cut(candidates(60), past), Cut::Stale));
+        assert!(matches!(
+            Window::cut(changed, WindowRequest::default()),
+            Cut::Window(_)
+        ));
     }
 
     #[test]

@@ -166,8 +166,8 @@ describe('trimmed results', () => {
     const entries = [
       readCall(0, 'read', { path: 'src/a.ts' }),
       big(0, 'a'.repeat(40_000), 'read'),
-      readCall(1, 'mcp__octocode__localGetFileContent', { queries: [{ path: '/repo/src/b.ts', fullContent: true }, { path: '/repo/src/c.ts', startLine: 1, endLine: 9 }] }),
-      big(1, 'b'.repeat(40_000), 'mcp__octocode__localGetFileContent'),
+      readCall(1, 'mcp__octocode__localFetch', { queries: [{ path: '/repo/src/b.ts', fullContent: true }, { path: '/repo/src/c.ts', ranges: ['1-9'] }] }),
+      big(1, 'b'.repeat(40_000), 'mcp__octocode__localFetch'),
       // d.ts is read again later, verbatim in the recent window: still in view.
       readCall(2, 'read', { path: 'src/d.ts' }),
       big(2, 'd'.repeat(40_000), 'read'),

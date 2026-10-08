@@ -9,10 +9,11 @@ select, sanitize, or execute tools in TypeScript.
 - `src/index.ts` starts the native MCP adapter and reports startup failures.
 - `src/native/index.ts` loads `NativeRuntime`, reads its catalog, registers the
   enabled tools with MCP SDK v2, forwards each call to `executeMcp()`, forwards
-  cancellation, and closes the transport before it closes the runtime.
-- `src/public.ts` exposes typed wrappers for embedding the same native adapter.
-- `@octocodeai/config/schema` supplies the core-owned Standard Schema objects needed
-  by `McpServer.registerTool()`. Public contracts remain owned by core.
+  cancellation, and closes the runtime before it closes the transport.
+- `src/public.ts` re-exports the adapter functions and types for embedding;
+  the runtime types come from `@octocodeai/octocode-native/runtime`.
+- `@octocodeai/config` supplies the core-owned tool definitions, published input
+  schemas, and server instructions. Public contracts remain owned by core.
 - `@octocodeai/octocode-native` owns configuration, policy, validation,
   execution, response shaping, sanitization, pagination, and shutdown of tool
   resources.
@@ -38,11 +39,14 @@ adapter omits tools with `available: false`; this keeps both default-off tools
 out of MCP discovery rather than advertising unusable contracts. For every
 available tool, it:
 
-1. looks up the matching core-owned Standard Schema definition;
-2. registers its title, description, and core-owned published input schema; MCP discovery intentionally
-   omits annotations and output schemas while tool results remain structured;
-3. runs native lossless input normalization before canonical Standard Schema
-   validation, then forwards the validated arguments to `NativeRuntime.executeMcp()`;
+1. looks up the matching core-owned tool definition;
+2. registers its title, description, core-authored annotations (such as
+   `readOnlyHint`), and core's published input schema as a pass-through
+   Standard Schema: the SDK advertises the JSON schema and does not validate;
+   MCP discovery omits output schemas while tool results remain structured;
+3. forwards the raw arguments to `NativeRuntime.executeMcp()`, which normalizes
+   and validates them once against the canonical contract and returns the
+   repair message for a rejected call;
 4. forwards MCP cancellation to `NativeRuntime.cancel()`.
 
 A catalog entry without a matching registration schema is a startup error. This
@@ -54,8 +58,8 @@ invalid list items are rejected. Valid JSON-encoded arrays and supported scalar
 strings are normalized by the same native path used by CLI. Mixed bulk calls
 with valid rows preserve indexed invalid-row errors rather than dropping rows.
 
-Shared agent guidance is returned once in MCP `initialize.instructions`, built
-by core through `@octocodeai/config/mcp` for the available tools. `tools/list`
+Shared agent guidance is returned once in MCP `initialize.instructions`: one
+core prompt (through `@octocodeai/config/mcp`) for every tool subset. `tools/list`
 descriptions contain only tool-specific guidance; never prefix them with the
 server instructions. A client may project server instructions into its model
 context differently, so inspect the raw MCP response before attributing repeated
@@ -64,7 +68,7 @@ host metadata to server registration.
 ## Lifecycle
 
 `startNativeMcp()` connects `StdioServerTransport`. Its returned `close()` method
-is idempotent and closes the transport before the native runtime. The native
+is idempotent and closes the native runtime before the transport. The native
 runtime owns request admission, cancellation, worker cleanup, caches, LSP
 clients, and other execution resources. MCP constructs that runtime with a
 300-second execution deadline, matching CLI and staying strictly above the
@@ -79,11 +83,12 @@ and `dist/docs/`. The native root package selects its matching platform addon at
 installation time.
 
 `package.json` defines the build and verification entry points. The real
-boundary checks are:
+boundary checks run against the built package:
 
-- `tests/native/node-boundary.mjs` for direct adapter registration, execution,
-  filtering, and close behavior;
-- `tests/integration/stdio.acceptance.mjs` for the built stdio server;
+- `yarn test:boundary` (`tests/native/node-boundary.mjs`) for direct adapter
+  registration, execution, filtering, and close behavior;
+- `yarn test:acceptance` (`tests/integration/stdio.acceptance.mjs`) for the
+  built stdio server and CLI;
 - native Rust tests under `packages/octocode-native` for tool behavior and
   safety contracts.
 

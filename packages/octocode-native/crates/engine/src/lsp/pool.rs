@@ -14,7 +14,9 @@ use tokio::task::AbortHandle;
 use tokio::time::{Duration, Instant, sleep_until};
 
 type ClientFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
-pub const MAX_READINESS_TIMEOUT_MS: u64 = 120_000;
+/// Largest readiness wait in [`readiness_timeout`]; the cold-start budget
+/// (`lsp::MAX_COLD_LSP_EXECUTION_BUDGET_MS`) is built on it.
+pub(crate) const MAX_READINESS_TIMEOUT_MS: u64 = 120_000;
 
 /// First delay after a failed start; doubles per consecutive failure.
 const RESTART_BACKOFF_BASE: Duration = Duration::from_millis(250);
@@ -34,6 +36,11 @@ trait PoolClient: Clone + Send + Sync + 'static {
     fn stop(&self) -> ClientFuture<()>;
     /// Same underlying client (a clone of it), not merely an equal config.
     fn same(&self, other: &Self) -> bool;
+    /// Runs on a live pooled client before it is handed out again. A client
+    /// whose readiness wait timed out waits again here, so a stored
+    /// `timeout` never fails every later call while the server indexes.
+    /// Concurrent acquires of the key share this one wait.
+    fn resume(&self) -> ClientFuture<()>;
 }
 
 impl PoolClient for NativeLspClient {
@@ -56,6 +63,15 @@ impl PoolClient for NativeLspClient {
 
     fn same(&self, other: &Self) -> bool {
         self.same_client(other)
+    }
+
+    fn resume(&self) -> ClientFuture<()> {
+        let client = self.clone();
+        Box::pin(async move {
+            if let Some(timeout_ms) = readiness_timeout(client.language_id()) {
+                client.resume_timed_out_readiness(timeout_ms).await;
+            }
+        })
     }
 }
 
@@ -408,12 +424,22 @@ impl<C: PoolClient> GenericPool<C> {
                     Arc::clone(&inflight),
                 );
                 if client.alive().await {
-                    let evicted = {
+                    client.resume().await;
+                    enum Revalidated<C> {
+                        Reused(Vec<C>),
+                        // A clear or replacement owns the inflight now.
+                        Superseded,
+                        // Idle expiry or LRU eviction removed the entry while
+                        // it was validated; this inflight is still ours and no
+                        // one else will complete it, so start a fresh client.
+                        Removed,
+                    }
+                    let outcome = {
                         let mut state = self.state.lock().await;
-                        if !inflight_is_current(&state, &key, &inflight)
-                            || state.entries.get(&key).map(|entry| entry.id) != Some(entry_id)
-                        {
-                            None
+                        if !inflight_is_current(&state, &key, &inflight) {
+                            Revalidated::Superseded
+                        } else if state.entries.get(&key).map(|entry| entry.id) != Some(entry_id) {
+                            Revalidated::Removed
                         } else {
                             touch_entry(&mut state, &key);
                             // A previously deferred (busy) eviction may be
@@ -423,17 +449,20 @@ impl<C: PoolClient> GenericPool<C> {
                             self.count.store(state.entries.len(), Ordering::SeqCst);
                             state.inflight.remove(&key);
                             inflight.complete(Ok(Some(client.clone())));
-                            Some(evicted)
+                            Revalidated::Reused(evicted)
                         }
                     };
                     cancellation.disarm();
-                    if let Some(evicted) = evicted {
-                        for stale in evicted {
-                            stale.stop().await;
+                    return match outcome {
+                        Revalidated::Reused(evicted) => {
+                            for stale in evicted {
+                                stale.stop().await;
+                            }
+                            Ok(Some(client))
                         }
-                        return Ok(Some(client));
-                    }
-                    return inflight.wait().await;
+                        Revalidated::Superseded => inflight.wait().await,
+                        Revalidated::Removed => self.finish_start(key, inflight, factory()).await,
+                    };
                 }
 
                 let should_start = {
@@ -747,7 +776,10 @@ fn remove_lru(lru: &mut VecDeque<String>, key: &str) {
 }
 
 /// Start and (for languages that need it) wait for readiness of one pooled
-/// client; the pool's factory for both acquire flavors.
+/// client; the pool's factory for both acquire flavors. A readiness wait
+/// that ends in `timeout` still installs the started server (it keeps
+/// indexing); the next acquire waits again through [`PoolClient::resume`]
+/// instead of failing on the stored `timeout`.
 async fn start_client(config: JsLanguageServerConfig) -> SharedResult<NativeLspClient> {
     let client = NativeLspClient::new(config.clone());
     let starting_client = client.clone();
@@ -930,6 +962,8 @@ mod tests {
         health_checks: Arc<AtomicUsize>,
         stops: Arc<AtomicUsize>,
         busy: Arc<AtomicBool>,
+        resumes: Arc<AtomicUsize>,
+        resume_gate: Arc<Mutex<Option<oneshot::Receiver<()>>>>,
     }
 
     impl FakeClient {
@@ -941,6 +975,8 @@ mod tests {
                 health_checks: Arc::new(AtomicUsize::new(0)),
                 stops: Arc::new(AtomicUsize::new(0)),
                 busy: Arc::new(AtomicBool::new(false)),
+                resumes: Arc::new(AtomicUsize::new(0)),
+                resume_gate: Arc::new(Mutex::new(None)),
             }
         }
     }
@@ -983,6 +1019,17 @@ mod tests {
 
         fn same(&self, other: &Self) -> bool {
             Arc::ptr_eq(&self.alive, &other.alive)
+        }
+
+        fn resume(&self) -> ClientFuture<()> {
+            let resumes = Arc::clone(&self.resumes);
+            let gate = Arc::clone(&self.resume_gate);
+            Box::pin(async move {
+                resumes.fetch_add(1, Ordering::SeqCst);
+                if let Some(receiver) = gate.lock().await.take() {
+                    let _ = receiver.await;
+                }
+            })
         }
     }
 
@@ -1170,6 +1217,101 @@ mod tests {
         .expect("client");
         assert_eq!(reused.id, 1);
         assert_eq!(client.stops.load(Ordering::SeqCst), 0);
+    }
+
+    /// Review H3: the entry is removed (idle expiry) while Validate awaits
+    /// `alive()`/`resume()` and the client still reports alive. Validate must
+    /// restart instead of waiting on its own never-completed inflight.
+    #[tokio::test]
+    async fn entry_removed_during_validate_restarts_instead_of_hanging() {
+        let pool = Arc::new(pool(4, 60_000));
+        let client = pool
+            .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+            .await
+            .expect("install")
+            .expect("client");
+        let (release_send, release_receive) = oneshot::channel();
+        *client.resume_gate.lock().await = Some(release_receive);
+        let validating = {
+            let pool = Arc::clone(&pool);
+            tokio::spawn(async move {
+                pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
+                    .await
+            })
+        };
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while client.resumes.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("validate must reach resume");
+        // What the idle timer does under the state lock.
+        {
+            let mut state = pool.state.lock().await;
+            remove_lru(&mut state.lru, "k");
+            state.entries.remove("k");
+        }
+        let _ = release_send.send(());
+        let restarted = tokio::time::timeout(Duration::from_secs(1), validating)
+            .await
+            .expect("validate must not hang after its entry was removed")
+            .expect("task")
+            .expect("acquire")
+            .expect("client");
+        assert_eq!(restarted.id, 2);
+        let later = tokio::time::timeout(
+            Duration::from_secs(1),
+            pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(3))) }),
+        )
+        .await
+        .expect("later acquires must not hang")
+        .expect("acquire")
+        .expect("client");
+        assert_eq!(later.id, 2);
+        assert!(pool.state.lock().await.inflight.is_empty());
+    }
+
+    /// Review H3, overflow flavor: another key's install evicts the entry
+    /// being validated (it is not leased, so not busy).
+    #[tokio::test]
+    async fn overflow_eviction_during_validate_restarts_instead_of_hanging() {
+        let pool = Arc::new(pool(1, 60_000));
+        let client = pool
+            .acquire("k".into(), || async { Ok(Some(FakeClient::new(1))) })
+            .await
+            .expect("install")
+            .expect("client");
+        let (release_send, release_receive) = oneshot::channel();
+        *client.resume_gate.lock().await = Some(release_receive);
+        let validating = {
+            let pool = Arc::clone(&pool);
+            tokio::spawn(async move {
+                pool.acquire("k".into(), || async { Ok(Some(FakeClient::new(2))) })
+                    .await
+            })
+        };
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while client.resumes.load(Ordering::SeqCst) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("validate must reach resume");
+        let _other = pool
+            .acquire("other".into(), || async { Ok(Some(FakeClient::new(9))) })
+            .await
+            .expect("other")
+            .expect("client");
+        assert_eq!(client.stops.load(Ordering::SeqCst), 1, "k was evicted");
+        let _ = release_send.send(());
+        let restarted = tokio::time::timeout(Duration::from_secs(1), validating)
+            .await
+            .expect("validate must not hang after eviction")
+            .expect("task")
+            .expect("acquire")
+            .expect("client");
+        assert_eq!(restarted.id, 2);
     }
 
     #[tokio::test]
@@ -1457,6 +1599,30 @@ mod tests {
         // An unknown/unlisted language still opts out of the readiness wait.
         assert_eq!(readiness_timeout(Some("plaintext")), None);
         assert_eq!(readiness_timeout(None), None);
+    }
+
+    #[test]
+    fn readiness_maximum_is_the_largest_configured_wait() {
+        let longest = [
+            "go",
+            "rust",
+            "java",
+            "csharp",
+            "swift",
+            "shellscript",
+            "typescript",
+            "typescriptreact",
+            "javascript",
+            "javascriptreact",
+            "python",
+            "c",
+            "cpp",
+            "cuda",
+        ]
+        .into_iter()
+        .filter_map(|language| readiness_timeout(Some(language)))
+        .max();
+        assert_eq!(longest.map(u64::from), Some(MAX_READINESS_TIMEOUT_MS));
     }
 
     #[test]

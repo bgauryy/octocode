@@ -1,4 +1,4 @@
-use super::{CloneContext, CloneError, GitRunRequest, cache, control, is_commit};
+use super::{CloneContext, CloneError, GitRunRequest, cache, control};
 use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
@@ -36,7 +36,7 @@ pub(super) fn read_head(
         None,
     )?;
     let sha = output.stdout.trim().to_ascii_lowercase();
-    if sha.len() != 40 || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if !octocode_github::is_full_sha(&sha) {
         return Err(CloneError::new(
             "gitFailed",
             "Git returned an invalid checkout HEAD commit SHA.",
@@ -133,7 +133,7 @@ pub(super) fn checkout(
     target: &Path,
 ) -> Result<(), CloneError> {
     match branch {
-        Some(commit) if is_commit(commit) => {
+        Some(commit) if octocode_github::is_full_sha(commit) => {
             checkout_commit(context, repository_url, commit, sparse_paths, depth, target)
         }
         _ => checkout_branch(context, repository_url, branch, sparse_paths, depth, target),

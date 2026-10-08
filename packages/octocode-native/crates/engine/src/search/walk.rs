@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use ignore::WalkBuilder;
+use ignore::overrides::{Override, OverrideBuilder};
 
 pub(crate) struct WalkFlags {
     /// Walk dot-files and dot-directories.
@@ -32,4 +33,34 @@ pub(crate) fn walk_builder(root: &Path, flags: &WalkFlags) -> WalkBuilder {
         .follow_links(false)
         .max_depth(flags.max_depth);
     builder
+}
+
+/// Compile `include` + `exclude` into the gitignore-style override set every
+/// walk applies, rooted at the search path so relative globs like
+/// `src/**/*.ts` resolve as users expect. Each exclude is negated once (`x`
+/// and `!x` both exclude `x`), so it drops files `include` would match.
+pub(crate) fn build_overrides(
+    root: &Path,
+    include: &[String],
+    exclude: &[String],
+) -> Result<Override, String> {
+    let mut builder = OverrideBuilder::new(root);
+    for glob in include {
+        builder
+            .add(glob)
+            .map_err(|err| format!("invalid include glob '{glob}': {err}"))?;
+    }
+    for glob in exclude {
+        let negated = if glob.starts_with('!') {
+            glob.to_owned()
+        } else {
+            format!("!{glob}")
+        };
+        builder
+            .add(&negated)
+            .map_err(|err| format!("invalid exclude glob '{glob}': {err}"))?;
+    }
+    builder
+        .build()
+        .map_err(|err| format!("failed to compile include/exclude globs: {err}"))
 }

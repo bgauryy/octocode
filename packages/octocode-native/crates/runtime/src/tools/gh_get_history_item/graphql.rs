@@ -8,9 +8,7 @@
 use super::pull_request::{ContentWants, content_wants};
 use super::util::str_at;
 use super::{HistoryItemRequest, ItemOperation};
-use crate::providers::github::{
-    CredentialResolver, GitHubTransport, ProviderError, RequestContext,
-};
+use crate::providers::github::{GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Value, json};
 
 /// The first-page PR served by GraphQL: REST-shaped metadata, the raw
@@ -142,13 +140,13 @@ fn graphql_failure(errors: &[crate::providers::github::GraphQlError]) -> String 
 }
 
 /// Fetch the PR and its wanted collections in one GraphQL request.
-pub(super) async fn graphql_pull_request<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+pub(super) async fn graphql_pull_request(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
     wants: &ContentWants,
 ) -> Result<GraphqlOutcome, ProviderError> {
-    if !transport.graphql_enabled || !transport.graphql_available(context).await {
+    if !transport.graphql_enabled || !transport.graphql_available(context) {
         return Ok(GraphqlOutcome::Unavailable);
     }
     let Some(number) = query.number() else {

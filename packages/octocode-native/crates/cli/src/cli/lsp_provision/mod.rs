@@ -9,7 +9,7 @@ use octocode_engine::lsp::config::{
 };
 use octocode_engine::lsp::managed::{
     ArchiveKind, ManifestAsset, cached_server_bin_path, manifest, manifest_server, marker_path,
-    platform_id, resolve_cached_server, sha256_hex,
+    platform_id, resolve_cached_server,
 };
 use octocode_native::runtime::ToolRuntime;
 use std::future::Future;
@@ -136,7 +136,7 @@ pub fn atomic_install(bin_path: &Path, bytes: &[u8], asset_sha256: &str) -> Resu
 
     let marker = serde_json::json!({
         "assetSha256": asset_sha256,
-        "binarySha256": sha256_hex(bytes),
+        "binarySha256": octocode_engine::digest::sha256(bytes),
         "size": bytes.len(),
     });
     std::fs::write(marker_path(bin_path), marker.to_string())
@@ -299,7 +299,7 @@ where
         Ok(bytes) => bytes,
         Err(e) => return ProvisionOutcome::fail(e),
     };
-    let actual = sha256_hex(&downloaded);
+    let actual = octocode_engine::digest::sha256(&downloaded);
     if actual != expected_sha {
         return ProvisionOutcome::fail(format!(
             "Checksum mismatch for {name}: expected {expected_sha}, got {actual}."
@@ -691,6 +691,13 @@ mod tests {
     use super::*;
     use flate2::{Compression, write::GzEncoder};
 
+    /// The asset digest the manifest pins; resolve only trusts markers naming it.
+    fn pinned_asset_sha(name: &str, platform: &str) -> &'static str {
+        manifest_server(name).expect("server").platforms[platform]
+            .sha256
+            .expect("pinned asset")
+    }
+
     #[test]
     fn clean_reports_success_only_when_the_cache_is_gone() {
         let dir = tempfile::tempdir().expect("dir");
@@ -810,7 +817,12 @@ mod tests {
         let platform = "linux-x64";
         let bin = cached_server_bin_path(root, "rust-analyzer", platform).expect("bin path");
         // atomic_install is the exact step provision_server runs after verify+extract.
-        atomic_install(&bin, b"rust-analyzer-bytes", "pinned-asset-sha").expect("install");
+        atomic_install(
+            &bin,
+            b"rust-analyzer-bytes",
+            pinned_asset_sha("rust-analyzer", platform),
+        )
+        .expect("install");
         assert_eq!(
             std::fs::read(&bin).expect("read bin"),
             b"rust-analyzer-bytes"
@@ -891,7 +903,12 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         let root = dir.path();
         let bin = cached_server_bin_path(root, "rust-analyzer", "linux-x64").expect("bin path");
-        atomic_install(&bin, b"bytes", "pinned-asset-sha").expect("install");
+        atomic_install(
+            &bin,
+            b"bytes",
+            pinned_asset_sha("rust-analyzer", "linux-x64"),
+        )
+        .expect("install");
         assert!(resolve_cached_server(root, "rust-analyzer", "linux-x64").is_some());
         assert!(uninstall_server(root, "rust-analyzer", "linux-x64"));
         assert!(resolve_cached_server(root, "rust-analyzer", "linux-x64").is_none());

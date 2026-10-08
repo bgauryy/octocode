@@ -44,9 +44,11 @@ impl DomainResult {
         message: impl Into<String>,
         hints: Vec<String>,
         next: Option<Value>,
-        kind: FailureKind,
     ) -> Self {
-        let mut data = json!({"error": message.into(), "errorCode": code.into()});
+        let code = code.into();
+        // One exit class per code: the contract's table decides it.
+        let kind = failure_kind(&code);
+        let mut data = json!({"error": message.into(), "errorCode": code});
         if !hints.is_empty() {
             data["hints"] = json!(hints);
         }
@@ -85,10 +87,9 @@ impl DomainResult {
         message: impl Into<String>,
         hints: Vec<String>,
         next: Option<Value>,
-        kind: FailureKind,
         upstream: Upstream,
     ) -> Self {
-        let mut row = Self::failure(code, message, Vec::new(), None, kind);
+        let mut row = Self::failure(code, message, Vec::new(), None);
         let data = &mut row.data;
         if upstream.retryable {
             data["retryable"] = json!(true);
@@ -106,6 +107,17 @@ impl DomainResult {
             data["next"] = next;
         }
         row
+    }
+}
+
+impl From<crate::tools::result::ToolError> for DomainResult {
+    fn from(error: crate::tools::result::ToolError) -> Self {
+        Self::failure(
+            error.code,
+            error.message,
+            error.hints,
+            error.next.map(|next| *next),
+        )
     }
 }
 
@@ -194,13 +206,7 @@ pub(super) fn execute_local(
                     row.source_digest = source_digest;
                     Ok(row)
                 }
-                Err(error) => Ok(DomainResult::failure(
-                    error.code,
-                    error.message,
-                    error.hints,
-                    error.next.map(|next| *next),
-                    failure_kind(error.code),
-                )),
+                Err(error) => Ok(error.into()),
             }
         }
         ToolId::StructureSearch => {
@@ -209,16 +215,7 @@ pub(super) fn execute_local(
                 match execute_structure(&request, paths, security, context, context.response_window)
                 {
                     Ok(data) => value_result(data),
-                    Err(error) => {
-                        let kind = failure_kind(&error.code);
-                        DomainResult::failure(
-                            error.code,
-                            error.message,
-                            Vec::new(),
-                            error.next,
-                            kind,
-                        )
-                    }
+                    Err(error) => error.into(),
                 },
             )
         }
@@ -226,16 +223,7 @@ pub(super) fn execute_local(
             let request = parsed!(AstSearchQuery);
             Ok(match execute_ast(&request, paths, security, context) {
                 Ok(data) => value_result(data),
-                Err(error) => {
-                    let kind = failure_kind(&error.code);
-                    DomainResult::failure(
-                        error.code,
-                        error.message,
-                        error.hints,
-                        error.next.map(|next| *next),
-                        kind,
-                    )
-                }
+                Err(error) => error.into(),
             })
         }
         ToolId::AstTopology => {
@@ -243,16 +231,7 @@ pub(super) fn execute_local(
             Ok(
                 match execute_topology(&request, paths, security, context, cargo) {
                     Ok(data) => value_result(data),
-                    Err(error) => {
-                        let kind = failure_kind(&error.code);
-                        DomainResult::failure(
-                            error.code,
-                            error.message,
-                            error.hints,
-                            error.next.map(|next| *next),
-                            kind,
-                        )
-                    }
+                    Err(error) => error.into(),
                 },
             )
         }
@@ -298,7 +277,6 @@ pub(super) fn invalid_query(error: &serde_json::Error) -> DomainResult {
         "Check the query fields.",
         vec![format!("Query does not match the runtime type: {error}.")],
         None,
-        FailureKind::Execution,
     )
 }
 
@@ -332,17 +310,17 @@ pub(super) fn provider_failure(
     retryable: Option<bool>,
 ) -> DomainResult {
     let retryable = retryable.unwrap_or_else(|| {
-        matches!(code.as_str(), "timeout" | "provider_error")
+        matches!(code.as_str(), "timeout" | "providerError")
             || http_status.is_some_and(|status| status == 408 || status == 429 || status >= 500)
     });
     if hints.is_empty() {
         hints.push(
             match code.as_str() {
                 "authentication" => "Verify registry credentials and access, then retry.",
-                "rate_limit" => "Wait for the provider rate-limit reset before retrying.",
+                "rateLimited" => "Wait for the provider rate-limit reset before retrying.",
                 "timeout" => "Retry once; if it persists, verify registry availability.",
-                "invalid_query" => "Correct the package coordinate or query fields.",
-                "unsupported_capability" => {
+                "invalidInput" => "Correct the package coordinate or query fields.",
+                "capabilityUnavailable" => {
                     "Use the exact package lookup supported by this ecosystem."
                 }
                 _ if retryable => "Retry once; if it persists, verify registry availability.",
@@ -351,7 +329,6 @@ pub(super) fn provider_failure(
             .into(),
         );
     }
-    let kind = failure_kind(&code);
     // The upstream HTTP status distinguishes e.g. a registry 404 from a 429
     // without parsing prose (absent when the upstream never answered).
     DomainResult::provider(
@@ -359,7 +336,6 @@ pub(super) fn provider_failure(
         message,
         hints,
         None,
-        kind,
         Upstream {
             retryable,
             http_status,
@@ -378,7 +354,7 @@ mod provider_failure_tests {
         assert_eq!(unresolved.failure, Some(FailureKind::NotFound));
         let missing = value_result(json!({"status":"error","errorCode":"pathNotFound"}));
         assert_eq!(missing.failure, Some(FailureKind::NotFound));
-        let other = value_result(json!({"status":"error","errorCode":"lsp.serverUnavailable"}));
+        let other = value_result(json!({"status":"error","errorCode":"serverUnavailable"}));
         assert_eq!(other.failure, Some(FailureKind::Execution));
         assert_eq!(
             value_result(json!({"status":"error"})).failure,
@@ -402,7 +378,6 @@ mod provider_failure_tests {
             "Path does not exist: /r",
             vec!["Verify the path exists.".into()],
             Some(next.clone()),
-            FailureKind::NotFound,
         );
         assert_eq!(row.status, Some("error"));
         assert_eq!(row.failure, Some(FailureKind::NotFound));
@@ -416,11 +391,10 @@ mod provider_failure_tests {
         assert_eq!(keys, ["error", "errorCode", "hints", "next"]);
         assert_eq!(row.data["next"], next);
 
-        let bare =
-            DomainResult::failure("x.failed", "failed", vec![], None, FailureKind::Execution);
+        let bare = DomainResult::failure("executionFailed", "failed", vec![], None);
         assert_eq!(
             bare.data,
-            json!({"error": "failed", "errorCode": "x.failed"})
+            json!({"error": "failed", "errorCode": "executionFailed"})
         );
         assert_eq!(bare.failure, Some(FailureKind::Execution));
     }
@@ -453,9 +427,9 @@ mod provider_failure_tests {
         let context = ExecutionContext {
             cancellation: tokio_util::sync::CancellationToken::new(),
             deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
-            output_bytes: 16_000,
             walk_threads: None,
             response_window: None,
+            github_credential: None,
         };
         let views = crate::security::scan::SanitizedViewMemo::default();
         for (tool, query) in [
@@ -506,9 +480,9 @@ mod provider_failure_tests {
         let context = ExecutionContext {
             cancellation: tokio_util::sync::CancellationToken::new(),
             deadline: std::time::Instant::now() + std::time::Duration::from_secs(60),
-            output_bytes: 16_000,
             walk_threads: None,
             response_window: None,
+            github_credential: None,
         };
         for tool in [ToolId::GhSearchCode, ToolId::LspSearch, ToolId::Clasify] {
             let routed = execute_local(
@@ -539,7 +513,6 @@ mod provider_failure_tests {
             "slow down",
             vec!["Wait.".into()],
             Some(next.clone()),
-            FailureKind::RateLimited,
             Upstream {
                 retryable: true,
                 http_status: Some(429),
@@ -572,7 +545,6 @@ mod provider_failure_tests {
             "Network connection failed",
             vec![],
             None,
-            FailureKind::Execution,
             Upstream::default(),
         );
         assert_eq!(
@@ -584,14 +556,14 @@ mod provider_failure_tests {
         // emitter's own retry verdict wins over the derived one.
         let lsp = provider_failure(
             "crashed".into(),
-            "lsp.serverCrashed".into(),
+            "serverCrashed".into(),
             vec!["h".into()],
             None,
             Some(true),
         );
         assert_eq!(
             lsp.data,
-            json!({"error": "crashed", "errorCode": "lsp.serverCrashed", "retryable": true, "hints": ["h"]})
+            json!({"error": "crashed", "errorCode": "serverCrashed", "retryable": true, "hints": ["h"]})
         );
     }
 
@@ -599,18 +571,18 @@ mod provider_failure_tests {
     fn http_status_is_carried_when_present_and_absent_when_not() {
         let with = provider_failure(
             "upstream said no".into(),
-            "provider_error".into(),
+            "providerError".into(),
             vec![],
             Some(429),
             None,
         );
         assert_eq!(with.data["httpStatus"], serde_json::json!(429));
-        assert_eq!(with.data["errorCode"], "provider_error");
+        assert_eq!(with.data["errorCode"], "providerError");
         assert_eq!(with.data["retryable"], true);
         assert!(with.data["hints"][0].is_string());
         let without = provider_failure(
             "client-side".into(),
-            "invalid_query".into(),
+            "invalidInput".into(),
             vec![],
             None,
             None,
@@ -627,14 +599,9 @@ mod provider_failure_tests {
 
         for (code, status, retryable, hint_fragment) in [
             ("authentication", Some(401), false, "credentials"),
-            ("rate_limit", Some(429), true, "rate-limit reset"),
+            ("rateLimited", Some(429), true, "rate-limit reset"),
             ("timeout", None, true, "Retry once"),
-            (
-                "unsupported_capability",
-                None,
-                false,
-                "exact package lookup",
-            ),
+            ("capabilityUnavailable", None, false, "exact package lookup"),
         ] {
             let failure =
                 provider_failure(format!("{code} failure"), code.into(), vec![], status, None);

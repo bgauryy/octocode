@@ -1,9 +1,12 @@
 #!/usr/bin/env node
-import { resolve } from 'node:path';
+import { classifyLink } from './lib/analyzers.mjs';
+import { paginate } from './lib/pagination.mjs';
+import { fileURLToPath } from 'node:url';
+import { resolve, join } from 'node:path';
 import { readJson as readJsonFile, readJsonl as readJsonlFile, takeArg } from './lib/bridge.mjs';
 
 function usage(code = 2) {
-  console.error('Usage: resource-list.mjs --session-dir <dir> [--kind internal|external|asset|contact|subdomain] [--workflow <type>] [--host <host>] [--min-score <n>] [--query <text>] [--limit <n>]');
+  console.error('Usage: resource-list.mjs --session-dir <dir> [--kind internal|external|asset|contact|subdomain] [--workflow <type>] [--host <host>] [--min-score <n>] [--query <text>] [--limit <n>] [--view <list>] [--cursor-<list> <n>]');
   process.exit(code);
 }
 const args = process.argv.slice(2);
@@ -15,13 +18,14 @@ const dir = resolve(sessionDir);
 const kind = take('--kind');
 const workflow = take('--workflow');
 const host = take('--host');
-const query = take('--query').toLowerCase();
+const query = (take('--query') || '').toLowerCase();
 const minScore = Number(take('--min-score') || 0);
 const limit = Number(take('--limit') || 100);
 const readJson = (rel, fallback = null) => readJsonFile(dir, rel, fallback);
 const readJsonl = (rel) => readJsonlFile(dir, rel);
 const graph = await readJson('graph/site-graph.json', { pages: [], edges: [] });
-let rows = await readJsonl('indexes/top-links.jsonl');
+let rows = (await readJsonl('extracts/links.jsonl')).map(row => classifyLink(row, graph.rootUrl));
+if (!rows.length) rows = await readJsonl('indexes/top-links.jsonl');
 if (!rows.length) rows = (graph.pages || []).flatMap((p) => (p.topLinks || []).map((l) => ({ pageId: p.pageId, pageUrl: p.url, ...l })));
 if (kind) rows = rows.filter((r) => r.kind === kind);
 if (workflow) rows = rows.filter((r) => r.workflowType === workflow || r.workflowHint === workflow);
@@ -33,4 +37,5 @@ const byWorkflow = {};
 for (const r of rows) if (r.workflowType) byWorkflow[r.workflowType] = (byWorkflow[r.workflowType] || 0) + 1;
 const byKind = {};
 for (const r of rows) byKind[r.kind || 'unknown'] = (byKind[r.kind || 'unknown'] || 0) + 1;
-console.log(JSON.stringify({ ok: true, sessionDir: dir, filters: { kind: kind || null, workflow: workflow || null, host: host || null, minScore, query: query || null }, totalMatches: rows.length, facets: { byKind, byWorkflow }, resources: rows.slice(0, limit) }, null, 2));
+const paging = await paginate({ lists: { resources: rows }, files: ["graph/site-graph.json", "indexes/top-links.jsonl", "extracts/links.jsonl"].map(p => join(dir, p)), dir, args, script: fileURLToPath(import.meta.url), defaultLimit: limit });
+console.log(JSON.stringify({ ok: true, sessionDir: dir, filters: { kind: kind || null, workflow: workflow || null, host: host || null, minScore, query: query || null }, totalMatches: rows.length, facets: { byKind, byWorkflow }, ...paging }, null, 2));

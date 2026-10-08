@@ -506,7 +506,7 @@ describe('background report delivery', () => {
     expect(read.consume('general-abcdef')).toBe(true);
     // Rewritten after the read: the parent has not seen the final version.
     read.track('general-abcdef', scratch);
-    read.observe('mcp__octocode__localGetFileContent', { queries: [{ path: file }] }, cwd);
+    read.observe('mcp__octocode__localFetch', { queries: [{ path: file }] }, cwd);
     const future = new Date(Date.now() + 10_000);
     fs.utimesSync(file, future, future);
     expect(read.consume('general-abcdef')).toBe(false);

@@ -33,11 +33,12 @@ comparisons.
 - [ghGetFileContent](./ghGetFileContent.md)
 - [ghSearchHistory and ghGetHistoryItem](./githubHistory.md)
 - [artifactSearch](./artifactSearch.md)
-- [ghCloneRepo](./ghCloneRepo.md)
 - [localSearch](./localSearch.md)
 - [localFetch](./localFetch.md)
 - [astSearch](../../../docs/OCTOCODE_TOOLS.md#astsearch)
 - [lspSearch](./lspSearch.md)
+
+`ghCloneRepo` and `astRewrite` are CLI-only; MCP never registers them.
 
 ## Pagination acceptance
 

@@ -3,8 +3,9 @@
 //! `setsid` and left the process group is still found), their resident
 //! memory, and a freeze-then-kill teardown of the whole tree.
 //!
-//! Implemented on macOS (`libproc`) and Linux (`/proc`). Elsewhere the
-//! queries return nothing and teardown falls back to the process group.
+//! Implemented on macOS (`libproc`) and Linux (`/proc`). Elsewhere the tree
+//! walk finds nothing, there is no RSS reader, and teardown falls back to the
+//! process group.
 
 use std::collections::HashSet;
 use std::path::Path;
@@ -51,7 +52,7 @@ fn walk_descendants(root: u32, mut children_of: impl FnMut(u32) -> Vec<u32>) -> 
 /// `(pid, ppid)` from one `/proc/<pid>/stat` line: `pid (comm) state ppid …`.
 /// `comm` is the executable name and may itself hold spaces, `(` and `)`, so
 /// the fields after it are located from the *last* `)`.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux reader; tested everywhere.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux reader; the synthetic-tree tests run it on every host.
 fn parse_proc_stat(stat: &str) -> Option<(u32, u32)> {
     let open = stat.find(" (")?;
     let pid = stat[..open].trim().parse().ok()?;
@@ -67,7 +68,7 @@ fn parse_proc_stat(stat: &str) -> Option<(u32, u32)> {
 
 /// Resident bytes from one `/proc/<pid>/statm` line (`size resident …`, in
 /// pages). A zombie reports `0` resident pages, which is correct.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux reader; tested everywhere.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux reader; the synthetic-tree tests run it on every host.
 fn parse_proc_statm_rss(statm: &str, page_size: u64) -> Option<u64> {
     let pages = statm.split_whitespace().nth(1)?.parse::<u64>().ok()?;
     Some(pages.saturating_mul(page_size))
@@ -77,7 +78,7 @@ fn parse_proc_statm_rss(statm: &str, page_size: u64) -> Option<u64> {
 /// one pass. Entries that are not numeric, vanish mid-scan, or whose `stat`
 /// is unreadable or names another pid are skipped. Plain file I/O, so the
 /// Linux reader runs against a synthetic tree on any host.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux reader; tested everywhere.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux reader; the synthetic-tree tests run it on every host.
 fn read_proc_table(proc_root: &Path) -> Vec<(u32, u32)> {
     std::fs::read_dir(proc_root)
         .into_iter()
@@ -94,7 +95,7 @@ fn read_proc_table(proc_root: &Path) -> Vec<(u32, u32)> {
 }
 
 /// `pid → direct children` over a `(pid, ppid)` snapshot.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux reader; tested everywhere.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux reader; the synthetic-tree tests run it on every host.
 fn children_from_table(table: Vec<(u32, u32)>) -> impl Fn(u32) -> Vec<u32> {
     move |parent| {
         table
@@ -106,14 +107,13 @@ fn children_from_table(table: Vec<(u32, u32)>) -> impl Fn(u32) -> Vec<u32> {
 }
 
 /// Resident bytes of `pid` under a `/proc`-layout directory.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux reader; tested everywhere.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))] // Linux reader; the synthetic-tree tests run it on every host.
 fn read_proc_rss(proc_root: &Path, pid: u32, page_size: u64) -> Option<u64> {
     let statm = std::fs::read_to_string(proc_root.join(pid.to_string()).join("statm")).ok()?;
     parse_proc_statm_rss(&statm, page_size)
 }
 
-/// Resident set size of `pid` in bytes; `None` when it cannot be read (the
-/// process is gone, or the platform has no reader).
+/// Resident set size of `pid` in bytes; `None` when the process is gone.
 #[cfg(target_os = "macos")]
 pub(crate) fn rss_bytes(pid: u32) -> Option<u64> {
     let pid = libc::c_int::try_from(pid).ok()?;
@@ -134,15 +134,9 @@ pub(crate) fn rss_bytes(pid: u32) -> Option<u64> {
     read_proc_rss(Path::new("/proc"), pid, page_size)
 }
 
-#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
-pub(crate) fn rss_bytes(_pid: u32) -> Option<u64> {
-    None
-}
-
 /// Resident memory of `root` plus every descendant, in bytes; `None` when
 /// `root` itself cannot be read (it exited).
-#[cfg(unix)]
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // Wired on macOS only.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) fn tree_rss_bytes(root: u32) -> Option<u64> {
     let own = rss_bytes(root)?;
     Some(

@@ -43,6 +43,18 @@ pub(crate) fn npm_authorization(
     authorization_for(registry, &contents, |name| env.get(name).cloned())
 }
 
+fn is_loopback(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        Some(url::Host::Domain(name)) => {
+            let name = name.trim_end_matches('.').to_ascii_lowercase();
+            name == "localhost" || name.ends_with(".localhost")
+        }
+        None => false,
+    }
+}
+
 /// `//host[:port]/path/` for a registry URL, as npm keys credentials.
 pub(crate) fn nerf_dart(registry: &Url) -> Option<String> {
     let host = registry.host_str()?.to_ascii_lowercase();
@@ -90,6 +102,11 @@ pub(crate) fn authorization_for(
     contents: &str,
     env: impl Fn(&str) -> Option<String>,
 ) -> Option<NpmAuthorization> {
+    // A nerf-dart key carries no scheme: never send it in clear text, except
+    // to a loopback registry (a local Verdaccio) that never leaves the host.
+    if registry.scheme() != "https" && !is_loopback(registry) {
+        return None;
+    }
     let target = nerf_dart(registry)?;
     // Keep the winning scope so every later request can enforce it.
     let mut best: Option<(String, String)> = None;
@@ -168,6 +185,27 @@ mod tests {
         ] {
             assert_eq!(auth(other, npmrc), None, "{other}");
         }
+    }
+
+    /// npmrc keys carry no scheme, so a query naming `http://` for the same
+    /// host must not receive the token in clear text. Only loopback (a local
+    /// Verdaccio) may use plain HTTP.
+    #[test]
+    fn token_is_never_sent_over_plain_http_off_loopback() {
+        let npmrc = "//npm.corp.example/:_authToken=abc\n//localhost:4873/:_authToken=local\n//[::1]:4873/:_authToken=v6\n";
+        assert_eq!(auth("http://npm.corp.example/", npmrc), None);
+        assert_eq!(
+            auth("https://npm.corp.example/", npmrc).as_deref(),
+            Some("Bearer abc")
+        );
+        assert_eq!(
+            auth("http://localhost:4873/", npmrc).as_deref(),
+            Some("Bearer local")
+        );
+        assert_eq!(
+            auth("http://[::1]:4873/", npmrc).as_deref(),
+            Some("Bearer v6")
+        );
     }
 
     #[test]

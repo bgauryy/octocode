@@ -5,12 +5,12 @@ use tree_sitter::Node;
 
 use crate::signatures::nodes::node_text;
 
-use super::{GraphAccumulator, LineIndex, push_language_import};
+use super::{GraphAccumulator, NodePositions, push_language_import};
 
 pub(super) fn collect_python_imports(
     node: Node<'_>,
     content: &str,
-    li: &LineIndex,
+    li: &NodePositions,
     acc: &mut GraphAccumulator,
 ) {
     let module = node

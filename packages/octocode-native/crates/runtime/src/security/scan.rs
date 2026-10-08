@@ -15,6 +15,24 @@ pub trait ContentScan {
     }
 }
 
+/// [`ContentScan::sanitize`] of provider text: the redacted text, or the
+/// scanner's refusal message as a `Validation` provider error.
+pub(crate) fn sanitize_provider_text(
+    security: &impl ContentScan,
+    text: &str,
+    path: &Path,
+) -> Result<String, octocode_github::ProviderError> {
+    security
+        .sanitize(text, path)
+        .map(|(text, _)| text)
+        .map_err(|(message, _)| {
+            octocode_github::ProviderError::new(
+                octocode_github::ProviderErrorKind::Validation,
+                message,
+            )
+        })
+}
+
 /// A test scan double that returns every text unchanged.
 #[cfg(test)]
 pub(crate) struct Passthrough;

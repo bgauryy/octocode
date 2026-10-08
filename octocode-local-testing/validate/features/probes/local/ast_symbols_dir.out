@@ -1,5 +1,0 @@
-# cmd: octocode astSearch {"goal": "g", "reasoning": "r", "operation": "symbols", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src", "langType": "typescript"}
-# env: None
-# exit: 5
-# stderr: 
-{"results":[{"index":0,"data":{"error":"langType on symbols requires a single source file.","errorCode":"ast.language.fileRequired","next":{"repair":{"tool":"astSearch","confidence":"exact","query":{"path":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src","operation":"symbols","followUp":true}}}},"status":"error"}]}

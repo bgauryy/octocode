@@ -24,34 +24,16 @@ impl Display for ContractInputError {
 
 impl std::error::Error for ContractInputError {}
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PrepareOptions<'a> {
-    pub source_label: &'a str,
-}
-
-impl Default for PrepareOptions<'_> {
-    fn default() -> Self {
-        Self {
-            source_label: "direct tool execution",
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PreparedQuery {
     pub query: Map<String, Value>,
 }
 
-/// Applies canonical meta-field defaults. Shape and relation validation is a
-/// later stage and must never rewrite tool fields or delegate to Node.
-/// Singular preparation helper for continuations and internal callers.
-/// Public bulk requests must use `prepare_many_and_validate`; singleton array
-/// and envelope forms remain accepted here for cursor compatibility.
-pub fn prepare(
-    tool_name: &str,
-    input: Value,
-    _options: PrepareOptions<'_>,
-) -> Result<PreparedQuery, ContractInputError> {
+/// Applies canonical meta-field defaults to one query: a bare row, a
+/// one-element array, or a one-row `{queries}` envelope. Shape and relation
+/// validation is a later stage that never rewrites tool fields; bulk input
+/// goes through `prepare_many_and_validate`.
+pub fn prepare(tool_name: &str, input: Value) -> Result<PreparedQuery, ContractInputError> {
     let mut object = match input {
         Value::Array(mut values) => {
             if values.len() != 1 {
@@ -96,7 +78,7 @@ pub fn prepare(
 
 #[cfg(test)]
 mod tests {
-    use super::{PrepareOptions, prepare};
+    use super::prepare;
     use serde_json::json;
 
     /// Artifact coordinates are trimmed once, by the contract's own
@@ -106,10 +88,9 @@ mod tests {
         let validated = crate::contracts::prepare_many_and_validate(
             "artifactSearch",
             json!({"queries": [
-                {"type": "npm", "packageName": "  express \n"},
-                {"type": "npm", "keywords": [" http ", "server"]}
+                {"ecosystem": "npm", "packageName": "  express \n"},
+                {"ecosystem": "npm", "keywords": [" http ", "server"]}
             ]}),
-            PrepareOptions::default(),
         )
         .expect("valid artifact queries");
         assert_eq!(validated[0]["packageName"], "express");
@@ -126,22 +107,15 @@ mod tests {
             json!([query.clone()]),
             json!({"queries": [query.clone()]}),
         ] {
-            let prepared =
-                prepare("clasify", input, PrepareOptions::default()).expect("pure input");
+            let prepared = prepare("clasify", input).expect("pure input");
             assert_eq!(serde_json::Value::Object(prepared.query), query);
         }
     }
 
     #[test]
     fn defaults_debug_and_never_invents_goal_or_reasoning() {
-        let prepared = prepare(
-            "localFetch",
-            json!({"path":"/tmp/a", "mainGoal":" "}),
-            PrepareOptions {
-                source_label: "native CLI",
-            },
-        )
-        .expect("valid input");
+        let prepared =
+            prepare("localFetch", json!({"path":"/tmp/a", "mainGoal":" "})).expect("valid input");
         assert_eq!(prepared.query["mainGoal"], " ");
         assert_eq!(prepared.query["debug"], false);
         assert!(prepared.query.get("reasoning").is_none());
@@ -149,13 +123,12 @@ mod tests {
 
     #[test]
     fn rejects_empty_invalid_and_multiple_query_arrays() {
-        assert!(prepare("localFetch", json!([]), PrepareOptions::default()).is_err());
-        assert!(prepare("localFetch", json!([1]), PrepareOptions::default()).is_err());
+        assert!(prepare("localFetch", json!([])).is_err());
+        assert!(prepare("localFetch", json!([1])).is_err());
         assert!(
             prepare(
                 "localFetch",
-                json!({"queries":[{"path":"/a"},{"path":"/b"}]}),
-                PrepareOptions::default()
+                json!({"queries":[{"path":"/a"},{"path":"/b"}]})
             )
             .is_err()
         );
@@ -167,8 +140,7 @@ mod tests {
             json!([{"path":"/tmp/a"}]),
             json!({"queries":[{"path":"/tmp/a"}]}),
         ] {
-            let prepared = prepare("localFetch", input, PrepareOptions::default())
-                .expect("single-element query array");
+            let prepared = prepare("localFetch", input).expect("single-element query array");
             assert_eq!(prepared.query["path"], "/tmp/a");
         }
     }
@@ -178,7 +150,6 @@ mod tests {
         let prepared = prepare(
             "astSearch",
             json!({"operation":"syntax","path":"/tmp/lib.rs"}),
-            PrepareOptions::default(),
         )
         .expect("envelope only");
         assert_eq!(prepared.query["operation"], "syntax");

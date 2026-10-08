@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 const GRAPH_SCHEMA_SOURCE = new URL('../schemas/graph.schema.json', import.meta.url);
-import { bytes, cleanForAgent, chunkTextByBytes, detectBrowserNeed, detectTargetError, parsePayload, stripTags, titleFromHtml, truncate } from './text.mjs';
+import { bytes, cleanForAgent, chunkTextByBytes, detectBrowserNeed, detectTargetError, parsePayload, stripTags, titleFromHtml } from './text.mjs';
 import { buildSiteGraph, buildUnifiedGraph, buildWorkflowIndex, pageSlices } from './analyzers.mjs';
 import { extractButtonsFromHtml, extractCanonicalFromHtml, extractCodeBlocksFromMarkdown, extractFormsFromHtml, extractHeadings, extractJsonLdFromHtml, extractLinksFromHtml, extractLinksFromMarkdown, extractMetaFromHtml, extractResourcesFromHtml, extractTablesFromHtml, extendedExtractFiles, jsonl } from './extractors.mjs';
 
@@ -18,7 +18,7 @@ export async function writePage({ sessionDir, config, response, pageIndex }) {
   const pageId = response.pageId;
   const rawExt = config.mode === 'html' && /html/i.test(response.contentType) ? 'html' : 'json';
   const rawRel = `raw/${pageId}.${rawExt}`;
-  const raw = truncate(response.body, config.maxRawBytes);
+  const raw = { text: response.body || '', truncated: false, bytes: bytes(response.body) };
   if (!config.noRaw && response.body) await writeFile(join(sessionDir, rawRel), raw.text);
 
   const parsed = parsePayload(config.mode, response.contentType, response.body);
@@ -27,8 +27,8 @@ export async function writePage({ sessionDir, config, response, pageIndex }) {
   const targetLikelyError = detectTargetError({ status: response.status, providerStatus, text: parsed.text, json: parsed.json });
   const cleanSource = cleanForAgent(parsed.text || '');
   const browserReason = config.provider === 'direct' ? detectBrowserNeed({ status: response.status, contentType: response.contentType, body: response.body, cleanText: cleanSource, targetLikelyError }) : null;
-  const text = truncate(cleanSource, config.maxTextBytes);
-  const chunks = chunkTextByBytes(text.text, config.chunkBytes);
+  const text = { text: cleanSource, truncated: false, bytes: bytes(cleanSource) };
+  const chunks = chunkTextByBytes(text.text, Math.min(config.chunkBytes, config.maxTextBytes));
   const textParts = [];
   for (let i = 0; i < chunks.length; i += 1) {
     const partRel = `text/${pageId}.clean.part-${String(i + 1).padStart(3, '0')}.md`;

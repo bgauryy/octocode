@@ -11,25 +11,27 @@ pub(crate) mod resolver;
 mod types;
 mod validation;
 pub use acquire::{acquire_config_input, octocode_home};
-pub use dotenv::{
-    apply_env, merged_env, parse_boolean_env, parse_env, parse_int_env, parse_string_array_env,
-};
+pub use dotenv::parse_env;
+pub(crate) use dotenv::{parse_boolean_env, parse_string_array_env};
 pub use edit::{
     backup_path, config_revision, edit_scoped_env, read_private_config, replace_private_config,
     validate_env_edit,
 };
 pub use json_edit::{edit_config_json, parse_config_json};
-pub use loader::load_config;
-pub use manage::{edit_setting, inspect_management, validate_env_value};
+pub(crate) use loader::load_config;
+pub use manage::{edit_setting, inspect_management};
+pub(crate) use resolver::get_config_value;
+#[cfg(test)]
+pub(crate) use resolver::resolve_sections;
 pub use resolver::{
-    get_config_value, inspector_data, is_persistent_storage_enabled, is_stats_enabled,
-    resolve_config, resolve_env_token, resolve_sections,
+    inspector_data, is_persistent_storage_enabled, is_stats_enabled, resolve_config,
 };
 pub use types::*;
-pub use validation::validate_config;
 
 #[cfg(test)]
 mod tests {
+    use super::dotenv::{apply_env, merged_env, parse_int_env};
+    use super::resolver::resolve_env_token;
     use super::*;
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -109,17 +111,15 @@ mod tests {
     }
     #[test]
     fn validation_covers_fractional_ranges_paths_and_warnings() {
-        let ok = validate_config(
+        let (ok, _) = validation::config_issues(
             &json!({"network":{"timeout":5000.5,"maxRetries":2.5},"tools":{"enabled":null}}),
         );
-        assert!(ok.valid);
-        let bad =
-            validate_config(&json!({"local":{"allowedPaths":["relative","/a/../b"]},"extra":1}));
-        assert!(!bad.valid);
-        assert!(
-            bad.warnings
-                .contains(&"Unknown configuration key: extra".into())
-        )
+        assert!(ok.is_empty());
+        let (bad, warnings) = validation::config_issues(
+            &json!({"local":{"allowedPaths":["relative","/a/../b"]},"extra":1}),
+        );
+        assert!(!bad.is_empty());
+        assert!(warnings.contains(&"Unknown configuration key: extra".into()))
     }
     #[test]
     fn all_fields_and_source_quirk_resolve() {
@@ -409,7 +409,11 @@ mod tests {
             Some("jev-secret-from-env")
         );
         // `classification` is a recognized section, not an "unknown configuration key".
-        assert!(validate_config(&json!({"classification": {"api": "x"}})).valid);
+        assert!(
+            validation::config_issues(&json!({"classification": {"api": "x"}}))
+                .0
+                .is_empty()
+        );
     }
     #[test]
     fn trusted_dotenv_credentials_use_process_then_project_then_home() {

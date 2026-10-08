@@ -1,5 +1,6 @@
 use super::{AstResult, AstSearchQuery, execute_ast};
 use crate::tools::cancel::NeverCancel;
+use crate::tools::result::ToolError;
 use crate::tools::test_support::{AfterRoot, Fixture, sensitive_fixture, simple_policy};
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
@@ -22,29 +23,30 @@ fn execute_row(
     execute_ast(&query, paths, security, cancellation)
 }
 
-/// A lean match row `"<line>[-<endLine>]\t<value>"` as (line, endLine, value).
+/// A match row `{line, column, endLine?, value}` as (line, endLine, value).
 fn lean_row(row: &serde_json::Value) -> (u64, Option<u64>, &str) {
-    let text = row.as_str().expect("lean match row");
-    let (lines, value) = text.split_once('\t').expect("TAB after the lines");
-    let (start, end) = match lines.split_once('-') {
-        Some((start, end)) => (start, Some(end.parse().expect("end line"))),
-        None => (lines, None),
-    };
-    (start.parse().expect("line"), end, value)
+    (
+        row["line"].as_u64().expect("match row line"),
+        row["endLine"].as_u64(),
+        row["value"].as_str().expect("match row value"),
+    )
 }
 
-/// The declaration names of an outline row `"<ranges> <kind> <name>…"`,
-/// including grouped siblings (`; <range> <name>…`).
+/// The declaration names of an outline row (an entry string, or a container
+/// and its nested members), in source order.
 fn outline_row_names(row: &serde_json::Value) -> Vec<&str> {
-    let text = row.as_str().expect("outline row");
-    text.split("; ")
-        .enumerate()
-        .map(|(index, item)| {
-            item.split_whitespace()
-                .nth(if index == 0 { 2 } else { 1 })
-                .expect("name")
-        })
-        .collect()
+    if let Some(text) = row.as_str() {
+        assert!(
+            crate::tools::symbol_outline::parse_entry(text).is_some(),
+            "outline entry: {text}"
+        );
+        return vec![&text[..text.rfind(" (").expect("entry fields")]];
+    }
+    let mut names = vec![row["symbolName"].as_str().expect("declaration row")];
+    for member in row["members"].as_array().into_iter().flatten() {
+        names.extend(outline_row_names(member));
+    }
+    names
 }
 
 /// Every expansion was followed: at most the read of the hits remains.
@@ -132,7 +134,7 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
         &NeverCancel,
     )
     .expect("structural matches");
-    assert_eq!(matches["stats"]["totalMatches"], 1);
+    assert_eq!(matches["stats"]["matchCount"], 1);
     assert_eq!(matches["files"].as_array().expect("files").len(), 1);
     let root_name = root.0.file_name().expect("root name").to_string_lossy();
     assert_eq!(
@@ -141,6 +143,46 @@ fn descendant_policy_precedes_discovery_totals_and_line_reads() {
     );
     assert!(!matches.to_string().contains("hidden.ts"));
     assert!(!matches.to_string().contains(".env.ts"));
+}
+
+/// A directory scan whose path policy withheld candidate entries says so,
+/// as localSearch and structureSearch do: an empty or "complete" result
+/// over a `secrets/` directory is not proof of absence.
+#[test]
+fn directory_scans_disclose_policy_withheld_entries() {
+    let root = Fixture::new();
+    std::fs::create_dir_all(root.0.join("secrets")).expect("secrets dir");
+    std::fs::write(root.0.join("secrets/store.ts"), "register(secret);\n").expect("withheld");
+    std::fs::write(
+        root.0.join("visible.ts"),
+        "register(visible);\nexport function shown() {}\n",
+    )
+    .expect("visible");
+    let disclosed = |out: &serde_json::Value| {
+        out["warnings"].as_array().is_some_and(|warnings| {
+            warnings.iter().any(|w| {
+                w.as_str().is_some_and(|w| {
+                    w.contains("withheld by path policy: security-policy dirs secrets/")
+                })
+            })
+        })
+    };
+    let matches = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"language":"typescript","pattern":"register($A)"}),
+    )
+    .expect("match");
+    assert_eq!(matches["stats"]["matchCount"], 1, "{matches}");
+    assert!(disclosed(&matches), "{matches}");
+    assert!(matches.get("complete").is_none(), "{matches}");
+    let empty = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"language":"typescript","pattern":"register(secret)"}),
+    )
+    .expect("empty match");
+    assert!(disclosed(&empty), "{empty}");
+    let symbols = run(&root.0, json!({"operation":"symbols","path":root.0})).expect("symbols");
+    assert!(disclosed(&symbols), "{symbols}");
 }
 
 #[test]
@@ -177,7 +219,7 @@ fn structural_zero_is_empty_with_actionable_pattern_guidance() {
             &NeverCancel,
         )
         .expect("structural match");
-        assert_eq!(found["stats"]["totalMatches"], 1, "{found}");
+        assert_eq!(found["stats"]["matchCount"], 1, "{found}");
         assert!(found.get("status").is_none(), "{found}");
     }
 }
@@ -232,7 +274,7 @@ fn cancellation_interrupts_descendant_traversal() {
         &AfterRoot(std::sync::atomic::AtomicUsize::new(0)),
     )
     .expect_err("cancel structural walk");
-    assert_eq!(error.code, "ast.execution.cancelled");
+    assert_eq!(error.code, "cancelled");
 }
 
 // Regression: astSearch `match` over a directory must not silently drop files
@@ -401,10 +443,7 @@ fn a_match_offers_a_read_of_the_top_files_hits() {
     crate::contracts::validate_query("localFetch", row.clone()).expect("a valid localFetch row");
 }
 
-fn run(
-    root: &std::path::Path,
-    query: serde_json::Value,
-) -> Result<serde_json::Value, super::AstError> {
+fn run(root: &std::path::Path, query: serde_json::Value) -> Result<serde_json::Value, ToolError> {
     let (paths, security) = simple_policy(root);
     execute_row(query, &paths, &security, &NeverCancel)
 }
@@ -495,7 +534,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"klingon","pattern":"oldCall($A)"}),
     )
     .expect_err("unknown language");
-    assert_eq!(unknown.code, "ast.language.unsupported");
+    assert_eq!(unknown.code, "languageUnsupported");
 
     let out = run(
         &root.0,
@@ -519,7 +558,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0.join("b.py"),"language":"typescript","pattern":"oldCall($A)"}),
     )
     .expect_err("single file outside language");
-    assert_eq!(mismatch.code, "ast.language.mismatch");
+    assert_eq!(mismatch.code, "languageMismatch");
 
     std::fs::write(root.0.join("notes.txt"), "oldCall(x)\n").expect("txt");
     let unsupported = run(
@@ -577,7 +616,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":header,"language":"cpp","rule":"kind: class_specifier"}),
     )
     .expect("explicit C++ match");
-    assert_eq!(selected["stats"]["totalMatches"], 1, "{selected}");
+    assert_eq!(selected["stats"]["matchCount"], 1, "{selected}");
 
     let selected_directory = run(
         &root.0,
@@ -585,7 +624,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
     )
     .expect("explicit C++ directory match");
     assert_eq!(
-        selected_directory["stats"]["totalMatches"], 1,
+        selected_directory["stats"]["matchCount"], 1,
         "{selected_directory}"
     );
 
@@ -595,7 +634,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
     )
     .expect("C++ directory includes ambiguous headers");
     assert_eq!(
-        selected_directory_default["stats"]["totalMatches"], 1,
+        selected_directory_default["stats"]["matchCount"], 1,
         "{selected_directory_default}"
     );
 
@@ -636,7 +675,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":wrong_file,"language":"cpp","rule":"kind: declaration"}),
     )
     .expect_err("C source is not an ambiguous header");
-    assert_eq!(mismatch.code, "ast.language.mismatch");
+    assert_eq!(mismatch.code, "languageMismatch");
 }
 
 #[test]
@@ -765,6 +804,40 @@ fn clipped_values_do_not_mark_the_row_partial() {
     assert!(only_read_left(&expanded), "{expanded}");
 }
 
+/// A match row with every file and match page shown and no scope gap is
+/// `complete`: its expansions (`expandCaptures`, `expandValues*`) and the
+/// hits read are drill-downs, so the response stage neither marks it partial
+/// nor lets the CLI exit as "more to read". A file page left, or a scope gap,
+/// keeps it open.
+#[test]
+fn match_rows_without_unread_pages_are_complete() {
+    let root = Fixture::new();
+    let long = format!("call({});\n", "y".repeat(3000));
+    std::fs::write(root.0.join("a.ts"), &long).expect("a");
+    std::fs::write(root.0.join("b.ts"), "call(1);\n").expect("b");
+    let base =
+        json!({"operation":"match","path":root.0,"pattern":"call($$$A)","language":"typescript"});
+    let out = run(&root.0, base.clone()).expect("match");
+    assert_eq!(out["complete"], true, "{out}");
+    assert!(out["next"].get("expandCaptures").is_some(), "{out}");
+    let row = crate::response::rows::result_row(
+        crate::tools::id::ToolId::AstSearch,
+        0,
+        &base,
+        out.clone(),
+        None,
+    );
+    assert!(row.pointer("/data/isPartial").is_none(), "{row}");
+    let mut paged = base.clone();
+    paged["pageSize"] = json!(1);
+    let open = run(&root.0, paged).expect("first file page");
+    assert!(open.get("complete").is_none(), "{open}");
+    let mut capped = base;
+    capped["maxFiles"] = json!(1);
+    let gap = run(&root.0, capped).expect("capped scan");
+    assert!(gap.get("complete").is_none(), "{gap}");
+}
+
 /// Clipped rows across files and past the read-range limit each stay
 /// reachable: one `expandValues*` read per file and per range batch.
 #[test]
@@ -882,7 +955,7 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     .expect_err("unknown kind");
     // An `.input.invalid` code is an input rejection: CLI exit 2 and a
     // "correct the field" hint, never "broaden the query".
-    assert_eq!(error.code, "ast.symbols.input.invalid");
+    assert_eq!(error.code, "invalidInput");
     assert!(crate::response::rows::is_invalid_input_code(&error.code));
     assert!(
         error.message.contains("function, impl"),
@@ -907,7 +980,7 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
         json!({"operation":"syntaxTree","mainGoal":"test","reasoning":"test","path":large}),
     ] {
         let out = run(&root.0, query).expect("limit row");
-        assert_eq!(out["errorCode"], "ast.source.limit", "{out}");
+        assert_eq!(out["errorCode"], "fileTooLarge", "{out}");
         assert_eq!(out["status"], "error", "{out}");
     }
 }
@@ -937,11 +1010,15 @@ fn single_file_symbols_are_compact_and_path_free() {
         "absolute path leaked: {out}"
     );
     assert_eq!(out["isPartial"], false, "{out}");
-    // One outline row per declaration: no path, ranges or engine ids; an
-    // endLine only when the declaration spans lines; members indented under
-    // the `impl` that holds them (named, never referenced by an id).
+    // One declaration row each (rendered here as the text outline): no
+    // path, ranges or engine ids; an endLine only when the declaration
+    // spans lines; members indented under the `impl` that holds them.
     assert_eq!(
-        out["symbols"],
+        json!(crate::tools::symbol_outline::outline_rows(
+            &crate::tools::symbol_outline::flatten_members(
+                out["symbols"].as_array().expect("rows")
+            )
+        )),
         json!([
             "1 struct A",
             "2-4 impl A",
@@ -1035,12 +1112,16 @@ fn symbols_outline_places_twin_members_and_columns_only_when_ambiguous() {
     // (line 6) sits in the second; the two `x` on one line differ only by
     // column, so only they carry it.
     assert_eq!(
-        out["symbols"],
+        json!(crate::tools::symbol_outline::outline_rows(
+            &crate::tools::symbol_outline::flatten_members(
+                out["symbols"].as_array().expect("rows")
+            )
+        )),
         json!([
             "1 struct A",
             "2-4,5-7 impl A",
             "  3 method one; 6 two",
-            "8 function x col 3; 8 x col 13"
+            "8 function x col 4; 8 x col 14"
         ]),
         "{out}"
     );
@@ -1051,7 +1132,75 @@ fn symbols_outline_places_twin_members_and_columns_only_when_ambiguous() {
             "snapshot":out_snapshot(&root.0, &source)}),
     )
     .expect("second page");
-    assert_eq!(second["symbols"][0], "6 method two (in A@5)", "{second}");
+    assert_eq!(
+        crate::tools::symbol_outline::outline_rows(&crate::tools::symbol_outline::flatten_members(
+            second["symbols"].as_array().expect("rows")
+        ))[0],
+        "6 method two (in A@5)",
+        "{second}"
+    );
+}
+
+#[test]
+fn symbols_trait_impls_name_their_trait_and_macro_members_nest() {
+    // tokio named_pipe.rs: five `impl … NamedPipeServer` blocks must say
+    // which trait each implements, and `cfg_io_util! { pub fn … }` inside an
+    // impl belongs to that impl, in source order.
+    let root = Fixture::new();
+    let source = root.0.join("pipe.rs");
+    std::fs::write(
+        &source,
+        "pub struct Pipe;\nimpl Pipe {\n    pub fn read() {}\n    cfg_io_util! {\n        pub fn read_buf() {}\n    }\n}\nimpl AsyncWrite for Pipe {\n    fn poll_flush() {}\n}\nimpl<T: Clone> std::fmt::Debug for Wrap<T> {\n    fn fmt() {}\n}\n",
+    )
+    .expect("source");
+    let out = run(&root.0, json!({"operation":"symbols","path":source})).expect("symbols");
+    assert_eq!(
+        json!(crate::tools::symbol_outline::outline_rows(
+            &crate::tools::symbol_outline::flatten_members(
+                out["symbols"].as_array().expect("rows")
+            )
+        )),
+        json!([
+            "1 struct Pipe +",
+            "2-7 impl Pipe",
+            "  3 method read +; 5 read_buf +",
+            "8-10 impl AsyncWrite for Pipe",
+            "  9 method poll_flush",
+            "11-13 impl std::fmt::Debug for Wrap",
+            "  12 method fmt"
+        ]),
+        "{out}"
+    );
+    // The type name still selects every impl of the type; the lead anchors
+    // lspSearch on the type, as for an inherent impl.
+    let named = run(
+        &root.0,
+        json!({"operation":"symbols","path":source,"symbolName":"Pipe","kinds":["impl"]}),
+    )
+    .expect("named");
+    let names: Vec<&str> = named["symbols"]
+        .as_array()
+        .expect("rows")
+        .iter()
+        .map(outline_name)
+        .collect();
+    assert_eq!(names, ["Pipe", "AsyncWrite for Pipe"], "{named}");
+    let trait_only = run(
+        &root.0,
+        json!({"operation":"symbols","path":source,"symbolName":"AsyncWrite for Pipe"}),
+    )
+    .expect("trait impl");
+    assert_eq!(
+        outline_name(&trait_only["symbols"][0]),
+        "AsyncWrite for Pipe"
+    );
+    // The lead exists only where rust-analyzer runs.
+    if let Some(lead) = trait_only["hints"].get("references") {
+        assert_eq!(
+            lead["query"]["queries"][0]["symbolName"], "Pipe",
+            "{trait_only}"
+        );
+    }
 }
 
 /// The snapshot of a 4-row symbols page of `source`.
@@ -1098,11 +1247,14 @@ fn match_rows_withhold_captures_by_default_and_omit_single_line_ends() {
     let query = json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"oldCall($A)"});
     let out = run(&root.0, query.clone()).expect("match");
     let matches = out["files"][0]["matches"].as_array().expect("matches");
-    // Lean rows: the line (a span adds its end line), TAB, the normalized
-    // text; no captures, no columns.
+    // Lean rows (X1 objects): the line and 1-based column (a span adds its
+    // end line) and the normalized text; no captures.
     assert_eq!(
         matches,
-        &vec![json!("1\toldCall(one)"), json!("2-4\toldCall( two )")],
+        &vec![
+            json!({"line":1,"column":1,"value":"oldCall(one)"}),
+            json!({"line":2,"column":1,"endLine":4,"value":"oldCall( two )"})
+        ],
         "{out}"
     );
     // Equal per-file counts repeat `matches.len()`.
@@ -1126,7 +1278,7 @@ fn match_rows_withhold_captures_by_default_and_omit_single_line_ends() {
     let out = run(&root.0, expanded).expect("match");
     let single = &out["files"][0]["matches"][0];
     assert_eq!(single["line"], 1, "{single}");
-    assert_eq!(single["column"], 0, "{single}");
+    assert_eq!(single["column"], 1, "{single}");
     assert!(single.get("endLine").is_none(), "{single}");
     assert!(
         single.get("endColumn").is_none(),
@@ -1157,7 +1309,11 @@ fn patterns_without_metavariables_offer_no_capture_expansion() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":source,"pattern":"oldCall(one)"}),
     )
     .expect("match");
-    assert_eq!(out["files"][0]["matches"][0], "1\toldCall(one)", "{out}");
+    assert_eq!(
+        out["files"][0]["matches"][0],
+        json!({"line":1,"column":1,"value":"oldCall(one)"}),
+        "{out}"
+    );
     assert!(
         out.get("next")
             .is_none_or(|next| next.get("expandCaptures").is_none()),
@@ -1217,7 +1373,7 @@ fn rust_item_pattern_without_visibility_also_matches_pub_items() {
             "pattern":"fn $N() -> Result<$T, String> { $$$B }"}),
     )
     .expect("match");
-    assert_eq!(out["stats"]["totalMatches"], 2, "{out}");
+    assert_eq!(out["stats"]["matchCount"], 2, "{out}");
     assert!(relaxed(&out), "{out}");
     assert!(!out.to_string().contains("visibilityExact"), "{out}");
     // A pattern that already names the visibility is run as written.
@@ -1227,7 +1383,7 @@ fn rust_item_pattern_without_visibility_also_matches_pub_items() {
             "pattern":"pub fn $N() -> Result<$T, String> { $$$B }"}),
     )
     .expect("match");
-    assert_eq!(out["stats"]["totalMatches"], 1, "{out}");
+    assert_eq!(out["stats"]["matchCount"], 1, "{out}");
     assert!(!relaxed(&out), "{out}");
 }
 
@@ -1345,7 +1501,8 @@ fn block_matches_default_to_their_header_and_expand_on_request() {
         "rule":"rule:\n  kind: function_item\n"});
     let out = run(&root.0, query.clone()).expect("match");
     assert_eq!(
-        out["files"][0]["matches"][0], "1-6\tpub fn load( path: &str, ) -> Result<u8, String> …",
+        out["files"][0]["matches"][0],
+        json!({"line":1,"column":1,"endLine":6,"value":"pub fn load( path: &str, ) -> Result<u8, String> …"}),
         "{out}"
     );
     assert!(out["next"]["expandCaptures"].is_object(), "{out}");
@@ -1374,7 +1531,7 @@ fn directory_match_infers_the_only_grammar_present() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)","pageSize":1}),
     )
     .expect("language inferred from the .rs files");
-    assert_eq!(out["stats"]["totalMatches"], 2, "{out}");
+    assert_eq!(out["stats"]["matchCount"], 2, "{out}");
     assert_eq!(out["inferredLanguage"], "rust", "{out}");
     assert_eq!(
         out["next"]["nextPage"]["query"]["queries"][0]["language"], "rust",
@@ -1402,7 +1559,7 @@ fn directory_match_with_several_parsing_grammars_names_the_candidates() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)"}),
     )
     .expect_err("two grammars parse the pattern");
-    assert_eq!(error.code, "ast.language.required", "{error:?}");
+    assert_eq!(error.code, "languageRequired", "{error:?}");
     for language in ["rust", "typescript"] {
         assert!(error.message.contains(language), "{error:?}");
     }
@@ -1419,7 +1576,7 @@ fn directory_match_with_several_parsing_grammars_names_the_candidates() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"pattern":"hit($A)","language":"rust"}),
     )
     .expect("explicit language");
-    assert_eq!(out["stats"]["totalMatches"], 1, "{out}");
+    assert_eq!(out["stats"]["matchCount"], 1, "{out}");
     assert!(out.get("inferredLanguage").is_none(), "{out}");
 }
 
@@ -1459,6 +1616,60 @@ fn object_and_yaml_rules_match_identically() {
     assert!(
         serde_json::from_value::<super::AstSearchQuery>(continuation).is_ok(),
         "the continuation parses as a typed row"
+    );
+}
+
+/// X14: matches inside a `macro_rules!` template body are listed (no
+/// silent omission behind `complete:true`).
+#[test]
+fn macro_rules_template_bodies_are_listed() {
+    let root = Fixture::new();
+    std::fs::write(
+        root.0.join("m.rs"),
+        "macro_rules! get {\n    ($e:expr) => {\n        config.value.unwrap()\n    };\n}\nfn main() {\n    other.unwrap();\n}\n",
+    )
+    .expect("source");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","path":root.0,"language":"rust","pattern":"$X.unwrap()"}),
+    )
+    .expect("match");
+    let lines = out["files"][0]["matches"]
+        .as_array()
+        .map(|rows| rows.iter().map(|row| lean_row(row).0).collect::<Vec<_>>())
+        .unwrap_or_default();
+    assert_eq!(lines, [3, 7], "{out}");
+}
+
+/// AS5: the rule-file object `{rule: …}` matches like the YAML rule file
+/// (`rule:` wrapper) and like the bare rule.
+#[test]
+fn rule_config_object_matches_like_yaml_rule_file() {
+    let root = Fixture::new();
+    std::fs::write(
+        root.0.join("lib.rs"),
+        "fn a() { unsafe { Pin::new_unchecked(&mut x); } }\nfn b() { Pin::new_unchecked(&mut y); }\n",
+    )
+    .expect("source");
+    let base = json!({"operation":"match","path":root.0,"language":"rust"});
+    let bare = json!({"pattern":"Pin::new_unchecked($A)","not":{"inside":{"kind":"unsafe_block","stopBy":"end"}}});
+    let mut yaml = base.clone();
+    yaml["rule"] = json!(
+        "id: pin\nlanguage: rust\nrule:\n  pattern: Pin::new_unchecked($A)\n  not:\n    inside:\n      kind: unsafe_block\n      stopBy: end"
+    );
+    let mut object = base.clone();
+    object["rule"] = json!({ "rule": bare });
+    let mut plain = base;
+    plain["rule"] = bare;
+    let yaml = run(&root.0, yaml).expect("yaml rule file");
+    let object = run(&root.0, object).expect("rule file object");
+    let plain = run(&root.0, plain).expect("bare rule");
+    assert_eq!(yaml["files"], object["files"], "{yaml} vs {object}");
+    assert_eq!(plain["files"], object["files"], "{plain} vs {object}");
+    assert_eq!(
+        object["files"][0]["matches"].as_array().map(Vec::len),
+        Some(1),
+        "{object}"
     );
 }
 
@@ -1522,7 +1733,7 @@ fn symbols_list_entries_prefer_exact_names_and_lowercase_ignores_case() {
 }
 
 #[test]
-fn a_single_named_declaration_leads_to_its_references() {
+fn a_single_named_declaration_leads_to_its_callers() {
     let root = Fixture::new();
     let source = root.0.join("lead.rs");
     std::fs::write(&source, "struct S;\n\nfn helper() {}\nfn helper_two() {}\n").expect("source");
@@ -1548,7 +1759,7 @@ fn a_single_named_declaration_leads_to_its_references() {
         assert!(one.get("next").is_none(), "{one}");
         return;
     }
-    let lead = &one["next"]["verifyReferences"];
+    let lead = &one["next"]["callers"];
     assert_eq!(lead["tool"], "lspSearch", "{one}");
     // A function's usual next question is its call sites.
     assert_eq!(lead["query"]["queries"][0]["operation"], "callers", "{one}");
@@ -1561,7 +1772,7 @@ fn a_single_named_declaration_leads_to_its_references() {
     );
     // Several declarations, or no name filter, name no single symbol.
     for many in [symbols(json!("help")), symbols(json!(null))] {
-        assert!(many["next"].get("verifyReferences").is_none(), "{many}");
+        assert!(many["next"].get("callers").is_none(), "{many}");
     }
     // A directory scope resolves the row's file for the lead.
     let dir = run(
@@ -1569,7 +1780,7 @@ fn a_single_named_declaration_leads_to_its_references() {
         json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":root.0,"symbolName":["helper"]}),
     )
     .expect("directory symbols");
-    let uri = dir["next"]["verifyReferences"]["query"]["queries"][0]["path"]
+    let uri = dir["next"]["callers"]["query"]["queries"][0]["path"]
         .as_str()
         .expect("directory path");
     assert_eq!(
@@ -1595,7 +1806,7 @@ fn a_bare_include_word_matches_file_names_containing_it() {
             "language":"rust","pattern":"hit($A)","include":["test"]}),
     )
     .expect("match");
-    assert_eq!(out["stats"]["totalMatches"], 1, "{out}");
+    assert_eq!(out["stats"]["matchCount"], 1, "{out}");
     assert!(out.to_string().contains("handler_test.rs"), "{out}");
 }
 
@@ -1676,29 +1887,29 @@ fn an_empty_declaration_pattern_retries_with_the_parts_it_omitted() {
     // Every function has a return type: the pattern as written matches
     // nothing, so the retry spells the return type it omitted.
     let out = matched(&typed, "export function $N($$$A) { $$$B }");
-    assert_eq!(out["stats"]["totalMatches"], 1, "{out}");
+    assert_eq!(out["stats"]["matchCount"], 1, "{out}");
     assert!(out.get("status").is_none(), "{out}");
     assert!(relaxed(&out), "{out}");
     let out = matched(&typed, "function $N($$$A) { $$$B }");
-    assert_eq!(out["stats"]["totalMatches"], 2, "{out}");
+    assert_eq!(out["stats"]["matchCount"], 2, "{out}");
 
     // A pattern that matches as written still gains the spellings it
     // omitted: the untyped function and the typed one.
     let out = matched(&mixed, "export function $N($$$A) { $$$B }");
-    assert_eq!(out["stats"]["totalMatches"], 2, "{out}");
+    assert_eq!(out["stats"]["matchCount"], 2, "{out}");
     assert!(relaxed(&out), "{out}");
 
     // Rust: visibility and the return type; Python: the return annotation.
     let out = matched(&rust, "fn $N() { $$$B }");
-    assert_eq!(out["stats"]["totalMatches"], 3, "{out}");
+    assert_eq!(out["stats"]["matchCount"], 3, "{out}");
     assert!(relaxed(&out), "c as written, a and b relaxed: {out}");
     let only_pub = root.0.join("pub.rs");
     std::fs::write(&only_pub, "pub fn a() -> u8 { 1 }\npub(crate) fn b() {}\n").expect("pub");
     let out = matched(&only_pub, "fn $N() { $$$B }");
-    assert_eq!(out["stats"]["totalMatches"], 2, "{out}");
+    assert_eq!(out["stats"]["matchCount"], 2, "{out}");
     assert!(relaxed(&out), "{out}");
     let out = matched(&python, "def $F($$$A): $$$B");
-    assert_eq!(out["stats"]["totalMatches"], 1, "{out}");
+    assert_eq!(out["stats"]["matchCount"], 1, "{out}");
     assert!(relaxed(&out), "{out}");
 
     // Nothing to add, or nothing found either way: the plain empty result.
@@ -1756,7 +1967,7 @@ fn directory_match_over_a_grammar_family_infers_the_family() {
     )
     .expect("one family");
     assert_eq!(out["inferredLanguage"], "typescript", "{out}");
-    assert_eq!(out["stats"]["totalMatches"], 2, "{out}");
+    assert_eq!(out["stats"]["matchCount"], 2, "{out}");
 }
 
 /// Parse-recovery notes stay on files that list a declaration; the other
@@ -1940,4 +2151,146 @@ fn wrapped_rule_document_matches_like_the_bare_rule() {
         Some(1),
         "{wrapped}"
     );
+}
+
+/// repo-sweep (redis module.c): a one-line `typedef struct X X;` declares
+/// `type X` and `struct X` on one name line. The struct is the typedef's
+/// sibling, never its own parent's member, and no row is dropped. A
+/// multi-line `typedef struct Y {…} Y;` keeps its struct nested (different
+/// name lines), and a struct field keeps its struct parent.
+#[test]
+fn c_one_line_typedef_struct_is_not_its_own_parent() {
+    let root = Fixture::new();
+    let source = root.0.join("module.c");
+    std::fs::write(
+        &source,
+        "struct Api {\n    void *func;\n};\ntypedef struct Api Api;\ntypedef struct Fwd Fwd;\n\
+         typedef struct Ctx {\n    int flags;\n} Ctx;\n",
+    )
+    .expect("source");
+    let out = run(
+        &root.0,
+        json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source}),
+    )
+    .expect("symbols");
+    let rows = &out["symbols"];
+    let flat = crate::tools::symbol_outline::flatten_members(rows.as_array().expect("rows"));
+    // Every declaration survives, in source order.
+    let named: Vec<(&str, &str, u64)> = flat
+        .iter()
+        .map(|row| {
+            (
+                row["symbolName"].as_str().expect("name"),
+                row["kind"].as_str().expect("kind"),
+                row["line"].as_u64().expect("line"),
+            )
+        })
+        .collect();
+    for want in [
+        ("Api", "struct", 1),
+        ("Api", "type", 4),
+        ("Api", "struct", 4),
+        ("Fwd", "type", 5),
+        ("Fwd", "struct", 5),
+        ("Ctx", "type", 8),
+    ] {
+        assert!(named.contains(&want), "{want:?} missing: {out}");
+    }
+    for row in &flat {
+        assert!(
+            !(row.get("parent") == row.get("symbolName")
+                && row.get("parentLine") == row.get("line")),
+            "self-parented row {row}: {out}"
+        );
+    }
+    let parent_of = |name: &str, kind: &str, line: u64| {
+        flat.iter()
+            .find(|row| row["symbolName"] == name && row["kind"] == kind && row["line"] == line)
+            .and_then(|row| row.get("parent").cloned())
+    };
+    assert_eq!(parent_of("Api", "struct", 4), None, "{out}");
+    assert_eq!(parent_of("Fwd", "struct", 5), None, "{out}");
+}
+
+/// Follow `next.nextPage`, then `next.expandScan`, to the end of the chain;
+/// returns every page.
+fn ast_chain(root: &std::path::Path, query: serde_json::Value) -> Vec<serde_json::Value> {
+    let mut pages = Vec::new();
+    let mut next = Some(query);
+    while let Some(query) = next.take() {
+        assert!(pages.len() < 200, "the chain does not end");
+        let out = run(root, query).expect("page");
+        let page = out["next"].get("nextPage");
+        let expand = out["next"].get("expandScan");
+        assert!(
+            page.is_none() || expand.is_none(),
+            "one continuation per page: {out}"
+        );
+        next = page
+            .or(expand)
+            .map(|call| call["query"]["queries"][0].clone());
+        if next.is_none() {
+            assert!(out.get("terminalLimit").is_none(), "{out}");
+        }
+        pages.push(out);
+    }
+    pages
+}
+
+/// Every `(file, row)` a page lists: match rows under `files[].matches`,
+/// symbol rows under `files[].symbols`.
+fn ast_rows(pages: &[serde_json::Value]) -> Vec<String> {
+    pages
+        .iter()
+        .flat_map(|out| out["files"].as_array().cloned().unwrap_or_default())
+        .flat_map(|file| {
+            let path = file["path"].as_str().expect("path").to_owned();
+            let rows = file
+                .get("matches")
+                .or_else(|| file.get("symbols"))
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            rows.into_iter().map(move |row| format!("{path} {row}"))
+        })
+        .collect()
+}
+
+/// D-2: `next.expandScan` resumes after the files its window evaluated, so
+/// the chain of pages and widened scans lists every match and declaration
+/// exactly once, under each sort.
+#[test]
+fn expanded_scans_reach_every_file_exactly_once() {
+    let root = Fixture::new();
+    for dir in ["a", "a/deep", "b"] {
+        std::fs::create_dir_all(root.0.join(dir)).expect("dir");
+        for n in 0..5 {
+            let body = "pub fn source() {}\n".repeat(n + 1);
+            std::fs::write(root.0.join(format!("{dir}/f{n}.rs")), body).expect("source file");
+        }
+    }
+    let queries = [
+        serde_json::json!({"operation":"match","path":root.0,"language":"rust","pattern":"pub fn source() {}","pageSize":2}),
+        serde_json::json!({"operation":"match","path":root.0,"language":"rust","pattern":"pub fn source() {}","pageSize":2,"sort":"matchCount"}),
+        serde_json::json!({"operation":"symbols","path":root.0,"pageSize":4}),
+    ];
+    for query in queries {
+        let whole = ast_rows(&ast_chain(&root.0, query.clone()));
+        assert_eq!(whole.len(), 45, "{query}");
+        let mut cut = query.clone();
+        cut["maxFiles"] = serde_json::json!(2);
+        let pages = ast_chain(&root.0, cut);
+        assert!(pages.len() > 4, "{query}");
+        assert!(
+            pages
+                .iter()
+                .any(|page| page["next"]["expandScan"]["query"]["queries"][0]["scanOffset"] == 8),
+            "{query}"
+        );
+        let mut walked = ast_rows(&pages);
+        let mut expected = whole.clone();
+        walked.sort();
+        expected.sort();
+        assert_eq!(walked, expected, "{query}: no duplicate, no gap");
+    }
 }

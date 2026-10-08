@@ -10,6 +10,7 @@ mod github;
 mod github_cache;
 mod lifecycle;
 mod maintenance;
+mod row_indices;
 mod source_identity;
 mod tool_output;
 

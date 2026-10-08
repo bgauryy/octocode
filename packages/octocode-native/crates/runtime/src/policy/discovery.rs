@@ -137,9 +137,10 @@ fn sensitive_directory(aliases: &str) -> Option<&'static str> {
         .find_map(|part| SENSITIVE_DIRECTORY_NAMES.iter().find(|name| **name == part))
         .copied()
         .or_else(|| {
+            let directory = format!("{aliases}/");
             SENSITIVE_FRAGMENTS
                 .iter()
-                .find(|(fragment, _)| format!("{aliases}/").contains(fragment))
+                .find(|(fragment, _)| directory.contains(fragment))
                 .map(|(_, label)| *label)
         })
 }
@@ -186,21 +187,8 @@ impl Withheld {
         }
     }
 
-    /// Fold another walk's counts into this one.
-    pub fn absorb(&mut self, other: &Withheld) {
-        for (dir, count) in &other.dirs {
-            *self.dirs.entry(dir).or_default() += count;
-        }
-        self.files += other.files;
-        self.other += other.other;
-    }
-
     pub fn total(&self) -> usize {
         self.dirs.values().sum::<usize>() + self.files + self.other
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.total() == 0
     }
 
     /// One disclosure: the count, which security-policy directories, that

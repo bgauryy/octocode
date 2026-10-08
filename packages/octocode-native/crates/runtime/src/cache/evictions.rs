@@ -1,6 +1,6 @@
 //! Append-only eviction trail for on-disk caches.
 //!
-//! Every clone/tree cache removal appends one JSON line to
+//! Every clone-cache removal (ghCloneRepo) appends one JSON line to
 //! `<octocode home>/logs/evictions.jsonl` so a vanished checkout is always
 //! attributable (reason, path, bytes, pid, timestamp). Writes are strictly
 //! best-effort: a log failure must never block or fail the eviction itself.

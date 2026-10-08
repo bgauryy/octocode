@@ -1,4 +1,0 @@
-# env {'ALLOWED_PATHS': '/etc,/private/etc'} cwd /Users/bgaryy/code/octocode
-# q {'path': '/etc/shells', 'startLine': 1, 'endLine': 2}
-# exit 5
-{"results":[{"index":0,"data":{"errorCode":"fileAccessFailed","error":"Symlink target 'shells' is in an ignored directory or matches an ignored pattern","resolvedPath":"/etc/shells","hints":["Verify the path with structureSearch operation:\"files\", then retry the exact path."]},"status":"error"}]}

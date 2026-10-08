@@ -72,7 +72,7 @@ A fixed rule set evaluated **before** user rules. A plan `deny` is final; a plan
 | Tool | Plan decision |
 |---|---|
 | `read`, `grep`, `find`, `ls` | allow |
-| `mcp__octocode__*` (all nine are read-only) | allow |
+| `mcp__octocode__*` (the server registers only read tools; `ghCloneRepo` and `astRewrite` are CLI-only) | allow |
 | `web` | allow |
 | `file`, `edit`, `write` | **deny**, except under `<workspace>/.octocode/tmp/plans/**` (gitignored, `.octocode/tmp/.gitignore`) for long plans |
 | `bash` | allow when **every** segment is on the read-only list with no write redirection; opaque → deny; else → ask |

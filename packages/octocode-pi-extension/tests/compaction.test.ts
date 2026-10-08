@@ -82,7 +82,7 @@ describe('compaction', () => {
       fileOps: { read: new Set(['a.ts']), written: new Set<string>(), edited: new Set(['b.ts']) },
       messagesToSummarize: [
         { role: 'assistant', content: [{ type: 'toolCall', name: 'file', arguments: { queries: [{ type: 'edit', path: 'c.ts' }, { type: 'delete', path: 'a.ts' }] } }] },
-        { role: 'assistant', content: [{ type: 'toolCall', name: 'mcp__octocode__localGetFileContent', arguments: { queries: [{ path: 'd.ts' }] } }] },
+        { role: 'assistant', content: [{ type: 'toolCall', name: 'mcp__octocode__localFetch', arguments: { queries: [{ path: 'd.ts' }] } }] },
       ],
       turnPrefixMessages: [{ role: 'assistant', content: [{ type: 'toolCall', name: 'file', arguments: { queries: [{ type: 'write', path: 'e.ts' }] } }] }],
     } as never as Parameters<typeof addFileToolOps>[0];
@@ -136,6 +136,21 @@ describe('compaction', () => {
     // The context stays far below the untrimmed size (120 turns x 36k characters).
     expect(JSON.stringify(entries).length).toBeLessThan(120 * 36_000 * 0.3);
     expect(peakChars).toBeLessThan(120 * 36_000 * 0.4);
+  });
+
+  it('keeps delegation and message call arguments verbatim: they are not on disk and serve as templates for later calls', () => {
+    const task = 'd'.repeat(40_000);
+    const call = (index: number, name: string, args: Record<string, unknown>) => ({
+      id: `a${index}`,
+      message: { role: 'assistant', content: [{ type: 'toolCall', id: `c${index}`, name, arguments: args }] },
+    });
+    const result = (index: number) => ({ id: `r${index}`, message: { role: 'toolResult', toolCallId: `c${index}`, content: [{ type: 'text', text: 'ok' }] } });
+    const old = [call(0, 'agent', { task }), result(0), call(1, 'sendMessage', { to: 'all', message: task }), result(1), call(2, 'askUser', { questions: [{ question: task }] }), result(2)];
+    // An old successful bash call with large arguments still shrinks, so the batch is worth planning.
+    const shrinkable = Array.from({ length: 3 }, (_, index) => [call(3 + index, 'bash', { command: task }), result(3 + index)]).flat();
+    const recent = Array.from({ length: KEEP_RECENT_RESULTS }, (_, index) => [call(10 + index, 'bash', { command: 'ls' }), result(10 + index)]).flat();
+    const edits = planContextTrims([...old, ...shrinkable, ...recent]);
+    expect(edits.map((edit) => edit.targetId)).toEqual(['a3', 'a4', 'a5']);
   });
 
   it('never trims subagent reports', () => {

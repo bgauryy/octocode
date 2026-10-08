@@ -2,7 +2,7 @@
 //! decoding happen in the caller on every request; the key uses the decoded
 //! content, canonical path and parser override, rather than mutable timestamps.
 
-use crate::cache::{CacheClass, CacheConfig, CacheKey, CachePartition, Store};
+use crate::cache::{CacheClass, CacheConfig, CacheKey, Store, StorePartition};
 use std::sync::{Arc, OnceLock};
 
 static CACHE: OnceLock<Store<String>> = OnceLock::new();
@@ -16,7 +16,7 @@ pub(crate) fn extract(
     let key = CacheKey {
         namespace: "ast-declarations".into(),
         resource: crate::digest::sha256(source.as_bytes()),
-        partition: CachePartition {
+        partition: StorePartition {
             endpoint: canonical_path.into(),
             credential_fingerprint: if cpp_header { "cpp" } else { "auto" }.into(),
         },

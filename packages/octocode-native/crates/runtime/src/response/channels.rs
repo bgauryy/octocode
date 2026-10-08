@@ -66,6 +66,11 @@ pub(super) fn shape(object: &mut Map<String, Value>, tool: ToolId, recovery: boo
         merge_repeats(next, tool);
     }
     split(object, tool);
+    if single_hit(object)
+        && let Some(Value::Object(hints)) = object.get_mut(HINTS_KEY)
+    {
+        cap_leads(hints, 1);
+    }
     for key in [PAGES_KEY, HINTS_KEY] {
         if let Some(Value::Object(calls)) = object.get_mut(key) {
             for (name, call) in calls.iter_mut() {
@@ -220,10 +225,10 @@ fn split(object: &mut Map<String, Value>, tool: ToolId) {
     match object.get_mut(HINTS_KEY) {
         Some(Value::Object(hints)) => {
             hints.extend(moved);
-            cap_leads(hints);
+            cap_leads(hints, MAX_HINT_LEADS);
         }
         _ if !moved.is_empty() => {
-            cap_leads(&mut moved);
+            cap_leads(&mut moved, MAX_HINT_LEADS);
             // Leads read before the pages that follow them (clasify's exact
             // read ahead of its walk), so `hints` takes `next`'s place.
             let at = object
@@ -237,15 +242,49 @@ fn split(object: &mut Map<String, Value>, tool: ToolId) {
 }
 
 /// Lead calls one `hints` object may offer; prose tips are not leads and
-/// pages (`next`) are never capped.
+/// pages (`next`) are never capped. A complete single-hit answer
+/// ([`single_hit`]) offers one.
 pub const MAX_HINT_LEADS: usize = 2;
 
-/// Keeps the first [`MAX_HINT_LEADS`] leads. The contract's lead priority
+/// Keys beside the evidence lists: guidance and coverage notes.
+const NOT_EVIDENCE: [&str; 4] = ["warnings", "partialReasons", "diagnostics", HINTS_KEY];
+
+/// A complete answer of one hit: no page left (`next`), not partial, and
+/// exactly one non-empty evidence list holding one entry with no list of 2+
+/// records inside (one file with several matches is several hits).
+fn single_hit(object: &Map<String, Value>) -> bool {
+    if object.contains_key(PAGES_KEY) || object.get("isPartial") == Some(&Value::Bool(true)) {
+        return false;
+    }
+    let mut lists = object
+        .iter()
+        .filter(|(key, _)| !NOT_EVIDENCE.contains(&key.as_str()))
+        .filter_map(|(_, value)| value.as_array())
+        .filter(|list| !list.is_empty());
+    match (lists.next(), lists.next()) {
+        (Some(only), None) => only.len() == 1 && !holds_records(&only[0]),
+        _ => false,
+    }
+}
+
+/// Whether `value` holds a list of 2+ objects at any depth.
+fn holds_records(value: &Value) -> bool {
+    match value {
+        Value::Array(items) => {
+            items.iter().filter(|item| item.is_object()).count() >= 2
+                || items.iter().any(holds_records)
+        }
+        Value::Object(fields) => fields.values().any(holds_records),
+        _ => false,
+    }
+}
+
+/// Keeps the first `limit` leads. The contract's lead priority
 /// (`continuationChannels.leadPriority`) goes first; other leads follow in
 /// the order the tool emitted them (new evidence first). A lead marked
 /// `confidence: "low"` yields its place to any other. The choice is
 /// deterministic: a stable order, never a tie broken by hashing.
-fn cap_leads(hints: &mut Map<String, Value>) {
+fn cap_leads(hints: &mut Map<String, Value>, limit: usize) {
     let rank = |name: &str| {
         continuation_channels::LEAD_PRIORITY
             .iter()
@@ -263,11 +302,11 @@ fn cap_leads(hints: &mut Map<String, Value>) {
             )
         })
         .collect();
-    if leads.len() <= MAX_HINT_LEADS {
+    if leads.len() <= limit {
         return;
     }
     leads.sort();
-    for (_, name) in leads.into_iter().skip(MAX_HINT_LEADS) {
+    for (_, name) in leads.into_iter().skip(limit) {
         hints.shift_remove(&name);
     }
 }
@@ -331,7 +370,7 @@ mod tests {
             "restart",
             "restartDiagnostics",
             "readBody",
-            "readTopMatch",
+            "read",
             "nextpage",
         ] {
             assert!(!is_remaining(ToolId::LocalSearch, name), "{name}");
@@ -359,7 +398,7 @@ mod tests {
         let lead = json!({"tool":"localFetch","query":{"path":"/r/a"}});
         let mut structured = json!({"results":[{"index":0,"data":{
             "hints":["Add noIgnore:true."],
-            "next":{"nextPage":page,"readTopMatch":lead},
+            "next":{"nextPage":page,"read":lead},
             "pullRequests":[{"number":1,"next":{"readBody":lead}}]
         }}],"responsePagination":{"next":{"tool":"localSearch","query":{}}}});
         split_hints(&mut structured, ToolId::LocalSearch);
@@ -367,7 +406,7 @@ mod tests {
         assert_eq!(data["next"], json!({"nextPage":page}));
         assert_eq!(
             data["hints"],
-            json!({"text":["Add noIgnore:true."],"readTopMatch":lead})
+            json!({"text":["Add noIgnore:true."],"read":lead})
         );
         assert_eq!(data["pullRequests"][0]["hints"], json!({"readBody":lead}));
         assert!(data["pullRequests"][0].get("next").is_none());
@@ -391,7 +430,7 @@ mod tests {
                 "widen":low,
                 "readDefinition":call("localFetch"),
                 "findCallers":call("lspSearch"),
-                "readTopMatch":call("localFetch")
+                "read":call("localFetch")
             }
         }}]});
         split_hints(&mut structured, ToolId::LspSearch);
@@ -412,6 +451,39 @@ mod tests {
         let once = structured.clone();
         split_hints(&mut structured, ToolId::LspSearch);
         assert_eq!(structured, once, "idempotent");
+    }
+
+    /// B9: a complete answer of one hit offers one lead; several hits, a
+    /// partial answer, or one with pages left keep the two-lead menu.
+    #[test]
+    fn a_complete_single_hit_answer_offers_one_lead() {
+        let call = |tool: &str| json!({"tool":tool,"query":{"path":"a"}});
+        let leads = |data: Value, tool: ToolId| {
+            let mut structured = json!({"results":[{"index":0,"data":data}]});
+            split_hints(&mut structured, tool);
+            structured["results"][0]["data"]["hints"]
+                .as_object()
+                .map(|hints| hints.keys().cloned().collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
+        let menu = || json!({"readFiles":call("ghGetHistoryItem"),"readDiscussion":call("ghGetHistoryItem")});
+        let one =
+            json!({"pullRequests":[{"number":1,"labels":["bug"]}],"warnings":["w"],"next":menu()});
+        assert_eq!(leads(one, ToolId::GhGetHistoryItem), ["readFiles"]);
+        let two = json!({"pullRequests":[{"number":1},{"number":2}],"next":menu()});
+        assert_eq!(leads(two, ToolId::GhGetHistoryItem).len(), 2);
+        let partial = json!({"pullRequests":[{"number":1}],"isPartial":true,"next":menu()});
+        assert_eq!(leads(partial, ToolId::GhGetHistoryItem).len(), 2);
+        // One file with two matches is two hits.
+        let file = json!({"files":[{"path":"a.rs","matches":[{"line":1},{"line":2}]}],
+            "next":{"read":call("localFetch"),"callers":call("lspSearch")}});
+        assert_eq!(leads(file, ToolId::LocalSearch).len(), 2);
+        let hit = json!({"files":[{"path":"a.rs","matches":[{"line":1,"enclosing":{"line":1}}]}],
+            "next":{"read":call("localFetch"),"callers":call("lspSearch")}});
+        assert_eq!(leads(hit, ToolId::LocalSearch), ["read"]);
+        let paged = json!({"files":[{"path":"a.rs","matches":[{"line":1}]}],
+            "next":{"nextPage":call("localSearch"),"read":call("localFetch"),"callers":call("lspSearch")}});
+        assert_eq!(leads(paged, ToolId::LocalSearch).len(), 2);
     }
 
     #[test]
@@ -448,7 +520,7 @@ mod tests {
         let call = |tool: &str| json!({"tool":tool,"query":{"path":"a"}});
         let mut structured = json!({"results":[{"index":0,"data":{"next":{
             "nextPage":call("ghSearchCode"),
-            "readTopMatch":call("ghGetFileContent"),
+            "read":call("ghGetFileContent"),
             "readHits":call("ghGetFileContent"),
             "clasify":call("clasify")
         }}}]});
@@ -460,7 +532,7 @@ mod tests {
             .map(|h| h.keys().cloned().collect::<Vec<_>>());
         assert_eq!(
             leads,
-            Some(vec!["readTopMatch".to_owned(), "clasify".to_owned()]),
+            Some(vec!["read".to_owned(), "clasify".to_owned()]),
             "{data}"
         );
     }
@@ -476,7 +548,7 @@ mod tests {
             "nextPage":call("localSearch"),
             "read":call("localFetch"),
             "binarySkipped":call("structureSearch"),
-            "verifyReferences":call("lspSearch")
+            "references":call("lspSearch")
         }}}]});
         split_hints(&mut structured, ToolId::LocalSearch);
         let data = &structured["results"][0]["data"];
@@ -568,8 +640,8 @@ mod tests {
             "next": {
                 "nextPage": call("localSearch", "exact"),
                 "widen": call("localSearch", "low"),
-                "readTopMatch": call("localFetch", "high"),
-                "verifyReferences": call("lspSearch", "medium")
+                "read": call("localFetch", "high"),
+                "references": call("lspSearch", "medium")
             },
             "files": [{"path":"a","hints":{"read":call("localFetch", "exact")}}],
             "confidence": "exact"
@@ -584,7 +656,7 @@ mod tests {
         let leads = data["hints"].as_object().expect("hints");
         assert_eq!(
             leads.keys().cloned().collect::<Vec<_>>(),
-            vec!["readTopMatch", "verifyReferences"],
+            vec!["read", "references"],
             "a low lead yields its place: {data}"
         );
         assert!(
@@ -615,14 +687,11 @@ mod tests {
         ] {
             assert_eq!(channel(ToolId::GhSearchCode, name), Channel::Page, "{name}");
         }
-        assert_eq!(
-            channel(ToolId::GhSearchCode, "readTopMatch2"),
-            Channel::Lead
-        );
+        assert_eq!(channel(ToolId::GhSearchCode, "read2"), Channel::Lead);
         let read = |path: &str| json!({"tool":"ghGetFileContent","query":{"queries":[{"owner":"o","repo":"r","path":path}]}});
         let mut next = serde_json::Map::new();
         next.insert("nextPage".into(), json!({"tool":"ghSearchCode","query":{"queries":[{"owner":"o","keywords":["k"],"page":2}]}}));
-        next.insert("readTopMatch".into(), read("top"));
+        next.insert("read".into(), read("top"));
         for index in 1..=7 {
             let name = if index == 1 {
                 "readHits".to_owned()
@@ -637,7 +706,7 @@ mod tests {
             json!({"tool":"ghStructure","query":{"queries":[{"owner":"o","repo":"r"}]}}),
         );
         next.insert(
-            "searchContent".into(),
+            "searchCode".into(),
             json!({"tool":"ghSearchCode","query":{"queries":[{"owner":"o"}]}}),
         );
         let mut structured = json!({"results":[{"index":0,"data":{"next":next}}]});

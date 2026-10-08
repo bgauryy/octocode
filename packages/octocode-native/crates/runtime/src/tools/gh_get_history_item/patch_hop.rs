@@ -90,13 +90,12 @@ pub(super) fn patch_continuation(mut nq: Value, entry: &Value, q: &HistoryItemRe
 }
 
 /// The response page a patch-walk hop (`continuePatch`, or the next file
-/// page of a patch read) asks for. A hop reads patches only, so the hop
-/// that leaves a walk's opening call (no `offset`) doubles the call's page
-/// (up to the contract's `responseLength` maximum) and every later hop keeps
-/// the page it ran with: every hop names an `offset`, so a page doubles once
-/// per walk, and the walk takes about half the calls at a page that scales
-/// with the configured one instead of overriding it. A caller's explicit
-/// `length` keeps its page. `None` when the runtime named no page.
+/// page of a patch read) asks for. A hop reads patches only, so it asks for
+/// twice the configured page (`output.pagination.defaultCharLength`, up to
+/// the contract's `responseLength` maximum) whatever page it ran with: the
+/// walk takes about half the calls at a page that scales with the configured
+/// one, and never doubles twice. A caller's explicit `length` keeps the
+/// call's page. `None` when the runtime named no page.
 pub(super) fn hop_response_length(q: &HistoryItemRequest) -> Option<usize> {
     let page = q.auto_page_chars.filter(|page| *page > 0)?;
     let max = crate::contracts::tool_contract(ToolId::GhGetHistoryItem)
@@ -104,31 +103,36 @@ pub(super) fn hop_response_length(q: &HistoryItemRequest) -> Option<usize> {
         .pointer("/inputSchema/properties/responseLength/maximum")?
         .as_u64()
         .and_then(|max| usize::try_from(max).ok())?;
-    let first_window = q.char_offset().is_none() && q.char_length().is_none();
-    let page = if first_window {
-        page.saturating_mul(2)
-    } else {
+    let page = if q.char_length().is_some() {
         page
+    } else {
+        q.configured_page_chars
+            .filter(|configured| *configured > 0)
+            .unwrap_or(page)
+            .saturating_mul(2)
     };
     Some(page.min(max))
 }
 
-/// The next file page of a patch walk: it opens at stream offset 0, said
-/// explicitly so the hop keeps the walk's page ([`hop_response_length`]).
-pub(super) fn patch_walk_file_page(mut lead: Value, q: &HistoryItemRequest) -> Value {
-    if let Some(row) = crate::tools::result::continuation_row_mut(&mut lead) {
-        row["offset"] = json!(0);
-    }
+/// The next file page of a patch walk, at the walk's page
+/// ([`hop_response_length`]).
+pub(super) fn patch_walk_file_page(lead: Value, q: &HistoryItemRequest) -> Value {
     with_hop_page(lead, q)
 }
 
-/// `lead` asking for the [`hop_response_length`] page.
+/// `lead` asking for the [`hop_response_length`] page, paged by whole rows
+/// (`responseScope:"rows"`): an explicit `responseLength` alone pages the
+/// rendered text, so a row that outgrew its page would fall back to text
+/// windows that empty the structured `results` and bury the walk's
+/// `next.*`. Row paging splits it into structured `rowPart`s instead, and
+/// the walk's `continuePatch`/`nextFilePage` rides the last part.
 pub(super) fn with_hop_page(mut lead: Value, q: &HistoryItemRequest) -> Value {
     if let (Some(page), Some(input)) = (
         hop_response_length(q),
         lead.get_mut("query").and_then(Value::as_object_mut),
     ) {
         input.insert("responseLength".into(), json!(page));
+        input.insert("responseScope".into(), json!("rows"));
     }
     lead
 }

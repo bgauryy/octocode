@@ -1,5 +1,0 @@
-# cmd: octocode lspSearch {"goal": "g", "reasoning": "r", "operation": "hover", "uri": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts", "position": {"line": 500, "character": 0}}
-# env: None
-# exit: 5
-# stderr: 
-{"results":[{"index":0,"data":{"next":{"readFile":{"tool":"localFetch","why":"Read the source directly because semantic navigation is unavailable.","confidence":"exact","query":{"path":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts","followUp":true}}},"errorCode":"lsp.anchorUnresolved","error":"line 500 is past the end of the document: it has 14 lines (0-based lines 0-13).","type":"hover","lsp":{"serverAvailable":true},"hints":["Read the source, then provide an exact position or a unique symbolName with lineHint."],"path":"a.ts"},"status":"error"}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

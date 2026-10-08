@@ -20,26 +20,24 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime};
 
 use super::relevance;
-use super::walk::{WalkFlags, walk_builder};
+use super::walk::{WalkFlags, build_overrides, walk_builder};
 use crate::error::{Error, Result};
 use grep_matcher::Matcher;
 use grep_pcre2::RegexMatcherBuilder as Pcre2MatcherBuilder;
 use grep_regex::RegexMatcherBuilder;
 use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
-use ignore::overrides::OverrideBuilder;
 use ignore::types::TypesBuilder;
 use ignore::{WalkBuilder, WalkState};
 
 use crate::search::classify;
 use crate::search::ripgrep_parser::{FileEntry, RawMatch, assemble_file, strip_trailing_newline};
-use crate::text::file_extension::get_extension_internal;
-use crate::text::utf8_offsets::{
-    byte_to_char_offset_inner, ceil_char_boundary, floor_char_boundary,
-};
+use crate::text::file_extension::extension_of;
+use crate::text::utf8_offsets::{byte_to_utf16_offset, ceil_char_boundary, floor_char_boundary};
 use crate::types::{
     BinaryExtensionCount, RipgrepFile, RipgrepMatch, RipgrepParseResult, RipgrepSearchOptions,
-    RipgrepStats,
+    RipgrepStats, SearchedSource,
 };
+use sha2::{Digest as _, Sha256};
 
 pub trait RipgrepPathFilter: Send + Sync {
     fn allows(&self, path: &Path, is_dir: bool) -> bool;
@@ -196,6 +194,51 @@ fn lossy_offset(bytes: &[u8], offset: usize) -> usize {
     }
 }
 
+/// Maps raw submatch offsets on one line to lossy-text offsets and UTF-16
+/// columns. `find_iter` yields non-overlapping matches left to right, so a
+/// forward cursor keeps a line with k spans at O(line + k) instead of
+/// rescanning the prefix per span (O(line · k)). The line's UTF-8 validity is
+/// checked once; an invalid line keeps the exact per-span lossy mapping.
+struct SpanColumns<'a> {
+    bytes: &'a [u8],
+    text: &'a str,
+    valid_utf8: bool,
+    cursor_byte: usize,
+    cursor_utf16: usize,
+}
+
+impl<'a> SpanColumns<'a> {
+    fn new(bytes: &'a [u8], text: &'a str) -> Self {
+        Self {
+            bytes,
+            text,
+            valid_utf8: std::str::from_utf8(bytes).is_ok(),
+            cursor_byte: 0,
+            cursor_utf16: 0,
+        }
+    }
+
+    fn lossy(&self, raw: usize) -> usize {
+        if self.valid_utf8 {
+            raw.min(self.bytes.len())
+        } else {
+            lossy_offset(self.bytes, raw)
+        }
+    }
+
+    /// UTF-16 column of lossy byte offset `start`, same as
+    /// `byte_to_utf16_offset(text, start)`.
+    fn column(&mut self, start: usize) -> usize {
+        let target = floor_char_boundary(self.text, start.min(self.text.len()));
+        if target < self.cursor_byte {
+            return byte_to_utf16_offset(self.text, target);
+        }
+        self.cursor_utf16 += self.text[self.cursor_byte..target].encode_utf16().count();
+        self.cursor_byte = target;
+        self.cursor_utf16
+    }
+}
+
 /// Slice the matched span `[start, end)` (byte offsets) out of `line` as a
 /// valid UTF-8 substring.
 fn span_value(line: &str, start: usize, end: usize) -> String {
@@ -292,6 +335,8 @@ struct FileRec {
     /// `relevance` identifier search only: a matched line declares the name
     /// (see [`identifier_search`]).
     declares: bool,
+    /// The bytes the values came from (see `digest_max_bytes`).
+    source: Option<SearchedSource>,
 }
 
 /// Everything one search accumulated. Totals (`files_matched`, `submatches`,
@@ -344,14 +389,14 @@ struct CollectState {
     size_skipped: AtomicBool,
     binary_quit: AtomicBool,
     binary_files: Mutex<Vec<String>>,
-    binary_file_count: AtomicU32,
+    binary_file_count: AtomicU64,
     skipped_binary_count: AtomicU32,
     skipped_binary_extensions: Mutex<HashMap<String, (u32, BTreeSet<String>)>>,
     pruned_dirs: Mutex<Vec<String>>,
     cancelled: AtomicBool,
     /// Set when the walk must end now (deadline, cancellation, driver timeout).
     stop: AtomicBool,
-    error_count: AtomicU32,
+    error_count: AtomicU64,
     first_error: Mutex<Option<String>>,
 }
 
@@ -370,13 +415,13 @@ impl CollectState {
             size_skipped: AtomicBool::new(false),
             binary_quit: AtomicBool::new(false),
             binary_files: Mutex::new(Vec::new()),
-            binary_file_count: AtomicU32::new(0),
+            binary_file_count: AtomicU64::new(0),
             skipped_binary_count: AtomicU32::new(0),
             skipped_binary_extensions: Mutex::new(HashMap::new()),
             pruned_dirs: Mutex::new(Vec::new()),
             cancelled: AtomicBool::new(false),
             stop: AtomicBool::new(false),
-            error_count: AtomicU32::new(0),
+            error_count: AtomicU64::new(0),
             first_error: Mutex::new(None),
         }
     }
@@ -385,7 +430,7 @@ impl CollectState {
     /// extension (lowercased, as structureSearch matches extensions).
     fn record_skipped_binary(&self, path: &Path) {
         self.skipped_binary_count.fetch_add(1, Ordering::Relaxed);
-        let extension = get_extension_internal(&path.to_string_lossy(), true, "");
+        let extension = extension_of(&path.to_string_lossy(), true, "");
         let name = extension
             .is_empty()
             .then(|| {
@@ -405,11 +450,7 @@ impl CollectState {
     /// finished first.
     fn record_binary(&self, path: &Path) {
         self.binary_quit.store(true, Ordering::Relaxed);
-        let _ = self
-            .binary_file_count
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-                Some(n.saturating_add(1))
-            });
+        self.binary_file_count.fetch_add(1, Ordering::Relaxed);
         // Every binary-quit file is named: each is a coverage gap.
         if let Ok(mut files) = self.binary_files.lock() {
             files.push(path.to_string_lossy().into_owned());
@@ -424,12 +465,9 @@ impl CollectState {
     }
 
     fn record_error(&self, message: String) {
-        // Saturate: a count stuck at u32::MAX still reports incomplete coverage.
-        let _ = self
-            .error_count
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
-                Some(n.saturating_add(1))
-            });
+        // `u64` cannot overflow; the snapshot saturates to `u32`, so a count
+        // stuck at u32::MAX still reports incomplete coverage.
+        self.error_count.fetch_add(1, Ordering::Relaxed);
         if let Ok(mut detail) = self.first_error.lock()
             && detail.is_none()
         {
@@ -485,7 +523,7 @@ impl CollectState {
                     files
                 })
                 .unwrap_or_default(),
-            binary_file_count: self.binary_file_count.load(Ordering::Relaxed),
+            binary_file_count: saturate_u32(self.binary_file_count.load(Ordering::Relaxed)),
             skipped_binary_count: self.skipped_binary_count.load(Ordering::Relaxed),
             pruned_dirs: self
                 .pruned_dirs
@@ -517,7 +555,7 @@ impl CollectState {
                 })
                 .unwrap_or_default(),
             cancelled: self.cancelled.load(Ordering::Relaxed),
-            error_count: self.error_count.load(Ordering::Relaxed),
+            error_count: saturate_u32(self.error_count.load(Ordering::Relaxed)),
             first_error,
         }
     }
@@ -608,17 +646,15 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             // one whole-line match. find_iter yields non-overlapping matches L→R.
             let matcher = self.matcher;
             let om = &mut self.om_matches;
+            let mut columns = SpanColumns::new(bytes, &line_text);
             matcher
                 .find_iter(bytes, |m| {
                     count = count.saturating_add(1);
                     first_start.get_or_insert(m.start());
                     if count <= MAX_ONLY_MATCHING_PER_LINE {
-                        let (start, end) =
-                            (lossy_offset(bytes, m.start()), lossy_offset(bytes, m.end()));
+                        let (start, end) = (columns.lossy(m.start()), columns.lossy(m.end()));
                         let value = span_value(&line_text, start, end);
-                        let column =
-                            byte_to_char_offset_inner(&line_text, start.min(line_text.len()))
-                                as u32;
+                        let column = columns.column(start) as u32;
                         om.push(RipgrepMatch {
                             line: line_number,
                             column,
@@ -661,7 +697,7 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             if self.work.materialize_line {
                 let line_cow = String::from_utf8_lossy(bytes);
                 let line_text = strip_trailing_newline(line_cow.into_owned());
-                let column = byte_to_char_offset_inner(
+                let column = byte_to_utf16_offset(
                     &line_text,
                     lossy_offset(bytes, first_start.unwrap_or(0)).min(line_text.len()),
                 ) as u32;
@@ -738,18 +774,14 @@ fn build_walk_builder(opts: &RipgrepSearchOptions) -> Result<WalkBuilder> {
     let has_globs = opts.include.as_ref().is_some_and(|v| !v.is_empty())
         || opts.exclude.as_ref().is_some_and(|v| !v.is_empty());
     if has_globs {
-        let mut ob = OverrideBuilder::new(&opts.path);
-        if let Some(include) = &opts.include {
-            for glob in include {
-                ob.add(glob).map_err(to_engine_err)?;
-            }
-        }
-        if let Some(exclude) = &opts.exclude {
-            for glob in exclude {
-                ob.add(&format!("!{glob}")).map_err(to_engine_err)?;
-            }
-        }
-        wb.overrides(ob.build().map_err(to_engine_err)?);
+        wb.overrides(
+            build_overrides(
+                Path::new(&opts.path),
+                opts.include.as_deref().unwrap_or_default(),
+                opts.exclude.as_deref().unwrap_or_default(),
+            )
+            .map_err(Error::new)?,
+        );
     }
 
     Ok(wb)
@@ -804,8 +836,8 @@ fn build_searcher(
 /// the opened handle is a regular file. The walk reported a regular file, but
 /// the path can be replaced (by a symlink, FIFO, or directory) before the
 /// open; checking the handle closes that window. Unix opens non-blocking so a
-/// FIFO swapped in cannot hang the open. Returns the file and its length.
-fn open_regular(path: &Path) -> std::io::Result<(std::fs::File, u64)> {
+/// FIFO swapped in cannot hang the open. Returns the file and its metadata.
+fn open_regular(path: &Path) -> std::io::Result<(std::fs::File, std::fs::Metadata)> {
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -826,7 +858,7 @@ fn open_regular(path: &Path) -> std::io::Result<(std::fs::File, u64)> {
             "not a regular file when opened (the path changed after the walk)",
         ));
     }
-    Ok((file, meta.len()))
+    Ok((file, meta))
 }
 
 /// Bytes before a first NUL that read as text: valid UTF-8 without control
@@ -858,6 +890,116 @@ fn read_prefix(file: &std::fs::File, len: u64) -> std::io::Result<Vec<u8>> {
     let mut prefix = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
     handle.take(len).read_to_end(&mut prefix)?;
     Ok(prefix)
+}
+
+/// Leading bytes kept from the searched read for the generated-header check.
+const HEAD_BYTES: usize = relevance::GENERATED_HEADER_BYTES as usize;
+
+/// The searcher's read of one opened file. Every byte the search reads
+/// passes through here once, so the generated-header prefix and the content
+/// digest come from that read instead of a second one.
+struct SourceTap<'f> {
+    file: &'f std::fs::File,
+    hashed: Option<Hashed>,
+    /// The first [`HEAD_BYTES`] bytes, when `keep_head` is set.
+    head: [u8; HEAD_BYTES],
+    head_len: usize,
+    keep_head: bool,
+    /// A read returned no bytes: the file was read to its end.
+    eof: bool,
+}
+
+/// A digest in progress over a file's bytes from offset 0.
+struct Hashed {
+    hasher: Sha256,
+    /// Bytes hashed so far; the file position the next read continues from.
+    len: u64,
+    eof: bool,
+}
+
+impl Hashed {
+    fn new() -> Self {
+        Self {
+            hasher: Sha256::new(),
+            len: 0,
+            eof: false,
+        }
+    }
+
+    fn update(&mut self, bytes: &[u8]) {
+        self.hasher.update(bytes);
+        self.len += bytes.len() as u64;
+    }
+
+    /// Hash the rest of `file` after the bytes already hashed and prove the
+    /// hashed bytes are the opened file whole; `None` when its length moved.
+    fn finish(mut self, file: &std::fs::File, meta: &std::fs::Metadata) -> Option<SearchedSource> {
+        use std::io::{Read, Seek, SeekFrom};
+        let mut buf = [0u8; 16 * 1024];
+        let mut handle = file;
+        if !self.eof {
+            // Another read (a header sample) may have moved the position.
+            handle.seek(SeekFrom::Start(self.len)).ok()?;
+        }
+        while !self.eof {
+            match handle.read(&mut buf) {
+                Ok(0) => self.eof = true,
+                Ok(read) => self.update(&buf[..read]),
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => return None,
+            }
+        }
+        (self.len == meta.len()).then(|| SearchedSource {
+            size: meta.len(),
+            modified: meta.modified().ok(),
+            digest: self.hasher.finalize().into(),
+        })
+    }
+}
+
+impl<'f> SourceTap<'f> {
+    fn new(file: &'f std::fs::File, hash: bool, keep_head: bool) -> Self {
+        Self {
+            file,
+            hashed: hash.then(Hashed::new),
+            head: [0; HEAD_BYTES],
+            head_len: 0,
+            keep_head,
+            eof: false,
+        }
+    }
+
+    /// The leading bytes, when the read reached [`HEAD_BYTES`] or the end.
+    fn head(&self) -> Option<&[u8]> {
+        (self.keep_head && (self.head_len == HEAD_BYTES || self.eof))
+            .then(|| &self.head[..self.head_len])
+    }
+}
+
+impl std::io::Read for SourceTap<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let mut handle = self.file;
+        let read = handle.read(buf)?;
+        if read == 0 {
+            if !buf.is_empty() {
+                self.eof = true;
+                if let Some(hashed) = &mut self.hashed {
+                    hashed.eof = true;
+                }
+            }
+            return Ok(0);
+        }
+        let bytes = &buf[..read];
+        if let Some(hashed) = &mut self.hashed {
+            hashed.update(bytes);
+        }
+        if self.keep_head && self.head_len < HEAD_BYTES {
+            let take = (HEAD_BYTES - self.head_len).min(read);
+            self.head[self.head_len..self.head_len + take].copy_from_slice(&bytes[..take]);
+            self.head_len += take;
+        }
+        Ok(read)
+    }
 }
 
 /// Per-worker collection buffer. Workers push into their own `Vec` and merge
@@ -958,6 +1100,11 @@ struct FileOutcome {
     opaque: bool,
     line_weight: u32,
     declares: bool,
+    /// The digest of the bytes searched so far (see [`Hashed::finish`]).
+    hashed: Option<Hashed>,
+    /// `relevance` only: the leading bytes declare a generated file; `None`
+    /// when the read did not reach them.
+    generated_header: Option<bool>,
 }
 
 impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
@@ -973,6 +1120,8 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             opaque: sink.binary_offset == Some(0),
             line_weight: sink.line_weight,
             declares: sink.declares,
+            hashed: None,
+            generated_header: None,
         }
     }
 }
@@ -988,21 +1137,41 @@ struct FileSearcher<'a, M: Matcher> {
     work: MatchWork,
     deadline: Option<Instant>,
     stop: &'a AtomicBool,
+    /// Hash files of at most this many bytes while they are searched.
+    digest_max_bytes: Option<u64>,
+    /// Keep the leading bytes for the generated-header check.
+    keep_head: bool,
 }
 
 impl<M: Matcher> FileSearcher<'_, M> {
-    /// Search an opened file. When it is quit as binary, the searcher has
-    /// dropped the whole buffer holding the NUL, so the NUL-free prefix is
-    /// searched again from byte 0 and its matches replace the first pass.
-    fn search(&mut self, file: &std::fs::File) -> std::io::Result<FileOutcome> {
+    /// Search an opened file in one read through a [`SourceTap`]. When it
+    /// is quit as binary, the searcher has dropped the whole buffer holding
+    /// the NUL, so the NUL-free prefix is searched again from byte 0 and its
+    /// matches replace the first pass; the digest then covers that prefix
+    /// and the rest of the file.
+    fn search(&mut self, file: &std::fs::File, len: u64) -> std::io::Result<FileOutcome> {
+        let hash = self.digest_max_bytes.is_some_and(|max| len <= max);
+        let mut tap = SourceTap::new(file, hash, self.keep_head);
         let mut sink = CollectSink::new(self.matcher, self.work, self.deadline, self.stop);
-        self.searcher.search_file(self.matcher, file, &mut sink)?;
-        let Some(offset) = sink.binary_offset else {
-            return Ok(sink.into());
+        // `search_file` reads through this same reader path: memory maps are
+        // never used, and multiline reads the whole file under the heap limit.
+        self.searcher
+            .search_reader(self.matcher, &mut tap, &mut sink)?;
+        // Only a matched file's header decides its rank.
+        let header = |matched: bool| {
+            matched
+                .then(|| tap.head().map(relevance::has_generated_header))
+                .flatten()
         };
-        if offset == 0 || offset > MAX_BINARY_PREFIX_BYTES {
-            return Ok(sink.into());
-        }
+        let offset = sink
+            .binary_offset
+            .filter(|offset| *offset != 0 && *offset <= MAX_BINARY_PREFIX_BYTES);
+        let Some(offset) = offset else {
+            let mut outcome = FileOutcome::from(sink);
+            outcome.generated_header = header(outcome.matched_lines > 0);
+            outcome.hashed = tap.hashed;
+            return Ok(outcome);
+        };
         let prefix = read_prefix(file, offset)?;
         let (opts, context_lines) = (self.opts, self.context_lines);
         let prefix_searcher = self
@@ -1013,6 +1182,14 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;
         outcome.opaque = is_leading_binary(&prefix, outcome.matched_lines > 0);
+        outcome.generated_header = header(outcome.matched_lines > 0);
+        // The values come from this second read of the prefix: hash it, and
+        // the rest of the file from where it ended.
+        outcome.hashed = (hash && prefix.len() as u64 == offset).then(|| {
+            let mut hashed = Hashed::new();
+            hashed.update(&prefix);
+            hashed
+        });
         Ok(outcome)
     }
 }
@@ -1098,6 +1275,8 @@ fn collect<M: Matcher + Sync>(
             },
             deadline,
             stop: &state.stop,
+            digest_max_bytes: opts.digest_max_bytes,
+            keep_head: ranks_by_relevance(opts),
         };
 
         Box::new(move |dent| {
@@ -1163,17 +1342,18 @@ fn collect<M: Matcher + Sync>(
             }
             // Keep successful files, but report incomplete coverage when
             // opening or matching fails. A skipped file proves no absence.
-            let (file, file_len) = match open_regular(path) {
+            let (file, meta) = match open_regular(path) {
                 Ok(opened) => opened,
                 Err(error) => {
                     state.record_error(format!("{}: {error}", path.display()));
                     return WalkState::Continue;
                 }
             };
+            let file_len = meta.len();
             if over_ceiling(file_len) {
                 return WalkState::Continue;
             }
-            let outcome = match files.search(&file) {
+            let outcome = match files.search(&file, file_len) {
                 Ok(outcome) => outcome,
                 Err(error) => {
                     state.record_error(format!("{}: {error}", path.display()));
@@ -1187,9 +1367,10 @@ fn collect<M: Matcher + Sync>(
             let generated = ranks_by_relevance(opts)
                 && outcome.matched_lines > 0
                 && (relevance::is_generated_path(&relative)
-                    || read_prefix(&file, relevance::GENERATED_HEADER_BYTES)
-                        .is_ok_and(|prefix| relevance::has_generated_header(&prefix)));
-            drop(file);
+                    || outcome.generated_header.unwrap_or_else(|| {
+                        read_prefix(&file, relevance::GENERATED_HEADER_BYTES)
+                            .is_ok_and(|prefix| relevance::has_generated_header(&prefix))
+                    }));
             if outcome.span_cap_reached {
                 state.span_capped.store(true, Ordering::Relaxed);
             }
@@ -1222,6 +1403,12 @@ fn collect<M: Matcher + Sync>(
 
             let demoted =
                 generated || (ranks_by_relevance(opts) && relevance::is_demoted_path(&relative));
+            // A stopped walk keeps what it found without reading further.
+            let source = outcome
+                .hashed
+                .filter(|_| !state.stopped())
+                .and_then(|hashed| hashed.finish(&file, &meta));
+            drop(file);
             worker_recs.push(FileRec {
                 path: dent.path().to_string_lossy().into_owned(),
                 entry: outcome.entry,
@@ -1233,6 +1420,7 @@ fn collect<M: Matcher + Sync>(
                 demoted,
                 generated,
                 declares: outcome.declares && identifier,
+                source,
             });
             WalkState::Continue
         })
@@ -1421,37 +1609,46 @@ fn build_result(
     let search_time = Some(elapsed_human(elapsed));
     let mut files: Vec<RipgrepFile> = recs
         .into_iter()
-        .map(|r| match mode {
-            Mode::Normal if only_matching => {
-                let matches = if unique {
-                    collapse_unique_matches(r.om_matches, count_unique)
-                } else {
-                    r.om_matches
-                };
-                RipgrepFile {
-                    path: r.path,
-                    match_count: matches.len() as u32,
-                    matches,
+        .map(|r| {
+            let source = r.source;
+            let mut file = match mode {
+                Mode::Normal if only_matching => {
+                    let matches = if unique {
+                        collapse_unique_matches(r.om_matches, count_unique)
+                    } else {
+                        r.om_matches
+                    };
+                    RipgrepFile {
+                        path: r.path,
+                        match_count: matches.len() as u32,
+                        matches,
+                        source: None,
+                    }
                 }
-            }
-            Mode::Normal => assemble_file(r.path, &r.entry, context_lines, max_snippet),
-            // files-only / files-without-match: path list, matchCount 1, no
-            // snippets.
-            Mode::FilesOnly | Mode::FilesWithoutMatch => RipgrepFile {
-                path: r.path,
-                match_count: 1,
-                matches: Vec::new(),
-            },
-            Mode::CountLines => RipgrepFile {
-                path: r.path,
-                match_count: r.matched_lines,
-                matches: Vec::new(),
-            },
-            Mode::CountMatches => RipgrepFile {
-                path: r.path,
-                match_count: r.submatches,
-                matches: Vec::new(),
-            },
+                Mode::Normal => assemble_file(r.path, r.entry, context_lines, max_snippet),
+                // files-only / files-without-match: path list, matchCount 1, no
+                // snippets.
+                Mode::FilesOnly | Mode::FilesWithoutMatch => RipgrepFile {
+                    path: r.path,
+                    match_count: 1,
+                    matches: Vec::new(),
+                    source: None,
+                },
+                Mode::CountLines => RipgrepFile {
+                    path: r.path,
+                    match_count: r.matched_lines,
+                    matches: Vec::new(),
+                    source: None,
+                },
+                Mode::CountMatches => RipgrepFile {
+                    path: r.path,
+                    match_count: r.submatches,
+                    matches: Vec::new(),
+                    source: None,
+                },
+            };
+            file.source = source;
+            file
         })
         .collect();
 

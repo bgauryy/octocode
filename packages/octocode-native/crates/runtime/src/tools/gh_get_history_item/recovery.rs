@@ -9,6 +9,18 @@ use serde_json::{Map, Value, json};
 /// of the pull-request ones, so `sections` carry over); an issue number read
 /// as a pull request reruns as operation:"issue".
 pub fn attach_recovery(data: &mut Value, reason: Option<ProviderErrorReason>, query: &Value) {
+    // A comparison whose refs did not resolve lists the repository's refs.
+    if reason == Some(ProviderErrorReason::RefNotFound)
+        && query.get("operation").and_then(Value::as_str) == Some("compare")
+        && let (Some(owner), Some(repo)) = (
+            query.get("owner").and_then(Value::as_str),
+            query.get("repo").and_then(Value::as_str),
+        )
+    {
+        data["hints"] = json!([crate::tools::gh_shared::REF_RECOVERY_HINT]);
+        data["next"] = json!({"viewRefs": crate::tools::gh_shared::ref_recovery(owner, repo)});
+        return;
+    }
     let (operation, fields, name, hint): (&str, &[&str], &str, &str) = match reason {
         Some(ProviderErrorReason::IssueIsPullRequest) => (
             "pullRequest",

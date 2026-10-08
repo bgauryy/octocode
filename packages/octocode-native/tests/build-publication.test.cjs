@@ -105,7 +105,7 @@ test('host and platform builds never share a target dir', () => {
 });
 
 test('stageFile replaces the destination inode instead of overwriting it', t => {
-  const { stageFile } = require('../scripts/build-native.cjs');
+  const { stageFile } = require('../scripts/native-addon-utils.cjs');
   const root = mkdtempSync(join(tmpdir(), 'octocode-stage-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   writeFileSync(join(root, 'source'), 'new');
@@ -119,7 +119,7 @@ test('stageFile replaces the destination inode instead of overwriting it', t => 
 
 
 test('stageFile keeps unchanged bytes on their existing inode', t => {
-  const { stageFile } = require('../scripts/build-native.cjs');
+  const { stageFile } = require('../scripts/native-addon-utils.cjs');
   const root = mkdtempSync(join(tmpdir(), 'octocode-stage-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const source = join(root, 'source');
@@ -138,4 +138,27 @@ test('stageFile keeps unchanged bytes on their existing inode', t => {
   assert.notEqual(statSync(destination).ino, first.ino);
   assert.deepEqual(readFileSync(destination), changed);
   assert.deepEqual(readdirSync(root).sort(), ['destination', 'source']);
+});
+
+test('runForwardingSignals passes exit codes through and maps signal deaths to 128+N', async () => {
+  const { runForwardingSignals } = require('../bin/launch-native.cjs');
+  assert.equal(await runForwardingSignals(process.execPath, ['-e', 'process.exit(7)']), 7);
+  assert.equal(
+    await runForwardingSignals(process.execPath, ['-e', "process.kill(process.pid, 'SIGTERM')"]),
+    128 + require('node:os').constants.signals.SIGTERM
+  );
+  await assert.rejects(runForwardingSignals(join(tmpdir(), 'octocode-no-such-binary'), []));
+});
+
+test('takeSignals owns the forwarded signals until restore', () => {
+  const { takeSignals } = require('../bin/launch-native.cjs');
+  const previous = () => {};
+  process.on('SIGHUP', previous);
+  const handler = () => {};
+  const restore = takeSignals(handler);
+  assert.deepEqual(process.listeners('SIGHUP'), [handler]);
+  restore();
+  restore();
+  assert.deepEqual(process.listeners('SIGHUP'), [previous]);
+  process.removeListener('SIGHUP', previous);
 });

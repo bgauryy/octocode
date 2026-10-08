@@ -42,13 +42,6 @@ await esbuild.build({
   outfile: 'dist/index.js',
 });
 
-// CLI entry: the `octocode-config` binary (npx @octocodeai/config).
-await esbuild.build({
-  ...shared,
-  entryPoints: ['src/cli.ts'],
-  outfile: 'dist/cli.js',
-});
-
 // Contract hub entries: thin re-exports of @octocodeai/octocode-core so every
 // surface imports contracts from "@octocodeai/config/{schema,mcp}". Core (and
 // its Zod dependency) are marked external — never bundled here — so the source

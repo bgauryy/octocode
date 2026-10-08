@@ -27,10 +27,13 @@ impl ToolOutput for Output {
             .as_array()?
             .iter()
             .filter_map(|artifact| {
-                let kind = artifact.get("type").and_then(Value::as_str).unwrap_or(kind);
+                let kind = artifact
+                    .get("ecosystem")
+                    .and_then(Value::as_str)
+                    .unwrap_or(kind);
                 let name = artifact.get("name")?.as_str()?;
                 let mut fetch = serde_json::Map::new();
-                fetch.insert("type".into(), json!(kind));
+                fetch.insert("ecosystem".into(), json!(kind));
                 fetch.insert("packageName".into(), json!(name));
                 Some(items::Item {
                     state: items::narrowed(

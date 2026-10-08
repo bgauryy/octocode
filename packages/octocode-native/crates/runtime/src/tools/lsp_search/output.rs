@@ -1,6 +1,6 @@
 //! lspSearch output facts for the shared response stages.
 use crate::tools::clasify::{items, resource::ResourceSource};
-use crate::tools::output::{PathAnchor, ToolOutput};
+use crate::tools::output::{PathAnchor, TextShape, ToolOutput};
 use serde_json::Value;
 
 pub(crate) struct Output;
@@ -17,6 +17,11 @@ impl ToolOutput for Output {
     }
     fn path_anchor(&self) -> PathAnchor {
         PathAnchor::Workspace
+    }
+    /// documentSymbols rows print as a compact outline in YAML text; every
+    /// other payload renders structured.
+    fn text_shape(&self) -> TextShape {
+        TextShape::Outline
     }
     fn clasify_items(&self, source: &ResourceSource, state: &Value) -> Option<Vec<items::Item>> {
         let ResourceSource::LspSearch(query) = source else {
@@ -45,7 +50,7 @@ fn clasify_locations(state: &Value, query_path: Option<&str>) -> Option<Vec<item
                     .and_then(Value::as_array)
                     .into_iter()
                     .flatten()
-                    .filter_map(|row| items::line(row, "line"))
+                    .flat_map(super::locations::site_lines)
                     .collect();
                 Some(items::Item {
                     state: items::narrowed(

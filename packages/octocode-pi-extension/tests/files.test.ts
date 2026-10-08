@@ -4,7 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { initTheme } from '@earendil-works/pi-coding-agent';
 import { pathToFileURL } from 'node:url';
 import { diffStats, querySize } from '../src/files/render.js';
-import { FileGuard, canonicalPath, formatOutcomes, readPaths, registerFileTool, returnedContent } from '../src/files/tool.js';
+import { FileGuard, canonicalPath, formatOutcomes, registerFileTool, returnedContent } from '../src/files/tool.js';
+import { readPaths, wholeReadPaths } from '../src/files/reads.js';
 import { Checkpoints } from '../src/files/checkpoint.js';
 import { sha256 } from '../src/shared/atomic.js';
 import { resolveToolPath } from '../src/shared/home.js';
@@ -12,6 +13,27 @@ import { fakeCtx } from './fake-pi.js';
 import { bashSafetyGate, catastrophicCommand } from '../src/files/bash-guard.js';
 import { tmp } from './helpers.js';
 import { theme } from './fake-pi.js';
+
+/** A complete `localFetch` result row: every line numbered, as the server renders it. */
+const complete = (file: string, lines: string[]) => ({ index: 0, data: { path: file, content: lines.map((line, index) => `${index + 1}\t${line}\n`).join(''), totalLines: lines.length } });
+
+/** Pi's `structuredContent` for an MCP call: the whole `CallToolResult`, the server's payload one level down. */
+const callResult = (...results: unknown[]) => ({ content: [{ type: 'text', text: '…' }], structuredContent: { results }, isError: false });
+
+/** The shape localFetch returned for `fullContent` on a 20,000-line (1.3 MB) file: the first 259 lines and a continuation. */
+const BIG_FIRST_PAGE = {
+  index: 0,
+  data: {
+    warnings: ['19741 more lines: follow next.continue'],
+    path: 'big.ts',
+    content: Array.from({ length: 259 }, (_, index) => `${index + 1}\texport const value${index} = ${index}; // padding padding padding padding\n`).join(''),
+    totalLines: 20000,
+    next: { continue: { tool: 'localFetch', query: { queries: [{ length: 2000, offset: 259, path: 'big.ts', snapshot: '4977244a0ac3f6ba8300c88905de82728807c290e0d550525b2d3596309632cb', unit: 'lines' }] } } },
+    pagination: { unit: 'lines', offset: 0, length: 259, hasMore: true, nextOffset: 259 },
+    isPartial: true,
+    partialReasons: ['full-content-size-limit'],
+  },
+};
 
 describe('file tool', () => {
   it('allows writing new or unread files, and requires existing files for edit/delete', () => {
@@ -120,7 +142,7 @@ describe('file tool', () => {
     expect(returnedContent('read', { path: 'a', offset: 2 }, text, undefined)).toBeUndefined();
     expect(returnedContent('read', { path: 'a' }, text, { truncation: {} })).toBeUndefined();
     expect(returnedContent('read', { path: 'a' }, [...text, { type: 'image' }], undefined)).toBeUndefined();
-    expect(returnedContent('octocode_localGetFileContent', { path: 'a' }, text, undefined)).toBeUndefined();
+    expect(returnedContent('octocode_localFetch', { path: 'a' }, text, undefined)).toBeUndefined();
   });
 
   it('records a Pi read from the returned text: a change between the read and the hook is caught', async () => {
@@ -142,13 +164,13 @@ describe('file tool', () => {
     const guard = new FileGuard();
     const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
     registerFileTool({ registerTool: () => undefined, on: (name: string, handler: never) => handlers.set(name, handler) } as never, guard);
-    const mcpRead = (query: Record<string, unknown>) => handlers.get('tool_result')!({ toolName: 'mcp__octocode__localGetFileContent', input: { queries: [{ path: file, ...query }] }, content: [{ type: 'text', text: 'one' }], isError: false }, { cwd });
+    const mcpRead = (query: Record<string, unknown>) => handlers.get('tool_result')!({ toolName: 'mcp__octocode__localFetch', input: { queries: [{ path: file, ...query }] }, content: [{ type: 'text', text: 'one' }], structuredContent: callResult(complete('a.txt', ['one'])), isError: false }, { cwd });
     await mcpRead({ fullContent: true });
     expect(guard.inspect(file, 'edit', 'a.txt').refusal).toBeUndefined();
     // Its read result was trimmed: the content left the context.
     guard.forget(file);
     expect(guard.inspect(file, 'edit', 'a.txt').refusal).toMatch(/or its read result was trimmed/);
-    await mcpRead({ startLine: 1, endLine: 1 });
+    await mcpRead({ ranges: ['1-1'] });
     expect(guard.inspect(file, 'edit', 'a.txt').refusal).toMatch(/Read it again/);
     await mcpRead({ fullContent: true });
     expect(guard.inspect(file, 'edit', 'a.txt').refusal).toBeUndefined();
@@ -187,20 +209,64 @@ describe('file tool', () => {
     expect(fs.readFileSync(file, 'utf8')).toBe('TWO');
   });
 
+  it('counts a whole-file Octocode MCP read only when its result is complete, refusing a large file\'s first page', async () => {
+    const cwd = tmp();
+    const file = path.join(cwd, 'big.ts');
+    fs.writeFileSync(file, 'x');
+    const guard = new FileGuard();
+    const handlers = new Map<string, (event: unknown, ctx: unknown) => Promise<void>>();
+    registerFileTool({ registerTool: () => undefined, on: (name: string, handler: never) => handlers.set(name, handler) } as never, guard);
+    const mcpRead = (structuredContent: unknown) => handlers.get('tool_result')!({ toolName: 'mcp__octocode__localFetch', input: { queries: [{ path: 'big.ts', fullContent: true }] }, content: [{ type: 'text', text: '…' }], structuredContent, isError: false }, { cwd });
+    // Its earlier read left the context: only a whole read clears the refusal.
+    guard.forget(file);
+    await mcpRead(callResult(BIG_FIRST_PAGE));
+    expect(guard.inspect(file, 'edit', 'big.ts').refusal).toMatch(/Read it again/);
+    await mcpRead(callResult(complete('big.ts', ['export const value0 = 0;'])));
+    expect(guard.inspect(file, 'edit', 'big.ts').refusal).toBeUndefined();
+  });
+
+  it('learns whole reads from the result: partial rows, missing lines, errors and cut or paged responses do not count', () => {
+    const query = (file: string) => ({ path: `/r/${file}`, fullContent: true });
+    const input = { queries: [query('big.ts'), query('app.ts'), query('gap.ts'), query('failed.ts'), query('empty.ts')] };
+    const rows = [
+      BIG_FIRST_PAGE,
+      complete('app.ts', ['export const answer = 41;']),
+      { index: 2, data: { path: 'gap.ts', content: '1\ta\n... [lines 2-9 not requested] ...\n10\tb\n', totalLines: 10 } },
+      { index: 3, data: { errorCode: 'outsideAllowedRoots', error: 'outside' }, status: 'error' },
+      { index: 4, data: { path: 'empty.ts', content: '', totalLines: 0 } },
+    ].map((row, index) => ({ ...row, index }));
+    expect(wholeReadPaths('mcp__octocode__localFetch', input, '/r', { structuredContent: callResult(...rows) })).toEqual(['/r/app.ts', '/r/empty.ts']);
+    // The server's own payload (a user-configured server or a codemode result) works too.
+    expect(wholeReadPaths('mcp__octocode__localFetch', { queries: [query('app.ts')] }, '/r', { structuredContent: { results: [complete('app.ts', ['a', '', 'b'])] } })).toEqual(['/r/app.ts']);
+    // No rows, a paged response, or Pi cut the middle out of the text: nothing counts.
+    expect(wholeReadPaths('mcp__octocode__localFetch', { queries: [query('app.ts')] }, '/r', {})).toEqual([]);
+    expect(wholeReadPaths('mcp__octocode__localFetch', { queries: [query('app.ts')] }, '/r', { structuredContent: { results: [complete('app.ts', ['a'])], responsePagination: { hasMore: true } } })).toEqual([]);
+    expect(wholeReadPaths('mcp__octocode__localFetch', { queries: [query('app.ts')] }, '/r', { structuredContent: callResult(complete('app.ts', ['a'])), details: { fullOutputPath: '/tmp/out.txt' } })).toEqual([]);
+    // A request that is not whole-file is not rescued by a complete-looking row.
+    expect(wholeReadPaths('mcp__octocode__localFetch', { queries: [{ path: '/r/app.ts', ranges: ['1-1'] }] }, '/r', { structuredContent: callResult(complete('app.ts', ['a'])) })).toEqual([]);
+    // Pi's read keeps its own semantics: any range counts, whatever the result.
+    expect(wholeReadPaths('read', { path: 'src/x.ts', offset: 5, limit: 2 }, '/r', {})).toEqual(['/r/src/x.ts']);
+  });
+
   it('learns reads from Pi read and whole-file Octocode MCP reads only', () => {
     expect(readPaths('read', { path: '@src/x.ts' }, '/r')).toEqual(['/r/src/x.ts']);
-    expect(readPaths('octocode_localGetFileContent', { queries: [{ path: '/r/a.ts', fullContent: true }] }, '/r')).toEqual([]);
+    expect(readPaths('octocode_localFetch', { queries: [{ path: '/r/a.ts', fullContent: true }] }, '/r')).toEqual([]);
     const queries = [
       { path: '/r/whole.ts', fullContent: true },
       { path: '/r/plain.ts', fullContent: true, minify: 'none' },
       { path: '/r/default-view.ts' },
-      { path: '/r/range.ts', startLine: 1, endLine: 5 },
+      { path: '/r/range.ts', ranges: ['1-5'] },
       { path: '/r/match.ts', matchString: 'x' },
-      { path: '/r/window.ts', fullContent: true, charOffset: 0, charLength: 100 },
+      { path: '/r/whole-match.ts', fullContent: true, matchString: 'x' },
+      { path: '/r/window.ts', fullContent: true, offset: 0, length: 100 },
       { path: '/r/minified.ts', fullContent: true, minify: 'standard' },
+      { path: '/r/symbols.ts', fullContent: true, minify: 'symbols' },
     ];
-    expect(readPaths('mcp__octocode__localGetFileContent', { queries }, '/r')).toEqual(['/r/whole.ts', '/r/plain.ts']);
-    expect(readPaths('mcp__octocode__localGetFileContent', { queries: 'nope' }, '/r')).toEqual([]);
+    expect(readPaths('mcp__octocode__localFetch', { queries }, '/r')).toEqual(['/r/whole.ts', '/r/plain.ts']);
+    expect(readPaths('mcp__octocode__localFetch', { queries: 'nope' }, '/r')).toEqual([]);
+    // A response text window shows only part of the rendered result.
+    expect(readPaths('mcp__octocode__localFetch', { queries: [{ path: '/r/whole.ts', fullContent: true }], responseOffset: 100 }, '/r')).toEqual([]);
+    expect(readPaths('mcp__octocode__localFetch', { queries: [{ path: '/r/whole.ts', fullContent: true }], responseLength: 100 }, '/r')).toEqual([]);
     expect(resolveToolPath('/repo', '@src/x.ts')).toBe('/repo/src/x.ts');
   });
 

@@ -150,14 +150,6 @@ fn set_path(root: &mut Value, path: &str, value: Value) -> Result<(), Box<dyn Er
     Ok(())
 }
 
-fn get_path<'a>(root: &'a Value, path: &str) -> Option<&'a Value> {
-    let mut current = root;
-    for part in path.split('.') {
-        current = current.as_object()?.get(part)?;
-    }
-    Some(current)
-}
-
 fn config_path(manifest_dir: &Path, name: &str) -> PathBuf {
     manifest_dir.join(format!("../../../../packages/octocode-config/{name}"))
 }

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": true
+  },
+  "include": [
+    "src/adapter.ts",
+    "src/engine/capture-result.mts",
+    "src/engine/cli-catalog.mts",
+    "src/engine/cli-flags.mts",
+    "src/engine/cdp-connection.mts",
+    "src/engine/scraping-bridge.mts",
+    "src/json.d.ts"
+  ]
+}

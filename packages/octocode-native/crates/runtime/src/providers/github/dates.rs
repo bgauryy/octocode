@@ -57,7 +57,9 @@ pub fn resolve_date_window(value: &str) -> DateWindow {
             .unwrap_or_default()
             .as_secs() as i64;
         return DateWindow {
-            value: Some(iso8601(now.saturating_sub(seconds))),
+            value: Some(crate::civil_date::iso8601_secs(
+                now.saturating_sub(seconds).max(0),
+            )),
             warning: None,
         };
     }
@@ -107,6 +109,12 @@ fn looks_like_iso(value: &str) -> bool {
 /// A GitHub timestamp (`…Z`, `….000Z`, `…+02:00`) as UTC `YYYY-MM-DDTHH:MM:SSZ`;
 /// `None` when the value is not a full timestamp.
 pub fn utc_timestamp(value: &str) -> Option<String> {
+    unix_seconds(value).map(|secs| crate::civil_date::iso8601_secs(secs.max(0)))
+}
+
+/// Seconds since the Unix epoch for an RFC 3339 timestamp (`Z` or `±hh:mm`
+/// offset, optional fractional seconds); `None` when the value is not one.
+pub(crate) fn unix_seconds(value: &str) -> Option<i64> {
     let bytes = value.as_bytes();
     let number = |range: std::ops::Range<usize>| -> Option<i64> {
         let part = bytes.get(range)?;
@@ -147,20 +155,7 @@ pub fn utc_timestamp(value: &str) -> Option<String> {
         _ => return None,
     };
     let days = crate::civil_date::days_from_civil(number(0..4)?, number(5..7)?, number(8..10)?);
-    Some(iso8601(
-        days * 86_400 + hour * 3_600 + minute * 60 + second - offset * 60,
-    ))
-}
-
-fn iso8601(epoch: i64) -> String {
-    let epoch = epoch.max(0) as u64;
-    let days = epoch / 86400;
-    let rem = epoch % 86400;
-    let hour = rem / 3600;
-    let minute = (rem % 3600) / 60;
-    let second = rem % 60;
-    let (year, month, day) = crate::civil_date::civil_from_days(days as i64);
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+    Some(days * 86_400 + hour * 3_600 + minute * 60 + second - offset * 60)
 }
 
 #[cfg(test)]

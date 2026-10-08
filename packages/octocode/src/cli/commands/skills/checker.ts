@@ -13,14 +13,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { contentFreshness, type Freshness } from './freshness.js';
-import { getSkillsHome } from './home.js';
 import { ALL_PLATFORMS, getPlatformSkillsDir } from './platforms.js';
 import { getSkill } from './registry.js';
-import type { SkillPlatform } from '@octocodeai/octocode-skill-installer';
+import {
+  getCanonicalSkillsDir,
+  type SkillPlatform,
+} from '@octocodeai/octocode-skill-installer';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type LocationStatus = 'installed' | 'linked' | 'broken' | 'missing';
+type LocationStatus = 'installed' | 'linked' | 'broken' | 'missing';
 
 export interface CheckedLocation {
   label: string;
@@ -85,12 +87,15 @@ function probe(label: string, p: string): CheckedLocation {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/** Check every known installation location for one skill. */
-export function checkSkill(
+/**
+ * Probe every known installation location of one skill: the canonical home,
+ * each platform directory (one entry per distinct path), and the workspace.
+ */
+export function skillLocations(
   skillName: string,
-  platforms: SkillPlatform[] = SCAN_PLATFORMS
+  platforms: readonly SkillPlatform[] = SCAN_PLATFORMS
 ): SkillCheckResult {
-  const homePath = path.join(getSkillsHome(), skillName);
+  const homePath = path.join(getCanonicalSkillsDir(), skillName);
   const wsPath = path.join(process.cwd(), '.agents', 'skills', skillName);
 
   const platformChecks: CheckedLocation[] = [];
@@ -104,12 +109,20 @@ export function checkSkill(
     platformChecks.push(probe(platform, p));
   }
 
-  const result: SkillCheckResult = {
+  return {
     skillName,
     home: probe('home', homePath),
     platforms: platformChecks,
     workspace: probe('workspace', wsPath),
   };
+}
+
+/** Check every known installation location of one skill, with content freshness. */
+export function checkSkill(
+  skillName: string,
+  platforms: readonly SkillPlatform[] = SCAN_PLATFORMS
+): SkillCheckResult {
+  const result = skillLocations(skillName, platforms);
   annotateFreshness(result);
   return result;
 }
@@ -124,9 +137,9 @@ function annotateFreshness(result: SkillCheckResult): void {
   if (!bundled) return;
   let skillsHome: string;
   try {
-    skillsHome = fs.realpathSync(getSkillsHome());
+    skillsHome = fs.realpathSync(getCanonicalSkillsDir());
   } catch {
-    skillsHome = path.resolve(getSkillsHome());
+    skillsHome = path.resolve(getCanonicalSkillsDir());
   }
   const compared = new Map<string, Freshness | undefined>();
   for (const location of [result.home, ...result.platforms, result.workspace]) {
@@ -155,7 +168,7 @@ function annotateFreshness(result: SkillCheckResult): void {
 /** Check a list of skills. */
 export function checkSkills(
   skillNames: string[],
-  platforms?: SkillPlatform[]
+  platforms?: readonly SkillPlatform[]
 ): SkillCheckResult[] {
   return skillNames.map(n => checkSkill(n, platforms));
 }
@@ -166,7 +179,7 @@ const present = (location: CheckedLocation): boolean =>
   location.status === 'installed' || location.status === 'linked';
 
 /** True when the skill is present anywhere: home, a platform, or the workspace. */
-export function isInstalled(r: SkillCheckResult): boolean {
+function isInstalled(r: SkillCheckResult): boolean {
   return [r.home, ...r.platforms, r.workspace].some(present);
 }
 
@@ -178,7 +191,7 @@ export function linkedPlatforms(r: SkillCheckResult): string[] {
 }
 
 /** Any location has a broken symlink. */
-export function hasBroken(r: SkillCheckResult): boolean {
+function hasBroken(r: SkillCheckResult): boolean {
   return (
     r.home.status === 'broken' ||
     r.workspace.status === 'broken' ||
@@ -187,7 +200,7 @@ export function hasBroken(r: SkillCheckResult): boolean {
 }
 
 /** Any present location's content differs from the bundled source. */
-export function hasStale(r: SkillCheckResult): boolean {
+function hasStale(r: SkillCheckResult): boolean {
   return [r.home, ...r.platforms, r.workspace].some(
     location => location.content === 'stale'
   );

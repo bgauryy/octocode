@@ -20,13 +20,6 @@ pub struct GitHubEndpoint {
 }
 
 impl GitHubEndpoint {
-    // The literal URL and the endpoint built from it are compile-time constants.
-    #[allow(clippy::expect_used)]
-    pub fn github_com() -> Self {
-        Self::new(Url::parse("https://api.github.com/").expect("static URL"))
-            .expect("static endpoint")
-    }
-
     pub fn new(mut rest_base: Url) -> Result<Self, ProviderError> {
         // The Bearer token rides every request: plain http only to loopback.
         if rest_base.scheme() == "http" && !is_loopback(&rest_base) {

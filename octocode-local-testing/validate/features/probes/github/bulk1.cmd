@@ -1,1 +1,0 @@
-ghGetFileContent {"queries":[{"goal":"validate feature","reasoning":"live probe of documented claim","owner":"sindresorhus","repo":"is","path":"package.json","startLine":1,"endLine":2},{"goal":"validate feature","reasoning":"live probe of documented claim","owner":"sindresorhus","repo":"is","path":"does-not-exist-xyz.md","startLine":1,"endLine":2}]}

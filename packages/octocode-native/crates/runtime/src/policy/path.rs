@@ -8,6 +8,8 @@ pub struct PathPolicyConfig {
     pub workspace_root: Option<PathBuf>,
     pub additional_roots: Vec<PathBuf>,
     pub include_home: bool,
+    /// The user's home, used for `~` expansion, `~/` redaction and
+    /// `include_home`; `None` turns all three off (the runtime always sets it).
     pub home_dir: Option<PathBuf>,
 }
 
@@ -41,7 +43,7 @@ impl octocode_engine::portable::RipgrepPathFilter for PathPolicy {
 
 impl PathPolicy {
     pub fn new(config: PathPolicyConfig) -> Result<Self, PolicyError> {
-        let home = config.home_dir.or_else(default_home);
+        let home = config.home_dir;
         let mut roots = Vec::new();
         for root in config
             .workspace_root
@@ -132,10 +134,6 @@ impl PathPolicy {
             policy: self,
             parents: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
-    }
-
-    pub fn exists(&self, input: impl AsRef<Path>) -> bool {
-        self.validate(input).is_ok()
     }
 
     pub fn allowed_roots(&self) -> Vec<PathBuf> {
@@ -516,10 +514,6 @@ fn normalize(path: &Path) -> PathBuf {
     result
 }
 
-fn default_home() -> Option<PathBuf> {
-    std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)
-}
-
 /// [`PathPolicy::permits_discovery`] over one walk. An entry that is not a
 /// symlink resolves to its parent directory's real path plus its own name,
 /// so only each parent (once) and each symlink are canonicalized; the
@@ -532,30 +526,48 @@ pub struct DiscoveryWalk<'a> {
 
 impl DiscoveryWalk<'_> {
     pub fn permits(&self, path: &Path) -> bool {
+        self.permits_entry(path, None)
+    }
+
+    /// [`Self::permits`] for a walked entry whose directory-listing type the
+    /// walk already has: a type that is not a symlink skips the `lstat`.
+    pub fn permits_entry(&self, path: &Path, file_type: Option<std::fs::FileType>) -> bool {
         let lexical = self.policy.expand_and_resolve(path);
         let (Some(parent), Some(name)) = (lexical.parent(), lexical.file_name()) else {
             return self.policy.permits_discovery(path);
         };
-        let plain =
-            std::fs::symlink_metadata(&lexical).is_ok_and(|meta| !meta.file_type().is_symlink());
+        let plain = match file_type {
+            Some(file_type) if lexical == path => !file_type.is_symlink(),
+            _ => {
+                std::fs::symlink_metadata(&lexical).is_ok_and(|meta| !meta.file_type().is_symlink())
+            }
+        };
         if !plain {
             return self.policy.permits_discovery(path);
         }
-        let parent_real = {
+        let real = {
             let mut parents = self
                 .parents
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
+            // A known parent (every entry after its first sibling) allocates
+            // no key and joins its real path without a copy.
+            if !parents.contains_key(parent) {
+                parents.insert(parent.to_path_buf(), std::fs::canonicalize(parent).ok());
+            }
             parents
-                .entry(parent.to_path_buf())
-                .or_insert_with(|| std::fs::canonicalize(parent).ok())
-                .clone()
+                .get(parent)
+                .and_then(Option::as_ref)
+                .map(|parent_real| parent_real.join(name))
         };
-        let Some(parent_real) = parent_real else {
+        let Some(real) = real else {
             return self.policy.permits_discovery(path);
         };
-        let real = parent_real.join(name);
-        self.policy.allowed(&real) && !is_sensitive_path(&lexical) && !is_sensitive_path(&real)
+        // Under a parent with no symlink the real path is the lexical one:
+        // check it once.
+        self.policy.allowed(&real)
+            && !is_sensitive_path(&lexical)
+            && (real == lexical || !is_sensitive_path(&real))
     }
 }
 

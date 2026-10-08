@@ -52,10 +52,9 @@ pub struct StructuralQueryExplanation {
     pub diagnostics: Vec<StructuralDiagnostic>,
 }
 
-/// A structural match with stable evidence metadata: [`StructuralMatch`] plus
-/// an ID, node kind, and confidence, for the detailed APIs.
+/// A structural match plus the kind of the matched node, for the detailed
+/// APIs.
 pub struct StructuralDetailedMatch {
-    pub id: String,
     pub start_line: u32,
     pub end_line: u32,
     pub start_col: u32,
@@ -65,7 +64,6 @@ pub struct StructuralDetailedMatch {
     pub metavar_ranges: BTreeMap<String, Vec<MetavarRange>>,
     pub header: Option<String>,
     pub node_kind: Option<String>,
-    pub confidence: String,
 }
 
 pub struct StructuralSearchFilesOptions {
@@ -86,6 +84,10 @@ pub struct StructuralSearchFilesOptions {
     /// Maximum path depth below a directory root (1 = direct files; 0 = no descent). `None` = unbounded.
     pub max_depth: Option<u32>,
     pub max_files: Option<u32>,
+    /// Leading candidates (walk order) left unevaluated: an earlier scan of
+    /// the same scope already evaluated them. They still count toward
+    /// `max_files`.
+    pub skip_files: Option<u32>,
     pub max_file_bytes: Option<u32>,
 }
 
@@ -107,8 +109,6 @@ pub struct StructuralRewriteFilesOptions {
 
 pub struct StructuralSearchDetailedResult {
     pub path: String,
-    pub analyzer: String,
-    pub analyzer_version: String,
     pub status: String,
     pub language_id: Option<String>,
     pub query: StructuralQueryExplanation,
@@ -134,16 +134,11 @@ pub struct StructuralSearchFilesDetailedResult {
     pub skipped_unsupported: u32,
     pub skipped_unreadable: u32,
     pub skipped_large: u32,
-    pub analyzer: String,
-    pub analyzer_version: String,
     pub status: String,
     pub query: StructuralQueryExplanation,
     pub diagnostics: Vec<StructuralDiagnostic>,
     pub warnings: Vec<String>,
 }
-
-pub(super) const STRUCTURAL_ANALYZER: &str = "octocode-structural";
-pub(super) const STRUCTURAL_ANALYZER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 impl StructuralDiagnostic {
     pub(super) fn new(
@@ -174,15 +169,8 @@ impl StructuralDiagnostic {
 }
 
 impl StructuralDetailedMatch {
-    pub(super) fn from_match(
-        path: &str,
-        query_fingerprint: &str,
-        matched: StructuralMatch,
-        node_kind: impl Into<String>,
-    ) -> Self {
-        let id = stable_match_id(path, query_fingerprint, &matched);
+    pub(super) fn from_match(matched: StructuralMatch, node_kind: impl Into<String>) -> Self {
         Self {
-            id,
             start_line: matched.start_line,
             end_line: matched.end_line,
             start_col: matched.start_col,
@@ -192,45 +180,6 @@ impl StructuralDetailedMatch {
             metavar_ranges: matched.metavar_ranges,
             header: matched.header,
             node_kind: Some(node_kind.into()),
-            // The octo matcher is a precise AST matcher: every match is an exact
-            // tree-sitter node match, so there is no partial/fallback tier to
-            // report.
-            confidence: "exact-ast".to_owned(),
         }
     }
-}
-
-pub(super) fn structural_query_fingerprint(pattern: Option<&str>, rule: Option<&str>) -> String {
-    match (pattern, rule) {
-        (Some(pattern), None) => stable_hash_hex(&["pattern", pattern]),
-        (None, Some(rule)) => stable_hash_hex(&["rule", rule]),
-        (Some(pattern), Some(rule)) => stable_hash_hex(&["both", pattern, rule]),
-        (None, None) => stable_hash_hex(&["none"]),
-    }
-}
-
-fn stable_match_id(path: &str, query_fingerprint: &str, matched: &StructuralMatch) -> String {
-    stable_hash_hex(&[
-        STRUCTURAL_ANALYZER,
-        STRUCTURAL_ANALYZER_VERSION,
-        path,
-        query_fingerprint,
-        &matched.start_line.to_string(),
-        &matched.end_line.to_string(),
-        &matched.start_col.to_string(),
-        &matched.end_col.to_string(),
-    ])
-}
-
-fn stable_hash_hex(parts: &[&str]) -> String {
-    let mut hash = 0xcbf2_9ce4_8422_2325u64;
-    for part in parts {
-        for byte in part.as_bytes() {
-            hash ^= u64::from(*byte);
-            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-        }
-        hash ^= 0xff;
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    format!("{hash:016x}")
 }

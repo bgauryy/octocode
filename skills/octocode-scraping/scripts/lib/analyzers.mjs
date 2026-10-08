@@ -60,7 +60,7 @@ export function buildSiteGraph({ rootUrl, pageMaps, sources, linksAll, headingsA
     const headings = headingsAll.filter((h) => h.pageId === page.pageId);
     const links = linksAll.filter((l) => l.pageId === page.pageId).map((l) => classifyLink(l, rootUrl));
     const elements = elementRows.filter((r) => r.pageId === page.pageId);
-    const topLinks = links.filter((l) => l.score >= 4).sort((a, b) => b.score - a.score).slice(0, 25);
+    const topLinks = links.filter((l) => l.score >= 4).sort((a, b) => b.score - a.score);
     return {
       pageId: page.pageId,
       url: page.url,
@@ -73,7 +73,7 @@ export function buildSiteGraph({ rootUrl, pageMaps, sources, linksAll, headingsA
       linkCount: links.length,
       elementCount: elements.length,
       topLinks,
-      headingOutline: headings.slice(0, 40)
+      headingOutline: headings
     };
   });
   return {
@@ -120,15 +120,8 @@ export function buildWorkflowIndex({ rootUrl, pageMaps, linksAll, headingsAll, e
     const workflowType = e.workflowHint;
     if (workflowType) candidates.push({ workflowType, confidence: ['form', 'button', 'cta-link', 'table'].includes(e.kind) ? 'high' : 'medium', entryPageId: e.pageId, entryUrl: e.href || e.action || pageMaps.find((p) => p.pageId === e.pageId)?.url || null, label: e.text || e.key || e.kind || workflowType, source: e.kind || 'element', score: 8, evidence: [{ file: `extracts/${e._file || 'elements'}.jsonl`, reason: `${e.kind || 'element'} workflow hint` }] });
   }
-  const seen = new Set();
-  const deduped = [];
-  for (const c of candidates.sort((a, b) => b.score - a.score)) {
-    const key = `${c.workflowType}:${c.entryUrl}:${c.label}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(c);
-  }
-  return { rootUrl, totals: { candidates: deduped.length }, workflows: deduped };
+  const workflows = candidates.sort((a, b) => b.score - a.score);
+  return { rootUrl, totals: { candidates: workflows.length }, workflows };
 }
 
 export function buildUnifiedGraph({ rootUrl, pageMaps, siteGraph, workflowIndex, elementRows = [], resourcesAll = [] }) {

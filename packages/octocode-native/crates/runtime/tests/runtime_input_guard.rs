@@ -195,7 +195,7 @@ async fn numeric_and_boolean_strings_are_coerced_for_typed_fields() {
 
 #[tokio::test]
 async fn clasify_redacts_evidence_but_rejects_a_credential_in_a_resource_read() {
-    let server = wiremock::MockServer::start().await;
+    let server = wiremock::MockServer::builder().start().await;
     wiremock::Mock::given(wiremock::matchers::method("POST"))
         .respond_with(wiremock::ResponseTemplate::new(500))
         .expect(0)

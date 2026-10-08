@@ -34,15 +34,15 @@ use super::{
     js_oxc_calls::collect_program_calls,
     js_oxc_commonjs as commonjs,
     js_oxc_references::{CountTarget, record_import_uses, value_reference_counts},
-    js_oxc_shared::{LineIndex, module_export_name, property_key_name},
+    js_oxc_shared::{SpanPositions, module_export_name, property_key_name},
 };
 use crate::graph::{
     GraphFactDeclaration, GraphFactEdge, GraphFactExport, GraphFactImport, GraphFactsDocument,
     GraphRange,
 };
 
-// LSP SymbolKind numeric codes (subset we emit). The TS side maps these back to
-// names via `symbolKindName`; keep them in sync with the LSP spec.
+// LSP SymbolKind numeric codes (subset we emit); keep them in sync with the
+// LSP spec.
 mod kind {
     pub const NAMESPACE: u8 = 3;
     pub const CLASS: u8 = 5;
@@ -98,7 +98,7 @@ fn source_type_for(ext: &str, file_path: &str, content: &str) -> SourceType {
     // `return` allowed), `.mjs`/`.mts` are ES modules, `.js`/`.ts` are
     // unambiguous (module only with import/export), and `.d.ts`/`.d.mts`/`.d.cts`
     // are ambient declarations. Paths without a JS/TS extension fall back to the
-    // caller's defaulted extension (`get_extension_internal(.., "ts")`).
+    // caller's defaulted extension (`extension_of(.., "ts")`).
     let source_type = SourceType::from_path(file_path)
         .or_else(|_| SourceType::from_extension(ext))
         .unwrap_or_else(|_| SourceType::ts());
@@ -114,9 +114,8 @@ fn source_type_for(ext: &str, file_path: &str, content: &str) -> SourceType {
 /// Cheap pre-check so non-JS/TS files never pay for the content copy and the
 /// big-stack worker thread; graph scans call this for every file in a repo.
 fn is_oxc_path(file_path: &str) -> bool {
-    JS_TS_EXTENSIONS.contains(
-        &crate::text::file_extension::get_extension_internal(file_path, true, "ts").as_str(),
-    )
+    JS_TS_EXTENSIONS
+        .contains(&crate::text::file_extension::extension_of(file_path, true, "ts").as_str())
 }
 
 /// Run an oxc `job` on the deep-stack pool under the AST timeout. `None` for
@@ -148,7 +147,7 @@ fn with_js_program<const TOKENS: bool, R>(
     file_path: &str,
     f: impl for<'a> FnOnce(String, oxc_parser::ParserReturn<'a>) -> Option<R>,
 ) -> Option<R> {
-    let ext = crate::text::file_extension::get_extension_internal(file_path, true, "ts");
+    let ext = crate::text::file_extension::extension_of(file_path, true, "ts");
     if !JS_TS_EXTENSIONS.contains(&ext.as_str()) {
         return None;
     }
@@ -194,7 +193,7 @@ fn extract_graph_facts_with_metadata_inner<const COMMON_JS: bool>(
     file_path: &str,
 ) -> Option<super::GraphFactsExtraction> {
     with_js_program::<COMMON_JS, _>(content, file_path, |ext, parser_ret| {
-        let line_index = LineIndex::new(content);
+        let line_index = SpanPositions::new(content);
         let mut symbols = Vec::new();
         collect_program(&parser_ret.program, &line_index, &mut symbols);
         let (declarations, mut edges, imports, exports) = module_outline(
@@ -327,7 +326,7 @@ pub(crate) fn extract_declarations(content: &str, file_path: &str) -> Option<Gra
 
 fn extract_declarations_inner(content: &str, file_path: &str) -> Option<GraphFactsDocument> {
     with_js_program::<false, _>(content, file_path, |ext, parser_ret| {
-        let line_index = LineIndex::new(content);
+        let line_index = SpanPositions::new(content);
         let mut symbols = Vec::new();
         collect_program(&parser_ret.program, &line_index, &mut symbols);
         collect_member_functions(&parser_ret.program.body, &line_index, &mut symbols);
@@ -359,7 +358,7 @@ fn extract_declarations_inner(content: &str, file_path: &str) -> Option<GraphFac
 
 fn collect_module_facts(
     program: &Program,
-    li: &LineIndex,
+    li: &SpanPositions,
     imports: &mut Vec<GraphFactImport>,
     exports: &mut Vec<GraphFactExport>,
     local_exports: &mut LocalExports,
@@ -476,7 +475,7 @@ fn collect_module_facts(
 
 fn collect_import_declaration(
     decl: &ImportDeclaration,
-    li: &LineIndex,
+    li: &SpanPositions,
     out: &mut Vec<GraphFactImport>,
 ) {
     let range = li.range(decl.span);
@@ -544,7 +543,7 @@ fn collect_import_declaration(
 
 fn collect_export_declaration(
     decl: &ExportDeclaration,
-    li: &LineIndex,
+    li: &SpanPositions,
     out: &mut Vec<GraphFactExport>,
     local_exports: &mut LocalExports,
 ) {
@@ -570,7 +569,7 @@ fn collect_export_specifiers(
     specifiers: &[ExportSpecifier],
     export_kind: ImportOrExportKind,
     source: Option<&str>,
-    li: &LineIndex,
+    li: &SpanPositions,
     out: &mut Vec<GraphFactExport>,
     mut local_exports: Option<&mut LocalExports>,
 ) {
@@ -602,7 +601,11 @@ fn collect_export_specifiers(
     }
 }
 
-fn collect_export_all(decl: &ExportAllDeclaration, li: &LineIndex, out: &mut Vec<GraphFactExport>) {
+fn collect_export_all(
+    decl: &ExportAllDeclaration,
+    li: &SpanPositions,
+    out: &mut Vec<GraphFactExport>,
+) {
     let range = li.range(decl.span);
     let name = decl
         .exported
@@ -685,7 +688,7 @@ fn declaration_names(decl: &Declaration) -> Vec<String> {
 /// the import and export facts of a parsed module, from its `symbols`.
 fn module_outline(
     program: &Program,
-    line_index: &LineIndex,
+    line_index: &SpanPositions,
     file_path: &str,
     content: &str,
     symbols: &[DocumentSymbol],
@@ -1117,13 +1120,13 @@ fn symbol_kind_name(kind: u8) -> &'static str {
     }
 }
 
-fn collect_program(program: &Program, li: &LineIndex, out: &mut Vec<DocumentSymbol>) {
+fn collect_program(program: &Program, li: &SpanPositions, out: &mut Vec<DocumentSymbol>) {
     for stmt in &program.body {
         collect_statement(stmt, li, out);
     }
 }
 
-fn collect_statement(stmt: &Statement, li: &LineIndex, out: &mut Vec<DocumentSymbol>) {
+fn collect_statement(stmt: &Statement, li: &SpanPositions, out: &mut Vec<DocumentSymbol>) {
     match stmt {
         Statement::FunctionDeclaration(f) => push_opt(out, function_symbol(f, li)),
         Statement::ClassDeclaration(c) => push_opt(out, class_symbol(c, li)),
@@ -1167,7 +1170,7 @@ fn collect_statement(stmt: &Statement, li: &LineIndex, out: &mut Vec<DocumentSym
 /// declarations.
 fn collect_member_functions(
     statements: &[Statement],
-    li: &LineIndex,
+    li: &SpanPositions,
     out: &mut Vec<DocumentSymbol>,
 ) {
     for stmt in statements {
@@ -1259,7 +1262,7 @@ fn iife_statements<'a>(expression: &'a Expression<'a>) -> Option<&'a [Statement<
     }
 }
 
-fn collect_declaration(decl: &Declaration, li: &LineIndex, out: &mut Vec<DocumentSymbol>) {
+fn collect_declaration(decl: &Declaration, li: &SpanPositions, out: &mut Vec<DocumentSymbol>) {
     match decl {
         Declaration::FunctionDeclaration(f) => push_opt(out, function_symbol(f, li)),
         Declaration::ClassDeclaration(c) => push_opt(out, class_symbol(c, li)),
@@ -1280,7 +1283,7 @@ fn push_opt(out: &mut Vec<DocumentSymbol>, symbol: Option<DocumentSymbol>) {
     }
 }
 
-fn function_symbol(f: &Function, li: &LineIndex) -> Option<DocumentSymbol> {
+fn function_symbol(f: &Function, li: &SpanPositions) -> Option<DocumentSymbol> {
     let id = f.id.as_ref()?;
     Some(container(
         id.name.as_str(),
@@ -1297,7 +1300,7 @@ fn function_symbol(f: &Function, li: &LineIndex) -> Option<DocumentSymbol> {
 /// nested Python and Rust functions the same way, each under its parent.
 /// Ordinary locals stay out of the outline.
 struct NestedDeclarations<'l, 's> {
-    li: &'l LineIndex<'s>,
+    li: &'l SpanPositions<'s>,
     out: Vec<DocumentSymbol>,
 }
 
@@ -1349,7 +1352,7 @@ impl<'a> VisitJs<'a> for NestedDeclarations<'_, '_> {
     }
 }
 
-fn nested_in_function(f: &Function, li: &LineIndex) -> Vec<DocumentSymbol> {
+fn nested_in_function(f: &Function, li: &SpanPositions) -> Vec<DocumentSymbol> {
     let mut nested = NestedDeclarations {
         li,
         out: Vec::new(),
@@ -1362,7 +1365,7 @@ fn nested_in_function(f: &Function, li: &LineIndex) -> Vec<DocumentSymbol> {
 
 /// The nested declarations of a function-valued initializer (`() => {…}`,
 /// `function () {…}`), or `None` when the value is not a function.
-fn function_value_children(init: &Expression, li: &LineIndex) -> Option<Vec<DocumentSymbol>> {
+fn function_value_children(init: &Expression, li: &SpanPositions) -> Option<Vec<DocumentSymbol>> {
     let mut nested = NestedDeclarations {
         li,
         out: Vec::new(),
@@ -1379,7 +1382,7 @@ fn function_value_children(init: &Expression, li: &LineIndex) -> Option<Vec<Docu
     Some(nested.out)
 }
 
-fn class_symbol(class: &Class, li: &LineIndex) -> Option<DocumentSymbol> {
+fn class_symbol(class: &Class, li: &SpanPositions) -> Option<DocumentSymbol> {
     let id = class.id.as_ref()?;
     let mut children = Vec::new();
     for element in &class.body.body {
@@ -1436,7 +1439,7 @@ fn class_symbol(class: &Class, li: &LineIndex) -> Option<DocumentSymbol> {
     ))
 }
 
-fn interface_symbol(iface: &TSInterfaceDeclaration, li: &LineIndex) -> Option<DocumentSymbol> {
+fn interface_symbol(iface: &TSInterfaceDeclaration, li: &SpanPositions) -> Option<DocumentSymbol> {
     let mut children = Vec::new();
     for signature in &iface.body.body {
         match signature {
@@ -1463,7 +1466,7 @@ fn interface_symbol(iface: &TSInterfaceDeclaration, li: &LineIndex) -> Option<Do
     ))
 }
 
-fn enum_symbol(decl: &TSEnumDeclaration, li: &LineIndex) -> Option<DocumentSymbol> {
+fn enum_symbol(decl: &TSEnumDeclaration, li: &SpanPositions) -> Option<DocumentSymbol> {
     let mut children = Vec::new();
     for member in &decl.body.members {
         if let Some((name, name_span)) = enum_member_name(&member.id) {
@@ -1480,7 +1483,7 @@ fn enum_symbol(decl: &TSEnumDeclaration, li: &LineIndex) -> Option<DocumentSymbo
     ))
 }
 
-fn namespace_symbol(decl: &TSNamespaceDeclaration, li: &LineIndex) -> Option<DocumentSymbol> {
+fn namespace_symbol(decl: &TSNamespaceDeclaration, li: &SpanPositions) -> Option<DocumentSymbol> {
     let mut children = Vec::new();
     match &decl.body {
         TSNamespaceDeclarationBody::TSModuleBlock(block) => {
@@ -1504,7 +1507,7 @@ fn namespace_symbol(decl: &TSNamespaceDeclaration, li: &LineIndex) -> Option<Doc
 
 fn external_module_symbol(
     decl: &TSExternalModuleDeclaration,
-    li: &LineIndex,
+    li: &SpanPositions,
 ) -> Option<DocumentSymbol> {
     let mut children = Vec::new();
     if let Some(body) = &decl.body {
@@ -1522,7 +1525,7 @@ fn external_module_symbol(
     ))
 }
 
-fn global_symbol(decl: &TSGlobalDeclaration, li: &LineIndex) -> Option<DocumentSymbol> {
+fn global_symbol(decl: &TSGlobalDeclaration, li: &SpanPositions) -> Option<DocumentSymbol> {
     let mut children = Vec::new();
     for stmt in &decl.body.body {
         collect_statement(stmt, li, &mut children);
@@ -1537,7 +1540,7 @@ fn global_symbol(decl: &TSGlobalDeclaration, li: &LineIndex) -> Option<DocumentS
     ))
 }
 
-fn type_alias_symbol(decl: &TSTypeAliasDeclaration, li: &LineIndex) -> Option<DocumentSymbol> {
+fn type_alias_symbol(decl: &TSTypeAliasDeclaration, li: &SpanPositions) -> Option<DocumentSymbol> {
     // No dedicated LSP kind for a type alias; `Interface` groups named types and
     // is what most TS servers report.
     Some(leaf(
@@ -1554,7 +1557,7 @@ fn type_alias_symbol(decl: &TSTypeAliasDeclaration, li: &LineIndex) -> Option<Do
 fn push_pattern_leaves(
     pattern: &BindingPattern,
     symbol_kind: u8,
-    li: &LineIndex,
+    li: &SpanPositions,
     out: &mut Vec<DocumentSymbol>,
 ) {
     match pattern {
@@ -1595,7 +1598,7 @@ fn bound_value<'a>(expression: &'a Expression<'a>) -> &'a Expression<'a> {
     }
 }
 
-fn collect_variable(decl: &VariableDeclaration, li: &LineIndex, out: &mut Vec<DocumentSymbol>) {
+fn collect_variable(decl: &VariableDeclaration, li: &SpanPositions, out: &mut Vec<DocumentSymbol>) {
     let is_const = matches!(
         decl.kind,
         VariableDeclarationKind::Const
@@ -1648,7 +1651,7 @@ fn enum_member_name(name: &TSEnumMemberName) -> Option<(String, Span)> {
     }
 }
 
-fn leaf(name: &str, kind: u8, full: Span, selection: Span, li: &LineIndex) -> DocumentSymbol {
+fn leaf(name: &str, kind: u8, full: Span, selection: Span, li: &SpanPositions) -> DocumentSymbol {
     container(name, kind, full, selection, Vec::new(), li)
 }
 
@@ -1658,7 +1661,7 @@ fn container(
     full: Span,
     selection: Span,
     children: Vec<DocumentSymbol>,
-    li: &LineIndex,
+    li: &SpanPositions,
 ) -> DocumentSymbol {
     DocumentSymbol {
         name: name.to_string(),

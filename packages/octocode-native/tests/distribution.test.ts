@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,6 +39,19 @@ describe('consolidated native distribution', () => {
     const runtimeInstance = new runtime.NativeRuntime();
     expect(runtimeInstance.abiVersion).toBe(NATIVE_ABI_VERSION);
     runtimeInstance.close();
+  });
+
+  it('exports one NATIVE_ABI_VERSION from both entries, matching the Rust runtime', () => {
+    const cjs = require(resolve(packageRoot, 'js/runtime.cjs')) as {
+      NATIVE_ABI_VERSION?: unknown;
+    };
+    const rust = /pub const NATIVE_ABI_VERSION: u32 = (\d+);/.exec(
+      readFileSync(resolve(packageRoot, 'crates/runtime/src/lib.rs'), 'utf8')
+    );
+
+    expect(cjs.NATIVE_ABI_VERSION).toBe(NATIVE_ABI_VERSION);
+    expect(typeof NATIVE_ABI_VERSION).toBe('number');
+    expect(rust?.[1]).toBe(String(NATIVE_ABI_VERSION));
   });
 
   it('loads the exact staged host addon and verifies Darwin signatures', () => {

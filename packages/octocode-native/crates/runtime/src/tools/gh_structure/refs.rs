@@ -5,13 +5,12 @@ use crate::providers::github::{NamedRef, RefKind};
 
 /// GitHub's largest `per_page` for branches and tags.
 const MAX_REFS_PER_PAGE: usize = 100;
+/// Refs per page when `pageSize` is omitted (a tree page is 300 entries).
+const DEFAULT_REFS_PER_PAGE: usize = 30;
 
 /// Run a non-tree operation; `None` for the tree listing.
-pub(super) async fn execute_operation<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &GitHubProvider<R, C>,
+pub(super) async fn execute_operation<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhStructureQuery,
     context: &RequestContext,
 ) -> Option<Result<ToolData, ProviderError>> {
@@ -25,29 +24,29 @@ pub(super) async fn execute_operation<
 /// One page of branches and of tags (the same page number of each), with
 /// the default branch named. A page continues while either list has more,
 /// so every branch and tag is listed exactly once.
-async fn refs<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+async fn refs<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhStructureQuery,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
     let (owner, repo) = (query.owner.as_str(), query.repo.as_str());
     let page = crate::tools::num::usize_of(query.page);
-    // TODO(gh-read GS6a): refs default 30 once the {name: sha} map lands.
-    let per_page = crate::tools::num::usize_of(
-        query
-            .page_size
-            .map_or(super::DEFAULT_ENTRIES_PER_PAGE, std::num::NonZeroU64::get),
-    )
-    .clamp(1, MAX_REFS_PER_PAGE);
+    let per_page = query
+        .page_size
+        .map_or(DEFAULT_REFS_PER_PAGE, |size| {
+            crate::tools::num::usize_of(size.get())
+        })
+        .clamp(1, MAX_REFS_PER_PAGE);
     let transport = &provider.transport;
     let (default_branch, branches, tags) = tokio::try_join!(
         default_branch(provider, owner, repo, context),
         transport.repository_refs(owner, repo, RefKind::Branches, page, per_page, context),
         transport.repository_refs(owner, repo, RefKind::Tags, page, per_page, context),
     )?;
-    let rows = |refs: &[NamedRef]| -> Vec<Value> {
+    // `{name: sha}`: one key per ref instead of repeated `name`/`sha` keys.
+    let rows = |refs: &[NamedRef]| -> Map<String, Value> {
         refs.iter()
-            .map(|named| json!({"name": named.name, "sha": named.sha}))
+            .map(|named| (named.name.clone(), json!(named.sha)))
             .collect()
     };
     let mut value = json!({
@@ -56,13 +55,14 @@ async fn refs<R: CredentialResolver, C: crate::providers::github::ConditionalCac
         "tags": rows(&tags.refs),
     });
     if branches.has_more || tags.has_more {
-        value["pagination"] = json!({"currentPage": page, "hasMore": true, "pageSize": per_page});
+        value["pagination"] =
+            crate::response::pages::PageFacts::open(page, Some(per_page), true).to_value();
         if page >= crate::tools::id::query_limits::gh_structure::PAGE_MAXIMUM {
             value["terminalLimit"] = json!(true);
         } else {
             let mut next = public_query(query)?;
+            // `pageSize` rides along only when the caller set it.
             next["page"] = json!(page + 1);
-            next["pageSize"] = json!(per_page);
             value["next"]["nextPage"] = continuation(
                 next,
                 format!("Continue branches and tags on page {}.", page + 1),
@@ -74,8 +74,8 @@ async fn refs<R: CredentialResolver, C: crate::providers::github::ConditionalCac
 }
 
 /// Bytes of code per language on the default branch, largest first.
-async fn languages<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+async fn languages<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhStructureQuery,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {

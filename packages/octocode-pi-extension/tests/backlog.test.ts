@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { closeSharedAgentDb, openAgentDb, sharedAgentDb, type AgentDb } from '../src/agentdb/db.js';
 import { boardRows, showBoard } from '../src/backlog/board.js';
 import { doItPrompt } from '../src/backlog/command.js';
-import { backlogWidget, registerBacklog } from '../src/backlog/index.js';
+import { registerBacklog } from '../src/backlog/index.js';
+import { countsText } from '../src/backlog/format.js';
 import { BacklogError, BacklogStore, parseRef } from '../src/backlog/store.js';
 import { Subcommands } from '../src/shared/commands.js';
 import { fakeCtx, fakePi, rendered, theme } from './fake-pi.js';
@@ -263,15 +264,13 @@ describe('backlog tool', () => {
     const t = setup();
     const ctx = fakeCtx({ cwd: t.cwd });
     await t.call({ op: 'add', title: 'one', state: 'todo' }, ctx);
-    expect(ctx.ui.statuses.get('octocode-backlog')).toBe('backlog ☐1');
+    expect(ctx.ui.statuses.get('octocode-backlog')).toBe('backlog 1 todo · /backlog');
     await t.call({ op: 'update', id: 'B1', state: 'ongoing' }, ctx);
-    expect(ctx.ui.statuses.get('octocode-backlog')).toBe('backlog ▶1');
-    const widget = (ctx.ui.widgets.get('octocode-backlog') as (tui: unknown, theme: unknown) => { render(width: number): string[]; invalidate(): void })({}, theme);
-    widget.invalidate();
-    expect(widget.render(80)).toEqual([' ▶ B1 one']);
+    expect(ctx.ui.statuses.get('octocode-backlog')).toBe('backlog 1 ongoing · /backlog');
+    // Items live on the board (`/backlog`), not in a widget under the editor.
+    expect(ctx.ui.widgets.has('octocode-backlog')).toBe(false);
     await t.call({ op: 'update', id: 'B1', state: 'done', note: 'ok' }, ctx);
     expect(ctx.ui.statuses.get('octocode-backlog')).toBeUndefined();
-    expect(ctx.ui.widgets.has('octocode-backlog')).toBe(false);
     expect(rendered(t.tool.renderCall({ op: 'update', id: 'B1', state: 'done' }, theme, {}))).toBe('○ Backlog(update B1 → done)');
     const row = async (params: Record<string, unknown>) => rendered(t.tool.renderResult(await t.call(params, ctx), { expanded: false }, theme, { args: params, isPartial: false, expanded: false }));
     expect(await row({ op: 'add', title: 'two' })).toBe('  ⎿  Added B2 · backlog');
@@ -284,26 +283,19 @@ describe('backlog tool', () => {
   });
 });
 
-describe('backlog widget', () => {
-  it('styles ongoing items, cuts them with a single-character ellipsis, and counts the rest', () => {
-    const colored = { ...(theme as object), fg: (color: string, text: string) => `<${color}>${text}</${color}>`, bold: (text: string) => text } as never;
-    const items = [1, 2, 3, 4, 5].map((n) => ({ ref: `B${n}`, title: `task\u001b]52;c;x\u0007 ${'x'.repeat(100)}` }));
-    const lines = backlogWidget(items)({}, colored).render(200);
-    expect(lines).toHaveLength(4);
-    expect(lines[0]).toMatch(/^ <accent>▶<\/accent> <accent>B1<\/accent> <muted>task/);
-    expect(lines.join('\n')).not.toMatch(/\u001b\]52|\u0007/);
-    expect(lines[3]).toBe('   <dim>+2 more ongoing</dim>');
-    const narrow = backlogWidget(items)({}, theme).render(30);
-    expect(narrow[0]!.replace(/\u001b\[[0-9;]*m/g, '').endsWith('…')).toBe(true);
-    expect(narrow.join('\n')).not.toContain('...');
+describe('backlog status', () => {
+  it('names every open state in words and ends with the command that opens the board', () => {
+    expect(countsText({ ongoing: 2, todo: 4, backlog: 1, done: 9 })).toBe('backlog 2 ongoing · 4 todo · 1 to triage · /backlog');
+    expect(countsText({ ongoing: 0, todo: 0, backlog: 0, done: 3 })).toBe('');
   });
 
-  it('gives RPC clients plain rows and clears the widget when the database becomes unreadable', async () => {
+  it('gives RPC clients the same status text and clears it when the database becomes unreadable', async () => {
     const t = setup();
     const rpc = fakeCtx({ cwd: t.cwd, mode: 'rpc' });
     await t.call({ op: 'add', title: 'one', state: 'todo' }, rpc);
     await t.call({ op: 'update', id: 'B1', state: 'ongoing' }, rpc);
-    expect(rpc.ui.widgets.get('octocode-backlog')).toEqual(['▶ B1 one']);
+    expect(rpc.ui.statuses.get('octocode-backlog')).toBe('backlog 1 ongoing · /backlog');
+    expect(rpc.ui.widgets.has('octocode-backlog')).toBe(false);
     const db = path.join(t.cwd, 'foreign.sqlite');
     fs.writeFileSync(db, 'not sqlite at all, not even close to a header of one'.repeat(20));
     // afterEach restores OCTOCODE_AGENT_DB.

@@ -43,7 +43,7 @@ fn incomplete_and_cap_are_losslessly_typed() {
         ToolId::GhSearchCode,
         &query,
         true,
-        true,
+        5_000,
         10,
         false,
         "code",
@@ -60,12 +60,10 @@ fn incomplete_and_cap_are_losslessly_typed() {
 }
 
 mod provider_backed {
-    use crate::providers::github::{
-        GitHubProvider, NoCache, RetryPolicy, StaticCredentialResolver,
-    };
-    use crate::providers::github::{ProviderError, ProviderErrorKind, RequestContext};
+    use crate::providers::github::{GitHubProvider, NoCache, RetryPolicy};
+    use crate::providers::github::{ProviderError, ProviderErrorKind};
     use crate::security::scan::Passthrough;
-    use crate::tools::gh_shared::test_support::{mock_provider, mount_json};
+    use crate::tools::gh_shared::test_support::{fixture_context, mock_provider, mount_json};
     use crate::tools::result::ToolData;
     use crate::tools::{gh_search_code, gh_search_repo, gh_structure};
     use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -77,7 +75,7 @@ mod provider_backed {
     };
 
     /// One attempt per request: a mock answer is final.
-    fn provider(server: &MockServer) -> GitHubProvider<StaticCredentialResolver, NoCache> {
+    fn provider(server: &MockServer) -> GitHubProvider<NoCache> {
         mock_provider(
             server,
             RetryPolicy {
@@ -100,7 +98,7 @@ mod provider_backed {
             server.address().port()
         ));
         let provider = provider(server);
-        let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+        let context = fixture_context(Duration::from_secs(5), 1 << 20);
         match operation.as_str() {
             Some("code") => {
                 let query = serde_json::from_value(query).expect("code query");
@@ -369,7 +367,7 @@ mod provider_backed {
             );
             assert!(row.get("matches").is_none(), "{row}");
         }
-        let read = &data["next"]["readTopMatch"]["query"]["queries"][0];
+        let read = &data["next"]["read"]["query"]["queries"][0];
         assert_eq!(read["owner"], "a", "{data}");
         // E10: the top hit declares `wrap_app`, so the read is that whole
         // declaration, never a fixed line window that may cut it.
@@ -385,7 +383,7 @@ mod provider_backed {
             query["mainGoal"] = json!("g");
             query
         })
-        .expect("readTopMatch is a valid ghGetFileContent query");
+        .expect("read is a valid ghGetFileContent query");
     }
 
     /// A file whose hits are capped or whose hit lines are cut carries an
@@ -541,7 +539,7 @@ mod provider_backed {
             "default-branch text is not shown as the ref: {data}"
         );
         assert_eq!(
-            data["next"]["readTopMatch"]["query"]["queries"][0]["ref"], TREE_SHA,
+            data["next"]["read"]["query"]["queries"][0]["ref"], TREE_SHA,
             "the read is pinned to the commit the lines came from: {data}"
         );
     }
@@ -638,7 +636,7 @@ mod provider_backed {
         let data = &out.data;
         assert_eq!(data["files"][0]["atRef"], false, "{data}");
         assert!(
-            data.pointer("/next/readTopMatch").is_none(),
+            data.pointer("/next/read").is_none(),
             "no read outside the requested ref: {data}"
         );
         // GC4: the ref listing searches the moved file's name tree-wide.
@@ -665,11 +663,7 @@ mod provider_backed {
         let row = &out.data["files"][0];
         assert_eq!(row["atRef"], false, "{}", out.data);
         assert!(row.get("matches").is_none(), "{}", out.data);
-        assert!(
-            out.data.pointer("/next/readTopMatch").is_none(),
-            "{}",
-            out.data
-        );
+        assert!(out.data.pointer("/next/read").is_none(), "{}", out.data);
     }
 
     /// A default-branch page reads every row's hit lines, not only the
@@ -851,7 +845,7 @@ mod provider_backed {
     }
 
     /// D5: empty-search hints name the actual cause, and a repository
-    /// known to exist gets no root viewStructure.
+    /// known to exist gets no root viewTree.
     #[tokio::test]
     async fn empty_code_search_hints_are_cause_specific() {
         let server = MockServer::start().await;
@@ -896,7 +890,7 @@ mod provider_backed {
             .expect("search");
         // An existing repository with no hit leads to its root structure.
         assert_eq!(
-            existing.data["next"]["viewStructure"]["query"]["queries"][0]["path"], "",
+            existing.data["next"]["viewTree"]["query"]["queries"][0]["path"], "",
             "{}",
             existing.data
         );
@@ -907,7 +901,7 @@ mod provider_backed {
             .await
             .expect("search");
         assert_eq!(
-            scoped.data["next"]["viewStructure"]["query"]["queries"][0]["path"], "src/io",
+            scoped.data["next"]["viewTree"]["query"]["queries"][0]["path"], "src/io",
             "{}",
             scoped.data
         );
@@ -924,7 +918,7 @@ mod provider_backed {
             "{}",
             path_mode.data
         );
-        let content = &path_mode.data["next"]["searchContent"]["query"]["queries"][0];
+        let content = &path_mode.data["next"]["searchCode"]["query"]["queries"][0];
         assert_eq!(content["match"], "file", "{}", path_mode.data);
         assert_eq!(content["keywords"], json!(["fn spawn_blocking"]));
     }
@@ -946,7 +940,7 @@ mod provider_backed {
                 )
                 .await
                 .expect("search");
-            let view = &out.data["next"]["viewStructure"]["query"]["queries"][0];
+            let view = &out.data["next"]["viewTree"]["query"]["queries"][0];
             assert_eq!(view["ref"], "nondefault", "{}", out.data);
         }
         let default = run(
@@ -957,7 +951,7 @@ mod provider_backed {
         .await
         .expect("search");
         assert!(
-            default.data["next"]["viewStructure"]["query"]["queries"][0]
+            default.data["next"]["viewTree"]["query"]["queries"][0]
                 .get("ref")
                 .is_none(),
             "{}",
@@ -1251,7 +1245,7 @@ mod provider_backed {
         let pagination = out.data["pagination"].clone();
         assert_eq!(
             pagination,
-            json!({"totalItems":25,"hasMore":true,"currentPage":1,"totalPages":25}),
+            json!({"currentPage":1,"totalPages":25,"pageSize":1,"totalItems":25,"hasMore":true}),
             "{}",
             out.data
         );
@@ -1325,7 +1319,7 @@ mod provider_backed {
             .expect("glob");
         assert_eq!(
             out.data["entries"],
-            json!([{"dir":"starlette","files":["_exception_handler.py"]}]),
+            json!([{"dir":"starlette","files":["_exception_handler.py (3)"]}]),
             "{}",
             out.data
         );
@@ -1379,7 +1373,7 @@ mod provider_backed {
         .expect("tree");
         assert_eq!(
             out.data["entries"][0]["files"],
-            json!(["pinned.rs"]),
+            json!(["pinned.rs (1)"]),
             "{}",
             out.data
         );
@@ -1406,7 +1400,7 @@ mod provider_backed {
     /// Contents walk list the same permitted entries.
     #[tokio::test]
     async fn ignored_directories_hide_their_descendants_from_every_consumer() {
-        let expected = json!([{"dir":".","files":["app.rs"]}]);
+        let expected = json!([{"dir":".","files":["app.rs (3)"]}]);
         // Recursive Git Trees listing.
         let server = MockServer::start().await;
         mount_ref(&server, "main").await;
@@ -1924,7 +1918,7 @@ mod provider_backed {
             transport: provider(&server).transport,
             cache: MemoryCache::default(),
         };
-        let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+        let context = fixture_context(Duration::from_secs(5), 1 << 20);
         let home = std::env::temp_dir().join("gh-default-branch-memo");
         for _ in 0..2 {
             let query =
@@ -2072,7 +2066,7 @@ mod provider_backed {
         .await
         .expect("search");
         assert_eq!(out.status, Some("empty"));
-        let lead = &out.data["next"]["viewStructure"];
+        let lead = &out.data["next"]["viewTree"];
         assert_eq!(lead["tool"], "ghStructure", "{}", out.data);
         assert_eq!(lead["query"]["queries"][0]["repo"], "b", "{}", out.data);
     }
@@ -2112,11 +2106,7 @@ mod provider_backed {
         .expect("search");
         // GR4: repo-discovery words are not code keywords; the top
         // repository leads to its tree only.
-        assert!(
-            out.data["next"].get("searchContent").is_none(),
-            "{}",
-            out.data
-        );
+        assert!(out.data["next"].get("searchCode").is_none(), "{}", out.data);
         assert_eq!(
             out.data["next"]["viewRepo"]["tool"], "ghStructure",
             "{}",

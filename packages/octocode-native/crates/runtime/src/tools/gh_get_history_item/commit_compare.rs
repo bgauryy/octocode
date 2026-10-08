@@ -10,9 +10,7 @@ use super::window::{
     paginate_collection, paginate_window,
 };
 use super::{HistoryItemRequest, ItemOperation, fetch, validation};
-use crate::providers::github::{
-    CredentialResolver, GitHubTransport, ProviderError, RequestContext,
-};
+use crate::providers::github::{GitHubTransport, ProviderError, RequestContext};
 use crate::tools::id::ToolId;
 use crate::tools::result::{Continuation, remove_nulls};
 use serde_json::{Value, json};
@@ -20,8 +18,8 @@ use serde_json::{Value, json};
 /// GitHub's compare endpoint lists at most this many changed files.
 const COMPARE_FILE_LIMIT: usize = 300;
 
-pub(super) async fn commit<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+pub(super) async fn commit(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<Value, ProviderError> {
@@ -171,8 +169,8 @@ fn lead_first(out: &mut Value, leads: Vec<(&'static str, Value)>) {
     }
 }
 
-pub(super) async fn compare<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+pub(super) async fn compare(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<Value, ProviderError> {
@@ -184,7 +182,7 @@ pub(super) async fn compare<R: CredentialResolver>(
     // page: resolve a movable head (branch, tag) to the commit read so the
     // echo and every continuation name one comparison. A cross-repository
     // `owner:ref` head stays as written.
-    let head = if head.contains(':') || is_full_sha(head) {
+    let head = if head.contains(':') || octocode_github::is_full_sha(head) {
         head.to_owned()
     } else {
         transport
@@ -261,7 +259,18 @@ pub(super) async fn compare<R: CredentialResolver>(
         }
         // The last commit page past the first needs no page object.
         if more || page == 1 {
-            out["pagination"] = json!({"currentPage":page,"pageSize":per,"hasMore":more,"nextPage":more.then_some(page+1)});
+            // GitHub counts the range (`total_commits`): a count-cut page
+            // states that total unless the provider's links say otherwise.
+            let counted = total > 0 && (page.saturating_mul(per) < total) == more;
+            let facts = if counted {
+                crate::response::pages::PageFacts::counted(page, per, total)
+            } else {
+                crate::response::pages::PageFacts::open(page, Some(per), more)
+            };
+            out["pagination"] = facts.to_value();
+            if more {
+                out["pagination"]["nextPage"] = json!(page + 1);
+            }
         }
     }
     if file_limit {
@@ -477,10 +486,6 @@ fn literal_prefix(pattern: &str) -> Option<String> {
     } else {
         prefix.to_owned()
     })
-}
-
-fn is_full_sha(value: &str) -> bool {
-    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn identity(raw: &Value, kind: &str) -> Value {

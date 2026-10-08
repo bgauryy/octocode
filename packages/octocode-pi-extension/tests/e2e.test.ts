@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { createFauxCore, fauxAssistantMessage, fauxToolCall, getCurrentSystemPrompt, getCurrentTools, type TranscriptContext } from '@earendil-works/pi-ai';
 import { createAgentSession, createMcpExtension, createToolSearchExtension, DefaultResourceLoader, SessionManager, SettingsManager, type ExtensionFactory } from '@earendil-works/pi-coding-agent';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { OCTOCODE_SERVER, octocodeMcpEnabled, octocodeServerConfig } from '../src/mcp/octocode.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ENTRY = path.join(HERE, '..', process.env['OCTOCODE_E2E_ENTRY'] === 'dist' ? 'dist/index.js' : 'src/index.ts');
@@ -16,6 +17,22 @@ for (const key of ['OCTOCODE_SUBAGENT', 'OCTOCODE_BROWSER_VISIBLE', 'OCTOCODE_PA
 }
 
 const FIXTURE = path.join(HERE, 'fixtures', 'echo-mcp.mjs');
+
+/**
+ * The extension launches its bundled `octocode-mcp` dependency (a pinned npm release). In this monorepo that release
+ * names the retired tool surface and does not start against the workspace's `@octocodeai/config`, so the e2e runs the
+ * extension's own server config against the workspace build (`packages/octocode-mcp/dist/index.js`) when it exists.
+ * Pi lets only the registering extension replace a server, so the override runs inside the Octocode extension, after
+ * its own `session_start` registration.
+ */
+const LOCAL_OCTOCODE_MCP = path.join(HERE, '..', '..', 'octocode-mcp', 'dist', 'index.js');
+const octocodeWithLocalMcp: ExtensionFactory = async (pi) => {
+  await octocode(pi);
+  if (!fs.existsSync(LOCAL_OCTOCODE_MCP)) return;
+  pi.on('session_start', async (_event, ctx) => {
+    if (octocodeMcpEnabled()) pi.registerMcpServer(OCTOCODE_SERVER, octocodeServerConfig(ctx.cwd, process.env, LOCAL_OCTOCODE_MCP));
+  });
+};
 
 interface Turn {
   systemPrompt: string;
@@ -75,10 +92,10 @@ async function startSession(mcpServers: Record<string, unknown>, options: { tool
     settingsManager,
     extensionFactories: [
       { name: 'faux-provider', factory: provider },
-      { name: 'octocode', factory: octocode as ExtensionFactory },
+      { name: 'octocode', factory: octocodeWithLocalMcp },
       // The CLI loads Pi's MCP as a built-in extension, after the user's; SDK sessions add it themselves.
       { name: 'mcp', factory: createMcpExtension({ logPath: path.join(root, 'mcp.log') }) },
-      // Also built in on the CLI: it loads Octocode's deferred GitHub and npm tools.
+      // Also built in on the CLI: it loads Octocode's deferred GitHub and package registry tools.
       { name: 'tool-search', factory: createToolSearchExtension() },
     ],
     noSkills: true,
@@ -130,13 +147,13 @@ describe('with Octocode MCP (default)', () => {
     const turn = (await s.run('hello', [say('ready')])).at(-1)!;
     expect(turn.tools).toContain('file');
     expect(turn.tools).toContain('read');
-    expect(turn.tools).toContain('mcp__octocode__localGetFileContent');
+    expect(turn.tools).toContain('mcp__octocode__localFetch');
     expect(turn.tools).toContain('mcp__octocode__localSearch');
     for (const name of ['edit', 'write']) expect(turn.tools).not.toContain(name);
     expect(turn.systemPrompt).toContain('<octocode>');
-    // GitHub and npm tools are deferred behind tool_search.
+    // GitHub and package registry tools are deferred behind tool_search.
     expect(turn.tools).toContain('tool_search');
-    expect(turn.tools.some((name) => name.startsWith('mcp__octocode__gh') || name === 'mcp__octocode__npmSearch')).toBe(false);
+    expect(turn.tools.some((name) => name.startsWith('mcp__octocode__gh') || name === 'mcp__octocode__artifactSearch')).toBe(false);
     // Pi snapshots the selected tools before its MCP host connects servers on the first request, so the guidance
     // follows the registration and is there from the start, unchanged on the next request.
     expect(turn.systemPrompt).toContain('Prefer Octocode MCP (`mcp__octocode__*`) for code search and research');
@@ -145,7 +162,7 @@ describe('with Octocode MCP (default)', () => {
     expect(next.systemPrompt).toBe(turn.systemPrompt);
   }, 60_000);
 
-  it('loads the deferred GitHub and npm tools through tool_search', async () => {
+  it('loads the deferred GitHub and package registry tools through tool_search', async () => {
     const turns = await s.run('find a github tool', [calls(fauxToolCall('tool_search', { query: 'GitHub code search repositories' })), say('found')]);
     const after = turns.at(-1)!;
     expect(after.lastResults[0]!.isError).toBe(false);
@@ -155,7 +172,7 @@ describe('with Octocode MCP (default)', () => {
   it('reads through Octocode, then edits, writes and deletes with batched file calls', async () => {
     const appPath = path.join(s.cwd, 'app.ts');
     const turns = await s.run('fix the answer', [
-      calls(fauxToolCall('mcp__octocode__localGetFileContent', { queries: [{ goal: 'see value', reasoning: 'need current code', path: appPath, fullContent: true }] })),
+      calls(fauxToolCall('mcp__octocode__localFetch', { queries: [{ mainGoal: 'see value', reasoning: 'need current code', path: appPath, fullContent: true }] })),
       calls(
         fauxToolCall('file', {
           queries: [
@@ -193,6 +210,29 @@ describe('with Octocode MCP (default)', () => {
     const result = turns.at(-1)!.lastResults[0]!;
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/changed on disk since you last read it/);
+  }, 60_000);
+
+  it('counts a complete localFetch fullContent read for the file guard, but not a large file\'s first page', async () => {
+    const small = path.join(s.cwd, 'seen.ts');
+    const big = path.join(s.cwd, 'big.ts');
+    fs.writeFileSync(small, 'export const seen = 1;\n');
+    fs.writeFileSync(big, Array.from({ length: 20_000 }, (_, index) => `export const value${index} = ${index}; // padding padding padding padding\n`).join(''));
+    const edit = (file: string, oldText: string) => fauxToolCall('file', { queries: [{ reasoning: 'bump', type: 'edit', path: file, edits: [{ oldText, newText: 'changed' }] }] });
+    const turns = await s.run('read then edit', [
+      calls(fauxToolCall('mcp__octocode__localFetch', { queries: [{ path: small, fullContent: true }, { path: big, fullContent: true }] })),
+      () => {
+        // Someone else edits both files after the read.
+        fs.writeFileSync(small, 'export const seen = 2;\n');
+        fs.appendFileSync(big, 'export const tail = 1;\n');
+        return fauxAssistantMessage([edit('seen.ts', 'seen = 2'), edit('big.ts', 'tail = 1')], { stopReason: 'toolUse' });
+      },
+      say('done'),
+    ]);
+    const [afterRead, afterEdit] = turns.slice(-2);
+    expect(afterRead!.lastResults[0]!.text).toContain('isPartial: true');
+    // The whole small file was read: its change on disk is caught. The big file's first page is not a whole read.
+    expect(afterEdit!.lastResults[0]!.text).toMatch(/changed on disk since you last read it/);
+    expect(afterEdit!.lastResults[1]!.text).toMatch(/OK edit big\.ts/);
   }, 60_000);
 });
 
@@ -361,7 +401,7 @@ describe('a subagent session with visible browser and MCP enabled', () => {
 
   it('has Octocode and browser tools and can call Octocode', async () => {
     const turn = (await s.run('hello', [say('ready')])).at(-1)!;
-    expect(turn.tools).toContain('mcp__octocode__localGetFileContent');
+    expect(turn.tools).toContain('mcp__octocode__localFetch');
     expect(turn.tools).toContain('browser');
     expect(turn.tools.filter((name) => name.includes('cua'))).toEqual([]);
     expect(turn.tools).not.toContain('agent');
@@ -377,10 +417,10 @@ describe('a subagent session with visible browser and MCP enabled', () => {
     expect(turn.systemPrompt).toContain('reserve shared files');
     const appPath = path.join(s.cwd, 'app.ts');
     const turns = await s.run('read', [
-      calls(fauxToolCall('mcp__octocode__localGetFileContent', { queries: [{ goal: 'see value', reasoning: 'need current code', path: appPath, fullContent: true }] })),
+      calls(fauxToolCall('mcp__octocode__localFetch', { queries: [{ mainGoal: 'see value', reasoning: 'need current code', path: appPath, fullContent: true }] })),
       say('done'),
     ]);
     const results = turns.at(-1)!.lastResults;
-    expect(results.find((result) => result.toolName === 'mcp__octocode__localGetFileContent')?.text).toContain('answer = 41');
+    expect(results.find((result) => result.toolName === 'mcp__octocode__localFetch')?.text).toContain('answer = 41');
   }, 60_000);
 });

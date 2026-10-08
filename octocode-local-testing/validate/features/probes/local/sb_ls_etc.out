@@ -1,5 +1,0 @@
-# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/etc", "searchText": "localhost", "resultView": "files"}
-# env: None
-# exit: 5
-# stderr: 
-{"results":[{"index":0,"data":{"error":"Path '/etc' is outside allowed directories (allowed: /Users/bgaryy/code/octocode, /Users/bgaryy/.octocode)","errorCode":"pathOutsideAllowedRoots","hints":["The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT."]},"status":"error"}]}

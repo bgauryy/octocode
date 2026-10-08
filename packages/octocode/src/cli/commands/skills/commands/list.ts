@@ -5,10 +5,10 @@ import {
   overallStatus,
   type SkillStatus,
 } from '../checker.js';
-import { getSkillEnvStatus, missingHint } from '../env-params.js';
+import { envParamRows, getSkillEnvStatus, missingHint } from '../env-params.js';
 import { bold, c, dim } from '../../../../utils/colors.js';
 
-export interface ListResult {
+interface ListResult {
   success: boolean;
   skills: Array<{
     name: string;
@@ -19,12 +19,7 @@ export interface ListResult {
     hasWorkspaceLink: boolean;
     env: {
       readiness: string;
-      params: Array<{
-        key: string;
-        status: string;
-        required: string;
-        group?: string;
-      }>;
+      params: ReturnType<typeof envParamRows>;
       hint: string;
     };
   }>;
@@ -55,12 +50,7 @@ export function runList(opts: { json: boolean }): void {
         check.workspace.status === 'installed',
       env: {
         readiness: env.readiness,
-        params: env.params.map(param => ({
-          key: param.param.key,
-          status: param.status,
-          required: param.param.required,
-          ...(param.param.group ? { group: param.param.group } : {}),
-        })),
+        params: envParamRows(env),
         hint: missingHint(env),
       },
     };
@@ -94,10 +84,10 @@ export function runList(opts: { json: boolean }): void {
     );
     if (skill.env.hint) console.log(`  ${dim(`env: ${skill.env.hint}`)}`);
   }
-  if (skills.some(skill => skill.status === 'stale' || skill.status === 'broken')) {
-    console.log(
-      `${dim('Repair:')} ${c('cyan', 'octocode skill check --fix')}`
-    );
+  if (
+    skills.some(skill => skill.status === 'stale' || skill.status === 'broken')
+  ) {
+    console.log(`${dim('Repair:')} ${c('cyan', 'octocode skill check --fix')}`);
   }
   console.log(
     dim(`Details: octocode skill info <name> · status: octocode skill check`)

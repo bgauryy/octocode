@@ -2,7 +2,6 @@
 //! verified cache layout `<root>/<server>/<releaseTag>/<binName>` with its
 //! `.ok` completion marker. Discovery reads installs from here; the CLI
 //! provisioner downloads, verifies, and writes them.
-use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
@@ -188,16 +187,27 @@ fn bare_name(name: &str) -> &str {
 
 /// The canonical `{os}-{arch}[-musl]` platform id the manifest is keyed on.
 pub fn platform_id() -> String {
-    let arch = if std::env::consts::ARCH == "x86_64" {
-        "x64"
-    } else {
-        "arm64"
+    platform_id_for(
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        is_musl_linux(),
+    )
+}
+
+fn platform_id_for(os: &str, arch: &str, musl: bool) -> String {
+    // Only the two shipped architectures get their npm-style names; any other
+    // keeps its Rust name, so manifest lookup reports it unsupported instead
+    // of selecting an arm64 binary (review L12).
+    let arch = match arch {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        other => other,
     };
-    match std::env::consts::OS {
+    match os {
         "macos" => format!("darwin-{arch}"),
         "windows" => format!("win32-{arch}"),
         _ => {
-            let suffix = if is_musl_linux() { "-musl" } else { "" };
+            let suffix = if musl { "-musl" } else { "" };
             format!("linux-{arch}{suffix}")
         }
     }
@@ -215,11 +225,6 @@ fn is_musl_linux() -> bool {
                 .is_some_and(|n| n.starts_with("ld-musl-"))
         })
     })
-}
-
-/// Lowercase hex SHA-256 of `bytes`.
-pub fn sha256_hex(bytes: &[u8]) -> String {
-    hex::encode(Sha256::digest(bytes))
 }
 
 /// Where a provisioned binary lives once installed:
@@ -241,8 +246,9 @@ pub fn marker_path(bin_path: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// The binary's own hash and size, as its `.ok` marker records them.
+/// The asset digest, binary hash and size, as the `.ok` marker records them.
 struct CacheMarker {
+    asset_sha256: String,
     binary_sha256: String,
     size: u64,
 }
@@ -250,27 +256,87 @@ struct CacheMarker {
 fn read_cache_marker(marker_path: &Path) -> Option<CacheMarker> {
     let text = std::fs::read_to_string(marker_path).ok()?;
     let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let binary_sha256 = value.get("binarySha256")?.as_str()?.to_string();
-    if binary_sha256.len() != 64 || !binary_sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return None;
-    }
-    let size = value.get("size")?.as_u64()?;
+    let digest = |key: &str| {
+        let hex = value.get(key)?.as_str()?;
+        (hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit())).then(|| hex.to_string())
+    };
     Some(CacheMarker {
-        binary_sha256,
-        size,
+        asset_sha256: digest("assetSha256")?,
+        binary_sha256: digest("binarySha256")?,
+        size: value.get("size")?.as_u64()?,
     })
 }
 
+/// File identity of a binary whose hash already matched its marker. A changed
+/// size or mtime forces a rehash, so each LSP spawn does not hash a large
+/// binary again (review M7).
+#[derive(Clone, PartialEq)]
+struct VerifiedBinary {
+    size: u64,
+    modified: std::time::SystemTime,
+    binary_sha256: String,
+}
+
+fn verified_binaries()
+-> &'static std::sync::Mutex<std::collections::HashMap<PathBuf, VerifiedBinary>> {
+    static VERIFIED: OnceLock<
+        std::sync::Mutex<std::collections::HashMap<PathBuf, VerifiedBinary>>,
+    > = OnceLock::new();
+    VERIFIED.get_or_init(Default::default)
+}
+
 /// The installed binary for `name`, only when it is present AND its `.ok`
-/// marker matches the binary's current hash and size. Read-only.
+/// marker names the asset the manifest pins now and matches the binary's
+/// current hash and size. Read-only.
 pub fn resolve_cached_server(root: &Path, name: &str, platform: &str) -> Option<PathBuf> {
+    let pinned_asset = manifest_server(name)?.platforms.get(platform)?.sha256?;
     let bin_path = cached_server_bin_path(root, name, platform)?;
     let marker = read_cache_marker(&marker_path(&bin_path))?;
-    let bytes = std::fs::read(&bin_path).ok()?;
-    if bytes.len() as u64 != marker.size {
+    // A binary from another asset (manifest bumped at the same release-tag
+    // path) is stale, even when its own hash still matches (review L15).
+    if !marker.asset_sha256.eq_ignore_ascii_case(pinned_asset) {
         return None;
     }
-    (sha256_hex(&bytes) == marker.binary_sha256).then_some(bin_path)
+    let metadata = std::fs::metadata(&bin_path).ok()?;
+    if metadata.len() != marker.size {
+        return None;
+    }
+    let identity = metadata.modified().ok().map(|modified| VerifiedBinary {
+        size: metadata.len(),
+        modified,
+        binary_sha256: marker.binary_sha256.clone(),
+    });
+    let cache = verified_binaries();
+    if let Some(identity) = &identity
+        && cache
+            .lock()
+            .ok()
+            .is_some_and(|map| map.get(&bin_path) == Some(identity))
+    {
+        return Some(bin_path);
+    }
+    let bytes = std::fs::read(&bin_path).ok()?;
+    #[cfg(test)]
+    HASH_CALLS.with(|calls| calls.set(calls.get() + 1));
+    let matches =
+        bytes.len() as u64 == marker.size && crate::digest::sha256(&bytes) == marker.binary_sha256;
+    if let Ok(mut map) = cache.lock() {
+        match identity {
+            Some(identity) if matches => {
+                map.insert(bin_path.clone(), identity);
+            }
+            _ => {
+                map.remove(&bin_path);
+            }
+        }
+    }
+    matches.then_some(bin_path)
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Binary hashes computed on this thread (test observation of M7 memoization).
+    static HASH_CALLS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[cfg(test)]
@@ -281,9 +347,86 @@ mod tests {
         let bin = cached_server_bin_path(root, name, platform).expect("bin path");
         std::fs::create_dir_all(bin.parent().expect("parent")).expect("dir");
         std::fs::write(&bin, bytes).expect("bin");
-        let marker = serde_json::json!({"binarySha256": sha256_hex(bytes), "size": bytes.len()});
+        let asset_sha = manifest_server(name).expect("server").platforms[platform]
+            .sha256
+            .expect("pinned asset");
+        install_with_asset(root, name, platform, bytes, asset_sha)
+    }
+
+    fn install_with_asset(
+        root: &Path,
+        name: &str,
+        platform: &str,
+        bytes: &[u8],
+        asset_sha: &str,
+    ) -> PathBuf {
+        let bin = cached_server_bin_path(root, name, platform).expect("bin path");
+        std::fs::create_dir_all(bin.parent().expect("parent")).expect("dir");
+        std::fs::write(&bin, bytes).expect("bin");
+        let marker = serde_json::json!({
+            "assetSha256": asset_sha,
+            "binarySha256": crate::digest::sha256(bytes),
+            "size": bytes.len(),
+        });
         std::fs::write(marker_path(&bin), marker.to_string()).expect("marker");
         bin
+    }
+
+    fn temp_root(tag: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "octocode-managed-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ))
+    }
+
+    /// Review L15: a binary installed from a different asset than the one the
+    /// manifest now pins (same release-tag path) is not trusted.
+    #[test]
+    fn resolve_rejects_marker_for_a_different_asset() {
+        let root = temp_root("asset");
+        install_with_asset(&root, "rust-analyzer", "linux-x64", b"ra", &"0".repeat(64));
+        assert_eq!(
+            resolve_cached_server(&root, "rust-analyzer", "linux-x64"),
+            None
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    /// Review M7: an unchanged binary is hashed once per process, not on
+    /// every resolve; a changed binary is hashed again and rejected.
+    #[test]
+    fn resolve_hashes_an_unchanged_binary_once() {
+        let root = temp_root("memo");
+        let bin = install(&root, "rust-analyzer", "linux-x64", b"ra-memo");
+        let before = HASH_CALLS.with(std::cell::Cell::get);
+        for _ in 0..3 {
+            assert_eq!(
+                resolve_cached_server(&root, "rust-analyzer", "linux-x64"),
+                Some(bin.clone())
+            );
+        }
+        assert_eq!(HASH_CALLS.with(std::cell::Cell::get) - before, 1);
+        // Same size, new content; move mtime explicitly so a coarse
+        // filesystem clock cannot hide the rewrite.
+        let modified = std::fs::metadata(&bin)
+            .and_then(|m| m.modified())
+            .expect("mtime");
+        std::fs::write(&bin, b"ra-mem2").expect("tamper");
+        std::fs::File::options()
+            .write(true)
+            .open(&bin)
+            .and_then(|f| f.set_modified(modified + std::time::Duration::from_secs(2)))
+            .expect("set mtime");
+        assert_eq!(
+            resolve_cached_server(&root, "rust-analyzer", "linux-x64"),
+            None
+        );
+        assert_eq!(HASH_CALLS.with(std::cell::Cell::get) - before, 2);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -299,10 +442,27 @@ mod tests {
         );
     }
 
+    /// Review L12: an architecture the manifest does not ship must not be
+    /// mapped onto another architecture's binary.
+    #[test]
+    fn platform_id_keeps_unknown_architectures_distinct() {
+        assert_eq!(platform_id_for("macos", "aarch64", false), "darwin-arm64");
+        assert_eq!(platform_id_for("linux", "x86_64", true), "linux-x64-musl");
+        assert_eq!(platform_id_for("windows", "x86_64", false), "win32-x64");
+        let riscv = platform_id_for("linux", "riscv64", false);
+        assert_eq!(riscv, "linux-riscv64");
+        assert!(
+            manifest()
+                .values()
+                .all(|server| !server.platforms.contains_key(riscv.as_str()))
+        );
+        assert_eq!(platform_id_for("linux", "x86", false), "linux-x86");
+    }
+
     #[test]
     fn sha256_matches_known_vector() {
         assert_eq!(
-            sha256_hex(b"abc"),
+            crate::digest::sha256(b"abc"),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
     }

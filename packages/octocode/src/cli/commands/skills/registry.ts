@@ -58,7 +58,7 @@ function parseFrontmatter(content: string): {
   return parsed;
 }
 
-export interface SkillPathResult {
+interface SkillPathResult {
   skill?: SkillInfo;
   error?: string;
 }
@@ -117,7 +117,7 @@ export function getSkillFromPath(
     return {
       error:
         `Skill name mismatch: folder is "${folderName}" but SKILL.md declares ` +
-        `"${frontmatter.name}". Pass --name <name> to confirm the install name.`,
+        `"${frontmatter.name}". Pass the install name after the source: \`octocode skill install --add <dir> <name>\`.`,
     };
   }
 
@@ -136,8 +136,8 @@ export function getSkillFromPath(
 /**
  * Locate the bundled skills directory.
  *
- * When built: out/cli.js → skills/ is at package-root/skills/
- * In development (ts-node / vitest): src/*.ts → skills/ at package-root/skills/
+ * Built: the code-split chunk out/chunks/<chunk>.js → package-root/skills/.
+ * From source (vitest): src/cli/commands/skills/ → package-root/skills/.
  */
 function findBundledSkillsDir(): string {
   const thisFile = fileURLToPath(import.meta.url);
@@ -146,8 +146,6 @@ function findBundledSkillsDir(): string {
   const candidates = [
     // After build: out/chunks/<chunk>.js → ../../skills
     path.resolve(thisDir, '..', '..', 'skills'),
-    // Non-split build fallback: out/ → ../skills
-    path.resolve(thisDir, '..', 'skills'),
     // During dev: src/cli/commands/skills → ../../../../skills
     path.resolve(thisDir, '..', '..', '..', '..', 'skills'),
   ];
@@ -225,19 +223,6 @@ export function getSkill(nameOrFolder: string): SkillInfo | null {
       s => s.name === nameOrFolder || s.folder === nameOrFolder
     ) ?? null
   );
-}
-
-/** Skills removed from the bundle → the bundled skill that now owns their guidance. */
-export const RETIRED_SKILLS: Readonly<Record<string, string>> = {
-  'octocode-clasify': 'octocode-research',
-};
-
-/** Suffix for "not found" errors when the name is a retired skill; empty otherwise. */
-export function retiredHint(name: string): string {
-  const owner = RETIRED_SKILLS[name];
-  return owner
-    ? ` "${name}" was retired and merged into "${owner}"; install "${owner}" and run \`octocode skill remove ${name}\`.`
-    : '';
 }
 
 /**

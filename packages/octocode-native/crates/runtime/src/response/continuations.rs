@@ -687,16 +687,16 @@ mod tests {
             json!({"owner":"o","repo":"r","path":"a"}),
         );
         why["why"] = json!("Read  the   top hit.");
-        let row = |status: &str| json!({"index":0,"status":status,"data":{"next":{"viewStructure":tree.clone(),"readTopMatch":why.clone()}}});
+        let row = |status: &str| json!({"index":0,"status":status,"data":{"next":{"viewTree":tree.clone(),"read":why.clone()}}});
         let mut ok = json!({"results":[row("ok")]});
         run(&mut ok, ToolId::GhSearchCode, &[None]);
         let hints = &ok["results"][0]["data"]["hints"];
-        assert!(hints.get("viewStructure").is_none(), "{hints}");
-        assert!(hints["readTopMatch"].get("why").is_none(), "{hints}");
+        assert!(hints.get("viewTree").is_none(), "{hints}");
+        assert!(hints["read"].get("why").is_none(), "{hints}");
         let mut empty = json!({"results":[row("empty")]});
         run(&mut empty, ToolId::GhSearchCode, &[None]);
         let hints = &empty["results"][0]["data"]["hints"];
-        assert!(hints["viewStructure"].is_object(), "{hints}");
-        assert_eq!(hints["readTopMatch"]["why"], "Read the top hit.");
+        assert!(hints["viewTree"].is_object(), "{hints}");
+        assert_eq!(hints["read"]["why"], "Read the top hit.");
     }
 }

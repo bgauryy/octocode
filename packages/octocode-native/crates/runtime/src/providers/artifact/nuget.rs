@@ -109,7 +109,7 @@ fn requested_version(version: Option<&str>) -> Result<Option<&str>, ArtifactErro
     let version = version.trim_start_matches(['v', 'V']);
     if compare_versions(version, version).is_err() {
         return Err(ArtifactError::new(
-            "unsupported_capability",
+            "capabilityUnavailable",
             format!("NuGet lookups take an exact version or latest, not \"{version}\"."),
         )
         .with_hint("Pass an exact package version, e.g. 13.0.3."));
@@ -224,13 +224,7 @@ async fn exact(
         artifact.repository = Some(repository);
         artifact.source_ref = commit;
     }
-    Ok(ArtifactProviderPage {
-        artifacts: vec![artifact],
-        next_state: None,
-        total: Some(1),
-        terminal_limit: None,
-        registry: None,
-    })
+    Ok(ArtifactProviderPage::single(artifact))
 }
 
 /// Newest registration pages first. The highest listed stable version wins;
@@ -353,13 +347,13 @@ fn service_type_starts(service_type: &str, kind: &str) -> bool {
 fn official_url(value: Option<&Value>) -> Result<Url, ArtifactError> {
     let value = value.and_then(Value::as_str).ok_or_else(|| {
         ArtifactError::new(
-            "provider_error",
+            "providerError",
             "NuGet did not advertise a supported official metadata endpoint.",
         )
     })?;
     let url = Url::parse(value).map_err(|_| {
         ArtifactError::new(
-            "provider_error",
+            "providerError",
             "NuGet did not advertise a supported official metadata endpoint.",
         )
     })?;
@@ -371,7 +365,7 @@ fn official_url(value: Option<&Value>) -> Result<Url, ArtifactError> {
         Ok(url)
     } else {
         Err(ArtifactError::new(
-            "provider_error",
+            "providerError",
             "NuGet did not advertise a supported official metadata endpoint.",
         ))
     }
@@ -558,7 +552,7 @@ mod tests {
         let b = test_budget();
         let client = RegistryClient::uncached(http, &b);
         let q = artifact_query(
-            serde_json::json!({"type": ArtifactType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
+            serde_json::json!({"ecosystem": ArtifactType::Nuget, "packageName": "Newtonsoft.Json".to_string()}),
             None,
         );
         nuget(&q, &ArtifactProviderState::default(), &client)
@@ -688,7 +682,7 @@ mod tests {
         let client = RegistryClient::uncached(&http, &b);
         let lookup = |version: &str| {
             artifact_query(
-                json!({"type": ArtifactType::Nuget, "packageName": "Newtonsoft.Json", "version": version}),
+                json!({"ecosystem": ArtifactType::Nuget, "packageName": "Newtonsoft.Json", "version": version}),
                 None,
             )
         };
@@ -720,7 +714,7 @@ mod tests {
         let range = nuget(&lookup("[13.0,14.0)"), &state, &client)
             .await
             .expect_err("range");
-        assert_eq!(range.code, "unsupported_capability", "{range:?}");
+        assert_eq!(range.code, "capabilityUnavailable", "{range:?}");
     }
 
     #[test]
@@ -786,7 +780,7 @@ mod tests {
         let b = test_budget();
         let client = RegistryClient::uncached(&http, &b);
         let q = artifact_query(
-            json!({"type": ArtifactType::Nuget, "keywords": ["json"], "pageSize": 2}),
+            json!({"ecosystem": ArtifactType::Nuget, "keywords": ["json"], "pageSize": 2}),
             None,
         );
         let at = |offset: u64| ArtifactProviderState {
@@ -850,7 +844,7 @@ mod tests {
         let b = test_budget();
         let client = RegistryClient::uncached(&http, &b);
         let q = artifact_query(
-            serde_json::json!({"type": ArtifactType::Nuget, "packageName": "Serilog".to_string()}),
+            serde_json::json!({"ecosystem": ArtifactType::Nuget, "packageName": "Serilog".to_string()}),
             None,
         );
         let page = nuget(&q, &ArtifactProviderState::default(), &client)

@@ -4,10 +4,7 @@
 //! path is an aliased `history(first:1, path:)` on the commit object. Paths
 //! travel as GraphQL variables, never inside the document text, so quotes,
 //! backslashes, and non-ASCII names need no escaping.
-use super::{
-    CredentialResolver, GitHubTransport, GraphQlPage, ProviderError, ProviderErrorKind,
-    RequestContext,
-};
+use super::{GitHubTransport, GraphQlPage, ProviderError, ProviderErrorKind, RequestContext};
 use serde_json::{Map, Value, json};
 
 /// Aliased `history` connections per GraphQL request.
@@ -29,7 +26,7 @@ pub struct PathDates {
 
 /// The GraphQL document for `count` paths: variables `owner`, `name`, `oid`,
 /// and `p0..p{count-1}`; the alias of path `i` is `p{i}`.
-pub fn path_dates_document(count: usize) -> String {
+pub(crate) fn path_dates_document(count: usize) -> String {
     let mut variables = String::from("$owner:String!,$name:String!,$oid:GitObjectID!");
     let mut selections = String::from("committedDate");
     for index in 0..count {
@@ -44,7 +41,7 @@ pub fn path_dates_document(count: usize) -> String {
 }
 
 /// The variables binding [`path_dates_document`] to one request.
-pub fn path_dates_variables(owner: &str, repo: &str, commit: &str, paths: &[&str]) -> Value {
+pub(crate) fn path_dates_variables(owner: &str, repo: &str, commit: &str, paths: &[&str]) -> Value {
     let mut variables = Map::new();
     variables.insert("owner".into(), json!(owner));
     variables.insert("name".into(), json!(repo));
@@ -92,7 +89,7 @@ fn parse_path_dates(
     Ok((date(commit.get("committedDate")), dates))
 }
 
-impl<R: CredentialResolver> GitHubTransport<R> {
+impl GitHubTransport {
     /// The last-commit date of each of `paths` at `commit` (a full SHA) and
     /// the commit's own date, in one GraphQL request per
     /// [`MAX_PATHS_PER_REQUEST`] paths, sent in order under the shared
@@ -113,7 +110,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         if paths.is_empty() {
             return result;
         }
-        if let Err(error) = self.graphql_ready(context).await {
+        if let Err(error) = self.graphql_ready(context) {
             result.error = Some(error);
             return result;
         }
@@ -143,20 +140,20 @@ impl<R: CredentialResolver> GitHubTransport<R> {
 
     /// GraphQL can be sent now: enabled, a credential is configured (GitHub
     /// GraphQL rejects anonymous calls), and the bucket is not blocked.
-    async fn graphql_ready(&self, context: &RequestContext) -> Result<(), ProviderError> {
+    fn graphql_ready(&self, context: &RequestContext) -> Result<(), ProviderError> {
         if !self.graphql_enabled {
             return Err(ProviderError::new(
                 ProviderErrorKind::Configuration,
                 "GitHub GraphQL is disabled",
             ));
         }
-        if self.credential(context).await?.is_none() {
+        if context.resolved_credential().is_none() {
             return Err(ProviderError::new(
                 ProviderErrorKind::Authentication,
                 "GitHub GraphQL needs a token",
             ));
         }
-        if !self.graphql_available(context).await {
+        if !self.graphql_available(context) {
             return Err(ProviderError::new(
                 ProviderErrorKind::RateLimited,
                 "GitHub GraphQL rate limit is exhausted",
@@ -169,8 +166,8 @@ impl<R: CredentialResolver> GitHubTransport<R> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CredentialSource, GitHubEndpoint, RetryPolicy, StaticCredentialResolver};
-    use std::{sync::Arc, time::Duration};
+    use crate::{CredentialSource, GitHubEndpoint, RequestBudget, ResolvedCredential, RetryPolicy};
+    use std::time::Duration;
     use wiremock::{
         Mock, MockServer, Request, Respond, ResponseTemplate,
         matchers::{method, path},
@@ -178,18 +175,12 @@ mod tests {
 
     const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
-    fn transport(server: &MockServer, token: bool) -> GitHubTransport<StaticCredentialResolver> {
+    fn transport(server: &MockServer) -> GitHubTransport {
         let endpoint =
             GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).unwrap())
                 .unwrap();
-        let resolver = if token {
-            StaticCredentialResolver::new("secret", CredentialSource::Environment)
-        } else {
-            StaticCredentialResolver::anonymous()
-        };
         GitHubTransport::new(
             endpoint,
-            Arc::new(resolver),
             RetryPolicy {
                 max_attempts: 1,
                 base_delay: Duration::from_millis(1),
@@ -199,8 +190,12 @@ mod tests {
         .unwrap()
     }
 
-    fn context() -> RequestContext {
-        RequestContext::with_timeout(Duration::from_secs(5), 1 << 20)
+    /// A request budget; `token` attaches a credential.
+    fn context(token: bool) -> RequestContext {
+        RequestContext::new(
+            RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20),
+            token.then(|| ResolvedCredential::new("secret", CredentialSource::Environment)),
+        )
     }
 
     /// Answers every alias in the request with a date derived from its
@@ -251,8 +246,8 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        let dates = transport(&server, true)
-            .path_commit_dates("a", "b", SHA, &["src", "README.md"], &context())
+        let dates = transport(&server)
+            .path_commit_dates("a", "b", SHA, &["src", "README.md"], &context(true))
             .await;
         assert_eq!(dates.error, None);
         assert_eq!(dates.commit_date.as_deref(), Some("2026-01-31T10:00:00Z"));
@@ -281,8 +276,8 @@ mod tests {
             .await;
         let names = (0..201).map(|n| "x".repeat(n % 7 + 1)).collect::<Vec<_>>();
         let paths = names.iter().map(String::as_str).collect::<Vec<_>>();
-        let dates = transport(&server, true)
-            .path_commit_dates("a", "b", SHA, &paths, &context())
+        let dates = transport(&server)
+            .path_commit_dates("a", "b", SHA, &paths, &context(true))
             .await;
         assert_eq!(dates.error, None);
         assert_eq!(dates.dates.len(), 201);
@@ -315,8 +310,8 @@ mod tests {
             "docs/日本語 ✓.md",
             "x){repository(owner:\"evil\"",
         ];
-        let dates = transport(&server, true)
-            .path_commit_dates("a", "b", SHA, &tricky, &context())
+        let dates = transport(&server)
+            .path_commit_dates("a", "b", SHA, &tricky, &context(true))
             .await;
         assert_eq!(dates.error, None);
         assert!(dates.dates.iter().all(Option::is_some), "{dates:?}");
@@ -341,8 +336,8 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        let dates = transport(&server, true)
-            .path_commit_dates("a", "b", SHA, &["one", "two"], &context())
+        let dates = transport(&server)
+            .path_commit_dates("a", "b", SHA, &["one", "two"], &context(true))
             .await;
         assert_eq!(dates.dates, vec![None, None]);
         assert_eq!(dates.commit_date, None);
@@ -366,8 +361,8 @@ mod tests {
             .await;
         let names = (0..250).map(|n| format!("f{n}")).collect::<Vec<_>>();
         let paths = names.iter().map(String::as_str).collect::<Vec<_>>();
-        let dates = transport(&server, true)
-            .path_commit_dates("a", "b", SHA, &paths, &context())
+        let dates = transport(&server)
+            .path_commit_dates("a", "b", SHA, &paths, &context(true))
             .await;
         assert!(dates.error.is_some());
         assert!(dates.dates[..100].iter().all(Option::is_some));
@@ -381,17 +376,17 @@ mod tests {
     #[tokio::test]
     async fn no_token_or_disabled_graphql_sends_nothing() {
         let server = MockServer::start().await;
-        let anonymous = transport(&server, false)
-            .path_commit_dates("a", "b", SHA, &["one"], &context())
+        let anonymous = transport(&server)
+            .path_commit_dates("a", "b", SHA, &["one"], &context(false))
             .await;
         assert_eq!(
             anonymous.error.map(|error| error.kind),
             Some(ProviderErrorKind::Authentication)
         );
-        let mut disabled = transport(&server, true);
+        let mut disabled = transport(&server);
         disabled.graphql_enabled = false;
         let disabled = disabled
-            .path_commit_dates("a", "b", SHA, &["one"], &context())
+            .path_commit_dates("a", "b", SHA, &["one"], &context(true))
             .await;
         assert_eq!(
             disabled.error.map(|error| error.kind),
@@ -414,8 +409,8 @@ mod tests {
             ))
             .mount(&server)
             .await;
-        let dates = transport(&server, true)
-            .path_commit_dates("a", "b", SHA, &["gone", "kept"], &context())
+        let dates = transport(&server)
+            .path_commit_dates("a", "b", SHA, &["gone", "kept"], &context(true))
             .await;
         assert_eq!(dates.error, None);
         assert_eq!(dates.dates, vec![None, Some("2024-05-06T07:08:09Z".into())]);

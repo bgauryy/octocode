@@ -227,3 +227,25 @@ async fn queue_is_bounded_and_queued_cancellation_never_runs_work() {
     assert_eq!(first.await.expect("join"), Err(ExecutionError::Cancelled));
     runtime.close().await;
 }
+
+/// M4: a host timeout too large for a deadline is an invalid limit at
+/// construction, never a panic when a request is admitted.
+#[test]
+fn unrepresentable_timeout_is_rejected_not_a_panic_at_admission() {
+    for secs in [u64::MAX, u64::MAX / 2, MAX_TIMEOUT.as_secs() + 1] {
+        let built = RequestRuntime::new(RuntimeLimits {
+            timeout: Duration::from_secs(secs),
+            ..RuntimeLimits::default()
+        });
+        assert!(
+            matches!(built, Err(ExecutionError::InvalidLimits)),
+            "{secs}s must be rejected"
+        );
+    }
+    let longest = RequestRuntime::new(RuntimeLimits {
+        timeout: MAX_TIMEOUT,
+        ..RuntimeLimits::default()
+    })
+    .expect("the longest timeout is valid");
+    assert!(longest.admit("one".into()).is_ok());
+}

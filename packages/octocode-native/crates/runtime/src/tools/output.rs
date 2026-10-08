@@ -4,8 +4,7 @@
 //! evidence kind, path anchoring and text shape.
 //!
 //! A tool module implements [`ToolOutput`] on a unit struct and the
-//! dispatch points its `ToolId` at it. Impls not yet moved into their tool
-//! module live at the end of this file.
+//! dispatch points its `ToolId` at it.
 
 use serde_json::Value;
 
@@ -103,6 +102,10 @@ pub const SANDBOX_HINT: &str = "Outside allowed roots: add the dir to ALLOWED_PA
 /// Recovery for a path that does not resolve: check it from its parent.
 pub const VERIFY_PATH_HINT: &str =
     "Verify the path exists (structureSearch on its parent directory), then retry the exact path.";
+
+/// Recovery for a path a local read could not open (`fileAccessFailed`).
+pub const LIST_FILES_HINT: &str =
+    "Verify the path with structureSearch operation:\"files\", then retry the exact path.";
 
 #[cfg(test)]
 mod tests {

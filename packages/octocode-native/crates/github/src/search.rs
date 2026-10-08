@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use super::{
-    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, RequestContext,
-    RequestSpec,
-};
+use super::{GitHubTransport, ProviderError, ProviderErrorKind, RequestContext, RequestSpec};
 
 #[derive(Clone, Debug)]
 pub struct CodeSearchRequest {
@@ -133,30 +130,7 @@ pub struct RepositoryMetadata {
     pub archived: bool,
 }
 
-impl<R: CredentialResolver> GitHubTransport<R> {
-    pub async fn repository_auxiliary(
-        &self,
-        owner: &str,
-        repo: &str,
-        kind: &str,
-        page: usize,
-        per_page: usize,
-        context: &RequestContext,
-    ) -> Result<(serde_json::Value, bool), ProviderError> {
-        let mut url = self.endpoint().rest(&["repos", owner, repo, kind])?;
-        url.query_pairs_mut()
-            .append_pair("page", &page.to_string())
-            .append_pair("per_page", &per_page.to_string());
-        let response = self.execute(RequestSpec::get(url), context).await?;
-        let more = response.next.is_some();
-        Ok((
-            decode(
-                response.body.as_ref(),
-                "invalid GitHub repository metadata response",
-            )?,
-            more,
-        ))
-    }
+impl GitHubTransport {
     pub async fn search_code(
         &self,
         request: &CodeSearchRequest,
@@ -176,41 +150,14 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 "application/vnd.github+json"
             }),
         );
-        // The partition carries the endpoint and credential.
-        let partition = self.cache_partition(context, None).await?;
-        let key = {
-            use sha2::{Digest, Sha256};
-            let mut digest = Sha256::new();
-            digest.update(spec.url.as_str().as_bytes());
-            digest.update([u8::from(request.include_fragments)]);
-            format!("github-code-search:{}", hex::encode(digest.finalize()))
-        };
-        if let Some(cached) = self.cache.get(&partition, &key).await
-            && let Ok(page) = serde_json::from_slice::<CodeSearchPage>(&cached.bytes)
-        {
-            return Ok(page);
-        }
-        let page: CodeSearchPage = decode(
-            self.execute(spec, context).await?.body.as_ref(),
+        self.cached_search(
+            "github-code-search",
+            spec,
+            context,
             "invalid GitHub code search response",
-        )?;
-        // An incomplete page is exactly what a retry must not get back.
-        if !page.incomplete_results
-            && let Ok(bytes) = serde_json::to_vec(&page)
-        {
-            self.cache
-                .put(
-                    &partition,
-                    key,
-                    super::CachedContent {
-                        etag: None,
-                        bytes,
-                        resolved_ref: String::new(),
-                    },
-                )
-                .await;
-        }
-        Ok(page)
+            |page: &CodeSearchPage| !page.incomplete_results,
+        )
+        .await
     }
     pub async fn search_repositories(
         &self,
@@ -233,10 +180,65 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             reqwest::header::ACCEPT,
             reqwest::header::HeaderValue::from_static("application/vnd.github.v3+json"),
         );
-        decode(
-            self.execute(spec, context).await?.body.as_ref(),
+        self.cached_search(
+            "github-repo-search",
+            spec,
+            context,
             "invalid GitHub repository search response",
+            |page: &RepositorySearchPage| !page.incomplete_results,
         )
+        .await
+    }
+
+    /// A search-API read through the response cache. Search answers come
+    /// from GitHub's search index, which already trails writes, so an
+    /// identical search (same URL, `Accept`, endpoint and credential) is
+    /// served from the cache until the store's volatile TTL ends: no request,
+    /// so no search spacing wait and no search rate-limit spend. A page
+    /// `complete` rejects (GitHub's `incomplete_results`) is not stored: that
+    /// is exactly what a retry must not get back.
+    pub(crate) async fn cached_search<T: Serialize + for<'de> Deserialize<'de>>(
+        &self,
+        namespace: &str,
+        spec: RequestSpec,
+        context: &RequestContext,
+        invalid: &'static str,
+        complete: impl Fn(&T) -> bool,
+    ) -> Result<T, ProviderError> {
+        // The partition carries the endpoint and credential.
+        let partition = self.cache_partition(context, None)?;
+        let key = {
+            use sha2::{Digest, Sha256};
+            let mut digest = Sha256::new();
+            digest.update(spec.url.as_str().as_bytes());
+            digest.update([0]);
+            if let Some(accept) = spec.headers.get(reqwest::header::ACCEPT) {
+                digest.update(accept.as_bytes());
+            }
+            format!("{namespace}:{}", hex::encode(digest.finalize()))
+        };
+        if let Some(cached) = self.cache.get(&partition, &key).await
+            && let Ok(page) = serde_json::from_slice::<T>(&cached.bytes)
+        {
+            return Ok(page);
+        }
+        let page: T = decode(self.execute(spec, context).await?.body.as_ref(), invalid)?;
+        if complete(&page)
+            && let Ok(bytes) = serde_json::to_vec(&page)
+        {
+            self.cache
+                .put(
+                    &partition,
+                    key,
+                    super::CachedContent {
+                        etag: None,
+                        bytes: bytes.into(),
+                        resolved_ref: String::new(),
+                    },
+                )
+                .await;
+        }
+        Ok(page)
     }
     /// List an owner's repositories. `sort` is a list-API sort key
     /// (`created`, `updated`, `pushed`, `full_name`); when set, results are

@@ -8,8 +8,8 @@ mod query;
 mod ranking;
 
 use crate::providers::github::{
-    CodeSearchRequest, ConditionalCache, CredentialResolver, GitHubProvider, ProviderError,
-    ProviderErrorKind, RequestContext,
+    CodeSearchRequest, ConditionalCache, GitHubProvider, ProviderError, ProviderErrorKind,
+    RequestContext,
 };
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::{
@@ -24,8 +24,8 @@ use serde_json::{Value, json};
 pub use crate::contracts::tool_types::{GhSearchCodeQuery, GhSearchCodeQueryMatch};
 
 /// Run one ghSearchCode row.
-pub async fn run<R: CredentialResolver, C: ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+pub async fn run<C: ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhSearchCodeQuery,
     request: Result<&RequestContext, ProviderError>,
     security: &impl ContentScan,
@@ -46,8 +46,8 @@ pub async fn run<R: CredentialResolver, C: ConditionalCache>(
     })
 }
 
-pub(crate) async fn execute<R: CredentialResolver, C: ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+pub(crate) async fn execute<C: ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhSearchCodeQuery,
     context: &RequestContext,
     security: &impl ContentScan,
@@ -109,11 +109,13 @@ pub(crate) async fn execute<R: CredentialResolver, C: ConditionalCache>(
         value["files"] = json!(items);
     }
     if data.pages > 1 {
-        value["pagination"] = json!({"currentPage":current,"totalPages":data.pages,"pageSize":per,"totalItems":data.total,"hasMore":more});
+        value["pagination"] = crate::response::pages::PageFacts::open(current, Some(per), more)
+            .with_total(data.total)
+            .to_value();
     }
     add_next(&mut value, ToolId::GhSearchCode, query, current, more);
     if let Some(read) = reads.top {
-        value["next"]["readTopMatch"] = read;
+        value["next"]["read"] = read;
     }
     // `readHits`, `readHits2`, …: one per capped or cut file.
     for (position, read) in reads.hits.into_iter().enumerate() {
@@ -134,7 +136,8 @@ pub(crate) async fn execute<R: CredentialResolver, C: ConditionalCache>(
         ToolId::GhSearchCode,
         query,
         data.incomplete,
-        data.capped,
+        // Past the cap the page states GitHub's match count.
+        if data.capped { data.matched } else { 0 },
         current,
         more,
         "code",
@@ -163,11 +166,13 @@ struct SearchPage {
     total: usize,
     pages: usize,
     capped: bool,
+    /// GitHub's match counts, summed over the merged searches.
+    matched: usize,
     incomplete: bool,
 }
 
-async fn search_page<R: CredentialResolver, C: ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+async fn search_page<C: ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhSearchCodeQuery,
     current: usize,
     per: usize,
@@ -187,6 +192,7 @@ async fn search_page<R: CredentialResolver, C: ConditionalCache>(
         total: 0,
         pages: 0,
         capped: false,
+        matched: 0,
         incomplete: false,
     };
     for extension in scopes {
@@ -206,6 +212,7 @@ async fn search_page<R: CredentialResolver, C: ConditionalCache>(
         page.total += reachable;
         page.pages = page.pages.max(reachable.div_ceil(per));
         page.capped |= data.total_count > SEARCH_RESULT_CAP;
+        page.matched += data.total_count;
         page.incomplete |= data.incomplete_results;
         page.items.extend(data.items);
     }
@@ -214,8 +221,8 @@ async fn search_page<R: CredentialResolver, C: ConditionalCache>(
 
 /// The query re-scoped to a renamed repository's canonical name, with the
 /// rename warning; `None` when the name stands or cannot be checked.
-async fn renamed_scope<R: CredentialResolver, C: ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+async fn renamed_scope<C: ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhSearchCodeQuery,
     context: &RequestContext,
 ) -> Result<Option<(GhSearchCodeQuery, Vec<String>)>, ProviderError> {
@@ -249,8 +256,8 @@ async fn renamed_scope<R: CredentialResolver, C: ConditionalCache>(
 }
 
 /// Why a search is empty, with the route that verifies it.
-async fn empty_page<R: CredentialResolver, C: ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+async fn empty_page<C: ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhSearchCodeQuery,
     context: &RequestContext,
     output: &mut ToolData,
@@ -271,11 +278,11 @@ async fn empty_page<R: CredentialResolver, C: ConditionalCache>(
         remove_null_fields(&mut content);
         content["match"] = json!("file");
         content["page"] = json!(1);
-        value["next"]["searchContent"] = Continuation::new(ToolId::GhSearchCode, content)
+        value["next"]["searchCode"] = Continuation::new(ToolId::GhSearchCode, content)
             .confidence("high")
             .build();
         value["hints"] = json!([
-            "match:\"path\" matches file paths, not code; run searchContent to search file contents."
+            "match:\"path\" matches file paths, not code; run searchCode to search file contents."
         ]);
     }
     if value.get("hints").is_none() {

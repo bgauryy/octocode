@@ -15,63 +15,14 @@ use serde_json::{Value, json};
 use std::collections::BTreeSet;
 use support::{Workspace, call};
 
-/// Field names no query may carry any more (top level of a row).
-const RETIRED_FIELDS: &[&str] = &[
-    "goal",
-    "uri",
-    "searchText",
-    "langType",
-    "maxMatchesPerFile",
-    "branch",
-    "sparsePath",
-    "names",
-    "pathPattern",
-    "pathRegex",
-    "nodeOffset",
-    "nodeLimit",
-    "analysis",
-    "cursor",
-    "chunkType",
-    "chunkSize",
-    "startLine",
-    "endLine",
-    "matchStringIsRegex",
-    "matchStringCaseSensitive",
-    "responseCharOffset",
-    "responseCharLength",
-    "extension",
-    "charOffset",
-    "charLength",
-    "matchContext",
-    "commentBodyOffset",
-    "includeDiff",
-    "fileFilter",
-    "content",
-];
-
-/// Continuation names no tool may emit any more.
-const RETIRED_KINDS: &[&str] = &[
-    "readFile",
-    "readPr",
-    "findFixPr",
-    "readFixPr",
-    "getChangedFiles",
-    "getAllPatches",
-    "reviewPatches",
-    "getBody",
-    "getDiscussion",
-    "getMergeCommit",
-    "nextChangedFilesPage",
-    "nextPatchFiles",
-    "nextFilePathsPage",
-    "nextCommentsPage",
-    "nextReviewsPage",
-    "nextCommitsPage",
-    "nextDiagnostics",
-    "expandLimit",
-    "localSearch",
-    "includeDiff",
-];
+/// Names retired from `scope` (`input`: a row field; `lead`: a
+/// continuation name) for `tool`, from the shared D1 deny-list.
+fn retired(scope: &str, tool: &str) -> Vec<String> {
+    support::retired_names(&[scope], Some(tool))
+        .into_iter()
+        .map(|entry| entry["name"].as_str().expect("name").to_owned())
+        .collect()
+}
 
 /// One emitted continuation: the tool that emitted it, its name, and the call.
 #[derive(Debug)]
@@ -123,7 +74,7 @@ fn rows(query: &Value) -> Vec<Value> {
 
 fn assert_current(edge: &Edge) {
     assert!(
-        !RETIRED_KINDS.contains(&edge.name.as_str()),
+        !retired("lead", &edge.from).contains(&edge.name),
         "{} emits retired continuation {}: {edge:?}",
         edge.from,
         edge.name
@@ -144,13 +95,9 @@ fn assert_current(edge: &Edge) {
         let Some(object) = row.as_object() else {
             continue;
         };
-        for field in RETIRED_FIELDS {
-            // `content` is a retired history selector only.
-            if *field == "content" && edge.tool != "ghGetHistoryItem" {
-                continue;
-            }
+        for field in retired("input", &edge.tool) {
             assert!(
-                !object.contains_key(*field),
+                !object.contains_key(&field),
                 "{}.{} → {} sets retired field {field}: {edge:?}",
                 edge.from,
                 edge.name,
@@ -232,7 +179,7 @@ async fn every_emitted_edge_is_current_strict_and_replays_verbatim() {
     let web = root.join("web");
     let lib = src.join("lib.rs");
     let seeds: Vec<(&str, Value)> = vec![
-        // localSearch: nextPage, read, verifyReferences, matchString leads.
+        // localSearch: nextPage, read, callers, matchString leads.
         (
             "localSearch",
             json!({"path": src, "matchString": "helper", "pageSize": 1}),
@@ -351,7 +298,7 @@ async fn every_emitted_edge_is_current_strict_and_replays_verbatim() {
     }
     for expected in [
         "localSearch.nextPage",
-        "localSearch.verifyReferences",
+        "localSearch.callers",
         "localSearch.binarySkipped",
         "structureSearch.read",
         "structureSearch.expandScan",
@@ -383,9 +330,10 @@ fn every_registered_continuation_kind_is_current() {
         );
     }
     assert!(!names.is_empty());
+    let retired = support::retired_names(&["lead"], None);
     for name in names {
         assert!(
-            !RETIRED_KINDS.contains(&name),
+            !retired.iter().any(|entry| entry["name"] == name),
             "retired kind {name} is registered"
         );
     }

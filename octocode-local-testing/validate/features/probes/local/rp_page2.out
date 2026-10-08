@@ -1,5 +1,0 @@
-# cmd: octocode localFetch {"queries": [{"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts"}], "responseCharLength": 300, "responseCharOffset": 287, "responseSnapshot": "response-v1:323404ccb77bd467d120538cd55bf24544b8aed1f72ba54ef2aff0d0e129fc7a"}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src","responseWindow":"# Response page 2/2.\n8:export class Widget {\n9:  run(): void {\n10:    console.log('run');\n11:    alphaNeedle(2);\n12:  }\n13:}\n","responsePagination":{"scope":"content.text","currentPage":2,"totalPages":2,"hasMore":false,"charOffset":287,"charLength":104,"totalChars":391,"snapshot":"response-v1:323404ccb77bd467d120538cd55bf24544b8aed1f72ba54ef2aff0d0e129fc7a"}}

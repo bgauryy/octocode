@@ -95,6 +95,9 @@ if (priorSources.length) {
     const priorMap = JSON.parse(await readFile(join(sessionDir, 'page-map.json'), 'utf8'));
     if (Array.isArray(priorMap?.pages)) pageMaps.push(...priorMap.pages);
   } catch { failures.push('append: prior page-map.json unreadable; roster kept from sources.jsonl only'); }
+  for (const [path, rows] of [['extracts/links.jsonl',linksAll],['extracts/headings.jsonl',headingsAll],['extracts/elements.jsonl',elementsAll],['extracts/resources.jsonl',resourcesAll],['extracts/costs.jsonl',costs]]) {
+    if (existsSync(join(sessionDir,path))) rows.push(...(await readFile(join(sessionDir,path),'utf8')).split('\n').filter(Boolean).map(JSON.parse));
+  }
 }
 
 if (config.crawl && config.sitemap) {

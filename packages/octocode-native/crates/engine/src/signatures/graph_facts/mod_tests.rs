@@ -1,5 +1,5 @@
 use super::*;
-use crate::text::file_extension::get_extension_internal;
+use crate::text::file_extension::extension_of;
 use serde_json::Value;
 
 pub(super) fn extract_graph_facts(content: &str, file_path: &str) -> Option<String> {
@@ -11,7 +11,7 @@ fn extract_graph_facts_with_metadata(
     content: &str,
     file_path: &str,
 ) -> Option<crate::signatures::GraphFactsExtraction> {
-    let extension = get_extension_internal(file_path, true, "txt");
+    let extension = extension_of(file_path, true, "txt");
     extract_graph_facts_with_metadata_with_extension(content, file_path, &extension)
 }
 
@@ -20,7 +20,7 @@ fn extract_graph_facts_before(
     file_path: &str,
     deadline: std::time::Instant,
 ) -> Option<String> {
-    let extension = get_extension_internal(file_path, true, "txt");
+    let extension = extension_of(file_path, true, "txt");
     extract_graph_facts_with_metadata_before(content, file_path, &extension, deadline)
         .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
 }
@@ -489,7 +489,7 @@ fn expired_graph_walk_does_not_emit_complete_facts() {
         std::time::Instant::now() + super::super::extractor::AST_EXECUTION_TIMEOUT,
     )
     .unwrap();
-    let index = LineIndex::new(source);
+    let index = NodePositions::new(source);
     let mut acc = GraphAccumulator::new("main.rs", "rs");
     assert!(!visit_node(
         tree.root_node(),
@@ -497,7 +497,8 @@ fn expired_graph_walk_does_not_emit_complete_facts() {
         &index,
         &mut acc,
         std::time::Instant::now(),
-        &[]
+        &[],
+        None
     ));
     assert!(acc.declarations.is_empty());
     assert!(acc.calls.is_empty());
@@ -970,7 +971,7 @@ fn heritage_edges_ingest_as_unresolved_targets() {
     builder
         .ingest_facts("m.py", "digest", &extraction.facts)
         .expect("ingest");
-    let graph = builder.finish_without_digest();
+    let graph = builder.finish();
     let extends = graph
         .edges
         .values()
@@ -1101,12 +1102,18 @@ fn recovered_parse_reports_error_line_spans() {
     );
     assert!(!facts.error_lines.is_empty(), "{facts:?}");
     assert!(
-        facts.error_lines.iter().all(|[start, end]| *start >= 3 && start <= end),
+        facts
+            .error_lines
+            .iter()
+            .all(|[start, end]| *start >= 3 && start <= end),
         "{:?}",
         facts.error_lines
     );
     assert!(
-        !facts.error_lines.iter().any(|[start, end]| *start <= 1 && 1 <= *end),
+        !facts
+            .error_lines
+            .iter()
+            .any(|[start, end]| *start <= 1 && 1 <= *end),
         "line 1 parses: {:?}",
         facts.error_lines
     );
@@ -1116,4 +1123,28 @@ fn recovered_parse_reports_error_line_spans() {
     assert!(clean.error_lines.is_empty());
     let json = serde_json::to_value(&clean).expect("json");
     assert!(json.get("errorLines").is_none(), "{json}");
+}
+
+#[test]
+fn rust_macro_body_members_nest_under_their_container_in_source_order() {
+    // tokio's `impl NamedPipeServer { … cfg_io_util! { pub fn try_read_buf … } … }`:
+    // a member generated inside an item-level macro of an impl body belongs to
+    // that impl, as a method, at its source position.
+    let value = facts(
+        "struct S;\nimpl S {\n    fn a() {}\n    cfg_x! {\n        pub fn b() {}\n    }\n    fn c() {}\n}\nimpl T for S {\n    cfg_y! { fn d() {} }\n}\nfn z() {}\ncfg_z! { fn top() {} }\n",
+        "src/lib.rs",
+    );
+    let declarations = value["declarations"].as_array().unwrap();
+    let names: Vec<&str> = declarations
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["S", "S", "a", "b", "c", "S", "d", "z", "top"]);
+    let by_name = |name: &str| declarations.iter().find(|d| d["name"] == name).unwrap();
+    assert_eq!(by_name("b")["parent"], declarations[1]["id"]);
+    assert_eq!(by_name("b")["kind"], "method");
+    assert_eq!(by_name("d")["parent"], declarations[5]["id"]);
+    assert_eq!(by_name("d")["kind"], "method");
+    assert!(by_name("top")["parent"].is_null());
+    assert_eq!(by_name("top")["kind"], "function");
 }

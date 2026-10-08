@@ -32,75 +32,76 @@ impl RootLock {
         create_private_dir_all(&home)?;
         let guard = home.join(".guard");
         let deadline = Instant::now() + Duration::from_secs(5);
+        // Wait out both the short guard and any overlapping root lock: a
+        // live owner usually finishes well within the window.
         loop {
+            if acquire_lock_directory(&guard, Path::new(""))? {
+                let attempt = try_acquire_root(&home, root);
+                let _ = fs::remove_dir_all(&guard);
+                if let Some(lock) = attempt? {
+                    return Ok(lock);
+                }
+            }
             if Instant::now() > deadline {
                 return Err(RewriteError::new(
-                    "ast.rewrite.lock_timeout",
+                    "lockTimeout",
                     format!(
                         "Timed out waiting for an overlapping astRewrite root lock: {}",
                         root.display()
                     ),
                 ));
             }
-            if acquire_lock_directory(&guard, Path::new(""))? {
-                break;
-            }
             thread::sleep(Duration::from_millis(25));
         }
-        let result = (|| -> Result<Self, RewriteError> {
-            for entry in fs::read_dir(&home)
-                .map_err(io_error)?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(io_error)?
-            {
-                if !entry.file_type().map_err(io_error)?.is_dir()
-                    || !entry.file_name().to_string_lossy().starts_with("root-")
-                {
-                    continue;
-                }
-                let directory = entry.path();
-                let Some(owner) = read_lock_owner(&directory) else {
-                    remove_stale_lock(&directory);
-                    continue;
-                };
-                if !crate::process_status::is_alive(owner.pid) {
-                    remove_stale_lock(&directory);
-                    continue;
-                }
-                if paths_overlap(root, &owner.root) {
-                    return Err(RewriteError::new(
-                        "ast.rewrite.lock_timeout",
-                        format!(
-                            "Timed out waiting for an overlapping astRewrite root lock: {}",
-                            root.display()
-                        ),
-                    ));
-                }
-            }
-            let directory = home.join(format!(
-                "root-{}",
-                sha256(root.to_string_lossy().as_bytes())
-            ));
-            if !acquire_lock_directory(&directory, root)? {
-                return Err(RewriteError::new(
-                    "ast.rewrite.lock_unavailable",
-                    "Could not acquire the astRewrite root lock.",
-                ));
-            }
-            let owner = read_lock_owner(&directory).ok_or_else(|| {
-                RewriteError::new(
-                    "ast.rewrite.lock_unavailable",
-                    "Could not read the astRewrite root lock owner.",
-                )
-            })?;
-            Ok(Self {
-                directory,
-                token: owner.token,
-            })
-        })();
-        let _ = fs::remove_dir_all(&guard);
-        result
     }
+}
+
+/// Under the guard: the root lock, or `None` while a live owner holds an
+/// overlapping root.
+fn try_acquire_root(home: &Path, root: &Path) -> Result<Option<RootLock>, RewriteError> {
+    for entry in fs::read_dir(home)
+        .map_err(io_error)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(io_error)?
+    {
+        if !entry.file_type().map_err(io_error)?.is_dir()
+            || !entry.file_name().to_string_lossy().starts_with("root-")
+        {
+            continue;
+        }
+        let directory = entry.path();
+        let Some(owner) = read_lock_owner(&directory) else {
+            remove_stale_lock(&directory);
+            continue;
+        };
+        if !crate::process_status::is_alive(owner.pid) {
+            remove_stale_lock(&directory);
+            continue;
+        }
+        if paths_overlap(root, &owner.root) {
+            return Ok(None);
+        }
+    }
+    let directory = home.join(format!(
+        "root-{}",
+        sha256(root.to_string_lossy().as_bytes())
+    ));
+    if !acquire_lock_directory(&directory, root)? {
+        return Err(RewriteError::new(
+            "lockUnavailable",
+            "Could not acquire the astRewrite root lock.",
+        ));
+    }
+    let owner = read_lock_owner(&directory).ok_or_else(|| {
+        RewriteError::new(
+            "lockUnavailable",
+            "Could not read the astRewrite root lock owner.",
+        )
+    })?;
+    Ok(Some(RootLock {
+        directory,
+        token: owner.token,
+    }))
 }
 
 impl Drop for RootLock {
@@ -125,9 +126,8 @@ fn acquire_lock_directory(directory: &Path, root: &Path) -> Result<bool, Rewrite
                     .map_or(0, |duration| duration.as_nanos())
                     .to_string(),
             };
-            let bytes = serde_json::to_vec(&owner).map_err(|error| {
-                RewriteError::new("ast.rewrite.lock_unavailable", error.to_string())
-            })?;
+            let bytes = serde_json::to_vec(&owner)
+                .map_err(|error| RewriteError::new("lockUnavailable", error.to_string()))?;
             fs::write(directory.join("owner.json"), bytes).map_err(io_error)?;
             Ok(true)
         }

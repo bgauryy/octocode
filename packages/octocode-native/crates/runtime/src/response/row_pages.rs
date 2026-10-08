@@ -1347,7 +1347,7 @@ mod lazy_page_tests {
     #[test]
     fn split_row_continuations_ride_the_part_they_follow() {
         let mut structured = envelope();
-        structured["results"][0]["data"]["next"]["readTopMatch"] =
+        structured["results"][0]["data"]["next"]["read"] =
             json!({"tool": "localFetch", "query": {"path": "a.rs"}});
         structured["results"][0]["data"]["next"]["nextPage"] =
             json!({"tool": "localSearch", "query": {"page": 2}});
@@ -1378,7 +1378,7 @@ mod lazy_page_tests {
             carriers,
             vec![
                 ("nextPage".to_owned(), parts),
-                ("readTopMatch".to_owned(), 1),
+                ("read".to_owned(), 1),
                 ("sidecar".to_owned(), 1),
             ]
         );

@@ -4,7 +4,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use regex::Regex;
 
-use crate::text::file_extension::get_extension_internal;
+use crate::text::file_extension::extension_of;
 use crate::types::{FileSystemEntry, FileSystemQueryOptions, FileSystemQueryResult};
 
 const DEFAULT_LIMIT: usize = 10_000;
@@ -61,9 +61,20 @@ pub(crate) fn query_file_system_filtered_inner(
     options: FileSystemQueryOptions,
     allow_path: &dyn Fn(&Path) -> Result<bool, String>,
 ) -> Result<FileSystemQueryResult, String> {
+    query_file_system_typed_inner(options, &|path, _| allow_path(path))
+}
+
+/// [`query_file_system_filtered_inner`] whose policy callback also gets each
+/// descendant's directory-entry type (`None` for the root, or when the
+/// platform could not report it), so a policy check need not stat the path
+/// again.
+pub(crate) fn query_file_system_typed_inner(
+    options: FileSystemQueryOptions,
+    allow_path: &crate::portable::FileSystemEntryFilter<'_>,
+) -> Result<FileSystemQueryResult, String> {
     let query = CompiledQuery::new(options)?;
     let mut state = QueryState::default();
-    if !allow_path(&query.root)? {
+    if !allow_path(&query.root, None)? {
         return Err("Filesystem query root is denied by path policy".to_owned());
     }
     let root_metadata = fs::symlink_metadata(&query.root).map_err(|err| {
@@ -74,7 +85,19 @@ pub(crate) fn query_file_system_filtered_inner(
     })?;
 
     if query.include_root {
-        visit_path_with_metadata(&query.root, 0, root_metadata.clone(), &query, &mut state);
+        let mut metadata = Some(root_metadata.clone());
+        let kind = EntryKind::of(root_metadata.file_type());
+        let name = file_name(&query.root);
+        // The root's metadata is in hand, so the visit cannot fail to stat it.
+        let _ = visit_path(
+            &query.root,
+            &name,
+            0,
+            kind,
+            &mut metadata,
+            &query,
+            &mut state,
+        );
     }
 
     if root_metadata.is_dir() && (query.recursive || !query.include_root) {
@@ -212,7 +235,7 @@ fn walk_children(
     depth: u32,
     query: &CompiledQuery,
     state: &mut QueryState,
-    allow_path: &dyn Fn(&Path) -> Result<bool, String>,
+    allow_path: &crate::portable::FileSystemEntryFilter<'_>,
 ) -> Result<(), String> {
     if depth > MAX_RECURSION_DEPTH {
         state.skipped += 1;
@@ -259,9 +282,13 @@ fn walk_children(
         }
 
         let path = dir_entry.path();
+        // The entry type comes with the directory listing on common
+        // platforms; the policy check and the name filters use it, and only
+        // an entry those admit is stat'ed for its size and times.
+        let file_type = dir_entry.file_type().ok();
         // Authorize before metadata, matching (which can inspect empty
         // directories), discovery counters, or recursive traversal.
-        if !allow_path(&path)? {
+        if !allow_path(&path, file_type)? {
             continue;
         }
         let file_name = dir_entry.file_name();
@@ -270,18 +297,16 @@ fn walk_children(
             continue;
         }
 
-        let metadata = match fs::symlink_metadata(&path) {
-            Ok(metadata) => metadata,
-            Err(err) => {
-                state.skipped += 1;
-                if err.kind() == std::io::ErrorKind::PermissionDenied {
-                    state.permission_denied += 1;
-                }
-                continue;
-            }
+        let mut metadata = None;
+        let kind = match file_type {
+            Some(file_type) => EntryKind::of(file_type),
+            None => match lstat(&path, state) {
+                Some(meta) => metadata.insert(meta).file_type().into(),
+                None => continue,
+            },
         };
 
-        let is_directory = metadata.is_dir();
+        let is_directory = kind.is_dir;
         if is_directory && query.exclude_dir.iter().any(|dir| dir == name.as_ref()) {
             let relative = path.strip_prefix(&query.root).unwrap_or(&path);
             state.pruned_dirs.push(normalize_path(relative));
@@ -291,7 +316,9 @@ fn walk_children(
             continue;
         }
 
-        visit_path_with_metadata(&path, depth, metadata, query, state);
+        if visit_path(&path, &name, depth, kind, &mut metadata, query, state).is_err() {
+            continue;
+        }
 
         if query.recursive && is_directory {
             walk_children(&path, depth + 1, query, state, allow_path)?;
@@ -303,78 +330,136 @@ fn walk_children(
     Ok(())
 }
 
-fn visit_path_with_metadata(
+/// An entry's type, from its directory listing or its `symlink_metadata`.
+#[derive(Clone, Copy)]
+struct EntryKind {
+    is_dir: bool,
+    is_file: bool,
+    is_symlink: bool,
+}
+
+impl EntryKind {
+    fn of(file_type: fs::FileType) -> Self {
+        Self {
+            is_dir: file_type.is_dir(),
+            is_file: file_type.is_file(),
+            is_symlink: file_type.is_symlink(),
+        }
+    }
+}
+
+impl From<fs::FileType> for EntryKind {
+    fn from(file_type: fs::FileType) -> Self {
+        Self::of(file_type)
+    }
+}
+
+/// `symlink_metadata`, counting a failure as a skipped entry.
+fn lstat(path: &Path, state: &mut QueryState) -> Option<fs::Metadata> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => Some(metadata),
+        Err(err) => {
+            state.skipped += 1;
+            if err.kind() == std::io::ErrorKind::PermissionDenied {
+                state.permission_denied += 1;
+            }
+            None
+        }
+    }
+}
+
+/// Count and record `path` when it matches. Name and type filters run
+/// first; the entry is stat'ed (into `metadata`) only when they pass. `Err`
+/// when that stat failed: the entry is skipped like an unreadable one.
+fn visit_path(
     path: &Path,
+    name: &str,
     depth: u32,
-    metadata: fs::Metadata,
+    kind: EntryKind,
+    metadata: &mut Option<fs::Metadata>,
     query: &CompiledQuery,
     state: &mut QueryState,
-) {
+) -> Result<(), ()> {
     if depth < query.min_depth {
-        return;
+        return Ok(());
     }
     if query.max_depth.is_some_and(|max_depth| depth > max_depth) {
-        return;
+        return Ok(());
     }
-    if !matches_query(path, &metadata, query) {
-        return;
+    if !matches_names(path, name, kind, query) {
+        return Ok(());
+    }
+    let metadata = match metadata {
+        Some(metadata) => metadata,
+        None => metadata.insert(lstat(path, state).ok_or(())?),
+    };
+    if !matches_metadata(path, metadata, query) {
+        return Ok(());
     }
 
     state.total_discovered += 1;
     if state.entries.len() >= query.limit {
-        return;
+        return Ok(());
     }
 
     state
         .entries
-        .push(to_entry(path, depth.saturating_sub(1), &metadata, query));
+        .push(to_entry(path, depth.saturating_sub(1), metadata, query));
+    Ok(())
 }
 
-fn matches_query(path: &Path, metadata: &fs::Metadata, query: &CompiledQuery) -> bool {
-    let name = file_name(path);
-    let normalized_path = normalize_path(path);
+/// The filters an entry's name, path and type decide.
+fn matches_names(path: &Path, name: &str, kind: EntryKind, query: &CompiledQuery) -> bool {
     // pathPattern is authored relative to the search root (e.g. packages/*/src/**).
     // Match against the root-relative path so absolute temp/cwd prefixes do not
     // silently zero out every result.
-    let relative_path = path
-        .strip_prefix(&query.root)
-        .map(normalize_path)
-        .unwrap_or_else(|_| normalized_path.clone());
-
-    if (!query.name_globs.is_empty() || !query.name_path_globs.is_empty())
-        && !query.name_globs.iter().any(|re| re.is_match(&name))
-        && !query
-            .name_path_globs
-            .iter()
-            .any(|re| re.is_match(&relative_path))
-    {
-        return false;
+    let relative_path = || {
+        path.strip_prefix(&query.root)
+            .map(normalize_path)
+            .unwrap_or_else(|_| normalize_path(path))
+    };
+    if !query.name_globs.is_empty() || !query.name_path_globs.is_empty() {
+        let named = query.name_globs.iter().any(|re| re.is_match(name)) || {
+            let relative = relative_path();
+            query
+                .name_path_globs
+                .iter()
+                .any(|re| re.is_match(&relative))
+        };
+        if !named {
+            return false;
+        }
     }
     if let Some(path_glob) = &query.path_glob
-        && !path_glob.is_match(&relative_path)
-        && !path_glob.is_match(&normalized_path)
+        && !path_glob.is_match(&relative_path())
+        && !path_glob.is_match(&normalize_path(path))
     {
         return false;
     }
     if let Some(regex) = &query.regex
-        && !regex.is_match(&name)
+        && !regex.is_match(name)
     {
         return false;
     }
-    if !query.extensions.is_empty() && !matches_extension(path, metadata, &query.extensions) {
+    if !query.extensions.is_empty() && !matches_extension(name, kind, &query.extensions) {
         return false;
     }
     if let Some(entry_type) = &query.entry_type {
         let matches_type = match entry_type.as_str() {
-            "f" => metadata.is_file(),
-            "d" => metadata.is_dir(),
-            "l" => metadata.file_type().is_symlink(),
+            "f" => kind.is_file,
+            "d" => kind.is_dir,
+            "l" => kind.is_symlink,
             _ => true,
         };
         if !matches_type {
             return false;
         }
     }
+    true
+}
+
+/// The filters that need the entry's metadata.
+fn matches_metadata(path: &Path, metadata: &fs::Metadata, query: &CompiledQuery) -> bool {
     if query.empty && !is_empty(path, metadata) {
         return false;
     }
@@ -398,17 +483,17 @@ fn matches_query(path: &Path, metadata: &fs::Metadata, query: &CompiledQuery) ->
     true
 }
 
-fn matches_extension(path: &Path, metadata: &fs::Metadata, extensions: &[String]) -> bool {
+fn matches_extension(name: &str, kind: EntryKind, extensions: &[String]) -> bool {
     if extensions.is_empty() {
         return true;
     }
     // Directories are traversal state, not extension matches. `walk_children`
     // recurses independently after this predicate, so excluding them from the
     // result set does not prune descendants that may have an allowed extension.
-    if !metadata.is_file() {
+    if !kind.is_file {
         return false;
     }
-    let extension = get_extension_internal(&file_name(path), true, "");
+    let extension = extension_of(name, true, "");
     !extension.is_empty() && extensions.iter().any(|allowed| allowed == &extension)
 }
 
@@ -522,9 +607,10 @@ fn to_entry(
         entry_type,
         size: Some(metadata.len() as i64),
         modified_ms: metadata.modified().ok().and_then(system_time_to_ms),
+        modified_time: metadata.modified().ok(),
         accessed_ms: metadata.accessed().ok().and_then(system_time_to_ms),
         permissions: permission_string(metadata),
-        extension: Some(get_extension_internal(&name, false, "")),
+        extension: Some(extension_of(&name, false, "")),
         depth: output_depth,
     }
 }
@@ -699,6 +785,16 @@ fn glob_body_to_regex(pattern: &str) -> String {
                     i += 1;
                 }
             },
+            '[' => match class_end(&chars, i) {
+                Some(close) => {
+                    push_class(&chars[i + 1..close], &mut out);
+                    i = close + 1;
+                }
+                None => {
+                    out.push_str(&regex::escape("["));
+                    i += 1;
+                }
+            },
             ch => {
                 out.push_str(&regex::escape(&ch.to_string()));
                 i += 1;
@@ -706,6 +802,44 @@ fn glob_body_to_regex(pattern: &str) -> String {
         }
     }
     out
+}
+
+/// Index of the `]` closing the character class opened at `open_idx`. A `]`
+/// right after `[` (or `[!`/`[^`) is a member, as in globset and POSIX.
+fn class_end(chars: &[char], open_idx: usize) -> Option<usize> {
+    let mut at = open_idx + 1;
+    if matches!(chars.get(at), Some('!' | '^')) {
+        at += 1;
+    }
+    if chars.get(at) == Some(&']') {
+        at += 1;
+    }
+    chars
+        .iter()
+        .skip(at)
+        .position(|&c| c == ']')
+        .map(|offset| at + offset)
+}
+
+/// A glob class body (`!`/`^` negates, `a-z` ranges) as a regex class whose
+/// other characters, regex class operators included, are literal members.
+fn push_class(body: &[char], out: &mut String) {
+    let (negated, body) = match body.first() {
+        Some('!' | '^') => (true, &body[1..]),
+        _ => (false, body),
+    };
+    out.push('[');
+    if negated {
+        out.push('^');
+    }
+    for (index, &ch) in body.iter().enumerate() {
+        if ch == '-' && index > 0 && index + 1 < body.len() {
+            out.push('-');
+        } else {
+            out.push_str(&regex::escape(&ch.to_string()));
+        }
+    }
+    out.push(']');
 }
 
 /// Index of the `}` matching the `{` at `open_idx`, ignoring nested braces
@@ -1141,5 +1275,29 @@ mod tests {
         let re = compile_glob("packages/{react/src", "pathPattern").expect("compiles");
         assert!(re.is_match("packages/{react/src"));
         assert!(!re.is_match("packages/react/src"));
+    }
+
+    #[test]
+    fn compile_glob_character_classes_match_like_globset() {
+        // `[...]` is a glob character class (as localSearch's globset reads
+        // it), not literal text: `*.[jt]s` lists `.js` and `.ts` files.
+        let re = compile_glob("*.[jt]s", "names").expect("compiles");
+        assert!(re.is_match("a.ts") && re.is_match("a.js"));
+        assert!(!re.is_match("a.cs") && !re.is_match("a.[jt]s"));
+        let range = compile_glob("agent[A-Z]*.ts", "names").expect("compiles");
+        assert!(range.is_match("agentHost.ts") && !range.is_match("agent-host.ts"));
+        let negated = compile_glob("[!a]*", "names").expect("compiles");
+        assert!(negated.is_match("b.ts") && !negated.is_match("a.ts"));
+        let caret = compile_glob("[^a]*", "names").expect("compiles");
+        assert!(caret.is_match("b.ts") && !caret.is_match("a.ts"));
+        // `]` first in a class is a member; regex class operators stay literal.
+        let bracket = compile_glob("x[]&~-]y", "names").expect("compiles");
+        for name in ["x]y", "x&y", "x~y", "x-y"] {
+            assert!(bracket.is_match(name), "{name}");
+        }
+        assert!(!bracket.is_match("xay"));
+        // An unclosed `[` stays a literal character.
+        let open = compile_glob("[.ts", "names").expect("compiles");
+        assert!(open.is_match("[.ts") && !open.is_match("a.ts"));
     }
 }

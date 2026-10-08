@@ -1,32 +1,22 @@
 # Runtime check — `lspSearch`
 
-> Semantic navigation over local files: definitions, references, callers,
-> callees, call hierarchy, hover, symbols, implementations, and type hierarchy.
->
-> **Manual runtime checklist** - run each step against the live MCP tool (or `benchmark/github/scripts/call-tool.mjs lspSearch '<queries-json>'`) and tick the box.
-> Automated schema-contract checks live in `tests/tools/all-tools.pagination-contract.test.ts`; cursor-uniformity in `tests/tools/all-tools.pagination.test.ts`.
+Semantic navigation over local files: definitions, references, callers,
+callees, hover, symbols, implementations, type hierarchy, and diagnostics.
+Use the built CLI or the MCP tool with the same queries; check the live
+operations with `octocode schema lspSearch --view variants`.
 
-## 1. Scheme
-- [ ] Tool is registered and accepts the bulk envelope: `queries[]`, `responseOffset`, `responseLength`.
-- [ ] `operation` exposes the current enum: `definition`, `references`, `callers`, `callees`, `callHierarchy`, `hover`, `documentSymbols`, `typeDefinition`, `implementation`, `workspaceSymbol`, `supertypes`, `subtypes`, `diagnostic`.
-- [ ] `uri`, `workspaceRoot`, `symbolName`, and `lineHint` are documented as operation-specific anchors.
-- [ ] A minimal valid query parses (see Example).
+- Anchor a query on a prior search hit: `path` + `symbolName` + `lineHint`.
+  `definition` and `references` resolve the intended symbol, and
+  `references` includes the declaration.
+- Run `documentSymbols` and `diagnostic` with `path` only, and
+  `workspaceSymbol` with `symbolName` + `workspaceRoot`.
+- Request references or callers on a widely used symbol with a small
+  `pageSize`. Walk every `next.*` continuation; no location is dropped, and
+  partial coverage (for example, a capped importer scan) is disclosed.
+- Results carry exact paths and line anchors usable by `localFetch`.
+- Errors distinguish a missing language server, an invalid path, and zero
+  results.
 
-## 2. Pagination
-- [ ] Reference/call hierarchy operations expose page/cursor metadata when result sets exceed the requested size.
-- [ ] Follow the emitted continuation to the next page or narrowed operation.
-- [ ] No semantic locations are silently dropped without diagnostics or continuation.
-
-## 3. Quality
-- [ ] Run `documentSymbols` on a known file and verify symbol names, kinds, ranges, and URI are correct.
-- [ ] Use a prior search hit line as `lineHint` for `definition` or `references`; verify the result resolves the intended symbol.
-- [ ] `workspaceSymbol` works from `workspaceRoot` without requiring `uri`.
-
-## 4. Agent effectiveness
-- [ ] The output gives exact `uri` + line anchors usable by `localFetch`.
-- [ ] Errors distinguish missing language server, invalid URI, and zero results.
-
-## Example call
 ```json
-{ "queries": [ { "uri": "/abs/path.ts", "operation": "documentSymbols" } ] }
+{"queries":[{"path":"/ABS/repo/src/index.ts","operation":"documentSymbols"}]}
 ```

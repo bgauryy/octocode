@@ -2,16 +2,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isValidSkillName, listSkills } from '../registry.js';
 import { contentFreshness } from '../freshness.js';
-import { getSkillsHome } from '../home.js';
-import { ALL_PLATFORMS, getPlatformSkillsDir } from '../platforms.js';
+import { getPlatformSkillsDir } from '../platforms.js';
+import { skillLocations } from '../checker.js';
+import { EXIT } from '../../../exit-codes.js';
 import {
+  getCanonicalSkillsDir,
   parseSkillPlatforms,
   type SkillPlatform,
 } from '@octocodeai/octocode-skill-installer';
 import { bold, dim } from '../../../../utils/colors.js';
 import { reportFailure } from './fail.js';
 
-export interface RemoveOptions {
+interface RemoveOptions {
   all: boolean;
   platform: string | null;
   dryRun: boolean;
@@ -53,7 +55,7 @@ function isUserOwnedContent(
   } catch {
     return false;
   }
-  const canonical = path.join(getSkillsHome(), name);
+  const canonical = path.join(getCanonicalSkillsDir(), name);
   if (contentFreshness(canonical, entry) === 'fresh') return false;
   const bundled = listSkills().find(skill => skill.name === name);
   return !(bundled && contentFreshness(bundled.dir, entry) === 'fresh');
@@ -73,25 +75,14 @@ function remove(entry: string): string | undefined {
   }
 }
 
+/** Every location where the skill is present (a dangling link included). */
 function installedTargets(name: string): Target[] {
-  const targets: Target[] = [
-    { target: 'home', path: path.join(getSkillsHome(), name) },
-  ];
-  for (const platform of ALL_PLATFORMS) {
-    targets.push({
-      target: platform,
-      path: path.join(getPlatformSkillsDir(platform), name),
-    });
-  }
-  targets.push({
-    target: 'workspace',
-    path: path.join(process.cwd(), '.agents', 'skills', name),
-  });
+  const { home, platforms, workspace } = skillLocations(name);
   const seen = new Set<string>();
-  return targets.filter(
-    target =>
-      !seen.has(target.path) && seen.add(target.path) && exists(target.path)
-  );
+  return [home, ...platforms, workspace]
+    .filter(location => location.status !== 'missing')
+    .filter(location => !seen.has(location.path) && seen.add(location.path))
+    .map(location => ({ target: location.label, path: location.path }));
 }
 
 export function runRemove(skillNames: string[], opts: RemoveOptions): void {
@@ -99,7 +90,7 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
   if (opts.all) {
     try {
       names = fs
-        .readdirSync(getSkillsHome(), { withFileTypes: true })
+        .readdirSync(getCanonicalSkillsDir(), { withFileTypes: true })
         .filter(entry => entry.isDirectory() || entry.isSymbolicLink())
         .map(entry => entry.name);
     } catch {
@@ -113,16 +104,13 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
       else console.log('\n  No installed skills found.\n');
       return;
     }
-    return reportFailure(
-      'Specify a skill name or use --all.',
-      opts.json);
+    return reportFailure('Specify a skill name or use --all.', opts.json);
   }
 
   let platforms: SkillPlatform[] | null = null;
   if (opts.platform) {
     const parsed = parseSkillPlatforms(opts.platform);
-    if (parsed.error)
-      return reportFailure(parsed.error, opts.json);
+    if (parsed.error) return reportFailure(parsed.error, opts.json);
     platforms = parsed.platforms;
   }
 
@@ -154,7 +142,7 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
         targets: [
           {
             target: 'home',
-            path: path.join(getSkillsHome(), name),
+            path: path.join(getCanonicalSkillsDir(), name),
             status: 'skipped' as const,
           },
         ],
@@ -203,5 +191,5 @@ export function runRemove(skillNames: string[], opts: RemoveOptions): void {
       `  ${summary.removed} removed; ${summary.skipped} skipped; ${summary.failed} failed\n`
     );
   }
-  if (!success) process.exitCode = 1;
+  if (!success) process.exitCode = EXIT.GENERAL;
 }

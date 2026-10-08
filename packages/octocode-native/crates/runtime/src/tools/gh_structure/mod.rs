@@ -8,8 +8,8 @@ use crate::tools::id::ToolId;
 use crate::tools::result::remove_nulls;
 use crate::{
     providers::github::{
-        ContentsEntry, CredentialResolver, GitHubProvider, ProviderError, ProviderErrorKind,
-        ProviderErrorReason, RequestContext, TreeRequest,
+        ContentsEntry, GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason,
+        RequestContext, TreeRequest,
     },
     tools::result::ToolData,
 };
@@ -31,8 +31,8 @@ use traverse::*;
 /// Run one ghStructure row. A listing of a missing path names the path and
 /// lists the nearest existing directory (case-corrected) with
 /// `hints.viewTree`; without a located directory it lists the parent.
-pub async fn run<R: CredentialResolver, C: crate::providers::github::ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+pub async fn run<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhStructureQuery,
     request: Result<&RequestContext, ProviderError>,
     home: &Path,
@@ -42,6 +42,7 @@ pub async fn run<R: CredentialResolver, C: crate::providers::github::Conditional
         Ok(output) => return Ok(output),
         Err(error) => error,
     };
+    let error = classify_unresolved_sha(provider, query, context, error).await;
     let at = RepoPath {
         owner: query.owner.as_str(),
         repo: query.repo.as_str(),
@@ -57,6 +58,42 @@ pub async fn run<R: CredentialResolver, C: crate::providers::github::Conditional
     }
     let found = locate_path(provider, &at, context).await;
     Err(path_failure(error, &at, query.max_depth, found))
+}
+
+/// A full 40-hex `ref` skips ref resolution, so a SHA GitHub does not have
+/// surfaces as the tree read's bare 404. On that failure only, one commit
+/// lookup tells a missing commit (named like any missing ref, with
+/// `hints.viewRefs`) from a missing repository; any other outcome keeps the
+/// original error.
+async fn classify_unresolved_sha<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
+    query: &GhStructureQuery,
+    context: &RequestContext,
+    error: ProviderError,
+) -> ProviderError {
+    let Some(reference) = query.ref_.as_deref() else {
+        return error;
+    };
+    if error.kind != ProviderErrorKind::NotFound
+        || error.reason.is_some()
+        || !octocode_github::is_full_sha(reference)
+    {
+        return error;
+    }
+    let (owner, repo) = (query.owner.as_str(), query.repo.as_str());
+    match provider
+        .transport
+        .commit_sha(owner, repo, reference, context)
+        .await
+    {
+        Err(probe)
+            if probe.reason == Some(ProviderErrorReason::RefNotFound)
+                || probe.reason == Some(ProviderErrorReason::RepositoryNotFound) =>
+        {
+            missing_ref(probe, owner, repo, reference)
+        }
+        _ => error,
+    }
 }
 
 const WINDOW_HINT: &str =
@@ -140,11 +177,8 @@ struct Traversal {
     omitted: std::collections::BTreeMap<String, usize>,
 }
 
-pub(crate) async fn execute<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &GitHubProvider<R, C>,
+pub(crate) async fn execute<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhStructureQuery,
     context: &RequestContext,
     home: &Path,
@@ -220,6 +254,7 @@ pub(crate) async fn execute<
     page.paginate(&mut value);
     // A listing states when each entry last changed; a materialized page
     // hands its files to local tools and stays undated.
+    let mut undated = 0;
     if query.materialize != Some(true) {
         let page_dates = dates::page_dates(
             provider,
@@ -230,8 +265,11 @@ pub(crate) async fn execute<
             context,
         )
         .await;
+        undated = page_dates.undated;
         dates::attach(&mut value, page_dates);
     }
+    // Sizes and dates join the names last: dates key bare names.
+    attach_fields(&mut value, page.entries);
     let mut output = ToolData::from(Value::Null);
     let materialize_resume = if query.materialize == Some(true) {
         materialize_page(
@@ -269,7 +307,16 @@ pub(crate) async fn execute<
         query.materialize == Some(true),
         materialize_resume,
     )?;
-    if structure_is_empty(&value) && value.get("isPartial").is_none() {
+    dates::expand(&mut value, &pinned, &page, undated)?;
+    // A resumed materialize page (offset > 0) is anchored by `location`:
+    // its first call already listed these entries.
+    let resumed = query.materialize == Some(true)
+        && query.materialize_offset.is_some_and(|offset| offset > 0)
+        && value.get("location").is_some();
+    if resumed && let Some(map) = value.as_object_mut() {
+        map.remove("entries");
+    }
+    if !resumed && structure_is_empty(&value) && value.get("isPartial").is_none() {
         output.status = Some("empty");
         if scope.filter.is_some() {
             value["hints"] = json!([
@@ -382,7 +429,7 @@ mod tests {
         };
         let read = || {
             Acquired::Read(Ok(crate::providers::github::ContentResponse {
-                bytes: b"owned".to_vec(),
+                bytes: b"owned".to_vec().into(),
                 resolved_ref: "main".into(),
                 etag: None,
                 from_cache: false,

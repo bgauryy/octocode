@@ -1,4 +1,6 @@
-use super::types::{LineRange, LocalFetchQuery, NextCalls, RegexMatch, line_read, uncovered};
+use super::types::{
+    LineRange, LocalFetchQuery, NextCalls, RegexMatch, RegexSpans, line_read, uncovered,
+};
 
 pub struct Extraction {
     pub text: String,
@@ -13,6 +15,10 @@ pub struct Extraction {
     pub next: NextCalls,
     /// The declarations a `block:true` match read widened hits to.
     pub blocks: Vec<super::types::DeclaredBlock>,
+    /// A regex scan stopped at its match limit: the selection is a prefix
+    /// of the matches (warned, with a `textSearch` lead that pages them all;
+    /// the response delivers it as `hints.textSearch`).
+    pub match_limited: bool,
 }
 
 fn follow_up(query: LocalFetchQuery, why: &str) -> Option<super::types::Continuation> {
@@ -37,7 +43,7 @@ pub const OMISSION_LINE: usize = 0;
 /// Separates non-adjacent requested windows (ranges or match windows) so
 /// readers never mistake a gap for contiguous source, nor for lines cut from
 /// a span they asked for: a requested span is never elided.
-pub fn omission_marker(start: usize, end: usize) -> String {
+pub(super) fn omission_marker(start: usize, end: usize) -> String {
     if start == end {
         format!("... [line {start} not requested] ...\n")
     } else {
@@ -72,6 +78,7 @@ pub fn extract(
         warnings: vec![],
         next: NextCalls::default(),
         blocks: vec![],
+        match_limited: false,
     })
 }
 /// Line ranges joined into one view: sorted, overlapping or adjacent ranges
@@ -160,6 +167,7 @@ fn ranges_extract(
         warnings,
         next,
         blocks: vec![],
+        match_limited: false,
     })
 }
 
@@ -223,54 +231,63 @@ fn windows_text(lines: &[&str], windows: &[LineRange]) -> (String, Vec<usize>) {
 }
 
 /// Byte spans of every pattern (a list matches any of its entries), in
-/// source order.
+/// source order. `truncated` is set when any regex scan hit its match limit.
 fn match_spans(
     q: &LocalFetchQuery,
     content: &str,
     patterns: &[&str],
     regex: &impl RegexMatch,
-) -> Result<Vec<(usize, usize)>, String> {
-    let mut spans = vec![];
+) -> Result<RegexSpans, String> {
+    let mut found = RegexSpans::default();
     for pattern in patterns {
         let sensitive = q.case_sensitive_for(pattern);
-        if q.is_pcre2() {
-            spans.extend(pcre2_ranges(pattern, sensitive, content)?);
+        let one = if q.is_pcre2() {
+            pcre2_ranges(pattern, sensitive, content)?
         } else if q.is_regex() {
-            spans.extend(regex.matching_ranges(pattern, sensitive, content).map_err(|error| {
+            regex.matching_ranges(pattern, sensitive, content).map_err(|error| {
                 if *pattern == "[" { "Invalid regex pattern: Invalid regular expression: /[/: Unterminated character class".to_owned() } else { error }
-            })?);
+            })?
         } else {
-            spans.extend(literal_ranges(content, pattern, sensitive));
-        }
+            RegexSpans {
+                spans: literal_ranges(content, pattern, sensitive),
+                truncated: false,
+            }
+        };
+        found.truncated |= one.truncated;
+        found.spans.extend(one.spans);
     }
     if patterns.len() > 1 {
-        spans.sort_unstable();
-        spans.dedup();
+        found.spans.sort_unstable();
+        found.spans.dedup();
     }
-    Ok(spans)
+    Ok(found)
 }
 
-/// Most matches one regex read records, as for `regex:"rust"`.
-const MAX_REGEX_MATCHES: usize = 10_000;
+/// Most matches one regex read records (`regex:"rust"` and `"pcre2"`). A
+/// scan that finds more stops here and says so: the read is partial and
+/// its `textSearch` lead (delivered as `hints.textSearch`) pages every match
+/// through localSearch.
+pub(super) const MAX_REGEX_MATCHES: usize = 100_000;
 
 /// `regex:"pcre2"` spans through the engine's deadline-bounded PCRE2 scan,
-/// with the read's error prefixes (`invalidPattern`, `toolExecutionFailed`).
-fn pcre2_ranges(
-    pattern: &str,
-    case_sensitive: bool,
-    content: &str,
-) -> Result<Vec<(usize, usize)>, String> {
+/// with the read's error prefixes (`invalidPattern`, `executionFailed`).
+fn pcre2_ranges(pattern: &str, case_sensitive: bool, content: &str) -> Result<RegexSpans, String> {
     use octocode_engine::portable::{Pcre2RangesError, pcre2_find_ranges};
-    pcre2_find_ranges(pattern, !case_sensitive, content, MAX_REGEX_MATCHES).map_err(|error| {
-        match error {
+    // One probe past the limit tells a capped prefix from the whole set.
+    let probe = MAX_REGEX_MATCHES + 1;
+    let mut spans = pcre2_find_ranges(pattern, !case_sensitive, content, probe).map_err(
+        |error| match error {
             Pcre2RangesError::InvalidPattern(message) => {
                 format!("Invalid regex pattern: {message}")
             }
             Pcre2RangesError::Unavailable(message) => {
                 format!("Regex execution unavailable: {message}")
             }
-        }
-    })
+        },
+    )?;
+    let truncated = spans.len() > MAX_REGEX_MATCHES;
+    spans.truncate(MAX_REGEX_MATCHES);
+    Ok(RegexSpans { spans, truncated })
 }
 
 /// 1-based lines any span touches: every line of a multiline match, not
@@ -428,8 +445,10 @@ fn match_extract(
     patterns: &[&str],
     regex: &impl RegexMatch,
 ) -> Result<Extraction, String> {
-    let spans = match_spans(q, content, patterns, regex)?;
+    let RegexSpans { spans, truncated } = match_spans(q, content, patterns, regex)?;
     let hits = hit_lines(lines, &spans);
+    // The last line the capped scan reached: matches after it went unseen.
+    let limit_line = truncated.then(|| hits.last().copied()).flatten();
     if hits.is_empty() {
         return Ok(Extraction {
             text: String::new(),
@@ -442,6 +461,7 @@ fn match_extract(
             warnings: vec![],
             next: NextCalls::default(),
             blocks: vec![],
+            match_limited: false,
         });
     }
     let context = q.context_lines().unwrap_or(if q.context_bytes().is_none() {
@@ -534,6 +554,12 @@ fn match_extract(
         ));
         next.whole_lines = whole_lines_lead(q);
     }
+    if let Some(line) = limit_line {
+        warnings.push(format!(
+            "Regex match limit: the scan stopped after {MAX_REGEX_MATCHES} matches at line {line}; matches after it are not selected. hints.textSearch pages every match."
+        ));
+        next.text_search = match_limit_lead(q, patterns);
+    }
     if let Some(bytes) = q
         .context_bytes()
         .or(long_lines.then_some(LONG_LINE_CONTEXT_BYTES))
@@ -552,7 +578,49 @@ fn match_extract(
         warnings,
         next,
         blocks,
+        match_limited: limit_line.is_some(),
     })
+}
+
+/// A localSearch over the same file and pattern(s): it streams and pages
+/// every match, past the read's in-process match limit. Several patterns
+/// join as one alternation, each keeping its own case rule.
+fn match_limit_lead(q: &LocalFetchQuery, patterns: &[&str]) -> Option<serde_json::Value> {
+    use crate::tools::id::ToolId;
+    let sensitive = |pattern: &&str| q.case_sensitive_for(pattern);
+    let (text, case_mode) = match patterns {
+        [one] => (
+            (*one).to_owned(),
+            if sensitive(one) {
+                "sensitive"
+            } else {
+                "insensitive"
+            },
+        ),
+        _ => (
+            patterns
+                .iter()
+                .map(|pattern| {
+                    let flag = if sensitive(pattern) { "" } else { "i" };
+                    format!("(?{flag}:{pattern})")
+                })
+                .collect::<Vec<_>>()
+                .join("|"),
+            "sensitive",
+        ),
+    };
+    let regex = if q.is_pcre2() { "pcre2" } else { "rust" };
+    let row = serde_json::json!({
+        "path": q.path(),
+        "matchString": text,
+        "regex": regex,
+        "caseMode": case_mode,
+    });
+    Some(
+        crate::tools::result::Continuation::new(ToolId::LocalSearch, row)
+            .why("Page every match of the pattern in this file.")
+            .build(),
+    )
 }
 
 /// Byte windows of `bytes` around each match span, with `... [N bytes

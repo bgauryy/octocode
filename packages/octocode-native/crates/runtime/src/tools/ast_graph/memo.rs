@@ -44,11 +44,13 @@ pub(super) fn get(key: &str) -> Option<Arc<BuiltGraph>> {
             .find(|entry| entry.key == key)
             .map(|entry| (entry.graph.clone(), entry.stamp))
     })??;
-    (file_stamp(&graph) == stamp).then_some(graph)
+    (file_stamp(&graph)? == stamp).then_some(graph)
 }
 
 pub(super) fn put(key: String, graph: Arc<BuiltGraph>) {
-    let stamp = file_stamp(&graph);
+    let Some(stamp) = file_stamp(&graph) else {
+        return;
+    };
     with_memo(|memo| {
         memo.retain(|entry| entry.key != key);
         if memo.len() >= ENTRIES {
@@ -63,7 +65,7 @@ pub(super) fn put(key: String, graph: Arc<BuiltGraph>) {
 /// repository): this covers the
 /// scanned files, files added or removed beside them, and the manifests,
 /// tsconfig and ignore files linking reads.
-fn file_stamp(graph: &BuiltGraph) -> u64 {
+fn file_stamp(graph: &BuiltGraph) -> Option<u64> {
     let mut dirs = BTreeSet::from([graph.root.clone()]);
     let files = graph.nodes.keys().map(String::as_str).chain(
         graph
@@ -95,25 +97,54 @@ fn file_stamp(graph: &BuiltGraph) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     for dir in dirs {
         dir.hash(&mut hasher);
-        let Ok(entries) = std::fs::read_dir(&dir) else {
-            u64::MAX.hash(&mut hasher);
-            continue;
-        };
+        let entries = std::fs::read_dir(&dir).ok()?;
         let mut stats = entries
-            .filter_map(Result::ok)
+            .collect::<Result<Vec<_>, _>>()
+            .ok()?
+            .into_iter()
             // Git's own bookkeeping changes on every git command.
             .filter(|entry| entry.file_name() != ".git")
             .map(|entry| {
-                let meta = entry.metadata().ok();
-                (
-                    entry.file_name(),
-                    meta.as_ref().map(std::fs::Metadata::len),
-                    meta.and_then(|meta| meta.modified().ok()),
-                )
+                let meta = entry.metadata().ok()?;
+                Some((entry.file_name(), crate::tools::source::cache_stamp(&meta)?))
             })
-            .collect::<Vec<_>>();
-        stats.sort();
-        stats.hash(&mut hasher);
+            .collect::<Option<Vec<_>>>()?;
+        stats.sort_by(|a, b| a.0.cmp(&b.0));
+        for (name, stamp) in stats {
+            name.hash(&mut hasher);
+            stamp.size.hash(&mut hasher);
+            stamp.modified_ns.hash(&mut hasher);
+            stamp.changed_ns.hash(&mut hasher);
+            stamp.inode.hash(&mut hasher);
+        }
     }
-    hasher.finish()
+    Some(hasher.finish())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn same_size_restored_mtime_invalidates_graph() {
+        let root = tempfile::tempdir().expect("root");
+        let file = root.path().join("a.js");
+        std::fs::write(&file, "import './b.js';\n").expect("source");
+        let graph = BuiltGraph {
+            root: root.path().to_path_buf(),
+            ..BuiltGraph::default()
+        };
+        put("restored-mtime".into(), Arc::new(graph));
+        assert!(get("restored-mtime").is_some());
+        let old_time = std::fs::metadata(&file)
+            .expect("metadata")
+            .modified()
+            .expect("mtime");
+        std::fs::write(&file, "import './c.js';\n").expect("same-size edit");
+        std::fs::File::open(&file)
+            .expect("file")
+            .set_times(std::fs::FileTimes::new().set_modified(old_time))
+            .expect("restore mtime");
+        assert!(get("restored-mtime").is_none());
+    }
 }

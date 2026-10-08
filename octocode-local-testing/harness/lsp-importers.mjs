@@ -42,12 +42,14 @@ try {
     },
     timeoutMs: 60_000,
   });
+  // LP8: coverage.importerScan / verifiedImporterFiles are verbose (stats) fields, listed only under debug.
   const entry = await client.call('lspSearch', {
     path: source,
     symbolName: name,
     lineHint: 1,
     operation: 'references',
     includeDeclaration: false,
+    debug: true,
   });
   const data = rowData(entry);
   check(
@@ -60,12 +62,13 @@ try {
   );
   check(
     'call after five comment mentions is included',
-    consumer?.matches?.some(ref => typeof ref === 'string' && /^7:/.test(ref)),
+    // X1: a hit row is an object `{line, column, value}`, not a packed "7:…" string.
+    consumer?.matches?.some(ref => ref?.line === 7 && /lateImporterTarget\(\)/.test(ref.value ?? '')),
     JSON.stringify(data?.payload)
   );
   check(
-    'recovery records a verified importer',
-    data?.payload?.coverage?.verifiedImporterFiles >= 1,
+    'recovery records a complete scan with a verified importer (debug)',
+    data?.payload?.coverage?.importerScan === 'complete' && data?.payload?.coverage?.verifiedImporterFiles >= 1,
     JSON.stringify(data?.payload?.coverage)
   );
   const result = summary();

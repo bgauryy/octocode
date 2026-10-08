@@ -3,13 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-a
 import { errorMessage } from '../shared/util.js';
 import { sanitizeTerminalText, storedText } from '../shared/sanitize.js';
 import { dbFailure, leaseAge, MESSAGE_MAX_CHARS, messageText, newId, outside, resolveLockPath, resolveTarget, USER_SENDER, wakes } from './routing.js';
-import {
-  AGENT_ID_ENV,
-  AGENT_TASK_ENV,
-  PARENT_ID_ENV,
-  pathKey,
-  TeamStore,
-} from './store.js';
+import { AGENT_ID_ENV, AGENT_TASK_ENV, PARENT_ID_ENV, pathKey, TeamStore } from './store.js';
 import type { DeadLetter, Lease, LeaseRequest, Member, Message } from './model.js';
 import { HeldLeases, leaseIdleMs } from './held.js';
 import { Inbox } from './inbox.js';
@@ -123,7 +117,7 @@ export class Team {
         pid: process.pid,
         status: ctx.isIdle() ? 'idle' : 'working',
         ...(description ? { task: description } : {}),
-        joinedAt: now, updatedAt: now,
+        ...(ctx.model ? { model: storedText(ctx.model.id, LINE_MAX) } : {}), joinedAt: now, updatedAt: now,
         toolCalls: 0, input: 0, output: 0, cost: 0,
       };
       this.ticker.sync();
@@ -310,8 +304,10 @@ export class Team {
     this.update((me) => void (line ? (me.activity = storedText(line, LINE_MAX)) : delete me.activity));
   }
 
-  onUsage(usage: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; cost?: { total?: number } }): void {
+  /** One reply's usage; `model` wrote it (it changes when the user switches models). */
+  onUsage(usage: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number; cost?: { total?: number } }, model?: string): void {
     this.update((me) => {
+      if (model) me.model = storedText(model, LINE_MAX);
       me.input += (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.cacheWrite ?? 0);
       me.output += usage.output ?? 0;
       me.cost += usage.cost?.total ?? 0;

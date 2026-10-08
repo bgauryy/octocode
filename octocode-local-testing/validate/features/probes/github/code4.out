@@ -1,1 +1,0 @@
-{"results":[{"index":0,"data":{"next":{"viewStructure":{"tool":"ghStructure","why":"Verify that the scoped repository and path exist before concluding absence.","confidence":"exact","query":{"owner":"sindresorhus","repo":"is","path":"","followUp":true}}}},"status":"empty"}]}

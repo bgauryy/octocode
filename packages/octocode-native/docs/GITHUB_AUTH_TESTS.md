@@ -24,7 +24,7 @@ The packaged acceptance test deletes only its unique fictional OS-store hostname
 | Main encrypted home credentials | `auth/home_store/tests.rs`; `tests/auth_discovery.rs` | Native reads an independent Node fixture; CLI selects it before gh |
 | CLI logout | `src/cli/system.rs::auth_tests` (relative to `crates/cli`) | Configured-host selection, deletion error propagated, environment credentials unchanged |
 | Home persistence | `auth/home_store/tests.rs`; `auth/credential_store.rs` | Save/load/update/delete, host isolation, key cleanup, corruption, wrong/missing key, bounded size, Unix permissions, symlink/hard-link rejection, concurrent writers, partial logout failure |
-| Packaged interfaces | `packages/octocode-native/tests/auth-home.acceptance.mjs` | Independent Node decryption of native writes; fresh-runtime load; CLI, N-API, stdio MCP; separate-process writers; explicit home isolation; home logout and OS-delete failure reporting; corrupt-home gh fallback |
+| Packaged interfaces | `packages/octocode-native/tests/auth-home.acceptance.mjs` | Native reads a Node-written home and Node decrypts the native rewrite; CLI, N-API `executeMcp`, stdio MCP; explicit home isolation; home logout and OS-delete failure reporting; corrupt-home gh fallback |
 | Real OS-store round trip | Not exercised | Platform integration requires an isolated credential-store test environment |
 
 Paths without a package prefix are relative to
@@ -64,7 +64,7 @@ home-store lock before replacing it; deletion and a newer login both reject the
 stale write. Forced device login preserves existing bytes when authorization fails.
 
 Debug-redaction regressions failed before replacing derived `Debug` on
-`OAuthToken` and `TokenWithRefreshResult`. The missing-enterprise-client-ID test
+`OAuthToken`. The missing-enterprise-client-ID test
 also failed before adding a guard that prevents an OAuth request without the
 host's configured client ID.
 

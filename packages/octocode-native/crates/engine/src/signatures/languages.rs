@@ -12,7 +12,7 @@ pub struct LanguageEntry {
     /// Protocol language id used for LSP document setup and grammar-based syntax
     /// anchoring. This does not imply a built-in semantic server route: Assembly
     /// has an id for trusted custom servers but intentionally no default command.
-    /// This is the single source the LSP grammar map derives from (no second table).
+    /// `lsp::grammar` reads LSP grammars from this field (no second table).
     pub language_id: Option<&'static str>,
     /// Pre-built `Language` handle. `Language` is `Clone + Send + Sync` but
     /// NOT `Copy` in tree-sitter 0.27 — always use `.clone()` at call sites.
@@ -244,8 +244,6 @@ pub fn find_entry(ext: &str) -> Option<&'static LanguageEntry> {
 }
 
 /// The full registry — the single source of truth for grammar capabilities.
-/// `lsp::grammar` derives its grammar map from this (entries with a
-/// `language_id`) instead of maintaining a parallel table.
 pub fn all_entries() -> &'static [LanguageEntry] {
     &LANGUAGE_TABLE
 }

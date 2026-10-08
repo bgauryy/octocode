@@ -1,5 +1,0 @@
-# cmd: octocode localSearch {"queries": [{"contextLines": 0, "followUp": true, "matchContentLength": 200, "page": 3, "pageSize": 10, "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many", "searchText": "needle", "snapshot": "lexical-live-v1:46b134d4fc220697e0b0e30ef90cdcdb50f5932a3d2738660da1825750ab6168"}]}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"pagination":{"snapshot":"lexical-live-v1:46b134d4fc220697e0b0e30ef90cdcdb50f5932a3d2738660da1825750ab6168","currentPage":3,"totalPages":3,"filesPerPage":10,"totalFiles":25,"totalMatches":25,"hasMore":false},"files":[{"path":"f21.txt","matches":[{"line":1,"value":"needle in file 21"}]},{"path":"f22.txt","matches":[{"line":1,"value":"needle in file 22"}]},{"path":"f23.txt","matches":[{"line":1,"value":"needle in file 23"}]},{"path":"f24.txt","matches":[{"line":1,"value":"needle in file 24"}]},{"path":"f25.txt","matches":[{"line":1,"value":"needle in file 25"}]}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many"}

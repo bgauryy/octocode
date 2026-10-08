@@ -2,9 +2,7 @@
 //! derived from public page cursors, and the page objects reported back.
 use super::inventory::max_inventory_page;
 use super::{DEFAULT_PAGE_SIZE, fetch};
-use crate::providers::github::{
-    CredentialResolver, GitHubTransport, ProviderError, RequestContext,
-};
+use crate::providers::github::{GitHubTransport, ProviderError, RequestContext};
 use serde_json::{Value, json};
 
 /// GitHub REST collection batch size (the `per_page` maximum).
@@ -93,8 +91,8 @@ pub(super) struct WindowSpec {
 
 /// Load provider batches until `keep`-matching items cover the requested
 /// public page, the provider is exhausted, or the batch cap is hit.
-pub(super) async fn load_window<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+pub(super) async fn load_window(
+    transport: &GitHubTransport,
     segments: &[&str],
     spec: WindowSpec,
     keep: impl Fn(&Value) -> bool,
@@ -121,8 +119,8 @@ pub(super) fn commit_file_items(value: &mut Value) -> Vec<Value> {
         .unwrap_or_default()
 }
 
-pub(super) async fn load_window_with<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+pub(super) async fn load_window_with(
+    transport: &GitHubTransport,
     segments: &[&str],
     spec: WindowSpec,
     keep: impl Fn(&Value) -> bool,
@@ -204,8 +202,8 @@ pub(super) async fn load_window_with<R: CredentialResolver>(
 
 /// Read every provider batch a collection of `total` items spans (up to
 /// `max_batches`) concurrently, in provider order.
-async fn load_all_batches<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn load_all_batches(
+    transport: &GitHubTransport,
     segments: &[&str],
     max_batches: usize,
     total: usize,
@@ -262,9 +260,19 @@ pub(super) fn reconcile_file_totals(
     let listable = total.min(MAX_FILE_BATCHES * PROVIDER_BATCH);
     if !state.exhausted && !filtered {
         let per = page["pageSize"].as_u64().unwrap_or(1).max(1) as usize;
-        page["totalItems"] = json!(listable);
-        page["totalPages"] = json!(listable.div_ceil(per));
-        page["countScope"] = json!("complete");
+        let current = page["currentPage"].as_u64().unwrap_or(1) as usize;
+        let more = page["hasMore"] == true;
+        // Rebuilt from the facts, so the block keeps the one key order.
+        let mut rebuilt = crate::response::pages::PageFacts::open(current, Some(per), more)
+            .with_total(listable)
+            .to_value();
+        if let (Some(rebuilt), Some(old)) = (rebuilt.as_object_mut(), page.as_object()) {
+            for (key, value) in old {
+                rebuilt.entry(key.clone()).or_insert_with(|| value.clone());
+            }
+        }
+        rebuilt["countScope"] = json!("complete");
+        *page = rebuilt;
     }
     let unlisted = if state.exhausted {
         listed < total
@@ -318,10 +326,18 @@ pub(super) fn paginate_window(
         .skip(start.saturating_sub(skipped))
         .take(per)
         .collect();
-    let mut page = json!({"currentPage":current,"pageSize":per,"totalItems":loaded,"hasMore":more,"nextPage":more.then_some(current+1),"countScope":if exhausted {"complete"} else {"loaded"}});
-    if exhausted {
-        page["totalPages"] = json!(pages);
+    let facts = crate::response::pages::PageFacts::open(current, Some(per), more);
+    // Only an exhausted listing knows its page count.
+    let mut page = if exhausted {
+        facts.with_total(loaded)
+    } else {
+        facts.with_items(loaded)
     }
+    .to_value();
+    if more {
+        page["nextPage"] = json!(current + 1);
+    }
+    page["countScope"] = json!(if exhausted { "complete" } else { "loaded" });
     (slice, page)
 }
 

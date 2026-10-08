@@ -48,7 +48,7 @@ macro_rules! every_analysis {
 /// Analysis-independent views over the generated wire query, in the graph
 /// engine's `u32` units.
 impl AstTopologyQuery {
-    pub fn analysis(&self) -> GraphAnalysis {
+    pub(crate) fn analysis(&self) -> GraphAnalysis {
         match self {
             Self::DeadCode { .. } => GraphAnalysis::DeadCode,
             Self::Cycles { .. } => GraphAnalysis::Cycles,
@@ -70,7 +70,7 @@ impl AstTopologyQuery {
         }
     }
     /// Points the scan at another root (the drift baseline snapshot).
-    pub fn set_path(&mut self, root: String) {
+    pub(crate) fn set_path(&mut self, root: String) {
         match self {
             Self::Cycles { path, .. } | Self::Drift { path, .. } => *path = root,
             Self::DeadCode { path, .. }
@@ -81,7 +81,7 @@ impl AstTopologyQuery {
         }
     }
     /// The traversal start file.
-    pub fn source(&self) -> Option<&str> {
+    pub(crate) fn source(&self) -> Option<&str> {
         match self {
             Self::Dependencies { source, .. }
             | Self::Dependents { source, .. }
@@ -89,19 +89,19 @@ impl AstTopologyQuery {
             _ => None,
         }
     }
-    pub fn target(&self) -> Option<&str> {
+    pub(crate) fn target(&self) -> Option<&str> {
         match self {
             Self::Path { target, .. } => Some(target),
             _ => None,
         }
     }
-    pub fn baseline(&self) -> Option<&str> {
+    pub(crate) fn baseline(&self) -> Option<&str> {
         match self {
             Self::Drift { baseline, .. } => Some(baseline),
             _ => None,
         }
     }
-    pub fn depth(&self) -> Option<u32> {
+    pub(crate) fn depth(&self) -> Option<u32> {
         match self {
             Self::Dependencies { depth, .. } | Self::Dependents { depth, .. } => {
                 Some(u32_of(*depth))
@@ -109,7 +109,7 @@ impl AstTopologyQuery {
             _ => None,
         }
     }
-    pub fn entrypoints(&self) -> Option<&Vec<String>> {
+    pub(crate) fn entrypoints(&self) -> Option<&Vec<String>> {
         match self {
             Self::DeadCode { entrypoints, .. } | Self::Reachability { entrypoints, .. } => {
                 Some(entrypoints)
@@ -117,7 +117,7 @@ impl AstTopologyQuery {
             _ => None,
         }
     }
-    pub fn include_tests(&self) -> Option<bool> {
+    pub(crate) fn include_tests(&self) -> Option<bool> {
         match self {
             Self::DeadCode { include_tests, .. } | Self::Reachability { include_tests, .. } => {
                 Some(*include_tests)
@@ -125,15 +125,15 @@ impl AstTopologyQuery {
             _ => None,
         }
     }
-    pub fn default_excludes(&self) -> bool {
+    pub(crate) fn default_excludes(&self) -> bool {
         use crate::policy::prune::DefaultsFlag;
         every_analysis!(self, default_excludes => default_excludes.defaults())
     }
-    pub fn exclude(&self) -> Option<&[String]> {
+    pub(crate) fn exclude(&self) -> Option<&[String]> {
         every_analysis!(self, exclude => (!exclude.is_empty()).then_some(exclude.as_slice()))
     }
     /// Language globs in a deterministic (sorted) order.
-    pub fn language_globs(&self) -> Option<BTreeMap<String, Vec<String>>> {
+    pub(crate) fn language_globs(&self) -> Option<BTreeMap<String, Vec<String>>> {
         every_analysis!(self, language_globs => (!language_globs.is_empty()).then(|| {
             language_globs
                 .iter()
@@ -141,30 +141,35 @@ impl AstTopologyQuery {
                 .collect()
         }))
     }
-    pub fn max_files(&self) -> Option<u32> {
+    /// The narrower scan's `maxFiles` whose rows this widened scan replaces
+    /// (`next.expandScan`).
+    pub(crate) fn supersedes(&self) -> Option<u32> {
+        every_analysis!(self, supersedes => supersedes.map(|value| u32_of(value.get())))
+    }
+    pub(crate) fn max_files(&self) -> Option<u32> {
         every_analysis!(self, max_files => max_files.map(u32_of))
     }
-    pub fn page(&self) -> u32 {
+    pub(crate) fn page(&self) -> u32 {
         every_analysis!(self, page => u32_of(*page))
     }
-    pub fn page_size(&self) -> u32 {
+    pub(crate) fn page_size(&self) -> u32 {
         every_analysis!(self, page_size => u32_of(*page_size))
     }
-    pub fn diagnostic_page(&self) -> u32 {
+    pub(crate) fn diagnostic_page(&self) -> u32 {
         every_analysis!(self, diagnostic_page => diagnostic_page.map_or(1, u32_of))
     }
     /// Coverage diagnostic rows are returned only when the caller asks for a
     /// diagnostic page (`next.nextDiagnosticPage`); the default carries counts.
-    pub fn diagnostic_rows_requested(&self) -> bool {
+    pub(crate) fn diagnostic_rows_requested(&self) -> bool {
         every_analysis!(self, diagnostic_page => diagnostic_page.is_some())
     }
-    pub fn diagnostic_page_size(&self) -> u32 {
+    pub(crate) fn diagnostic_page_size(&self) -> u32 {
         every_analysis!(self, diagnostic_page_size => u32_of(*diagnostic_page_size))
     }
-    pub fn diagnostic_snapshot(&self) -> Option<&str> {
+    pub(crate) fn diagnostic_snapshot(&self) -> Option<&str> {
         every_analysis!(self, diagnostic_snapshot => diagnostic_snapshot.as_deref().map(String::as_str))
     }
-    pub fn rust_workspace(&self) -> Option<AstTopologyQueryRustWorkspace> {
+    pub(crate) fn rust_workspace(&self) -> Option<AstTopologyQueryRustWorkspace> {
         every_analysis!(self, rust_workspace => *rust_workspace)
     }
 }
@@ -265,6 +270,8 @@ pub(crate) struct FileFacts {
     pub language: String,
     /// Source content digest (`octocode_engine::digest::sha256`).
     pub digest: String,
+    /// Size and change times of the bytes `digest` hashed, when settled.
+    pub stamp: Option<octocode_engine::graph::SourceStamp>,
 }
 pub(crate) type Node = octocode_engine::graph::FileGraphNode;
 
@@ -286,9 +293,10 @@ pub(crate) struct BuiltGraph {
     pub nodes: BTreeMap<String, Node>,
     pub code_graph: octocode_engine::graph::CodeGraphSnapshot,
     pub files_skipped: u32,
+    /// The file scan stopped at `maxFiles`.
     pub truncated: bool,
     /// Total file-graph edges accepted so far; `add_edge` stops collecting at
-    /// the edge cap and flips `edges_capped` + `truncated` once.
+    /// the edge cap and sets `edges_capped` once (more files cannot lift it).
     pub edge_count: u32,
     pub edges_capped: bool,
     pub languages: Vec<(String, u32, String)>,
@@ -301,29 +309,4 @@ pub(crate) struct BuiltGraph {
     pub star_reexporters: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct AstGraphError {
-    pub code: String,
-    pub message: String,
-    pub hints: Vec<String>,
-    pub next: Option<Box<serde_json::Value>>,
-}
-impl AstGraphError {
-    pub(crate) fn new(code: &str, message: impl Into<String>) -> Self {
-        Self {
-            code: code.into(),
-            message: message.into(),
-            hints: vec![],
-            next: None,
-        }
-    }
-}
-impl std::fmt::Display for AstGraphError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.message)
-    }
-}
-impl std::error::Error for AstGraphError {}
-
-pub type AstGraphResult = Result<serde_json::Value, AstGraphError>;
+pub type AstGraphResult = Result<serde_json::Value, crate::tools::result::ToolError>;

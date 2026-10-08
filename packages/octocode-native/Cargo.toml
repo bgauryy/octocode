@@ -31,7 +31,6 @@ napi-build = { version = "2" }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["arbitrary_precision", "preserve_order"] }
 serde_yaml_ng = "0.10"
-moka = { version = "0.12", default-features = false, features = ["sync"] }
 regex = "1"
 url = "2"
 sha2 = "0.11"

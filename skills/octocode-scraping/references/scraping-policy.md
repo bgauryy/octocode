@@ -1,6 +1,6 @@
 # Data collection policy
 
-Load when legality, safety, privacy, or account boundaries can matter. Scraping mistakes can leak secrets, overload sites, or cross user intent.
+Load when legality, safety, privacy, or account boundaries can matter. Scraping mistakes can leak secrets, overload sites, or cross user intent. Why: keep collection within the authorized scope.
 
 ## Frame before fetch
 - Confirm whether auth/session data is involved. <!-- style-lint: ignore-line passive-voice -->

@@ -1,5 +1,0 @@
-# cmd: octocode astSearch {"goal": "g", "reasoning": "r", "operation": "symbols", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/b.ts"}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"declarations":[{"name":"helper","kind":"function","line":1,"endLine":4,"exported":true},{"name":"unused","kind":"constant","line":6,"exported":true}],"path":"b.ts","totalDeclarations":2}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

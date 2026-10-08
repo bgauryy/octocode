@@ -1,28 +1,27 @@
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use bytes::Bytes;
 use reqwest::header::{ACCEPT, HeaderValue, IF_NONE_MATCH};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{future::Future, pin::Pin};
 
-use super::{
-    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, RequestContext,
-    RequestSpec,
-};
+use super::{GitHubTransport, ProviderError, ProviderErrorKind, RequestContext, RequestSpec};
 
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct CachedContent {
     pub etag: Option<String>,
     /// Base64 on disk (a JSON number array is ~3.5× the body); legacy array
-    /// entries still decode.
+    /// entries still decode. Shared, so a cache hit hands out the stored
+    /// body without copying it.
     #[serde(with = "base64_bytes")]
-    pub bytes: Vec<u8>,
+    pub bytes: Bytes,
     pub resolved_ref: String,
 }
 mod base64_bytes {
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use serde::{Deserialize, Deserializer, Serializer, de::Error};
 
-    pub fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+    pub(crate) fn serialize<S: Serializer>(bytes: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&STANDARD.encode(bytes))
     }
 
@@ -33,10 +32,15 @@ mod base64_bytes {
         Legacy(Vec<u8>),
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u8>, D::Error> {
+    pub(crate) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<bytes::Bytes, D::Error> {
         match Encoded::deserialize(deserializer)? {
-            Encoded::Base64(text) => STANDARD.decode(text).map_err(D::Error::custom),
-            Encoded::Legacy(bytes) => Ok(bytes),
+            Encoded::Base64(text) => STANDARD
+                .decode(text)
+                .map(Into::into)
+                .map_err(D::Error::custom),
+            Encoded::Legacy(bytes) => Ok(bytes.into()),
         }
     }
 }
@@ -96,17 +100,18 @@ pub struct ContentRequest {
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ContentResponse {
-    pub bytes: Vec<u8>,
+    /// Shared with the cache entry: a hit copies no body.
+    pub bytes: Bytes,
     pub resolved_ref: String,
     pub etag: Option<String>,
     pub from_cache: bool,
     pub raw_response_bytes: usize,
 }
-pub struct GitHubProvider<R, C> {
-    pub transport: GitHubTransport<R>,
+pub struct GitHubProvider<C> {
+    pub transport: GitHubTransport,
     pub cache: C,
 }
-impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
+impl<C: ConditionalCache> GitHubProvider<C> {
     pub async fn get_file_content(
         &self,
         request: &ContentRequest,
@@ -123,8 +128,7 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
         let resolved_ref = self.resolve_commit(request, context).await?;
         let partition = self
             .transport
-            .cache_partition(context, request.session_id.as_deref())
-            .await?;
+            .cache_partition(context, request.session_id.as_deref())?;
         let key = cache_key(request, &resolved_ref);
         let cached = if request.force_refresh {
             None
@@ -168,6 +172,7 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
                 let (bytes, raw_response_bytes) = self
                     .fetch_via_directory_and_blob(request, &resolved_ref, context)
                     .await?;
+                let bytes = Bytes::from(bytes);
                 let stored = CachedContent {
                     etag: None,
                     bytes: bytes.clone(),
@@ -206,16 +211,17 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
         let needs_blob = payload.encoding.as_deref() == Some("none")
             || (payload.content.as_deref().is_none_or(str::is_empty)
                 && payload.size.unwrap_or(0) > 0);
-        let bytes = match payload.sha.as_deref().filter(|_| needs_blob) {
+        let bytes: Bytes = match payload.sha.as_deref().filter(|_| needs_blob) {
             Some(sha) => {
                 let (bytes, blob_bytes) = self.fetch_blob(request, sha, context).await?;
                 raw_response_bytes = raw_response_bytes.saturating_add(blob_bytes);
-                bytes
+                bytes.into()
             }
             None => text_bytes(
                 decode_bytes(payload.encoding.as_deref(), payload.content)?,
                 payload.sha.as_deref(),
-            )?,
+            )?
+            .into(),
         };
         let etag = page
             .headers
@@ -245,7 +251,7 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
         reference: &str,
         context: &RequestContext,
     ) -> Result<super::ContentsListing, ProviderError> {
-        let partition = self.transport.cache_partition(context, None).await?;
+        let partition = self.transport.cache_partition(context, None)?;
         let key = {
             let mut digest = Sha256::new();
             for value in [owner, repo, path, reference] {
@@ -284,7 +290,7 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
                 })?
                 .bytes
         } else {
-            page.body.to_vec()
+            Bytes::copy_from_slice(&page.body)
         };
         let listing = super::tree::parse_contents_listing(&body)?;
         if page.status != 304 {
@@ -344,7 +350,7 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
             return Ok(reference.to_ascii_lowercase());
         }
         let reference = reference.unwrap_or("HEAD");
-        let partition = self.transport.cache_partition(context, None).await?;
+        let partition = self.transport.cache_partition(context, None)?;
         let key = ref_memo_key(owner, repo, reference);
         // Single flight: a concurrent batch on one ref waits for the first
         // resolution and then reads it from the memo.
@@ -369,7 +375,7 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
                 key,
                 CachedContent {
                     etag: None,
-                    bytes: sha.as_bytes().to_vec(),
+                    bytes: Bytes::copy_from_slice(sha.as_bytes()),
                     resolved_ref: format!("{REF_MEMO_PREFIX}{}", unix_now()),
                 },
             )
@@ -452,7 +458,7 @@ impl<R: CredentialResolver, C: ConditionalCache> GitHubProvider<R, C> {
 /// Parse a Contents API response for a single file. Directories (arrays),
 /// symlinks and submodules get their own actionable validation errors instead
 /// of an opaque decode failure.
-impl<R: CredentialResolver> GitHubTransport<R> {
+impl GitHubTransport {
     /// Resolve `reference` (branch, tag, short SHA, or `HEAD`) to its lowercase
     /// 40-hex commit SHA in one round trip: the `vnd.github.sha` media type
     /// returns just the SHA. A 404 means the repository itself did not
@@ -468,6 +474,20 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         let url = self
             .endpoint()
             .rest(&["repos", owner, repo, "commits", reference])?;
+        // A full SHA that resolved once always resolves to itself: cache the
+        // hit (commit-pinned namespace, partitioned by credential).
+        let cached = if crate::is_full_sha(reference) {
+            let partition = self.cache_partition(context, None)?;
+            let key = format!("github-commit:sha:{owner}/{repo}/{reference}");
+            if let Some(hit) = self.cache.get(&partition, &key).await
+                && let Ok(sha) = std::str::from_utf8(&hit.bytes)
+            {
+                return Ok(sha.to_owned());
+            }
+            Some((partition, key))
+        } else {
+            None
+        };
         let mut spec = RequestSpec::get(url);
         spec.headers.insert(
             ACCEPT,
@@ -477,7 +497,21 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             .execute(spec, context)
             .await
             .map_err(classify_ref_failure)?;
-        parse_commit_sha(&page.body)
+        let sha = parse_commit_sha(&page.body)?;
+        if let Some((partition, key)) = cached {
+            self.cache
+                .put(
+                    &partition,
+                    key,
+                    super::CachedContent {
+                        etag: None,
+                        bytes: sha.clone().into_bytes().into(),
+                        resolved_ref: sha.clone(),
+                    },
+                )
+                .await;
+        }
+        Ok(sha)
     }
 }
 
@@ -574,7 +608,8 @@ fn unix_now() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs())
 }
-pub(crate) fn is_full_sha(value: &str) -> bool {
+/// A full 40-hex-digit commit SHA (either case).
+pub fn is_full_sha(value: &str) -> bool {
     value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 type RefFlights = std::sync::Mutex<

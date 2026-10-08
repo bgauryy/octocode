@@ -1,7 +1,9 @@
 use super::graph::normalize;
+use crate::tools::{bounded_process::run_bounded, cancel::CancellationCheck};
 use std::{
     collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
+    time::Duration,
 };
 
 /// Cargo names belong to the importing package, not the whole workspace.
@@ -30,11 +32,16 @@ impl CargoCrates {
 // Keep the bounded offline process; do not cache an incomplete input fingerprint.
 /// `cargo` is the configured `OCTOCODE_CARGO` path; `None` runs `cargo`
 /// from PATH.
-pub(super) fn load_cargo_crates(root: &Path, cargo: Option<&str>) -> Result<CargoCrates, String> {
+pub(super) fn load_cargo_crates(
+    root: &Path,
+    cargo: Option<&str>,
+    cancel: &dyn CancellationCheck,
+) -> Result<CargoCrates, String> {
     const MAX_METADATA_BYTES: usize = 32 * 1024 * 1024;
     // `--no-deps` keeps metadata to the workspace's own crates, cutting work
     // and attack surface.
-    let mut child = std::process::Command::new(cargo.unwrap_or("cargo"))
+    let mut command = std::process::Command::new(cargo.unwrap_or("cargo"));
+    command
         .args([
             "metadata",
             "--format-version",
@@ -42,65 +49,19 @@ pub(super) fn load_cargo_crates(root: &Path, cargo: Option<&str>) -> Result<Carg
             "--no-deps",
             "--offline",
         ])
-        .current_dir(root)
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .map_err(|error| error.to_string())?;
-    let stdout = child
-        .stdout
-        .take()
-        .ok_or_else(|| "cargo metadata stdout was unavailable".to_owned())?;
-    let reader = std::thread::spawn(move || {
-        use std::io::Read;
-        let mut stdout = stdout;
-        let mut bytes = Vec::new();
-        let mut chunk = [0_u8; 16 * 1024];
-        let mut exceeded = false;
-        loop {
-            let read = stdout.read(&mut chunk).map_err(|error| error.to_string())?;
-            if read == 0 {
-                break;
-            }
-            if bytes.len().saturating_add(read) <= MAX_METADATA_BYTES {
-                bytes.extend_from_slice(&chunk[..read]);
-            } else {
-                exceeded = true;
-            }
-        }
-        if exceeded {
-            Err("cargo metadata exceeded the 32 MiB output limit".to_owned())
-        } else {
-            Ok(bytes)
-        }
-    });
-    let started = std::time::Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Err(error) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = reader.join();
-                return Err(error.to_string());
-            }
-            Ok(None) if started.elapsed() > std::time::Duration::from_secs(5) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = reader.join();
-                return Err("cargo metadata timed out".into());
-            }
-            Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
-        }
-    };
-    let bytes = reader
-        .join()
-        .map_err(|_| "cargo metadata output reader failed".to_owned())??;
-    if !status.success() {
+        .current_dir(root);
+    let output = run_bounded(
+        command,
+        "cargo metadata",
+        Duration::from_secs(5),
+        MAX_METADATA_BYTES,
+        cancel,
+    )?;
+    if !output.status.success() {
         return Err("cargo metadata exited unsuccessfully".into());
     }
     let value: serde_json::Value =
-        serde_json::from_slice(&bytes).map_err(|error| error.to_string())?;
+        serde_json::from_slice(&output.stdout).map_err(|error| error.to_string())?;
     Ok(parse_cargo_crates(root, &value))
 }
 
@@ -258,8 +219,58 @@ mod tests {
         .expect("manifest");
         // The configured path is used as-is: no ambient `CARGO` fallback.
         let missing = root.path().join("no-such-cargo");
-        let result = super::load_cargo_crates(root.path(), missing.to_str());
+        let result = super::load_cargo_crates(
+            root.path(),
+            missing.to_str(),
+            &crate::tools::cancel::NeverCancel,
+        );
         assert!(result.is_err(), "a missing configured cargo cannot run");
+    }
+
+    /// L2: a cancelled build stops `cargo metadata` as cancelled (not at the
+    /// 5 s limit), and its process group dies with it.
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_stops_cargo_metadata_and_its_children() {
+        use std::os::unix::fs::PermissionsExt;
+        use std::time::Duration;
+        /// Cancels once the fake cargo has started its child.
+        struct CancelOnceStarted(std::path::PathBuf);
+        impl crate::tools::cancel::CancellationCheck for CancelOnceStarted {
+            fn check(&self) -> Result<(), String> {
+                let started = std::fs::read_to_string(&self.0).is_ok_and(|pid| pid.ends_with('\n'));
+                if started {
+                    Err("cancelled".into())
+                } else {
+                    Ok(())
+                }
+            }
+        }
+        let root = tempfile::tempdir().expect("fixture");
+        let pidfile = root.path().join("child.pid");
+        let cargo = root.path().join("fake-cargo");
+        std::fs::write(
+            &cargo,
+            format!(
+                "#!/bin/sh\nsleep 30 & echo $! > '{}'\nwait\n",
+                pidfile.display()
+            ),
+        )
+        .expect("fake cargo");
+        std::fs::set_permissions(&cargo, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+        let cancel = CancelOnceStarted(pidfile.clone());
+        let result = super::load_cargo_crates(root.path(), cargo.to_str(), &cancel);
+        assert_eq!(result.err().as_deref(), Some("cancelled"));
+        let pid: u32 = std::fs::read_to_string(&pidfile)
+            .expect("pid")
+            .trim()
+            .parse()
+            .expect("pid number");
+        std::thread::sleep(Duration::from_millis(100));
+        assert!(
+            !crate::process_status::is_alive(pid),
+            "child {pid} survived"
+        );
     }
 
     #[test]

@@ -3,9 +3,18 @@
 //! plus the one-based `resolvedSymbol` receipt presented to the caller.
 
 use super::LspSearchQuery;
-use octocode_engine::lsp::resolver::{LineIndex, resolve_position_in_file_content};
+use octocode_engine::lsp::resolver::resolve_position_in_file_content;
 use octocode_engine::lsp::types::{JsFuzzyPosition, JsResolvedSymbol};
 use serde_json::{Value, json};
+use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
+
+/// Symbol anchors resolved per `(path, name, lineHint, orderHint, source
+/// text)`: resolution is a pure function of them (a parse past its budget
+/// is an error, never stored), and a warm repeat skips the parse.
+static RESOLVED: LazyLock<Mutex<HashMap<String, JsResolvedSymbol>>> = LazyLock::new(Mutex::default);
+/// Stored anchors per process; past it the store starts over.
+const RESOLVED_MAX: usize = 256;
 
 /// A resolved anchor: zero-based LSP `line`/`character` for the server, and
 /// the public receipt (one-based) when the operation is anchored.
@@ -25,9 +34,8 @@ pub(super) fn is_anchored(operation: &str) -> bool {
 
 /// Resolve the request anchor once. Document-wide operations need no anchor.
 /// `source` is the document text sent in `didOpen` (`None` when no file was
-/// synchronized); `symbolName` resolution and the explicit-`position` bounds
-/// check both run on it, so the column is computed on the text the server
-/// holds.
+/// synchronized); `symbolName` resolution runs on it, so the column is
+/// computed on the text the server holds.
 ///
 /// `resolvedSymbol` uses the public coordinate convention: `foundAtLine` and
 /// `foundAtCharacter` are one-based (LSP line/UTF-16 character + 1).
@@ -71,22 +79,7 @@ pub(super) fn resolve_anchor(
             resolved_symbol: Some(symbol),
         });
     }
-    let (line, character) = query
-        .position()
-        .ok_or_else(|| "lspSearch requires position or symbolName+lineHint".to_owned())?;
-    if let Some(error) = source.and_then(|source| position_bounds_error(source, (line, character)))
-    {
-        return Err(error);
-    }
-    Ok(Anchor {
-        line,
-        character,
-        resolved_symbol: Some(json!({
-            "path": super::render::uri_to_path(canonical_uri),
-            "foundAtLine": line + 1,
-            "foundAtCharacter": character + 1
-        })),
-    })
+    Err("lspSearch requires symbolName and lineHint".to_owned())
 }
 
 /// Resolve `name` near `line_hint`. A member-qualified name (`this.ns`,
@@ -96,6 +89,33 @@ pub(super) fn resolve_anchor(
 /// first so a repeated member on the line resolves inside that expression;
 /// when it is not spelled contiguously the bare member is resolved instead.
 fn resolve_symbol(
+    path: &str,
+    source: &str,
+    name: &str,
+    line_hint: Option<u32>,
+    order_hint: Option<u32>,
+) -> Result<JsResolvedSymbol, String> {
+    let key = crate::digest::sha256(
+        format!("{path}\u{0}{name}\u{0}{line_hint:?}\u{0}{order_hint:?}\u{0}{source}").as_bytes(),
+    );
+    if let Some(hit) = RESOLVED
+        .lock()
+        .ok()
+        .and_then(|resolved| resolved.get(&key).cloned())
+    {
+        return Ok(hit);
+    }
+    let resolved = resolve_symbol_in(path, source, name, line_hint, order_hint)?;
+    if let Ok(mut stored) = RESOLVED.lock() {
+        if stored.len() >= RESOLVED_MAX {
+            stored.clear();
+        }
+        stored.insert(key, resolved.clone());
+    }
+    Ok(resolved)
+}
+
+fn resolve_symbol_in(
     path: &str,
     source: &str,
     name: &str,
@@ -114,6 +134,7 @@ fn resolve_symbol(
         )
         .map_err(|error| error.to_string())
     };
+    let name = impl_self_type(name).unwrap_or(name);
     let Some(member_start) = last_member_start(name) else {
         return resolve(name);
     };
@@ -124,6 +145,49 @@ fn resolve_symbol(
         return Ok(resolved);
     }
     resolve(&name[member_start..])
+}
+
+/// The implementing type of a Rust impl block's name: `Trait for Type`
+/// (an astSearch impl row), `impl<…> Trait for Type<…>` or `impl Type`
+/// (rust-analyzer's document symbols). Generic arguments are dropped so the
+/// type's identifier is the anchor, the one an inherent impl row names.
+/// `None` for any other name (an identifier never holds a space).
+fn impl_self_type(name: &str) -> Option<&str> {
+    let self_type = match name.rfind(" for ") {
+        Some(at) => &name[at + " for ".len()..],
+        None => {
+            let rest = name.strip_prefix("impl")?;
+            if !rest.starts_with([' ', '<']) {
+                return None;
+            }
+            skip_generics(rest)
+        }
+    };
+    let self_type = self_type.trim();
+    let self_type = self_type.split('<').next().unwrap_or(self_type).trim();
+    (!self_type.is_empty() && !self_type.contains(char::is_whitespace)).then_some(self_type)
+}
+
+/// `text` after a leading `<…>` generic list (balanced), trimmed.
+fn skip_generics(text: &str) -> &str {
+    let text = text.trim_start();
+    if !text.starts_with('<') {
+        return text;
+    }
+    let mut depth = 0_usize;
+    for (at, ch) in text.char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return text[at + 1..].trim_start();
+                }
+            }
+            _ => {}
+        }
+    }
+    text
 }
 
 /// Byte offset of the last member of a qualified name, when `name` has a
@@ -154,27 +218,52 @@ fn qualifier_width(resolved: &JsResolvedSymbol, name: &str, member_start: usize)
         .then(|| name[..member_start].encode_utf16().count() as u32)
 }
 
-/// An explicit zero-based `position` must name a line of the document and a
-/// UTF-16 column within it (the end of the line is valid); servers otherwise
-/// answer out-of-range positions with a silent `null`. Lines break on
-/// `\r\n`, `\n`, and a lone `\r` — the LSP rule the server counts by.
-/// `position` is the zero-based `(line, character)` anchor.
-pub(super) fn position_bounds_error(source: &str, position: (u32, u32)) -> Option<String> {
-    let (line, character) = position;
-    let index = LineIndex::new(source);
-    let line_count = index.len();
-    let Some(text) = index.line(source, line as usize) else {
-        return Some(format!(
-            "line {} is past the end of the document: it has {line_count} lines (0-based lines 0-{}).",
-            line,
-            line_count - 1
-        ));
-    };
-    let width = text.encode_utf16().count();
-    (character as usize > width).then(|| {
-        format!(
-            "character {} is past the end of 0-based line {} ({width} UTF-16 units).",
-            character, line
-        )
-    })
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_stored_anchor_never_answers_for_edited_text() {
+        let path = "/memo/anchor.ts";
+        let before = "export function moved() {}\n";
+        let after = "\n\nexport function moved() {}\n";
+        let first = resolve_symbol(path, before, "moved", Some(1), None).expect("first");
+        let again = resolve_symbol(path, before, "moved", Some(1), None).expect("again");
+        assert_eq!(
+            (again.found_at_line, again.position.character),
+            (first.found_at_line, first.position.character)
+        );
+        let edited = resolve_symbol(path, after, "moved", Some(1), None).expect("edited");
+        assert_eq!(edited.found_at_line, 3);
+        assert_ne!(edited.position.line, first.position.line);
+    }
+
+    /// A Rust impl row's name (astSearch `Trait for Type`, rust-analyzer's
+    /// `impl Trait for Type` / `impl Type`) anchors on the implementing
+    /// type, the identifier an inherent impl row names.
+    #[test]
+    fn impl_block_names_anchor_on_the_self_type() {
+        let source =
+            "struct Wrap<T>(T);\nimpl<T: Clone> std::fmt::Debug for Wrap<T> {}\nimpl Wrap<u8> {}\n";
+        let type_column = source.lines().nth(1).unwrap().find("Wrap").unwrap() as u32;
+        for name in [
+            "std::fmt::Debug for Wrap",
+            "impl<T: Clone> std::fmt::Debug for Wrap<T>",
+            "Debug for Wrap",
+        ] {
+            let resolved = resolve_symbol_in("/a.rs", source, name, Some(2), None)
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert_eq!(
+                (resolved.found_at_line, resolved.position.character),
+                (2, type_column),
+                "{name}"
+            );
+        }
+        let inherent = resolve_symbol_in("/a.rs", source, "impl Wrap<u8>", Some(3), None)
+            .expect("inherent impl");
+        assert_eq!(
+            (inherent.found_at_line, inherent.position.character),
+            (3, 5)
+        );
+    }
 }

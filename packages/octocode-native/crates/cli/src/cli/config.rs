@@ -1,7 +1,7 @@
 use super::{emit_error, write_json};
 use octocode_native::runtime::ToolRuntime;
 use serde_json::json;
-use std::io::{self, Read};
+use std::io;
 
 /// A failed `config --manage` request. The code tells the config view how to
 /// recover: `CONFLICT` refreshes the inspected files before retrying.
@@ -96,7 +96,11 @@ pub fn show(runtime: &ToolRuntime, json_out: bool) -> u8 {
     println!("home     {}", view.home.display());
     println!("storage  {}", view.storage_mode);
     println!("config");
-    println!("  global   {}{}", config_file.display(), found(config_file_exists));
+    println!(
+        "  global   {}{}",
+        config_file.display(),
+        found(config_file_exists)
+    );
     println!(
         "  project  {}{}",
         view.project_config_file.display(),
@@ -202,14 +206,10 @@ pub fn unset(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
 }
 
 fn read_stdin_value() -> Result<String, &'static str> {
-    let mut value = String::new();
-    io::stdin()
-        .take(65_537)
-        .read_to_string(&mut value)
-        .map_err(|_| "Cannot read value from stdin.")?;
-    if value.len() > 65_536 {
-        return Err("Value exceeds 64 KiB.");
-    }
+    let bytes = super::read_bounded(io::stdin(), 64 * 1024)
+        .map_err(|_| "Cannot read value from stdin.")?
+        .ok_or("Value exceeds 64 KiB.")?;
+    let mut value = String::from_utf8(bytes).map_err(|_| "Cannot read value from stdin.")?;
     if value.ends_with('\n') {
         value.pop();
         if value.ends_with('\r') {

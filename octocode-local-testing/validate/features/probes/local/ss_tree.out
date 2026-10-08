@@ -1,5 +1,0 @@
-# cmd: octocode structureSearch {"goal": "g", "reasoning": "r", "operation": "tree", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx", "maxDepth": 1}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"path":"fx","entries":["many/","many/f01.txt (17B)","many/f02.txt (17B)","many/f03.txt (17B)","many/f04.txt (17B)","many/f05.txt (17B)","many/f06.txt (17B)","many/f07.txt (17B)","many/f08.txt (17B)","many/f09.txt (17B)","many/f10.txt (18B)","many/f11.txt (18B)","many/f12.txt (18B)","many/f13.txt (18B)","many/f14.txt (18B)","many/f15.txt (18B)","many/f16.txt (18B)","many/f17.txt (18B)","many/f18.txt (18B)","many/f19.txt (18B)","many/f20.txt (18B)","many/f21.txt (18B)","many/f22.txt (18B)","many/f23.txt (18B)","many/f24.txt (18B)","many/f25.txt (18B)","package.json (54B)","sec/","sec/creds.ts (477B)","src/","src/a.ts (210B)","src/b.ts (117B)","src/big.txt (20.5KB)","src/huge.txt (89.8KB)","src/index.ts (75B)","src/manyhits.txt (702B)"],"summary":"36 entries (33 files, 3 dirs, 112.4KB)"}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local"}

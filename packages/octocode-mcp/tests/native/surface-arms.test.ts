@@ -101,9 +101,9 @@ describe('deferred tools', () => {
     expect(run.inputSchema.properties).toMatchObject({
       tool: { enum: ['ghSearchRepo', TOOL_NAMES.CLASIFY] },
     });
-    expect(deferred.instructions).toMatch(
-      /run runs ghSearchRepo, clasify and every lead naming them\./
-    );
+    // The dispatcher description carries the route; the prompt is unchanged.
+    expect(run.description).toMatch(/^Run a tool not listed here/);
+    expect(deferred.instructions).toBe(control.instructions);
     await control.close();
     await deferred.close();
   });
@@ -149,6 +149,11 @@ describe('deferred tools', () => {
     expect(JSON.stringify(unknown.content)).toMatch(
       /astRewrite is not available/
     );
+    expect(unknown.structuredContent).toMatchObject({
+      kind: 'octocode.toolError',
+      tool: DEFERRED_TOOL_DISPATCHER,
+      errorCode: 'invalidInput',
+    });
     expect(executions).toEqual([]);
     await deferred.close();
   });

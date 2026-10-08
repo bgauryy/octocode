@@ -48,8 +48,8 @@ node skills-dev/octocode-dev/scripts/dev.mjs verify
 ## Manual Releases
 
 npm publishing, Homebrew tap updates, and standalone binary uploads are manual.
-Use the [release guide](../../releases/README.md) for the current executable
-release order and verification checklist.
+Use the [release guide](../../skills-dev/octocode-dev/docs/RELEASE.md) for the
+publish order and verification gates.
 
 ## Maintenance Notes
 

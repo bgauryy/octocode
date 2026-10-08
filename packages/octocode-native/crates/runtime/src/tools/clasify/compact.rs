@@ -1,6 +1,7 @@
 //! Default clasify output: the verbose receipt (`debug:true`) reduced to the
-//! decision data. A resource states its file path and line total once, pages
-//! become `lines` + answers keyed by question, answers become the bare
+//! decision data. A resource states its file path (and a GitHub file's ref)
+//! and line total once, pages become `lines` + answers keyed by question,
+//! answers become the bare
 //! label / P(yes) / level / exists unless the distribution is uncertain, and
 //! `best` rows become `{resourceId?, path?, lines, exists, probability}` with
 //! one exact read of the top window in `next.read`. Runner-up windows stay
@@ -83,8 +84,9 @@ fn escape(token: &str) -> String {
 }
 
 /// `{resourceId, path?, exists, startLine, endLine, probability, next?}` →
-/// `{resourceId?, path?, lines, exists, probability}`; the only resource's
-/// id and a path the resource already states are omitted.
+/// `{resourceId?, path?, line, endLine, exists, probability}` (the span names
+/// localFetch reads take); the only resource's id and a path the resource
+/// already states are omitted.
 pub(super) fn compact_row(row: &Value, single: Option<&str>, paths: &Map<String, Value>) -> Value {
     let resource = row.get("resourceId").and_then(Value::as_str);
     let mut out = Map::new();
@@ -96,17 +98,15 @@ pub(super) fn compact_row(row: &Value, single: Option<&str>, paths: &Map<String,
     {
         out.insert("path".into(), path.clone());
     }
-    out.insert(
-        "lines".into(),
-        json!([row["startLine"].clone(), row["endLine"].clone()]),
-    );
+    out.insert("line".into(), row["startLine"].clone());
+    out.insert("endLine".into(), row["endLine"].clone());
     out.insert("exists".into(), row["exists"].clone());
     out.insert("probability".into(), row["probability"].clone());
     Value::Object(out)
 }
 
-/// A verbose `best` row in its published shape: `startLine`/`endLine` become
-/// `lines`; the resource id stays.
+/// A verbose `best` row in its published shape: `startLine` becomes `line`
+/// beside `endLine`; the resource id stays.
 fn verbose_row(row: &Value) -> Value {
     let Some(fields) = row.as_object() else {
         return row.clone();
@@ -115,9 +115,8 @@ fn verbose_row(row: &Value) -> Value {
     for (key, value) in fields {
         match key.as_str() {
             "startLine" => {
-                out.insert("lines".into(), json!([value, row["endLine"]]));
+                out.insert("line".into(), value.clone());
             }
-            "endLine" => {}
             _ => {
                 out.insert(key.clone(), value.clone());
             }
@@ -127,7 +126,7 @@ fn verbose_row(row: &Value) -> Value {
 }
 
 /// Publish one `debug:true` query result in place: verbose `best` rows with
-/// `lines`, and next.clasify in the public input shape.
+/// `line`/`endLine`, and next.clasify in the public input shape.
 pub(super) fn publish_verbose(output: &mut Value, matrix: &Matrix<'_>) {
     if let Some(best) = output.get_mut("best").and_then(Value::as_object_mut) {
         for rows in best.values_mut() {
@@ -151,12 +150,11 @@ pub(super) fn ranking_row(row: &Value, single: Option<&str>) -> Option<Value> {
         .and_then(Value::as_str)
         .or(single)?
         .to_owned();
-    let lines = row["lines"].as_array()?;
     let mut out = json!({
         "resourceId": resource,
         "exists": row.get("exists")?,
-        "startLine": lines.first()?,
-        "endLine": lines.get(1)?,
+        "startLine": row.get("line")?,
+        "endLine": row.get("endLine")?,
         "probability": row.get("probability")?,
     });
     if let Some(path) = row.get("path") {
@@ -176,13 +174,25 @@ fn compact_resource(resource: &mut Value, listed: &[(Value, Value, Value)]) {
     let Some(pages) = fields.get_mut("pages").and_then(Value::as_array_mut) else {
         return;
     };
-    let shared_path = shared(pages, |page| {
+    // One file read on every page (a local `{path}` or a GitHub
+    // `{ref, path}` source) is stated once, on the resource.
+    let shared_source = shared(pages, |page| {
         page.get("source")
             .and_then(Value::as_object)
-            .filter(|source| source.len() == 1)
-            .and_then(|source| source.get("path"))
-            .cloned()
+            .filter(|source| {
+                source.contains_key("path")
+                    && source.keys().all(|key| key == "path" || key == "ref")
+            })
+            .map(|source| Value::Object(source.clone()))
     });
+    let shared_path = shared_source
+        .as_ref()
+        .and_then(|source| source.get("path"))
+        .cloned();
+    let shared_ref = shared_source
+        .as_ref()
+        .and_then(|source| source.get("ref"))
+        .cloned();
     let shared_total = shared(pages, |page| {
         page.get("scope")
             .filter(|scope| scope.get("startLine").is_some())
@@ -197,7 +207,7 @@ fn compact_resource(resource: &mut Value, listed: &[(Value, Value, Value)]) {
         };
         compact_page(
             page,
-            shared_path.is_some(),
+            shared_source.as_ref(),
             shared_total.is_some(),
             &window_listed,
         );
@@ -208,11 +218,14 @@ fn compact_resource(resource: &mut Value, listed: &[(Value, Value, Value)]) {
     // One error repeated across pages (e.g. the provider refused every
     // request) is stated once, on the resource: when every page failed with
     // it, or when nothing was judged and it is the most repeated page error
-    // (other errors, such as a spent page budget, stay on their pages). A
-    // page left with only its line span is not listed; a page keeps its read,
-    // the host's fallback for an unjudged window.
-    if let Some(error) =
-        shared(pages, |page| page.get("error").cloned()).or_else(|| unjudged_repeated_error(pages))
+    // (other errors, such as a spent page budget, stay on their pages), or
+    // when every page repeating it keeps a read (e.g. hit windows a spent
+    // budget left unjudged beside judged pages). A page left with only its
+    // line span is not listed; a page keeps its read, the host's fallback
+    // for an unjudged window.
+    if let Some(error) = shared(pages, |page| page.get("error").cloned())
+        .or_else(|| unjudged_repeated_error(pages))
+        .or_else(|| repeated_read_error(pages))
     {
         for page in pages.iter_mut() {
             if let Some(page) = page.as_object_mut()
@@ -223,7 +236,7 @@ fn compact_resource(resource: &mut Value, listed: &[(Value, Value, Value)]) {
         }
         pages.retain(|page| {
             page.as_object()
-                .is_some_and(|page| page.keys().any(|key| key != "lines"))
+                .is_some_and(|page| page.keys().any(|key| key != "line" && key != "endLine"))
         });
         fields.insert("error".into(), error);
     }
@@ -237,6 +250,9 @@ fn compact_resource(resource: &mut Value, listed: &[(Value, Value, Value)]) {
     let Some(pages) = fields.get_mut("pages").and_then(Value::as_array_mut) else {
         if let Some(path) = shared_path {
             fields.insert("path".into(), path);
+        }
+        if let Some(reference) = shared_ref {
+            fields.insert("ref".into(), reference);
         }
         if let Some(total) = shared_total {
             fields.insert("totalLines".into(), total);
@@ -256,6 +272,9 @@ fn compact_resource(resource: &mut Value, listed: &[(Value, Value, Value)]) {
     };
     if let Some(path) = shared_path {
         fields.insert("path".into(), path);
+    }
+    if let Some(reference) = shared_ref {
+        fields.insert("ref".into(), reference);
     }
     if let Some(total) = shared_total {
         fields.insert("totalLines".into(), total);
@@ -316,6 +335,34 @@ fn unjudged_repeated_error(pages: &[Value]) -> Option<Value> {
     (count >= 2).then(|| error.clone())
 }
 
+/// The error most pages repeat (at least two, ties keep the first seen),
+/// when every page carrying it keeps its read: stated once on the resource,
+/// each such page still lists what stays unjudged.
+fn repeated_read_error(pages: &[Value]) -> Option<Value> {
+    let mut counts: Vec<(&Value, usize)> = Vec::new();
+    for error in pages.iter().filter_map(|page| page.get("error")) {
+        match counts.iter_mut().find(|(seen, _)| *seen == error) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((error, 1)),
+        }
+    }
+    // A page without a read would keep only its error: that error stays on
+    // every page carrying it.
+    let readless = |error: &Value| {
+        pages
+            .iter()
+            .any(|page| page.get("error") == Some(error) && page.pointer("/next/read").is_none())
+    };
+    counts
+        .into_iter()
+        .filter(|(error, count)| *count >= 2 && !readless(error))
+        .fold(None::<(&Value, usize)>, |best, entry| match best {
+            Some((_, top)) if top >= entry.1 => best,
+            _ => Some(entry),
+        })
+        .map(|(error, _)| error.clone())
+}
+
 /// The value every page yields, when every page yields the same one.
 fn shared(pages: &[Value], value: impl Fn(&Value) -> Option<Value>) -> Option<Value> {
     let mut values = pages.iter().map(value);
@@ -327,34 +374,37 @@ fn shared(pages: &[Value], value: impl Fn(&Value) -> Option<Value>) -> Option<Va
 
 fn compact_page(
     page: &mut Value,
-    path_hoisted: bool,
+    hoisted_source: Option<&Value>,
     total_hoisted: bool,
     window_listed: &dyn Fn(&Value) -> bool,
 ) {
     let Some(fields) = page.as_object_mut() else {
         return;
     };
-    // A source that names only its file is that file's path.
-    if let Some(path) = fields
+    if hoisted_source.is_some_and(|source| fields.get("source") == Some(source)) {
+        // The resource states it.
+        fields.remove("source");
+    } else if let Some(path) = fields
         .get("source")
         .and_then(Value::as_object)
         .filter(|source| source.len() == 1)
         .and_then(|source| source.get("path"))
         .cloned()
     {
+        // A source that names only its file is that file's path.
         fields.remove("source");
-        if !path_hoisted {
-            fields.insert("path".into(), path);
-        }
+        fields.insert("path".into(), path);
     }
     if total_hoisted
         && let Some(scope) = fields.get("scope").and_then(Value::as_object)
         && let (Some(start), Some(end)) = (scope.get("startLine"), scope.get("endLine"))
         && scope.len() == 3
     {
-        let lines = json!([start, end]);
+        // The span names localFetch `ranges` take (X1): `line`, `endLine`.
+        let (start, end) = (start.clone(), end.clone());
         fields.remove("scope");
-        fields.insert("lines".into(), lines);
+        fields.shift_insert(0, "endLine".into(), end);
+        fields.shift_insert(0, "line".into(), start);
     }
     let Some(answers) = fields.get_mut("answers").and_then(Value::as_object_mut) else {
         return;
@@ -516,20 +566,20 @@ mod tests {
             json!({
                 "id":"matrix-1",
                 "best":{"t":[
-                    {"lines":[1551,1558],"exists":0.96,"probability":0.68},
-                    {"lines":[1854,1861],"exists":0.94,"probability":0.76},
-                    {"lines":[879,886],"exists":0.89,"probability":0.53}
+                    {"line":1551,"endLine":1558,"exists":0.96,"probability":0.68},
+                    {"line":1854,"endLine":1861,"exists":0.94,"probability":0.76},
+                    {"line":879,"endLine":886,"exists":0.89,"probability":0.53}
                 ]},
                 "resources":[{"id":"f","coverage":"partial","path":"src/server.c","totalLines":8615,"pages":[
-                    {"lines":[845,1206],"answers":{"t":0.89}},
-                    {"lines":[1481,1851],"answers":{"t":0.96}}
+                    {"line":845,"endLine":1206,"answers":{"t":0.89}},
+                    {"line":1481,"endLine":1851,"answers":{"t":0.96}}
                 ]}],
                 "next":{
                     "clasify":{"queries":[{
                         "id":"matrix-1","mainGoal":"g","reasoning":"r",
                         "resources":[{"id":"f","tool":"localFetch","query":{"path":"src/server.c","ranges":["2608-8615"],"reasoning":"own"},"prefilter":["cron"]}],
                         "questions":[{"id":"t","type":"locate","ask":"timer"}],
-                        "carry":{"t":[{"lines":[1551,1558],"exists":0.96,"probability":0.68}]}
+                        "carry":{"t":[{"line":1551,"endLine":1558,"exists":0.96,"probability":0.68}]}
                     }]},
                     "read":read(1551,1558)
                 }
@@ -538,6 +588,49 @@ mod tests {
         // The resource, the resume read, and the top-window read name the file.
         assert_eq!(output.to_string().matches("src/server.c").count(), 3);
         assert!(output.to_string().len() * 2 < before);
+    }
+
+    /// P5: pages of one GitHub file share one `source {ref, path}`: the
+    /// resource states it once (`path`, `ref`) and the pages drop it. A page
+    /// whose source differs keeps its own.
+    #[test]
+    fn a_shared_github_source_is_stated_once_on_the_resource() {
+        let page = |line: u64, source: Value| {
+            json!({"source":source,"scope":{"startLine":line,"endLine":line + 9,"totalLines":900},
+                   "answers":{"a":{"yesno":0.4}}})
+        };
+        let source = json!({"ref":"v5.9.3","path":"microsoft/TypeScript/src/compiler/checker.ts"});
+        let matrix = Matrix {
+            single_resource: Some("f"),
+            locate_ids: &[],
+            default_max_chars: 80_000,
+        };
+        let mut output = json!({"id":"m","resources":[{"id":"f","coverage":"complete","pages":[
+            page(1, source.clone()), page(11, source.clone()), page(21, source.clone())
+        ]}]});
+        compact_query_result(&mut output, &matrix);
+        let resource = &output["resources"][0];
+        assert_eq!(resource["path"], source["path"], "{output}");
+        assert_eq!(resource["ref"], "v5.9.3", "{output}");
+        assert_eq!(output.to_string().matches("v5.9.3").count(), 1, "{output}");
+        assert!(
+            resource["pages"]
+                .as_array()
+                .expect("pages")
+                .iter()
+                .all(|page| page.get("source").is_none()),
+            "{output}"
+        );
+
+        let other = json!({"ref":"main","path":"microsoft/TypeScript/src/compiler/checker.ts"});
+        let mut mixed = json!({"id":"m","resources":[{"id":"f","pages":[
+            page(1, source.clone()), page(11, other.clone())
+        ]}]});
+        compact_query_result(&mut mixed, &matrix);
+        let resource = &mixed["resources"][0];
+        assert!(resource.get("ref").is_none(), "{mixed}");
+        assert_eq!(resource["pages"][0]["source"], source, "{mixed}");
+        assert_eq!(resource["pages"][1]["source"], other, "{mixed}");
     }
 
     /// `best` keeps the top windows only; a located page whose window it
@@ -566,14 +659,13 @@ mod tests {
         let row = json!({"resourceId":"f","path":"a.c","exists":0.9,"startLine":3,"endLine":9,"probability":0.5});
         assert_eq!(
             compact_row(&row, Some("f"), &paths),
-            json!({"lines":[3,9],"exists":0.9,"probability":0.5})
+            json!({"line":3,"endLine":9,"exists":0.9,"probability":0.5})
         );
-        let public =
-            json!({"resourceId":"f","path":"a.c","lines":[3,9],"exists":0.9,"probability":0.5});
+        let public = json!({"resourceId":"f","path":"a.c","line":3,"endLine":9,"exists":0.9,"probability":0.5});
         assert_eq!(compact_row(&row, None, &Map::new()), public);
         assert_eq!(
             ranking_row(
-                &json!({"lines":[3,9],"exists":0.9,"probability":0.5}),
+                &json!({"line":3,"endLine":9,"exists":0.9,"probability":0.5}),
                 Some("f")
             ),
             Some(
@@ -581,7 +673,10 @@ mod tests {
             )
         );
         assert_eq!(
-            ranking_row(&json!({"lines":[3,9],"exists":0.9,"probability":0.5}), None),
+            ranking_row(
+                &json!({"line":3,"endLine":9,"exists":0.9,"probability":0.5}),
+                None
+            ),
             None
         );
         assert_eq!(ranking_row(&public, None), Some(row.clone()));
@@ -616,6 +711,71 @@ mod tests {
         );
     }
 
+    /// D3 (CL5 fc1.json: 64 copies, 12.2 KB of 38 KB): pages a spent budget
+    /// left unjudged beside judged pages state their shared error once, on
+    /// the resource, and keep their reads; another error stays on its page.
+    #[test]
+    fn a_repeated_unjudged_error_is_stated_once_beside_judged_pages() {
+        let spent = json!({"errorCode":"classificationBudgetSpent","error":"not judged","hints":{"text":["Run hints.read."]}});
+        let other = json!({"errorCode":"classificationContextEmpty","error":"empty"});
+        let unjudged = |path: &str, ranges: Value| {
+            json!({"source":{"path":path},"error":spent,
+                "next":{"read":{"tool":"localFetch","query":{"path":path,"ranges":ranges}}}})
+        };
+        let mut output = json!({"id":"m","resources":[{"id":"s","coverage":"partial","pages":[
+            {"source":{"path":"a.rs"},"answers":{"r":{"yesno":0.94}}},
+            unjudged("a.rs", json!(["16-22","108-114"])),
+            {"source":{"path":"b.rs"},"answers":{"r":{"yesno":0.1}}},
+            unjudged("b.rs", json!(["40-46"])),
+            {"source":{"path":"c.rs"},"error":other,
+                "next":{"read":{"tool":"localFetch","query":{"path":"c.rs","ranges":["1-9"]}}}}
+        ]}]});
+        compact_query_result(
+            &mut output,
+            &Matrix {
+                single_resource: Some("s"),
+                locate_ids: &[],
+                default_max_chars: 80_000,
+            },
+        );
+        let resource = &output["resources"][0];
+        assert_eq!(resource["error"], spent, "{resource}");
+        assert_eq!(resource["coverage"], "partial");
+        assert_eq!(
+            output
+                .to_string()
+                .matches("classificationBudgetSpent")
+                .count(),
+            1
+        );
+        let pages = resource["pages"].as_array().expect("pages");
+        assert_eq!(pages.len(), 5, "{resource}");
+        for at in [1, 3] {
+            assert!(pages[at].get("error").is_none(), "{}", pages[at]);
+            assert!(pages[at].pointer("/next/read").is_some(), "{}", pages[at]);
+        }
+        assert_eq!(pages[4]["error"], other);
+        assert_eq!(pages[0]["answers"]["r"], 0.94);
+        // A repeated error on a page with no read stays on its pages.
+        let mut readless = json!({"id":"m","resources":[{"id":"s","coverage":"partial","pages":[
+            {"source":{"path":"a.rs"},"answers":{"r":{"yesno":0.94}}},
+            {"source":{"path":"b.rs"},"error":spent},
+            unjudged("c.rs", json!(["1-9"]))
+        ]}]});
+        compact_query_result(
+            &mut readless,
+            &Matrix {
+                single_resource: Some("s"),
+                locate_ids: &[],
+                default_max_chars: 80_000,
+            },
+        );
+        assert!(
+            readless["resources"][0].get("error").is_none(),
+            "{readless}"
+        );
+    }
+
     #[test]
     fn identical_cell_errors_collapse_to_one_error() {
         let error = json!({"errorCode":"x","error":"y","hints":{"text":["z"]}});
@@ -623,8 +783,8 @@ mod tests {
         let mut output = json!({"id":"m","resources":[
             {"id":"a","coverage":"error","pages":[{"answers":{"q":failed,"r":failed}}]},
             {"id":"b","coverage":"error","pages":[
-                {"lines":[1,9],"answers":{"q":failed,"r":failed}},
-                {"lines":[10,19],"answers":{"q":failed,"r":failed}}
+                {"line":1,"endLine":9,"answers":{"q":failed,"r":failed}},
+                {"line":10,"endLine":19,"answers":{"q":failed,"r":failed}}
             ]},
             {"id":"c","coverage":"partial","pages":[{"answers":{"q":{"yesno":0.5},"r":failed}}]},
             {"id":"d","coverage":"error","pages":[{"answers":{"q":failed,"r":{"error":{"errorCode":"x","error":"other"}}}}]}

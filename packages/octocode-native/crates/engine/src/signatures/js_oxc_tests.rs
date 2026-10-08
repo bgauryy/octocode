@@ -6,7 +6,7 @@ use serde_json::Value;
 fn extract_js_symbols(content: &str, file_path: &str) -> Option<String> {
     on_oxc_worker(content, file_path, |content, file_path| {
         with_js_program::<false, _>(content, file_path, |_, parser_ret| {
-            let line_index = LineIndex::new(content);
+            let line_index = SpanPositions::new(content);
             let mut symbols = Vec::new();
             collect_program(&parser_ret.program, &line_index, &mut symbols);
             if symbols.is_empty() || job_cancelled() {
@@ -575,7 +575,7 @@ fn jsx_in_plain_js_files_parses() {
 fn source_type_follows_the_full_path() {
     let st = |p: &str| {
         source_type_for(
-            &crate::text::file_extension::get_extension_internal(p, true, "ts"),
+            &crate::text::file_extension::extension_of(p, true, "ts"),
             p,
             "",
         )
@@ -723,7 +723,7 @@ fn call_walk_stops_when_the_job_is_cancelled() {
     let src = "export function run() { a(); b(); c(); }\n";
     let allocator = oxc_allocator::Allocator::default();
     let parsed = oxc_parser::Parser::new(&allocator, src, SourceType::ts()).parse();
-    let line_index = LineIndex::new(src);
+    let line_index = SpanPositions::new(src);
     let mut calls = Vec::new();
     super::super::deep_stack::run_as_cancelled_job(|| {
         collect_program_calls(&parsed.program, &line_index, &mut calls, &mut Vec::new());
@@ -1076,4 +1076,15 @@ fn member_assigned_functions_are_declarations() {
     assert_eq!(redirect["selectionRange"]["start"]["character"], 4);
     // A member assigned a plain value is not a declaration.
     assert!(declarations.iter().all(|d| d["name"] != "count"), "{facts}");
+}
+
+#[test]
+fn every_oxc_symbol_kind_is_a_declared_declaration_kind() {
+    for kind in 0..=u8::MAX {
+        let name = symbol_kind_name(kind);
+        assert!(
+            crate::signatures::DECLARATION_KINDS.contains(&name),
+            "{name} is missing from DECLARATION_KINDS"
+        );
+    }
 }

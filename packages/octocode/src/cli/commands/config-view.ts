@@ -1,6 +1,8 @@
 import { spawn, execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { CONFIG_FIELDS, contractDriftMessage } from '@octocodeai/config';
+import { EXIT } from '../exit-codes.js';
+import { nativeCommand, nativeLauncher } from '../native-delegate.js';
 
 type ManagementRequest = Record<string, unknown>;
 type ManagementData = Record<string, unknown>;
@@ -27,17 +29,13 @@ export async function requestNativeConfig(
   if (options.signal?.aborted)
     throw failure('The config session is closed.', 'CLOSED');
   return new Promise((resolve, reject) => {
-    const launcher = /\.[cm]?js$/.test(bin);
-    const child = spawn(
-      launcher ? process.execPath : bin,
-      launcher ? [bin, 'config', '--manage'] : ['config', '--manage'],
-      {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: options.env ?? process.env,
-        cwd: options.cwd ?? process.cwd(),
-        shell: false,
-      }
-    );
+    const [command, args] = nativeCommand(bin, ['config', '--manage']);
+    const child = spawn(command, args, {
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env: options.env ?? process.env,
+      cwd: options.cwd ?? process.cwd(),
+      shell: false,
+    });
     let output = '';
     let bytes = 0;
     let done = false;
@@ -187,32 +185,24 @@ export async function configViewCommand(
         console.error(
           '--idle-timeout must be an integer from 30 to 3600 seconds.'
         );
-        return 2;
+        return EXIT.USAGE;
       }
       idleTimeout = Number(raw);
       if (idleTimeout < 30 || idleTimeout > 3600) {
         console.error(
           '--idle-timeout must be an integer from 30 to 3600 seconds.'
         );
-        return 2;
+        return EXIT.USAGE;
       }
     } else {
       console.error(
         'Usage: octocode config view [--no-open] [--idle-timeout 30..3600]'
       );
-      return 2;
+      return EXIT.USAGE;
     }
   }
   const abort = new AbortController();
-  const signals: NodeJS.Signals[] = ['SIGINT', 'SIGTERM', 'SIGHUP'];
-  const saved = new Map(
-    signals.map(signal => [signal, process.listeners(signal)])
-  );
-  const shutdown = (): void => abort.abort();
-  for (const signal of signals) {
-    process.removeAllListeners(signal);
-    process.on(signal, shutdown);
-  }
+  const restoreSignals = nativeLauncher().takeSignals(() => abort.abort());
   try {
     // Probe the API and fail closed before exposing a browser session.
     await requestNativeConfig(
@@ -234,21 +224,17 @@ export async function configViewCommand(
       },
     });
     await session.closed;
-    return 0;
+    return EXIT.OK;
   } catch (error) {
-    if (abort.signal.aborted) return 0;
+    if (abort.signal.aborted) return EXIT.OK;
     console.error(
       error instanceof Error && 'safe' in error && error.safe === true
         ? error.message
         : 'Cannot open the config view. Check the Octocode installation.'
     );
-    return 5;
+    return EXIT.TOOL;
   } finally {
     abort.abort();
-    for (const signal of signals) {
-      process.removeListener(signal, shutdown);
-      for (const listener of saved.get(signal) ?? [])
-        process.on(signal, listener);
-    }
+    restoreSignals();
   }
 }

@@ -1,7 +1,7 @@
 use super::{
-    CachedContent, CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind,
-    RequestContext, RequestSpec,
+    CachedContent, GitHubTransport, ProviderError, ProviderErrorKind, RequestContext, RequestSpec,
 };
+use bytes::Bytes;
 use reqwest::header::{HeaderValue, IF_NONE_MATCH};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -10,7 +10,7 @@ pub struct HistoryItemResponse {
     pub value: Value,
     pub has_more: bool,
 }
-impl<R: CredentialResolver> GitHubTransport<R> {
+impl GitHubTransport {
     /// One history read (issue, pull request, commit, their pages).
     pub async fn history_item(
         &self,
@@ -62,8 +62,8 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         mut spec: RequestSpec,
         pinned: bool,
         context: &RequestContext,
-    ) -> Result<(Vec<u8>, bool), ProviderError> {
-        let partition = self.cache_partition(context, None).await?;
+    ) -> Result<(Bytes, bool), ProviderError> {
+        let partition = self.cache_partition(context, None)?;
         let key = {
             let mut digest = Sha256::new();
             digest.update(spec.url.as_str().as_bytes());
@@ -101,7 +101,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             return Ok((cached.bytes, !cached.resolved_ref.is_empty()));
         }
         let has_more = response.next.is_some();
-        let body = response.body.to_vec();
+        let body = response.body;
         let etag = response
             .headers
             .get("etag")
@@ -115,7 +115,9 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                     key,
                     CachedContent {
                         etag,
-                        bytes: body.clone(),
+                        // A copy sized to the body: the response buffer may
+                        // carry spare capacity the cache would not weigh.
+                        bytes: Bytes::copy_from_slice(&body),
                         // Non-empty marks a page with a next page.
                         resolved_ref: response.next.map(String::from).unwrap_or_default(),
                     },

@@ -104,7 +104,7 @@ Rows come from `team.snapshot()`, so grandchildren and collaborators show status
 - **Interrupt (`i`)** = a team message with `kind: 'interrupt'`. The child's `Team.deliver` calls the captured `ctx.abort()` (a running bash or model stream stops), then sends the note with `deliverAs: 'followUp', triggerTurn: true`. Default note: "The user interrupted you; stop the current step, say where you are, and continue only if still useful."
 - **Stop (`x`)** = `stopBackground(background, id, USER_SENDER)` or the foreground map (`command.ts:24`); the parent gets "cancelled by the user" without a wake.
 
-**Message `kind` column (shared schema).** One agent-DB migration, v4→v5, adds `kind TEXT NOT NULL DEFAULT 'message'` to team messages, with values `message | interrupt | permission-request`. It is a new step appended to `MIGRATIONS` and `AGENT_SCHEMA_VERSION = 5` (`src/agentdb/schema.ts:17, 102`). It ships with whichever lands first: this doc's interrupt (phase 2) or doc 01's M4 permission-request relay. The other reuses it with no further migration. Existing rows read as `message`. Unknown kinds are delivered as plain messages.
+**Message `kind` column (shared schema).** One agent-DB migration, v1→v2, adds `kind TEXT NOT NULL DEFAULT 'message'` to team messages, with values `message | interrupt | permission-request`. It is a new step appended to `MIGRATIONS` and `AGENT_SCHEMA_VERSION = 2` (`src/agentdb/schema.ts`). It ships with whichever lands first: this doc's interrupt (phase 2) or doc 01's M4 permission-request relay. The other reuses it with no further migration. Existing rows read as `message`. Unknown kinds are delivered as plain messages.
 
 ```mermaid
 sequenceDiagram
@@ -147,7 +147,7 @@ User text keeps `MESSAGE_MAX_CHARS` and is attributed to the user, so the child 
 | `src/subagents/view.ts` (new) | Overlay: list, peek, transcript, inputs |
 | `src/subagents/command.ts` | `/agents` (no args, UI) opens the view; `show <id>`; `interrupt <id> [note]` |
 | `src/subagents/handoff.ts` | `dropEmptyScratch` and sweep aware of `session/` |
-| `src/agentdb/schema.ts`, `src/team/model.ts`, `src/team/store.ts` | Message kind; schema v4→v5 (shared with doc 01; only the first to land adds it) |
+| `src/agentdb/schema.ts`, `src/team/model.ts`, `src/team/store.ts` | Message kind; schema v1→v2 (shared with doc 01; only the first to land adds it) |
 | `src/team/session.ts` | Interrupt delivery with captured `ctx.abort()` |
 | `src/team/panel.ts` | Hint line; 30 s linger for finished rows |
 | `src/index.ts` | `registerShortcut('ctrl+alt+a', …)` with UI, not in subagents |
@@ -156,7 +156,7 @@ User text keeps `MESSAGE_MAX_CHARS` and is attributed to the user, so the child 
 ## 6. Phased plan
 
 1. **Read-only view.** Ring buffer, overlay with list/peek/transcript, ←/→, `x` stop, `m` message. Shippable alone.
-2. **Interrupt.** `kind: 'interrupt'`, abort-and-continue in the child, `i` key, `/agents interrupt`. If doc 01 M4 has not shipped, this phase adds the v4→v5 `kind` migration; otherwise it reuses it.
+2. **Interrupt.** `kind: 'interrupt'`, abort-and-continue in the child, `i` key, `/agents interrupt`. If doc 01 M4 has not shipped, this phase adds the v1→v2 `kind` migration; otherwise it reuses it.
 3. **Persisted child sessions.** `--session-dir`, `o` key, transcripts after exit and restart, opt-in keep; shared with doc 03 forks.
 4. **Polish.** Doc 01 `permission-request` messages shown in the peek with y/n; collapsed idle rows; JSON output for the external API.
 
@@ -166,7 +166,7 @@ User text keeps `MESSAGE_MAX_CHARS` and is attributed to the user, so the child 
 
 - Transcript: deltas merge, tool start/end pair by id, escapes stripped, caps by count and bytes, freed after 10 min.
 - View: pure render of (state, width); ↑/↓ bounds, Enter opens own child only, ←/→ wrap, `x` needs two presses, Esc from transcript → list, Esc from list → `done`.
-- Migration: a v4 file migrates to v5; old rows read `kind = 'message'`; a v5 file opens unchanged; the step runs once when docs 01 and 04 both use it.
+- Migration: a v1 file migrates to v2; old rows read `kind = 'message'`; a v2 file opens unchanged; the step runs once when docs 01 and 04 both use it.
 - Interrupt: `kind` round-trips; child `deliver` calls `abort` then `sendMessage(followUp, triggerTurn)`.
 - Phase 3 args: `--session-dir` replaces `--no-session`; `-e builtin:mcp -e builtin:tool-search` present.
 - Shortcut registered only with UI and not in subagents.

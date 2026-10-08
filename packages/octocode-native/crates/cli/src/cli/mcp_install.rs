@@ -1,18 +1,11 @@
-//! MCP install for all supported clients: always `npx -y octocode-mcp@latest`,
-//! never `octo mcp`. JSON clients use their native server map; codex writes
+//! MCP install for all supported clients: the server runs from npm through
+//! `--method` (`npx -y octocode-mcp@latest` by default, or bunx/pnpm), never
+//! `octo mcp`. JSON clients use their native server map; codex writes
 //! `[mcp_servers.octocode]` TOML; goose writes `extensions.octocode` YAML.
 use super::mcp_clients::{self, CLIENTS, ClientSpec, EntryShape};
-use super::mcp_manage;
-use serde_json::{Map, Value, json};
-use std::collections::BTreeMap;
+use super::mcp_manage::{self, ServerSpec};
+use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-
-/// Format-independent description of the octocode MCP server entry.
-struct ServerSpec {
-    command: String,
-    args: Vec<String>,
-    env: BTreeMap<String, String>,
-}
 
 /// The env name bound to the `local.enabled` config key (`OCTOCODE_ENABLE_LOCAL`).
 fn local_enabled_env() -> Option<&'static str> {
@@ -28,32 +21,30 @@ fn local_enabled_env() -> Option<&'static str> {
 const PASS_ENV_TOKEN: &str = "GITHUB_TOKEN";
 
 fn server_spec(args: &InstallArgs) -> ServerSpec {
-    let mut env = BTreeMap::new();
+    let mut spec = ServerSpec::new(args.method.as_deref().unwrap_or("npx"));
     if args.pass_env {
         for key in local_enabled_env().into_iter().chain([PASS_ENV_TOKEN]) {
             if let Ok(value) = std::env::var(key)
                 && !value.is_empty()
             {
-                env.insert(key.to_owned(), value);
+                spec.env.insert(key.to_owned(), value);
             }
         }
     }
     if let (Some(enabled), Some(key)) = (args.enable_local, local_enabled_env()) {
-        env.insert(
+        spec.env.insert(
             key.to_owned(),
             if enabled { "true" } else { "false" }.to_owned(),
         );
     }
-    let (cmd, cmd_args): (&str, &[&str]) = match args.method.as_deref().unwrap_or("npx") {
-        "bunx" => ("bunx", &["octocode-mcp@latest"]),
-        "pnpm" => ("pnpm", &["dlx", "octocode-mcp@latest"]),
-        _ => ("npx", &["-y", "octocode-mcp@latest"]),
-    };
-    ServerSpec {
-        command: cmd.to_owned(),
-        args: cmd_args.iter().map(|value| (*value).to_owned()).collect(),
-        env,
-    }
+    spec
+}
+
+/// The entry `install` writes, held to the module promise: never `octo mcp`.
+fn install_entry(shape: EntryShape, spec: &ServerSpec) -> Result<Value, String> {
+    let server = mcp_manage::server_entry(shape, spec);
+    reject_octo_mcp(shape, &server)?;
+    Ok(server)
 }
 
 pub struct InstallArgs {
@@ -182,7 +173,10 @@ fn unknown_client_message(requested: &str) -> String {
     if near.is_empty() {
         format!("Unknown --ide {requested}. Ids: {}", ids.join(", "))
     } else {
-        format!("Unknown --ide {requested}. Did you mean: {}?", near.join(", "))
+        format!(
+            "Unknown --ide {requested}. Did you mean: {}?",
+            near.join(", ")
+        )
     }
 }
 
@@ -221,11 +215,7 @@ fn install(client: &ClientSpec, config_path: &Path, args: &InstallArgs) -> Resul
     if args.check {
         return report_check(client, config_path, &root, args);
     }
-    let mut server = mcp_manage::default_entry(client, args.method.as_deref().unwrap_or("npx"));
-    let spec = server_spec(args);
-    if !spec.env.is_empty() {
-        server[client.shape.env_key()] = json!(spec.env);
-    }
+    let server = install_entry(client.shape, &server_spec(args))?;
     let keys = client.server_keys();
     let existing = Existing::of(mcp_manage::entry_at(client, &root, &keys), &server);
     if existing != Existing::Absent && !args.force && !args.dry_run {
@@ -273,40 +263,6 @@ fn install(client: &ClientSpec, config_path: &Path, args: &InstallArgs) -> Resul
     Ok(0)
 }
 
-pub(super) fn json_server(shape: EntryShape, args: &InstallArgs) -> Value {
-    match shape {
-        EntryShape::Opencode => {
-            let spec = server_spec(args);
-            let mut command = vec![spec.command];
-            command.extend(spec.args);
-            let mut server = json!({"type": "local", "command": command});
-            if !spec.env.is_empty() {
-                server["environment"] = json!(spec.env);
-            }
-            server
-        }
-        EntryShape::Goose => {
-            let mut entry = octocode_server(args);
-            entry["cmd"] = entry["command"].take();
-            if let Some(map) = entry.as_object_mut() {
-                map.remove("command");
-            }
-            entry["name"] = json!("octocode");
-            entry["enabled"] = json!(true);
-            entry["envs"] = json!({});
-            entry
-        }
-        EntryShape::Untyped => {
-            let mut server = octocode_server(args);
-            if let Some(object) = server.as_object_mut() {
-                object.remove("type");
-            }
-            server
-        }
-        EntryShape::Stdio => octocode_server(args),
-    }
-}
-
 pub(super) fn valid_server(client: &ClientSpec, root: &Value) -> bool {
     let Some(server) = mcp_manage::entry_at(client, root, &client.server_keys()) else {
         return false;
@@ -314,34 +270,14 @@ pub(super) fn valid_server(client: &ClientSpec, root: &Value) -> bool {
     if mcp_manage::entry_enabled(client, root, server) == Some(false) {
         return false;
     }
-    let (command, args) = if client.shape == EntryShape::Opencode {
-        if server.get("type").and_then(Value::as_str) != Some("local") {
-            return false;
-        }
-        let Some(command) = server.get("command").and_then(Value::as_array) else {
-            return false;
-        };
-        let Some((first, rest)) = command.split_first() else {
-            return false;
-        };
-        (first.as_str(), rest)
-    } else {
-        if client.shape == EntryShape::Goose
-            && server.get("type").and_then(Value::as_str) != Some("stdio")
-        {
-            return false;
-        }
-        let Some(args) = server.get("args").and_then(Value::as_array) else {
-            return false;
-        };
-        (
-            server
-                .get(client.shape.command_key())
-                .and_then(Value::as_str),
-            args.as_slice(),
-        )
-    };
-    let Some(command) = command else {
+    if match client.shape {
+        EntryShape::Opencode => server.get("type").and_then(Value::as_str) != Some("local"),
+        EntryShape::Goose => server.get("type").and_then(Value::as_str) != Some("stdio"),
+        EntryShape::Stdio | EntryShape::Untyped => false,
+    } {
+        return false;
+    }
+    let Some((command, args)) = command_line(client.shape, server) else {
         return false;
     };
     let runner = Path::new(command)
@@ -384,21 +320,37 @@ fn report_check(
     Ok(if valid { 0 } else { 1 })
 }
 
-fn octocode_server(args: &InstallArgs) -> Value {
-    let spec = server_spec(args);
-    let mut server = json!({
-        "command": spec.command,
-        "type": "stdio",
-        "args": spec.args
-    });
-    if !spec.env.is_empty() {
-        let mut env = Map::new();
-        for (key, value) in spec.env {
-            env.insert(key, json!(value));
-        }
-        server["env"] = Value::Object(env);
+/// An entry's runner and its arguments: opencode keeps both in one
+/// `command` array; every other shape has a command key plus `args`.
+fn command_line(shape: EntryShape, server: &Value) -> Option<(&str, &[Value])> {
+    if shape == EntryShape::Opencode {
+        let (first, rest) = server.get("command")?.as_array()?.split_first()?;
+        Some((first.as_str()?, rest))
+    } else {
+        Some((
+            server.get(shape.command_key())?.as_str()?,
+            server.get("args")?.as_array()?.as_slice(),
+        ))
     }
-    server
+}
+
+/// Refuse an entry that would run the native host (`octo`/`octocode`) or an
+/// `mcp` subcommand instead of the npm server.
+fn reject_octo_mcp(shape: EntryShape, server: &Value) -> Result<(), String> {
+    let Some((command, args)) = command_line(shape, server) else {
+        return Err("refusing to write an MCP entry without a command".into());
+    };
+    let runner = Path::new(command)
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command);
+    if runner == "octo" || runner == "octocode" {
+        return Err("refusing to write a native octo/octocode MCP command".into());
+    }
+    if args.iter().any(|value| value.as_str() == Some("mcp")) {
+        return Err("refusing to write args containing mcp".into());
+    }
+    Ok(())
 }
 
 /// Whether the client config already carries an octocode entry, and whether it
@@ -481,26 +433,10 @@ fn render_fixture(
 }
 
 #[cfg(test)]
-fn reject_octo_mcp(server: &Value) -> Result<(), String> {
-    let command = server.get("command").and_then(Value::as_str).unwrap_or("");
-    let args = server
-        .get("args")
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default();
-    if command == "octo" || command == "octocode" {
-        return Err("refusing to write a native octo/octocode MCP command".into());
-    }
-    if args.iter().any(|value| value.as_str() == Some("mcp")) {
-        return Err("refusing to write args containing mcp".into());
-    }
-    Ok(())
-}
-
-#[cfg(test)]
 mod tests {
-    use super::{Existing, octocode_server, reject_octo_mcp, render_fixture};
-    use crate::cli::mcp_clients::{self, ClientSpec, ConfigFormat};
+    use super::{Existing, install_entry, reject_octo_mcp, render_fixture, server_spec};
+    use crate::cli::mcp_clients::{self, ClientSpec, ConfigFormat, EntryShape};
+    use crate::cli::mcp_manage::ServerSpec;
     use serde_json::json;
 
     fn spec(id: &str) -> &'static ClientSpec {
@@ -551,27 +487,50 @@ mod tests {
 
     #[test]
     fn server_is_npx_latest_with_yes_flag() {
-        let server = octocode_server(&default_args());
+        let server =
+            install_entry(EntryShape::Stdio, &server_spec(&default_args())).expect("allowed");
         assert_eq!(server["command"], "npx");
         assert_eq!(server["args"], json!(["-y", "octocode-mcp@latest"]));
-        reject_octo_mcp(&server).expect("allowed");
         assert_ne!(spec("codex").format, ConfigFormat::Json);
     }
 
     #[test]
     fn server_uses_bunx_when_specified() {
-        let server = octocode_server(&super::InstallArgs {
+        let spec = server_spec(&super::InstallArgs {
             method: Some("bunx".into()),
             ..default_args()
         });
+        let server = install_entry(EntryShape::Stdio, &spec).expect("allowed");
         assert_eq!(server["command"], "bunx");
         assert_eq!(server["args"], json!(["octocode-mcp@latest"]));
     }
 
+    /// The install path itself refuses a native-host entry, in every shape.
     #[test]
-    fn refuses_octo_mcp_command() {
-        assert!(reject_octo_mcp(&json!({"command":"octo","args":["mcp"]})).is_err());
-        assert!(reject_octo_mcp(&json!({"command":"npx","args":["mcp"]})).is_err());
+    fn install_refuses_octo_mcp_entries() {
+        for (command, args) in [
+            ("octo", &["mcp"][..]),
+            ("/usr/local/bin/octocode", &[][..]),
+            ("npx", &["mcp"][..]),
+        ] {
+            let native = ServerSpec {
+                command,
+                args,
+                env: Default::default(),
+            };
+            for shape in [
+                EntryShape::Stdio,
+                EntryShape::Untyped,
+                EntryShape::Opencode,
+                EntryShape::Goose,
+            ] {
+                assert!(
+                    install_entry(shape, &native).is_err(),
+                    "{shape:?} {command} {args:?}"
+                );
+            }
+        }
+        assert!(reject_octo_mcp(EntryShape::Stdio, &json!({"args": []})).is_err());
     }
 
     #[test]

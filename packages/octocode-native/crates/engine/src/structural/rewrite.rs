@@ -90,13 +90,10 @@ pub(super) fn rewrite_language_extensions(selector: &str) -> Option<HashSet<&'st
 /// selector. Scanning and syntax-regression checks must agree on this, or JSX
 /// files are error-counted with a grammar that rejects JSX.
 pub fn rewrite_parser_for_path(selector: &str, path: &str) -> String {
-    let Some(extension) = std::path::Path::new(path)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(str::to_ascii_lowercase)
-    else {
+    let extension = crate::text::file_extension::extension_of(path, true, "");
+    if extension.is_empty() {
         return selector.to_owned();
-    };
+    }
     let is_cpp = selector.eq_ignore_ascii_case("cpp") || selector.eq_ignore_ascii_case("c++");
     if extension == "h" && is_cpp {
         return "cpp".to_owned();
@@ -188,10 +185,15 @@ pub struct StructuralRewriteMatch {
     pub captures: HashMap<String, StructuralRewriteCapture>,
 }
 
-/// Compile and execute the canonical ast-grep inline-rule contract in process.
-/// `rule_config` is the complete inline rule object, including language, rule,
-/// constraints, utils, transforms, fix, and optional rewriters.
-pub fn rewrite(content: &str, rule_config: Value) -> Result<Vec<StructuralRewriteMatch>, String> {
+/// Test helper: compile and run the canonical ast-grep inline-rule contract
+/// on one content. `rule_config` is the complete inline rule object,
+/// including language, rule, constraints, utils, transforms, fix, and
+/// optional rewriters. Production compiles once with [`compile_rewrite`].
+#[cfg(test)]
+pub(crate) fn rewrite(
+    content: &str,
+    rule_config: Value,
+) -> Result<Vec<StructuralRewriteMatch>, String> {
     compile_rewrite(rule_config)?.run(content)
 }
 
@@ -341,7 +343,7 @@ impl CompiledRewrite {
             .map_err(|error| format!("[{}] {}", error.code, error.message))?;
         // `Tree::clone` is a reference-counted copy, not a re-parse.
         let error_tree = tree.clone();
-        let line_index = LineIndex::new(content);
+        let line_index = LineIndex::tree_sitter(content);
         let mut output = Vec::new();
         let mut bodies = self
             .macros
@@ -396,7 +398,7 @@ impl CompiledRewrite {
         tree: tree_sitter::Tree,
         body: Option<&tree_sitter::Range>,
         deadline: Instant,
-        line_index: &LineIndex<'_>,
+        line_index: &LineIndex,
         output: &mut Vec<StructuralRewriteMatch>,
     ) -> Result<(), String> {
         let config = &self.config;
@@ -430,7 +432,7 @@ impl CompiledRewrite {
             let span = matched.range();
             let position = |byte: usize| {
                 u32::try_from(byte)
-                    .map(|byte| line_index.byte_to_position(byte))
+                    .map(|byte| line_index.byte_to_position(content, byte))
                     .map_err(|_| "[structural.rewrite.range] byte offset overflow".to_owned())
             };
             let (start_line, start_column) = position(span.start)?;

@@ -301,28 +301,35 @@ pub(super) fn file_pagination(
         return None;
     }
     if layout.streamed {
-        return (end < total as usize).then(|| ItemPagination {
-            current_page: None,
-            total_pages: None,
-            total_matches: total,
-            has_more: true,
-            more_lines: Some(crate::tools::line_spans::more_lines(
-                later,
-                MAX_MORE_LINE_RANGES,
-            )),
-            out_of_range: false,
+        return (end < total as usize).then(|| {
+            let (lines, unlisted) = crate::tools::line_spans::more_lines(later, MAX_MORE_LINES);
+            ItemPagination {
+                current_page: None,
+                total_pages: None,
+                total_matches: total,
+                has_more: true,
+                more_lines: Some(lines),
+                more_lines_unlisted: unlisted,
+                out_of_range: false,
+            }
         });
     }
     let total_pages = total.div_ceil(layout.matches_per).max(1);
     let has_more = match_page < total_pages;
     let out_of_range = start >= total as usize && total > 0;
-    (has_more || out_of_range).then(|| ItemPagination {
+    let (more_lines, more_lines_unlisted) = if has_more && !later.is_empty() {
+        let (lines, unlisted) = crate::tools::line_spans::more_lines(later, MAX_MORE_LINES);
+        (Some(lines), unlisted)
+    } else {
+        (None, None)
+    };
+    (has_more || out_of_range).then_some(ItemPagination {
         current_page: Some(match_page),
         total_pages: Some(total_pages),
         total_matches: total,
         has_more,
-        more_lines: (has_more && !later.is_empty())
-            .then(|| crate::tools::line_spans::more_lines(later, MAX_MORE_LINE_RANGES)),
+        more_lines,
+        more_lines_unlisted,
         out_of_range,
     })
 }
@@ -345,20 +352,22 @@ pub(super) fn row_chars(
 }
 
 /// Most chars a streamed file entry's `pagination` can take: its later rows
-/// are named as at most [`MAX_MORE_LINE_RANGES`] line ranges plus a count.
+/// are named as at most [`MAX_MORE_LINES`] lines plus a count.
 pub(super) fn pagination_chars(file: &octocode_engine::types::RipgrepFile) -> usize {
     let digits = |n: u64| n.checked_ilog10().map_or(1, |log| log as usize + 1);
     let total = file.matches.len();
     let widest_line = file.matches.iter().map(|m| m.line).max().unwrap_or(0);
-    let ranges = total.saturating_sub(1).min(MAX_MORE_LINE_RANGES);
-    let more_lines =
-        ranges * (2 * digits(u64::from(widest_line)) + 2) + ",+ more".len() + digits(total as u64);
+    let listed = total.saturating_sub(1).min(MAX_MORE_LINES);
+    let more_lines = listed * (digits(u64::from(widest_line)) + 1)
+        + ",\"moreLinesUnlisted\":".len()
+        + digits(total as u64);
     let empty = ItemPagination {
         current_page: None,
         total_pages: None,
         total_matches: u32::try_from(total).unwrap_or(u32::MAX),
         has_more: true,
-        more_lines: Some(String::new()),
+        more_lines: Some(Vec::new()),
+        more_lines_unlisted: None,
         out_of_range: false,
     };
     ",\"pagination\":".len() + crate::tools::stream_page::json_chars(&empty) + more_lines
@@ -654,4 +663,4 @@ pub(super) fn expand_values(
 }
 
 /// Line runs `moreLines` names before it summarizes the rest as a count.
-pub(super) const MAX_MORE_LINE_RANGES: usize = 24;
+pub(super) const MAX_MORE_LINES: usize = 24;

@@ -5,10 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const sandbox = vi.hoisted(() => ({ root: '' }));
 
-vi.mock('../../../src/cli/commands/skills/home.js', () => ({
-  getSkillsHome: () => path.join(sandbox.root, 'home', 'skills'),
-}));
-
 vi.mock(
   '../../../src/cli/commands/skills/platforms.js',
   async importOriginal => ({
@@ -49,7 +45,8 @@ describe('skill status output surfaces stale installs', () => {
     fs.cpSync(bundled.dir, installed, { recursive: true });
     fs.writeFileSync(path.join(installed, 'SKILL.md'), '# drifted\n');
     process.exitCode = undefined;
-    // Belt and braces: nothing under test may reach the developer's real home.
+    // The canonical skills home is <OCTOCODE_HOME>/skills; nothing under test
+    // may reach the developer's real home.
     vi.stubEnv('HOME', path.join(sandbox.root, 'home'));
     vi.stubEnv('OCTOCODE_HOME', path.join(sandbox.root, 'home'));
     vi.spyOn(console, 'log').mockImplementation(() => undefined);
@@ -95,9 +92,7 @@ describe('skill status output surfaces stale installs', () => {
     });
     const text = output();
     expect(text).toContain(`${SKILL} stale`);
-    expect(text).toContain(
-      '0 ok, 0 not installed, 1 stale, 0 broken, 0 retired'
-    );
+    expect(text).toContain('0 ok, 0 not installed, 1 stale, 0 broken');
     expect(text).toContain('Repair: octocode skill check --fix');
     expect(process.exitCode).toBe(1);
   });
@@ -142,5 +137,30 @@ describe('skill status output surfaces stale installs', () => {
     expect(
       fs.existsSync(path.join(process.cwd(), '.agents', 'skills', SKILL))
     ).toBe(false);
+  });
+
+  it('check --fix reports a repair that fails and exits non-zero', () => {
+    const skillsHome = path.join(sandbox.root, 'home', 'skills');
+    fs.chmodSync(skillsHome, 0o555);
+    const errors = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => undefined);
+    try {
+      runCheck({
+        names: [SKILL],
+        platform: null,
+        workspace: false,
+        fix: true,
+        dryRun: false,
+        noEnv: true,
+        json: false,
+      });
+    } finally {
+      fs.chmodSync(skillsHome, 0o755);
+    }
+    expect(errors).toHaveBeenCalledWith(
+      expect.stringContaining(`${SKILL} repair failed:`)
+    );
+    expect(process.exitCode).toBe(1);
   });
 });

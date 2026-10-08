@@ -18,22 +18,38 @@ pub fn mcp_input_error(tool: &str, error: &RuntimeError) -> Option<Value> {
         }));
     }
     (error.code == "invalidInput").then(|| {
-        let detail = error
-            .payload
-            .as_deref()
-            .and_then(tool_error_text)
-            .unwrap_or_else(|| error.message.clone());
+        let envelope = typed_error_envelope(tool, error);
+        let detail = tool_error_text(&envelope).unwrap_or_default();
         json!({
             "content": [{"type":"text","text":format!(
-                "Input validation error: Invalid arguments for tool {tool}: {detail}"
+                "Input validation error: Invalid arguments for tool {tool}: {detail} (errorCode: invalidInput)"
             )}],
+            "structuredContent": envelope,
             "isError": true
         })
     })
 }
 
-/// `octocode.toolError` → one line: the error, then each repair detail.
-fn tool_error_text(payload: &Value) -> Option<String> {
+/// The `octocode.toolError` envelope of a rejected call, typed with the
+/// error's `errorCode`: the formatted payload when validation built one, else
+/// the bare message. MCP returns it as structuredContent and the CLI prints
+/// it on stdout, so both surfaces answer with one row.
+pub fn typed_error_envelope(tool: &str, error: &RuntimeError) -> Value {
+    let mut envelope = match error.payload.as_deref() {
+        Some(payload @ Value::Object(_)) => payload.clone(),
+        _ => crate::contracts::tool_error(Some(tool), &error.message, None),
+    };
+    if envelope.get("errorCode").is_none() {
+        envelope["errorCode"] = json!(error.code);
+    }
+    crate::security::scrub_error_payload(&mut envelope);
+    envelope
+}
+
+/// `octocode.toolError` → one line: the error, then each repair detail. The
+/// one text projection of a tool error: MCP input errors and the CLI terminal
+/// channel both print it.
+pub fn tool_error_text(payload: &Value) -> Option<String> {
     let error = payload.get("error")?.as_str()?;
     let details = payload
         .get("details")
@@ -52,11 +68,10 @@ fn tool_error_text(payload: &Value) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::contracts::{self, PrepareOptions};
+    use crate::contracts;
 
     fn invalid(tool: &str, input: Value) -> RuntimeError {
-        let error = contracts::prepare_many_and_validate(tool, input, PrepareOptions::default())
-            .expect_err("invalid input");
+        let error = contracts::prepare_many_and_validate(tool, input).expect_err("invalid input");
         RuntimeError {
             code: "invalidInput".into(),
             message: error.to_string(),
@@ -68,11 +83,34 @@ mod tests {
     fn text(tool: &str, input: Value) -> String {
         let result = mcp_input_error(tool, &invalid(tool, input)).expect("an MCP error");
         assert_eq!(result["isError"], true);
-        assert!(result.get("structuredContent").is_none());
-        result["content"][0]["text"]
+        // The structured row is the CLI's `octocode.toolError` envelope,
+        // typed: an agent reading structuredContent branches on errorCode.
+        let envelope = &result["structuredContent"];
+        assert_eq!(envelope["kind"], "octocode.toolError", "{envelope}");
+        assert_eq!(envelope["tool"], tool, "{envelope}");
+        assert_eq!(envelope["errorCode"], "invalidInput", "{envelope}");
+        let text = result["content"][0]["text"]
             .as_str()
             .expect("text")
-            .to_owned()
+            .to_owned();
+        assert!(text.ends_with("(errorCode: invalidInput)"), "{text}");
+        text
+    }
+
+    /// An invalidInput error with no formatted payload (a runtime-level
+    /// rejection) still answers with the typed envelope.
+    #[test]
+    fn bare_invalid_input_errors_are_typed() {
+        let result = mcp_input_error(
+            "clasify",
+            &RuntimeError::new("invalidInput", "clasify pages by itself"),
+        )
+        .expect("an MCP error");
+        assert_eq!(
+            result["structuredContent"],
+            json!({"kind":"octocode.toolError","version":1,"tool":"clasify",
+                   "error":"clasify pages by itself","errorCode":"invalidInput"})
+        );
     }
 
     #[test]

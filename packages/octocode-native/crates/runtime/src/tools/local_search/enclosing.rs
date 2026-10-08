@@ -2,16 +2,14 @@
 //! behind astSearch `symbols` (and its content-keyed cache).
 //!
 //! A hit row names the innermost declaration around its line as
-//! `in: "<kind> name@<line>"` (`fn`, `const`, `var`, `prop` shorten the
-//! commonest kinds), `<line>` being the declaration's name line, so a caller
-//! can cite or address the function a hit sits in without reading it. A hit
-//! on a declaration's own name line names the declaration around that one.
-//! Every name carries the declaration's last line, `name@<line>-<end>`.
-//! Consecutive hits in one declaration name it once, on the first. A
+//! `enclosing: {symbolName, kind, line, endLine}` (`line` is the name line),
+//! so a caller can cite or address the function a hit sits in without
+//! reading it: `symbolName` + `line` anchor lspSearch, `line`–`endLine` is a
+//! localFetch range. A hit on a declaration's own name line names the
+//! declaration around that one. Consecutive hits in one declaration name it
+//! once, on the first. A
 //! declaration search (`fn foo`) names the owners of declaring hits only. A searched symbol whose declaration is among the
 //! hits also yields a ready lspSearch references lead.
-
-use serde_json::Value;
 
 /// One declaration of a file's outline, 1-based lines.
 struct Declaration {
@@ -27,6 +25,40 @@ pub(super) struct Outline {
     declarations: Vec<Declaration>,
 }
 
+/// The part of the extractor's facts document an outline reads (the
+/// engine's `GraphFactsDocument`, whose lines are `u32`).
+#[derive(serde::Deserialize)]
+struct Facts {
+    declarations: Vec<FactDeclaration>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FactDeclaration {
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    range: Option<Range>,
+    #[serde(default)]
+    selection_range: Option<Range>,
+}
+
+#[derive(serde::Deserialize)]
+struct Range {
+    #[serde(default)]
+    start: Option<Position>,
+    #[serde(default)]
+    end: Option<Position>,
+}
+
+#[derive(serde::Deserialize)]
+struct Position {
+    #[serde(default)]
+    line: Option<u32>,
+}
+
 impl Outline {
     /// The outline of `source`; `None` when no extractor supports the file.
     pub(super) fn of(source: &str, canonical_path: &str) -> Option<Self> {
@@ -36,26 +68,31 @@ impl Outline {
             false,
             || octocode_engine::portable::extract_declarations(source, canonical_path),
         )?;
-        let facts: Value = serde_json::from_str(&raw).ok()?;
-        let items = facts["declarations"].as_array()?;
-        let line = |item: &Value, pointer: &str| {
-            item.pointer(pointer)
-                .and_then(Value::as_u64)
-                .and_then(|line| u32::try_from(line).ok())
+        // Only the declarations' names, kinds and lines are read; every
+        // other fact (and every other declaration field) is skipped
+        // unparsed rather than built into a JSON tree.
+        let facts: Facts = serde_json::from_str(&raw).ok()?;
+        let line = |position: Option<&Position>| {
+            position
+                .and_then(|position| position.line)
                 .map(|line| line.saturating_add(1))
         };
-        let declarations = items
-            .iter()
+        let declarations = facts
+            .declarations
+            .into_iter()
             .filter_map(|item| {
-                let start = line(item, "/range/start/line")?;
-                let end = line(item, "/range/end/line")?.max(start);
+                let range = item.range?;
+                let start = line(range.start.as_ref())?;
+                let end = line(range.end.as_ref())?.max(start);
                 Some(Declaration {
-                    kind: item["kind"].as_str()?.to_owned(),
-                    name: item["name"]
-                        .as_str()
-                        .filter(|name| !name.is_empty())?
-                        .to_owned(),
-                    line: line(item, "/selectionRange/start/line").unwrap_or(start),
+                    kind: item.kind?,
+                    name: item.name.filter(|name| !name.is_empty())?,
+                    line: line(
+                        item.selection_range
+                            .as_ref()
+                            .and_then(|range| range.start.as_ref()),
+                    )
+                    .unwrap_or(start),
                     start,
                     end,
                 })
@@ -75,32 +112,22 @@ impl Outline {
             .map(|(index, _)| index)
     }
 
-    /// Declaration `owner` as `kind name@line-end` (`kind name@line` for
-    /// a one-line declaration): its name line and last line, so a read of
-    /// it needs no outline first.
-    pub(super) fn label(&self, owner: usize) -> Option<String> {
+    /// Declaration `owner`: its name, kind, name line and last line, so a
+    /// read of it needs no outline first.
+    pub(super) fn label(&self, owner: usize) -> Option<super::types::Enclosing> {
         let declaration = self.declarations.get(owner)?;
-        let kind = match declaration.kind.as_str() {
-            "function" => "fn",
-            "constant" => "const",
-            "variable" => "var",
-            "property" => "prop",
-            kind => kind,
-        };
-        Some(if declaration.end > declaration.line {
-            format!(
-                "{kind} {}@{}-{}",
-                declaration.name, declaration.line, declaration.end
-            )
-        } else {
-            format!("{kind} {}@{}", declaration.name, declaration.line)
+        Some(super::types::Enclosing {
+            symbol_name: declaration.name.clone(),
+            kind: declaration.kind.clone(),
+            line: declaration.line,
+            end_line: declaration.end.max(declaration.line),
         })
     }
 
     /// The innermost declaration spanning `line` other than one named on
-    /// `line` itself, as `kind name@line-end`.
+    /// `line` itself.
     #[cfg(test)]
-    pub(super) fn enclosing(&self, line: u32) -> Option<String> {
+    pub(super) fn enclosing(&self, line: u32) -> Option<super::types::Enclosing> {
         self.label(self.owner(line)?)
     }
 
@@ -181,15 +208,91 @@ fn free() {\n\
     #[test]
     fn hits_name_their_innermost_declaration_and_definitions_the_one_around() {
         let outline = Outline::of(SOURCE, "enclosing-test/a.rs").expect("rust outline");
+        let named = |line| {
+            outline.enclosing(line).map(|enclosing| {
+                (
+                    enclosing.kind,
+                    enclosing.symbol_name,
+                    enclosing.line,
+                    enclosing.end_line,
+                )
+            })
+        };
+        // X2: the enclosing declaration's full kind, name, name line and
+        // last line (a single-line one ends where it starts).
         assert_eq!(
-            outline.enclosing(5).as_deref(),
-            Some("method try_read_output@3-6")
+            named(5),
+            Some(("method".into(), "try_read_output".into(), 3, 6))
         );
-        assert_eq!(outline.enclosing(3).as_deref(), Some("impl Harness@2-7"));
-        assert_eq!(outline.enclosing(10).as_deref(), Some("fn free@9-11"));
+        assert_eq!(named(3), Some(("impl".into(), "Harness".into(), 2, 7)));
+        assert_eq!(named(10), Some(("function".into(), "free".into(), 9, 11)));
         assert_eq!(outline.enclosing(8), None);
         assert!(outline.declares("try_read_output", 3));
         assert!(!outline.declares("try_read_output", 10));
+    }
+
+    /// One declaration: kind, name, name line, first and last line.
+    type Row = (String, String, u32, u32, u32);
+
+    /// The declarations an outline holds.
+    fn rows(outline: &Outline) -> Vec<Row> {
+        outline
+            .declarations
+            .iter()
+            .map(|d| (d.kind.clone(), d.name.clone(), d.line, d.start, d.end))
+            .collect()
+    }
+
+    /// The outline read through a whole JSON tree, as it was read before
+    /// the typed facts: the reference the typed read must equal.
+    fn tree_rows(raw: &str) -> Option<Vec<Row>> {
+        let facts: serde_json::Value = serde_json::from_str(raw).ok()?;
+        let line = |item: &serde_json::Value, pointer: &str| {
+            item.pointer(pointer)
+                .and_then(serde_json::Value::as_u64)
+                .and_then(|line| u32::try_from(line).ok())
+                .map(|line| line.saturating_add(1))
+        };
+        Some(
+            facts["declarations"]
+                .as_array()?
+                .iter()
+                .filter_map(|item| {
+                    let start = line(item, "/range/start/line")?;
+                    let end = line(item, "/range/end/line")?.max(start);
+                    Some((
+                        item["kind"].as_str()?.to_owned(),
+                        item["name"]
+                            .as_str()
+                            .filter(|name| !name.is_empty())?
+                            .to_owned(),
+                        line(item, "/selectionRange/start/line").unwrap_or(start),
+                        start,
+                        end,
+                    ))
+                })
+                .collect(),
+        )
+    }
+
+    /// The typed read of the facts document keeps exactly the declarations
+    /// the JSON-tree read kept, for the oxc (TS/JS) and tree-sitter paths.
+    #[test]
+    fn the_typed_outline_reads_what_the_json_tree_read() {
+        let ts = "export class Box<T> {\n  private value: T;\n  constructor(v: T) { this.value = v; }\n  get(): T {\n    return this.value;\n  }\n}\nexport function make(): Box<number> {\n  const inner = () => 1;\n  return new Box(inner());\n}\ninterface Shape { area(): number }\nnamespace NS { export const k = 1; }\n";
+        let py = "class A:\n    def m(self):\n        return 1\n\ndef f(x):\n    def g():\n        pass\n    return g\n";
+        for (source, path) in [
+            (SOURCE, "enclosing-test/a.rs"),
+            (ts, "enclosing-test/b.ts"),
+            (ts, "enclosing-test/b.tsx"),
+            (py, "enclosing-test/c.py"),
+        ] {
+            let raw = octocode_engine::portable::extract_declarations(source, path)
+                .expect("supported language");
+            let typed = rows(&Outline::of(source, path).expect("outline"));
+            assert!(!typed.is_empty(), "{path}");
+            assert_eq!(Some(typed), tree_rows(&raw), "{path}");
+        }
     }
 
     #[test]

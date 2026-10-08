@@ -15,10 +15,6 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 
-/// Files one package import may link to; larger packages are cut, not
-/// dropped, so the graph stays bounded.
-const MAX_PACKAGE_TARGETS: usize = 200;
-
 #[derive(Default)]
 pub(super) struct PackageIndex {
     /// `(module path, module dir)`, longest module path first.
@@ -198,7 +194,6 @@ impl PackageIndex {
             .into_iter()
             .flatten()
             .filter(|file| file.ends_with(ext) && !file.ends_with("_test.go"))
-            .take(MAX_PACKAGE_TARGETS)
             .cloned()
             .collect()
     }
@@ -265,6 +260,21 @@ impl PackageIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn go_import_links_every_file_in_a_201_file_package() {
+        let dir = tempfile::tempdir().expect("root");
+        std::fs::write(dir.path().join("go.mod"), "module example.com/app\n").expect("module");
+        let mut known = BTreeSet::from(["main.go".to_owned()]);
+        known.extend((0..201).map(|i| format!("pkg/f{i:03}.go")));
+        let index = PackageIndex::build(dir.path(), &known, &|path| {
+            std::fs::read_to_string(path).ok()
+        });
+        assert_eq!(
+            files(index.resolve("go", "example.com/app/pkg", "main.go")).len(),
+            201
+        );
+    }
 
     fn index(root: &Path, files: &[&str]) -> PackageIndex {
         let known = files.iter().map(|file| (*file).to_owned()).collect();

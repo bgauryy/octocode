@@ -83,7 +83,7 @@ const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 
 /// Dispatch counter: the content endpoint is hit `content_hits` times.
 async fn github_file_server(content_hits: u64) -> MockServer {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = SHA;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/main"))

@@ -46,7 +46,7 @@ const cases = [
     forbidden: [/fallback branch changes what was researched/i] },
   { name: 'history operations keep distinct identities', file: 'references/workflow-external.md',
     required: [/pullRequest[^\n]*issue[^\n]*number/, /commit[^\n]*ref/, /compare[^\n]*base[^\n]*head/, /omit[^\n]*keywords[^\n]*(?:path|ref)/i,
-      /closedBy[^\n]*readFixPullRequest/, /responsePagination[^\n]*continuePatch/],
+      /closedBy[^\n]*readPullRequest/, /responsePagination[^\n]*continuePatch/],
     forbidden: [/includeDiff/, /content:\{/, /nextPatchFiles/] },
   { name: 'materialization respects scoped completeness and storage', file: 'references/workflow-external.md',
     required: [/complete[^\n]*(?:relative|requested scope)/i, /OCTOCODE_STORAGE_MODE/, /ENABLE_CLONE/, /shallow[^\n]*history/i],

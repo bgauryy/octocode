@@ -1,5 +1,0 @@
-# cmd: octocode localFetch {"queries": []}
-# env: None
-# exit: 2
-# stderr: 
-{"kind":"octocode.toolError","version":1,"tool":"localFetch","error":"Check the query fields.","details":["queries: Value length 0 is below the minimum of 1"]}

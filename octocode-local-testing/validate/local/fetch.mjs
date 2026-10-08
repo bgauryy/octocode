@@ -11,7 +11,7 @@ const lines = (f) => fs.readFileSync(A(f), 'utf8').split('\n');
 function verifyOc(data, file, want) {
   const L = lines(file);
   if (!data || data.error) return { ok: false, error: data?.error || 'no data' };
-  const ranges = data.sourceLineRanges || [];
+  const ranges = (data.sourceLineRanges || []).map(r => ({ start: r.line, end: r.endLine }));
   const chunks = (data.content || '').split(/\n?\.\.\. \[lines \d+-\d+ omitted\] \.\.\.\n?/);
   const covered = []; let mismatches = 0;
   ranges.forEach((r, i) => {

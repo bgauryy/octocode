@@ -25,7 +25,7 @@ Where Octocode reads config and writes state, what it trusts, and every environm
 | `OCTOCODE_API_HTTP` | Also serve the API over loopback HTTP on this port (`0` = any free port) |
 | `OCTOCODE_API_DIR` | API instance-record directory (default `<Octocode home>/pi-api`) |
 | `OCTOCODE_MCP=0` | Do not register the built-in `octocode` server (set for profiles with `mcp: false`) |
-| `OCTOCODE_MCP_DIRECT=1` | Declare all nine Octocode MCP tools directly; by default the GitHub and npm tools load through `tool_search` |
+| `OCTOCODE_MCP_DIRECT=1` | Declare every Octocode MCP tool directly; by default the GitHub and package tools load through `tool_search` |
 | `OCTOCODE_BASH_TIMEOUT` | Longest wait for a foreground bash command, in seconds (default `900`) |
 | `OCTOCODE_MAX_SUBAGENTS` | Subagents allowed to run at once, foreground and background together (default `3`) |
 | `OCTOCODE_SUBAGENT_COLLABORATE` | `1` makes `agent` calls collaborate by default (off) |
@@ -80,7 +80,7 @@ Subagents start with `--no-session` and this extension only, and cannot spawn fu
 
 Octocode runs on Pi's built-in MCP (Pi 0.99.2 or later). On `session_start` it registers one server, `octocode` (the bundled `octocode-mcp` 19.1.0, or `npx -y octocode-mcp@19.1.0` when it is not installed next to the extension), with `pi.registerMcpServer`, `cwd` and `WORKSPACE_ROOT` set to the session's folder and `ALLOWED_PATHS` to that folder and the Octocode home. Its tools are named `mcp__octocode__<tool>`; GitHub tokens (`GITHUB_TOKEN`, …) reach it through Pi's environment. `OCTOCODE_MCP=0` skips the registration. Registration is refreshed on each session start, including a retry after registration failed.
 
-Exposure: the local tools (`localSearch`, `localGetFileContent`, `localAnalyzeGraph`) and `lspGetSemantics` are `direct`, declared to the model from the first prompt. The GitHub tools (`gh*`) and `npmSearch` are `deferred` (Pi's `toolExposure`): Pi activates `tool_search`, lists the server in the `mcp_servers` prompt section, and declares those tools once `tool_search` loads them. This keeps most of the schema text out of requests that never touch GitHub or npm. `OCTOCODE_MCP_DIRECT=1` declares all nine directly.
+Exposure: the local tools (`localSearch`, `localFetch`, `structureSearch`, `astSearch`, and `astTopology` with `OCTOCODE_BETA=1`), `lspSearch` and, when `OCTOCODE_CLASSIFICATION_API` is set, `clasify` are `direct`, declared to the model from the first prompt. The GitHub tools (`gh*`) and `artifactSearch` (packages) are `deferred` (Pi's `toolExposure`): Pi activates `tool_search`, lists the server in the `mcp_servers` prompt section, and declares those tools once `tool_search` loads them. This keeps most of the schema text out of requests that never touch GitHub or package registries. `OCTOCODE_MCP_DIRECT=1` declares them all directly. The server registers read tools only; `ghCloneRepo` and `astRewrite` are CLI-only.
 
 The prompt's research guidance is chosen from the registration (and, with `OCTOCODE_MCP=0`, from a user-configured `octocode` server's tools once they appear), not from the request's tool snapshot: Pi takes that snapshot before its MCP host connects servers on the first prompt, so it would miss Octocode on the first turn and in single-prompt subagents. Once on, the guidance stays on for the session so the cached prompt does not change.
 
@@ -88,7 +88,7 @@ Octocode tool results are sanitized before the model reads them or the terminal 
 
 A server named `octocode` in Pi's `mcp.json` takes precedence, which is how to override or disable it.
 
-Every other server is configured with Pi's MCP: `~/.pi/agent/mcp.json`, `.pi/mcp.json`, `pi mcp add`, `/mcp` (status, reconnect, sign-in) and Pi's OAuth. See [Pi's MCP docs](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md). `pi --no-extensions` also turns off Pi's built-in MCP; add `-e builtin:mcp -e builtin:tool-search` to keep it and the tool search that loads the deferred GitHub and npm tools (for example `pi --no-extensions -e packages/octocode-pi-extension/dist/index.js -e builtin:mcp -e builtin:tool-search`).
+Every other server is configured with Pi's MCP: `~/.pi/agent/mcp.json`, `.pi/mcp.json`, `pi mcp add`, `/mcp` (status, reconnect, sign-in) and Pi's OAuth. See [Pi's MCP docs](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/mcp.md). `pi --no-extensions` also turns off Pi's built-in MCP; add `-e builtin:mcp -e builtin:tool-search` to keep it and the tool search that loads the deferred GitHub and package tools (for example `pi --no-extensions -e packages/octocode-pi-extension/dist/index.js -e builtin:mcp -e builtin:tool-search`).
 
 ## Retention
 

@@ -237,26 +237,25 @@ async fn a_default_structure_listing_walk_fits_the_window_and_lists_every_file_o
         first,
         "nextPage",
         |envelope| {
-            // A `{dir, entries}` group names its entries under `dir`.
-            envelope["results"][0]["data"]["entries"]
+            // A `{dir, files}` group names its entries under its
+            // workspace-relative `dir` (SS2/SS4).
+            envelope["results"][0]["data"]["files"]
                 .as_array()
                 .into_iter()
                 .flatten()
-                // Files only: a directory is its group, or a bare `name/`
+                // Files only: a directory is its own group, or a `name/`
                 // entry when no group lists it.
-                .flat_map(|entry| match entry.as_str() {
-                    Some(entry) if entry.ends_with('/') => vec![],
-                    Some(entry) => vec![entry.to_owned()],
-                    None => entry["entries"]
+                .flat_map(|group| {
+                    group["files"]
                         .as_array()
                         .expect("group entries")
                         .iter()
                         .filter_map(|name| {
                             let name = name.as_str().expect("entry");
                             (!name.ends_with('/'))
-                                .then(|| format!("{}/{name}", entry["dir"].as_str().expect("dir")))
+                                .then(|| format!("{}/{name}", group["dir"].as_str().expect("dir")))
                         })
-                        .collect(),
+                        .collect::<Vec<_>>()
                 })
                 .collect()
         },

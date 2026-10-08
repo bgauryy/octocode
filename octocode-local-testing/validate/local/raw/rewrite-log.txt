@@ -1,5 +1,0 @@
-rw-rust         sg 2x 25770c 49ms Δ97 err0->0 | sed 1x 0c Δ353 err->0 vsSG 18f/216h | oc 3x 142249c 2333ms matches=95 complete=true Δ97 err->0 vsSG 0f/0h 
-rw-ts           sg 2x 8395c 66ms Δ19 err0->0 | sed 1x 0c Δ21 err->0 vsSG 4f/8h | oc 2x 37147c 1394ms matches=19 complete=true Δ19 err->0 vsSG 0f/0h 
-rw-ts-variadic  sg 2x 9006c 60ms Δ21 err0->0 | sed 1x 0c Δ21 err->0 vsSG 4f/6h | oc 2x 39399c 1492ms matches=21 complete=true Δ21 err->0 vsSG 0f/0h 
-rw-go           sg 2x 69205c 76ms Δ233 err0->0 | sed 1x 0c Δ233 err->0 vsSG 0f/0h | oc 3x 335990c 2197ms matches=233 complete=true Δ233 err->0 vsSG 0f/0h 
-rw-python       sg 2x 13787c 145ms Δ35 err0->0 | sed 1x 0c Δ17 err->0 vsSG 1f/13h | oc 2x 53062c 2087ms matches=27 complete=true Δ35 err->0 vsSG 0f/0h 

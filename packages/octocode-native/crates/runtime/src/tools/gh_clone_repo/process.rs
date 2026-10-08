@@ -87,25 +87,83 @@ pub trait GitRunner: Send + Sync {
     }
 }
 
+/// Runtime environment names the isolated git keeps: its PATH plus the proxy
+/// and trust-store settings a corporate network needs. Nothing that weakens
+/// TLS (`GIT_SSL_NO_VERIFY`) or carries a credential passes.
+const PASSTHROUGH_ENV: &[&str] = &[
+    "PATH",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "NO_PROXY",
+    "no_proxy",
+    "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
+    "GIT_SSL_CAINFO",
+    "GIT_SSL_CAPATH",
+    "CURL_CA_BUNDLE",
+    #[cfg(windows)]
+    "SystemRoot",
+];
+
 #[derive(Clone, Debug)]
 pub struct SystemGit {
     executable: PathBuf,
+    /// [`PASSTHROUGH_ENV`] values, read once from the runtime environment.
+    passthrough: Vec<(String, OsString)>,
 }
 
 impl Default for SystemGit {
+    /// The process environment, for callers without a runtime env map.
     fn default() -> Self {
         Self {
             executable: PathBuf::from("git"),
+            passthrough: PASSTHROUGH_ENV
+                .iter()
+                .filter_map(|name| Some(((*name).to_owned(), std::env::var_os(name)?)))
+                .collect(),
         }
     }
 }
 
 impl SystemGit {
+    /// Git with the [`PASSTHROUGH_ENV`] subset of the runtime `env` (the
+    /// resolved config env, not the process's). PATH falls back to the
+    /// process's when `env` has none, so git can still be found.
+    pub fn with_env(env: &std::collections::BTreeMap<String, String>) -> Self {
+        let mut passthrough: Vec<(String, OsString)> = PASSTHROUGH_ENV
+            .iter()
+            .filter_map(|name| {
+                let value = env.get(*name).filter(|value| !value.is_empty())?;
+                Some(((*name).to_owned(), OsString::from(value)))
+            })
+            .collect();
+        if !passthrough.iter().any(|(name, _)| name == "PATH")
+            && let Some(path) = std::env::var_os("PATH")
+        {
+            passthrough.push(("PATH".to_owned(), path));
+        }
+        Self {
+            executable: PathBuf::from("git"),
+            passthrough,
+        }
+    }
+
+    #[cfg(test)]
     pub fn new(executable: impl Into<PathBuf>) -> Self {
         Self {
             executable: executable.into(),
+            ..Self::default()
         }
     }
+}
+
+/// The header value git sends: HTTP Basic with the `x-access-token` user.
+fn basic_credential(token: &str) -> String {
+    STANDARD.encode(format!("x-access-token:{token}"))
 }
 
 impl SystemGit {
@@ -131,20 +189,14 @@ impl SystemGit {
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        if let Some(path) = std::env::var_os("PATH") {
-            command.env("PATH", path);
-        }
-        #[cfg(windows)]
-        if let Some(root) = std::env::var_os("SystemRoot") {
-            command.env("SystemRoot", root);
-        }
+        command.envs(self.passthrough.iter().map(|(name, value)| (name, value)));
         if let (Some(token), Some(url)) = (request.authorization, request.authorization_url) {
             // Use HTTP Basic with the `x-access-token` username instead of
             // `Bearer`: GitHub's git-over-HTTPS accepts Basic for every token
             // class (classic / fine-grained PAT AND `gho_` OAuth), whereas a
             // `Bearer gho_…` header 401s — and with prompts disabled that fails
             // the clone even for a public repo that would succeed anonymously.
-            let basic = STANDARD.encode(format!("x-access-token:{token}"));
+            let basic = basic_credential(token);
             command
                 .env("GIT_CONFIG_COUNT", "1")
                 .env("GIT_CONFIG_KEY_0", format!("http.{url}.extraHeader"))
@@ -294,7 +346,11 @@ fn join_reader(
 fn scrub(text: &str, token: Option<&str>, home: &Path) -> String {
     let mut result = text.to_owned();
     if let Some(token) = token {
-        result = result.replace(token, "[REDACTED]");
+        // The base64 header value first: it does not contain the token, and
+        // git can echo it without the `Authorization:` prefix.
+        result = result
+            .replace(&basic_credential(token), "[REDACTED]")
+            .replace(token, "[REDACTED]");
     }
     // A checkout stage is an internal path under the Octocode home; the
     // error names what failed, not where it was staged.
@@ -436,4 +492,74 @@ fn null_device() -> &'static str {
 #[cfg(not(windows))]
 fn null_device() -> &'static str {
     "/dev/null"
+}
+
+#[cfg(test)]
+mod env_and_scrub_tests {
+    use super::*;
+    use std::collections::BTreeMap;
+
+    fn envs(command: &Command) -> BTreeMap<String, Option<String>> {
+        command
+            .get_envs()
+            .map(|(key, value)| {
+                (
+                    key.to_string_lossy().into_owned(),
+                    value.map(|value| value.to_string_lossy().into_owned()),
+                )
+            })
+            .collect()
+    }
+
+    fn request() -> GitRunRequest<'static> {
+        GitRunRequest {
+            args: vec![OsString::from("--version")],
+            timeout: Duration::from_secs(1),
+            label: "test".into(),
+            authorization: None,
+            authorization_url: None,
+        }
+    }
+
+    /// M8: the isolated git keeps the runtime's proxy and CA settings (a
+    /// corporate network needs them) and its PATH, but nothing else.
+    #[test]
+    fn isolated_git_keeps_runtime_proxy_ca_and_path_only() {
+        let runtime_env = BTreeMap::from(
+            [
+                ("HTTPS_PROXY", "http://proxy.corp:3128"),
+                ("no_proxy", "internal.corp"),
+                ("SSL_CERT_FILE", "/etc/corp-ca.pem"),
+                ("GIT_SSL_CAINFO", "/etc/corp-ca.pem"),
+                ("PATH", "/runtime/bin"),
+                ("GIT_SSL_NO_VERIFY", "1"),
+                ("GITHUB_TOKEN", "ghp_secret"),
+            ]
+            .map(|(key, value)| (key.to_owned(), value.to_owned())),
+        );
+        let git = SystemGit::with_env(&runtime_env);
+        let envs = envs(&git.command(&request(), Path::new("/tmp/git-home")));
+        let get = |key: &str| envs.get(key).cloned().flatten();
+        assert_eq!(
+            get("HTTPS_PROXY").as_deref(),
+            Some("http://proxy.corp:3128")
+        );
+        assert_eq!(get("no_proxy").as_deref(), Some("internal.corp"));
+        assert_eq!(get("SSL_CERT_FILE").as_deref(), Some("/etc/corp-ca.pem"));
+        assert_eq!(get("GIT_SSL_CAINFO").as_deref(), Some("/etc/corp-ca.pem"));
+        assert_eq!(get("PATH").as_deref(), Some("/runtime/bin"));
+        assert_eq!(get("GIT_SSL_NO_VERIFY"), None);
+        assert_eq!(get("GITHUB_TOKEN"), None);
+    }
+
+    /// L7: git may echo the injected header value without its
+    /// `Authorization:` prefix; the bare base64 form is reversible.
+    #[test]
+    fn scrub_redacts_the_bare_basic_credential() {
+        let basic = basic_credential("ghp_token123");
+        let text = format!("fatal: config value {basic} rejected; token ghp_token123");
+        let scrubbed = scrub(&text, Some("ghp_token123"), Path::new("/nonexistent-home"));
+        assert!(!scrubbed.contains(&basic), "{scrubbed}");
+        assert!(!scrubbed.contains("ghp_token123"), "{scrubbed}");
+    }
 }

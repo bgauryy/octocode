@@ -1,5 +1,0 @@
-# cmd: octocode astSearch {"goal": "g", "reasoning": "r", "operation": "match", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts", "pattern": "return y + 1"}
-# env: None
-# exit: 1
-# stderr: 
-{"results":[{"index":0,"data":{"hints":["Write the pattern as a complete node (keep terminators like `;`), check a tree view, then broaden path or filters."],"complete":true,"stats":{"totalStructuralMatches":0}},"status":"empty"}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

@@ -9,8 +9,8 @@ const { spawnSync } = require('child_process')
 const { readFileSync } = require('fs')
 const { join } = require('path')
 
-const MAX_PACKED_BYTES = Number(process.env.OCTOCODE_CONTEXT_PACK_MAX_BYTES ?? 1_000_000)
-const MAX_UNPACKED_BYTES = Number(process.env.OCTOCODE_CONTEXT_UNPACKED_MAX_BYTES ?? 2_000_000)
+const MAX_PACKED_BYTES = 1_000_000
+const MAX_UNPACKED_BYTES = 2_000_000
 
 function fail(message) {
   console.error(`pack:check failed: ${message}`)

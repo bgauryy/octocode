@@ -1,6 +1,6 @@
 # Octocode for Pi
 
-Turn [Pi](https://pi.dev) into a research-driven coding agent. Octocode adds code research (local search, LSP, GitHub and npm through [Octocode MCP](https://github.com/bgauryy/octocode)), subagents, a safer file tool, a per-repository backlog and memory, and a browser. It builds on Pi's own tools, MCP, sessions, compaction and UI instead of replacing them.
+Turn [Pi](https://pi.dev) into a research-driven coding agent. Octocode adds code research (local search, LSP, GitHub and package registries through [Octocode MCP](https://github.com/bgauryy/octocode)), subagents, a safer file tool, a per-repository backlog and memory, and a browser. It builds on Pi's own tools, MCP, sessions, compaction and UI instead of replacing them.
 
 ```bash
 pi install npm:@octocodeai/pi-extension    # install for every session
@@ -37,7 +37,7 @@ Octocode MCP     Octocode skills     .octocode home + workspace
 
 | Part | What it is | How the extension uses it |
 |---|---|---|
-| **Octocode MCP** (`octocode-mcp`, bundled) | The research engine: local search and reading, LSP, dependency graphs, GitHub code/PR/history search, npm packages | Registered with Pi's MCP as server `octocode`; its nine tools appear as `mcp__octocode__*`, and the prompt routes research to them. Override it with a server named `octocode` in Pi's `mcp.json`, or turn it off with `OCTOCODE_MCP=0`. |
+| **Octocode MCP** (`octocode-mcp`, bundled) | The research engine: local search and reading, structure and AST search, LSP, GitHub repo/code/PR/history search, packages | Registered with Pi's MCP as server `octocode`; its read tools appear as `mcp__octocode__*`, and the prompt routes research to them. Override it with a server named `octocode` in Pi's `mcp.json`, or turn it off with `OCTOCODE_MCP=0`. |
 | **Octocode skills** | Reusable workflows such as `octocode-research`, `octocode-subagent`, `octocode-orchestrator`, `octocode-agents-communication`, `octocode-code-graph`, `octocode-documentation` and `octocode-chrome-devtools` | Loaded from `~/.octocode/skills` and, in trusted projects, `<repo>/.octocode/skills`, next to Pi's, Claude Code's and Codex's skill folders. Install one with `npx octocode skill install <name>`. |
 | **Agent model** | The octocode-agents-communication model: agents, messages, deliveries and file leases | Backs `coordinate`, `sendMessage`, the `/agents` panel and subagent hand-offs. |
 | **Subagent profiles** | Markdown profiles: bundled `implementer`, `researcher`, `reviewer`, `webHeadless`, `webLive` | Add your own in `~/.octocode/agents/` or `<repo>/.octocode/agents/` (Pi's `~/.pi/agent/agents/` and `.pi/agents/` work too). |
@@ -67,7 +67,7 @@ Octocode uses Pi's extension API and keeps Pi's behavior where Pi already does t
 
 | Pi feature | What Octocode adds | Pi API used |
 |---|---|---|
-| MCP | Registers the Octocode research server: local code search, file reading, LSP definitions and references, dependency graphs, GitHub code, PR and history search, npm packages. The GitHub and npm tools are deferred behind Pi's `tool_search` to save prompt tokens (`OCTOCODE_MCP_DIRECT=1` exposes all nine). `/mcp`, reconnects and OAuth stay Pi's. | `registerMcpServer` |
+| MCP | Registers the Octocode research server: local code search, file reading, structure and AST search, LSP callers, references and types, GitHub repo, code, PR and history search, packages. The GitHub and package tools are deferred behind Pi's `tool_search` to save prompt tokens (`OCTOCODE_MCP_DIRECT=1` exposes them all). `/mcp`, reconnects and OAuth stay Pi's. | `registerMcpServer` |
 | System prompt | A short `octocode` section: investigate before changing, verify for real, prefer Octocode MCP for research, when to delegate. Pi's tool list, `AGENTS.md` context and skills are unchanged. | `before_agent_start` prompt sections |
 | `edit` / `write` | One `file` tool batches edits, writes and deletes, each with a reasoning line, on Pi's own edit and write engines. It refuses stale edits and writes atomically. It replaces `edit` and `write` once per session, unless you name them in `--tools` or `defaultTools`. | `createEditToolDefinition`, `createWriteToolDefinition` |
 | `bash` | Pi's own bash with your `shellPath` and `shellCommandPrefix`, plus a 15-minute deadline, background jobs and a guard against catastrophic commands. | `createBashToolDefinition`, `tool_call` |
@@ -83,7 +83,7 @@ Each feature has a full description in [docs/FEATURES.md](docs/FEATURES.md).
 
 ### Research and code
 
-- **Octocode MCP**: nine research tools named `mcp__octocode__*`. Local: `localSearch`, `localGetFileContent`, `localAnalyzeGraph`, `lspGetSemantics`. GitHub: `ghSearch`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`. npm: `npmSearch`.
+- **Octocode MCP**: research tools named `mcp__octocode__*`. Local: `localSearch`, `localFetch`, `structureSearch`, `astSearch` (`astTopology` with `OCTOCODE_BETA=1`). LSP: `lspSearch`. GitHub: `ghSearchRepo`, `ghSearchCode`, `ghStructure`, `ghGetFileContent`, `ghSearchHistory`, `ghGetHistoryItem`. Packages: `artifactSearch`. Classification: `clasify` (with `OCTOCODE_CLASSIFICATION_API`). `ghCloneRepo` and `astRewrite` are CLI-only.
 - **`file` tool**: batched edit, write and delete with a reasoning line per change. A change to a file that moved on disk since the agent read it is refused until it reads the file again. Writes are atomic and keep the file mode.
 - **Checkpoints**: before `file` changes a path, its bytes are saved. `/octocode rewind [turns]` restores files the agent changed, but never overwrites files you changed since.
 - **File review** (opt-in): `/octocode review on` asks before every `file` batch, with Apply all, Review one by one, or Reject all.
@@ -137,7 +137,7 @@ Each feature has a full description in [docs/FEATURES.md](docs/FEATURES.md).
 | `read` | Pi's read tool, unchanged |
 | `bash` | Shell commands, with a deadline and background jobs |
 | `file` | Batched edit, write and delete |
-| `mcp__octocode__*` | Code, LSP, GitHub and npm research |
+| `mcp__octocode__*` | Code, LSP, GitHub and package research |
 | `web` | Fetch a URL or search the web |
 | `browser` | Drive Chrome over DevTools |
 | `agent` | Run a subagent |
@@ -171,7 +171,7 @@ Without a UI (print or JSON mode), these commands write text to stderr instead o
 
 ## Best practices
 
-**Ask for evidence, not guesses.** Phrase research as a question about the code ("who calls X?", "why does Y fail?"). The agent searches with Octocode MCP and reads only the lines it needs. Before a change to shared code, ask it to confirm callers with `lspGetSemantics`.
+**Ask for evidence, not guesses.** Phrase research as a question about the code ("who calls X?", "why does Y fail?"). The agent searches with Octocode MCP and reads only the lines it needs. Before a change to shared code, ask it to confirm callers with `lspSearch`.
 
 **Delegate wide work, keep narrow work.** Ask for parallel subagents when the work splits cleanly: one per module to review, or research next to implementation. Small sequential edits are faster in the main session. Ask for `isolate: true` when a subagent's edits might collide with yours.
 
@@ -206,7 +206,7 @@ Most users need nothing. Common settings:
 | `TAVILY_API_KEY`, `SERPER_API_KEY`, `EXA_API_KEY`, `BRAVE_API_KEY` | Web search providers |
 | `OCTOCODE_HOME` | Where Octocode keeps config and state (default `~/.octocode`) |
 
-Other MCP servers are configured with Pi: `pi mcp add`, `~/.pi/agent/mcp.json` or `.pi/mcp.json`. A server named `octocode` there overrides the built-in one. With `pi --no-extensions`, add `-e builtin:mcp -e builtin:tool-search` to keep Pi's MCP and tool search, or the Octocode tools (or its deferred GitHub and npm tools) don't load.
+Other MCP servers are configured with Pi: `pi mcp add`, `~/.pi/agent/mcp.json` or `.pi/mcp.json`. A server named `octocode` there overrides the built-in one. With `pi --no-extensions`, add `-e builtin:mcp -e builtin:tool-search` to keep Pi's MCP and tool search, or the Octocode tools (or its deferred GitHub and package tools) don't load.
 
 Every variable, file location, trust rule, hook and profile format is in [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 

@@ -22,6 +22,13 @@ pub enum ToolFamily {
 
 include!(concat!(env!("OUT_DIR"), "/tool_ids.rs"));
 
+/// The contract's exit class of `code` (`errorCodes`). An undeclared code,
+/// which the output contract already rejects, is an execution failure.
+#[must_use]
+pub fn error_class(code: &str) -> error_codes::ErrorClass {
+    error_codes::class(code).unwrap_or(error_codes::ErrorClass::Execution)
+}
+
 impl ToolId {
     /// Resolve a wire name to its identity, or `None` for an unknown tool.
     #[must_use]
@@ -31,19 +38,19 @@ impl ToolId {
 
     /// A local-filesystem tool (honours local policy + allowed paths).
     #[must_use]
-    pub const fn is_local(self) -> bool {
+    pub(crate) const fn is_local(self) -> bool {
         matches!(self.family(), ToolFamily::Local)
     }
 
     /// A GitHub API tool (includes `ghCloneRepo`; clone has an extra gate).
     #[must_use]
-    pub const fn is_github(self) -> bool {
+    pub(crate) const fn is_github(self) -> bool {
         matches!(self.family(), ToolFamily::GitHub)
     }
 
     /// A semantic assessment tool (gated on a non-blank `OCTOCODE_CLASSIFICATION_API`).
     #[must_use]
-    pub const fn is_clasify(self) -> bool {
+    pub(crate) const fn is_clasify(self) -> bool {
         matches!(self, ToolId::Clasify)
     }
 
@@ -51,7 +58,7 @@ impl ToolId {
     /// and rewrite operations remain ordered; clasify owns its own bounded
     /// provider scheduler.
     #[must_use]
-    pub const fn supports_concurrent_queries(self) -> bool {
+    pub(crate) const fn supports_concurrent_queries(self) -> bool {
         !matches!(
             self,
             ToolId::GhCloneRepo | ToolId::AstRewrite | ToolId::Clasify
@@ -62,7 +69,7 @@ impl ToolId {
     /// `tools.disabled`). Beta and family come from the contract; the clone and
     /// clasify gates are runtime prerequisites (persistent storage, a key).
     #[must_use]
-    pub const fn availability_config_path(self) -> Option<&'static str> {
+    pub(crate) const fn availability_config_path(self) -> Option<&'static str> {
         if self.is_beta() {
             return Some("local.beta");
         }

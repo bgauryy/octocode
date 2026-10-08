@@ -1,37 +1,38 @@
 //! Test doubles shared by the GitHub tool tests: a provider aimed at a mock
 //! server and one-line JSON routes.
+use crate::providers::RequestBudget;
 use crate::providers::github::{
     CredentialSource, GitHubBudget, GitHubEndpoint, GitHubProvider, GitHubTransport, NoCache,
-    RetryPolicy, StaticCredentialResolver,
+    RequestContext, ResolvedCredential, RetryPolicy,
 };
-use std::sync::Arc;
+use std::time::Duration;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-/// A provider whose GitHub API is `server`, with a fixed override credential
-/// and its own unthrottled budget: tests in one process never wait on each
+/// A provider whose GitHub API is `server`, with its own unthrottled budget: tests in one process never wait on each
 /// other's search spacing (the process-wide budget is the github crate's
 /// subject).
-pub(crate) fn mock_provider(
-    server: &MockServer,
-    retry: RetryPolicy,
-) -> GitHubProvider<StaticCredentialResolver, NoCache> {
+pub(crate) fn mock_provider(server: &MockServer, retry: RetryPolicy) -> GitHubProvider<NoCache> {
     let endpoint =
         GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("URL"))
             .expect("endpoint");
     GitHubProvider {
-        transport: GitHubTransport::with_budget(
-            endpoint,
-            Arc::new(StaticCredentialResolver::new(
-                "fixture",
-                CredentialSource::Override,
-            )),
-            retry,
-            GitHubBudget::relaxed(),
-        )
-        .expect("transport"),
+        transport: GitHubTransport::with_budget(endpoint, retry, GitHubBudget::relaxed())
+            .expect("transport"),
         cache: NoCache,
     }
+}
+
+/// A request carrying the fixed `fixture` credential, as the runtime
+/// attaches the credential it resolved for each request.
+pub(crate) fn fixture_context(timeout: Duration, max_body_bytes: usize) -> RequestContext {
+    RequestContext::new(
+        RequestBudget::with_timeout(timeout, max_body_bytes),
+        Some(ResolvedCredential::new(
+            "fixture",
+            CredentialSource::Override,
+        )),
+    )
 }
 
 /// Answer `GET route` on `server` with `status` and a JSON `body`.

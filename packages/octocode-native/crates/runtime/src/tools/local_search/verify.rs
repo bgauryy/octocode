@@ -1,11 +1,13 @@
 //! Secret safety of shown values: redaction of the scan, the re-read that
 //! checks clipped values against their source bytes, and bounded line reads.
 
-use super::executor::*;
+use super::leads::ENCLOSING_MAX_FILES;
 use super::types::*;
 use super::{cursor::*, layout::*};
 use crate::security::ContentSecurity;
+use crate::tools::ast_search::MAX_PARSE_SOURCE_BYTES;
 use crate::tools::cancel::CancellationCheck;
+use crate::tools::result::ToolError;
 use sha2::{Digest, Sha256};
 
 /// Upper bound (bytes) on a file re-read for the private-key block scan.
@@ -22,23 +24,72 @@ pub(super) type ExpectedDigest<'a> =
 /// so via a `redactedMatches` warning.
 pub(super) type Redacted = std::collections::HashSet<(String, u32, u32)>;
 
+/// What redacting a fresh scan changed, so a later page of the same stored
+/// scan replays it instead of sanitizing every value again. Sanitizing is a
+/// pure function of a value and its source path; the only file input is a
+/// key-block scan, so the record keeps the digest of each such read.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Redaction {
+    /// The root the scan's paths were made relative to.
+    pub(super) output_root: std::path::PathBuf,
+    /// Files whose snippets looked like key material, by scan index, with
+    /// the digest of the bytes their key-block scan read (`None`: no read).
+    pub(super) key_files: Vec<(usize, Option<super::manifest::Digest>)>,
+    /// Values the redaction replaced: file index, match index, new value.
+    pub(super) changes: Vec<(usize, usize, String)>,
+}
+
+impl Redaction {
+    /// Bytes the record adds to a stored scan.
+    pub(super) fn weight(&self) -> usize {
+        self.output_root.as_os_str().len()
+            + self.key_files.len() * 40
+            + self
+                .changes
+                .iter()
+                .map(|(_, _, value)| value.len() + 16)
+                .sum::<usize>()
+    }
+}
+
 /// Make paths relative to `output_root` and redact secrets in every value.
 /// A match on an interior base64 body line of a private key would leak the
 /// key even though the match view holds no BEGIN/END marker (the anchored
 /// built-in patterns need a complete block). Only when a snippet actually
 /// looks like key material is the full file scanned for private-key block
 /// ranges; matches whose window intersects a block are redacted. Innocent
-/// base64 triggers a scan that finds no block and redacts nothing.
+/// base64 triggers a scan that finds no block and redacts nothing. A file
+/// is read only after it passes the read policy.
+///
+/// `stored` is the redaction a fresh page made of this stored scan: it is
+/// replayed when every key-block scan reads the same bytes again (see
+/// [`replay_redaction`]); otherwise every value is redacted afresh. Returns
+/// the redacted rows and the record of this redaction.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn redact_scan(
     query: &LocalSearchQuery,
     parsed: &mut octocode_engine::types::RipgrepParseResult,
     output_root: &std::path::Path,
     expected_digest: &ExpectedDigest<'_>,
+    paths: &crate::policy::path::PathPolicy,
     security: &ContentSecurity,
     cancel: &impl CancellationCheck,
-) -> Result<Redacted, LocalSearchError> {
+    stored: Option<&Redaction>,
+) -> Result<(Redacted, Redaction), ToolError> {
+    if let Some(stored) = stored.filter(|stored| stored.output_root == output_root) {
+        cancel.check().map_err(ToolError::cancelled)?;
+        if let Some(redacted) =
+            replay_redaction(query, parsed, output_root, expected_digest, paths, stored)?
+        {
+            return Ok((redacted, stored.clone()));
+        }
+    }
     let mut redacted = Redacted::new();
-    for file in &mut parsed.files {
+    let mut record = Redaction {
+        output_root: output_root.to_path_buf(),
+        ..Redaction::default()
+    };
+    for (file_index, file) in parsed.files.iter_mut().enumerate() {
         if let Ok(relative) = std::path::Path::new(&file.path).strip_prefix(output_root) {
             file.path = relative.to_string_lossy().into_owned();
         }
@@ -48,12 +99,14 @@ pub(super) fn redact_scan(
             .iter()
             .any(|m| crate::security::snippet_may_hold_key_material(&m.value))
         {
-            let bytes = std::fs::metadata(&source_path)
-                .ok()
-                .filter(|meta| meta.len() <= MAX_KEY_SCAN_BYTES)
-                .and_then(|_| std::fs::read(&source_path).ok());
-            if let (Some(bytes), Some(expected)) = (&bytes, expected_digest(&source_path))
-                && expected != Some(<[u8; 32]>::from(Sha256::digest(bytes)))
+            validate_matched(paths, &source_path)?;
+            let bytes = read_key_scan_bytes(&source_path);
+            let digest = bytes
+                .as_ref()
+                .map(|bytes| <[u8; 32]>::from(Sha256::digest(bytes)));
+            record.key_files.push((file_index, digest));
+            if let (Some(digest), Some(expected)) = (digest, expected_digest(&source_path))
+                && expected != Some(digest)
             {
                 return Err(changed_since_scan(query));
             }
@@ -65,8 +118,8 @@ pub(super) fn redact_scan(
         } else {
             Vec::new()
         };
-        for matched in &mut file.matches {
-            cancel.check().map_err(cancelled)?;
+        for (match_index, matched) in file.matches.iter_mut().enumerate() {
+            cancel.check().map_err(ToolError::cancelled)?;
             let changed = if !key_ranges.is_empty()
                 && crate::security::match_window_intersects_key_block(
                     matched.line,
@@ -83,16 +136,105 @@ pub(super) fn redact_scan(
             };
             if changed {
                 redacted.insert((file.path.clone(), matched.line, matched.column));
+                record
+                    .changes
+                    .push((file_index, match_index, matched.value.clone()));
             }
         }
     }
-    Ok(redacted)
+    Ok((redacted, record))
 }
+
+/// The bytes a key-block scan reads: the whole file within
+/// [`MAX_KEY_SCAN_BYTES`], or `None`.
+fn read_key_scan_bytes(source: &std::path::Path) -> Option<Vec<u8>> {
+    std::fs::metadata(source)
+        .ok()
+        .filter(|meta| meta.len() <= MAX_KEY_SCAN_BYTES)
+        .and_then(|_| std::fs::read(source).ok())
+}
+
+/// Replay `stored` on the stored scan it was made from. Its key-block scans
+/// read each file again, under the read policy and bound to the stored
+/// digest exactly as a fresh redaction is (a changed file restarts the
+/// snapshot). When each read hashes to the bytes the record was made from,
+/// the key-block ranges, and so every replaced value, are the ones a fresh
+/// redaction computes; `None` (no read, other bytes) redacts afresh.
+fn replay_redaction(
+    query: &LocalSearchQuery,
+    parsed: &mut octocode_engine::types::RipgrepParseResult,
+    output_root: &std::path::Path,
+    expected_digest: &ExpectedDigest<'_>,
+    paths: &crate::policy::path::PathPolicy,
+    stored: &Redaction,
+) -> Result<Option<Redacted>, ToolError> {
+    for &(index, made_from) in &stored.key_files {
+        let Some(file) = parsed.files.get(index) else {
+            return Ok(None);
+        };
+        let source_path = output_root.join(&file.path);
+        validate_matched(paths, &source_path)?;
+        let Some(bytes) = read_key_scan_bytes(&source_path) else {
+            return Ok(None);
+        };
+        let digest = <[u8; 32]>::from(Sha256::digest(&bytes));
+        if let Some(expected) = expected_digest(&source_path)
+            && expected != Some(digest)
+        {
+            return Err(changed_since_scan(query));
+        }
+        if made_from != Some(digest) {
+            return Ok(None);
+        }
+    }
+    if stored.changes.iter().any(|&(file, row, _)| {
+        parsed
+            .files
+            .get(file)
+            .is_none_or(|file| row >= file.matches.len())
+    }) {
+        return Ok(None);
+    }
+    for file in &mut parsed.files {
+        if let Ok(relative) = std::path::Path::new(&file.path).strip_prefix(output_root) {
+            file.path = relative.to_string_lossy().into_owned();
+        }
+    }
+    let mut redacted = Redacted::new();
+    for (file, row, value) in &stored.changes {
+        let file = &mut parsed.files[*file];
+        let matched = &mut file.matches[*row];
+        matched.value.clone_from(value);
+        redacted.insert((file.path.clone(), matched.line, matched.column));
+    }
+    Ok(Some(redacted))
+}
+
+/// A matched file must pass the read policy before a page reads it or shows
+/// its rows.
+pub(super) fn validate_matched(
+    paths: &crate::policy::path::PathPolicy,
+    source: &std::path::Path,
+) -> Result<(), ToolError> {
+    paths.validate_read(source).map(drop).map_err(|error| {
+        ToolError::new(
+            error.local_error_code("fileAccessFailed"),
+            "Search encountered a path denied by the active path policy",
+        )
+    })
+}
+
+/// Outlines of the page's first shown files, keyed by source path, parsed
+/// from the bytes their secret check read (`None`: no outline).
+pub(super) type Outlines =
+    std::collections::HashMap<std::path::PathBuf, Option<super::enclosing::Outline>>;
 
 /// Re-read the shown files. A page from a stored scan shows each of its
 /// files only while that file still hashes to the stored bytes; text views
-/// prove it in the secret check, which reads the same bytes. Returns whether
-/// some values were redacted because their source could not be re-read.
+/// prove it in the secret check, which reads the same bytes, and the first
+/// [`ENCLOSING_MAX_FILES`] files with rows are outlined from that read into
+/// `outlines`. Returns whether some values were redacted because their
+/// source could not be re-read.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn verify_shown(
     query: &LocalSearchQuery,
@@ -101,9 +243,10 @@ pub(super) fn verify_shown(
     output_root: &std::path::Path,
     expected_digest: &ExpectedDigest<'_>,
     redacted: &mut Redacted,
+    outlines: &mut Outlines,
     security: &ContentSecurity,
     cancel: &impl CancellationCheck,
-) -> Result<bool, LocalSearchError> {
+) -> Result<bool, ToolError> {
     if layout.list {
         for (index, _) in &layout.shown {
             let source = output_root.join(&parsed.files[*index].path);
@@ -116,29 +259,55 @@ pub(super) fn verify_shown(
         return Ok(false);
     }
     let mut unverified = false;
+    let mut files_with_rows = 0usize;
     for (index, rows) in &layout.shown {
         let file = &mut parsed.files[*index];
-        cancel.check().map_err(cancelled)?;
+        cancel.check().map_err(ToolError::cancelled)?;
         let before = file
             .matches
             .iter()
             .map(|matched| matched.value.clone())
             .collect::<Vec<_>>();
         let source = output_root.join(&file.path);
-        match guard_clipped_secrets(
-            file,
-            &source,
-            expected_digest(&source),
-            rows.clone(),
-            security,
-            query.result_view == LocalSearchQueryResultView::MatchOnly,
-            cancel,
-        )
-        .map_err(cancelled)?
-        {
+        // The page's first files are outlined for enclosing names: read
+        // each once, for both its secret check and its outline.
+        let shows_rows = rows.start.min(file.matches.len()) < rows.end.min(file.matches.len());
+        let outlined = shows_rows && files_with_rows < ENCLOSING_MAX_FILES;
+        files_with_rows += usize::from(shows_rows);
+        let bytes = outlined
+            .then(|| crate::tools::source::read_bounded(&source, MAX_PARSE_SOURCE_BYTES).ok())
+            .flatten();
+        let match_only = query.result_view == LocalSearchQueryResultView::MatchOnly;
+        let expected = expected_digest(&source);
+        let verification = match &bytes {
+            Some(bytes) => guard_read(
+                file,
+                &source,
+                || Ok(bytes.as_slice()),
+                expected,
+                rows.clone(),
+                security,
+                match_only,
+                cancel,
+            ),
+            None => guard_clipped_secrets(
+                file,
+                &source,
+                expected,
+                rows.clone(),
+                security,
+                match_only,
+                cancel,
+            ),
+        };
+        match verification.map_err(ToolError::cancelled)? {
             Verification::Verified => {}
             Verification::Unverified => unverified = true,
             Verification::Changed => return Err(changed_since_scan(query)),
+        }
+        if let Some(bytes) = bytes {
+            let outline = super::leads::outline_of(&bytes, &source, security);
+            outlines.insert(source, outline);
         }
         for (matched, before) in file.matches.iter().zip(before) {
             if matched.value != before {
@@ -181,6 +350,31 @@ pub(super) fn guard_clipped_secrets(
     match_only: bool,
     cancel: &impl CancellationCheck,
 ) -> Result<Verification, String> {
+    guard_read(
+        file,
+        source,
+        || std::fs::File::open(source),
+        expected,
+        shown,
+        security,
+        match_only,
+        cancel,
+    )
+}
+
+/// [`guard_clipped_secrets`] over the reader `open` returns, opened only
+/// when a shown value needs its source lines.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn guard_read<R: std::io::Read>(
+    file: &mut octocode_engine::types::RipgrepFile,
+    source: &std::path::Path,
+    open: impl FnOnce() -> std::io::Result<R>,
+    expected: Option<Option<super::manifest::Digest>>,
+    shown: std::ops::Range<usize>,
+    security: &ContentSecurity,
+    match_only: bool,
+    cancel: &impl CancellationCheck,
+) -> Result<Verification, String> {
     if expected == Some(None) {
         return Ok(Verification::Changed);
     }
@@ -199,17 +393,15 @@ pub(super) fn guard_clipped_secrets(
     let Some(last_line) = windows.iter().map(|&(_, hi)| hi).max() else {
         return Ok(Verification::Verified);
     };
-    let read = std::fs::File::open(source)
-        .map_err(VerifyReadError::from)
-        .and_then(|opened| {
-            let mut reader = std::io::BufReader::new(HashingReader {
-                inner: opened,
-                hasher: expected.map(|_| Sha256::new()),
-            });
-            let read = read_verification_lines(&mut reader, &windows, last_line, cancel)?;
-            let digest = drain_digest(reader, cancel)?;
-            Ok((read, digest))
+    let read = open().map_err(VerifyReadError::from).and_then(|opened| {
+        let mut reader = std::io::BufReader::new(HashingReader {
+            inner: opened,
+            hasher: expected.map(|_| Sha256::new()),
         });
+        let read = read_verification_lines(&mut reader, &windows, last_line, cancel)?;
+        let digest = drain_digest(reader, cancel)?;
+        Ok((read, digest))
+    });
     let read = match read {
         Ok((_, Some(digest))) if expected != Some(Some(digest)) => {
             return Ok(Verification::Changed);
@@ -529,6 +721,7 @@ mod verification_tests {
             path: "source.txt".into(),
             match_count: matches.len() as u32,
             matches,
+            source: None,
         }
     }
 

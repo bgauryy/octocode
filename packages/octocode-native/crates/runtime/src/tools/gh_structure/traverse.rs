@@ -74,11 +74,8 @@ pub(super) fn access_failure(error: &ProviderError) -> bool {
     )
 }
 
-pub(super) async fn traverse<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &GitHubProvider<R, C>,
+pub(super) async fn traverse<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     listing: &Listing<'_>,
     context: &RequestContext,
 ) -> Result<Traversal, ProviderError> {
@@ -92,11 +89,8 @@ pub(super) async fn traverse<
 
 /// A deep listing from one recursive git tree (cached by commit); `None`
 /// when the tree is truncated or unavailable, so the contents walk runs.
-pub(super) async fn recursive_tree<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &GitHubProvider<R, C>,
+pub(super) async fn recursive_tree<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     listing: &Listing<'_>,
     context: &RequestContext,
 ) -> Result<Option<Traversal>, ProviderError> {
@@ -108,7 +102,7 @@ pub(super) async fn recursive_tree<
         max_depth,
     } = *listing;
     let resource = format!("{}:{branch}", repo_key("git-tree", owner, repo));
-    if let Ok(partition) = provider.transport.cache_partition(context, None).await
+    if let Ok(partition) = provider.transport.cache_partition(context, None)
         && let Some(cached) = provider.cache.get(&partition, &resource).await
         && let Ok(tree) =
             serde_json::from_slice::<crate::providers::github::TreeResponse>(&cached.bytes)
@@ -145,11 +139,8 @@ pub(super) async fn recursive_tree<
 
 /// The Contents API walk, one directory read per folder up to
 /// [`MAX_DIRECTORY_FETCHES`]; a complete walk is reused for the cache TTL.
-pub(super) async fn walk_contents<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &GitHubProvider<R, C>,
+pub(super) async fn walk_contents<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     listing: &Listing<'_>,
     context: &RequestContext,
 ) -> Result<Traversal, ProviderError> {
@@ -165,7 +156,7 @@ pub(super) async fn walk_contents<
         "{}:{branch}:{root}:{max_depth}",
         repo_key("git-tree-walk", owner, repo)
     );
-    let partition = provider.transport.cache_partition(context, None).await.ok();
+    let partition = provider.transport.cache_partition(context, None).ok();
     if let Some(partition) = &partition
         && let Some(cached) = provider.cache.get(partition, &walk_key).await
         && let Ok(walk) = serde_json::from_slice::<Traversal>(&cached.bytes)
@@ -237,7 +228,7 @@ pub(super) async fn walk_contents<
                 walk_key,
                 crate::providers::github::CachedContent {
                     etag: None,
-                    bytes,
+                    bytes: bytes.into(),
                     resolved_ref: branch.to_owned(),
                 },
             )
@@ -247,17 +238,14 @@ pub(super) async fn walk_contents<
 }
 
 /// Keep a complete recursive tree for the cache TTL under its commit.
-pub(super) async fn cache_tree<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &GitHubProvider<R, C>,
+pub(super) async fn cache_tree<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     context: &RequestContext,
     resource: String,
     commit: &str,
     tree: &crate::providers::github::TreeResponse,
 ) {
-    if let Ok(partition) = provider.transport.cache_partition(context, None).await
+    if let Ok(partition) = provider.transport.cache_partition(context, None)
         && let Ok(bytes) = serde_json::to_vec(tree)
     {
         provider
@@ -267,7 +255,7 @@ pub(super) async fn cache_tree<
                 resource,
                 crate::providers::github::CachedContent {
                     etag: None,
-                    bytes,
+                    bytes: bytes.into(),
                     resolved_ref: commit.to_owned(),
                 },
             )

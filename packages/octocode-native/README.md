@@ -109,7 +109,7 @@ generic Assembly requires trusted custom LSP configuration. Text search,
 ordinary reads, generic best-effort minification, artifact lookup, and trusted
 custom LSP configuration remain language-agnostic. See
 [`docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md`](docs/engine/SUPPORTED_LANGUAGES_AND_FEATURES.md). The direct Rust dependency necessity and footprint receipt is in
-[`docs/engine/DEPENDENCY_AUDIT.md`](docs/engine/DEPENDENCY_AUDIT.md).
+[`docs/DEPENDENCY_AUDIT.md`](docs/DEPENDENCY_AUDIT.md).
 
 ### npm / platform distribution layout
 
@@ -129,9 +129,13 @@ packages/octocode-native/
 │   ├─ linux-x64-gnu/
 │   ├─ linux-x64-musl/
 │   └─ win32-x64-msvc/
-└─ scripts/
+└─ scripts/                    ← build, staging, and release checks
     ├─ build-native.cjs          ← hosts build → atomic staging
-    └─ check-platform-binaries.cjs
+    ├─ native-addon-utils.cjs    ← staging and smoke-run helpers
+    ├─ check-platform-binaries.cjs
+    ├─ check-pack-size.cjs, check-version-consistency.cjs, sync-versions.cjs
+    ├─ check-crate-boundaries.cjs, check-doc-claims.cjs, workspace-metadata.cjs
+    └─ graph-bench/              ← code-graph benchmark harness
 ```
 
 Build a single platform and copy binaries:

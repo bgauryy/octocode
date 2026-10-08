@@ -1,9 +1,7 @@
 //! The GitHub conditional cache on the shared [`Store`]. Provider cache
 //! partitions are minted by the transport after credential pinning.
-use crate::cache::{CacheClass, CacheConfig, CacheKey, CachePartition, Store};
-use crate::providers::github::{
-    CachePartition as ProviderPartition, CachedContent, ConditionalCache,
-};
+use crate::cache::{CacheClass, CacheConfig, CacheKey, Store, StorePartition};
+use crate::providers::github::{CachePartition, CachedContent, ConditionalCache};
 use std::{future::Future, path::PathBuf, pin::Pin, sync::Arc};
 
 #[derive(Clone)]
@@ -26,11 +24,11 @@ impl GitHubContentCache {
         self.store.clear();
     }
 
-    fn key(partition: &ProviderPartition, resource: &str) -> CacheKey {
+    fn key(partition: &CachePartition, resource: &str) -> CacheKey {
         CacheKey {
             namespace: "github-content".into(),
             resource: resource.into(),
-            partition: CachePartition {
+            partition: StorePartition {
                 endpoint: "provider-partition-v1".into(),
                 credential_fingerprint: partition.identity().to_owned(),
             },
@@ -83,10 +81,10 @@ fn entry_bytes(key: &CacheKey, value: &CachedContent) -> usize {
 impl ConditionalCache for GitHubContentCache {
     /// A fresh hit comes back without its ETag, so the provider serves it as
     /// is; a stale `Revalidate` hit, or any mutable history read, keeps it
-    /// for one conditional request.
+    /// for one conditional request. The body is shared with the entry.
     fn get<'a>(
         &'a self,
-        partition: &'a ProviderPartition,
+        partition: &'a CachePartition,
         key: &'a str,
     ) -> Pin<Box<dyn Future<Output = Option<CachedContent>> + Send + 'a>> {
         Box::pin(async move {
@@ -101,7 +99,7 @@ impl ConditionalCache for GitHubContentCache {
 
     fn put<'a>(
         &'a self,
-        partition: &'a ProviderPartition,
+        partition: &'a CachePartition,
         key: String,
         value: CachedContent,
     ) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>> {
@@ -117,12 +115,14 @@ impl ConditionalCache for GitHubContentCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cache::tests::json_files;
     use std::{fs, path::Path, time::Duration};
 
-    async fn partition(identity: &str) -> ProviderPartition {
+    async fn partition(identity: &str) -> CachePartition {
+        use crate::providers::RequestBudget;
         use crate::providers::github::{
-            CredentialSource, GitHubEndpoint, GitHubTransport, RequestContext, RetryPolicy,
-            StaticCredentialResolver,
+            CredentialSource, GitHubEndpoint, GitHubTransport, RequestContext, ResolvedCredential,
+            RetryPolicy,
         };
         let (endpoint, credential) = identity.split_once('/').unwrap_or(("fixture", identity));
         let transport = GitHubTransport::new(
@@ -132,37 +132,29 @@ mod tests {
                     .unwrap(),
             )
             .unwrap(),
-            Arc::new(StaticCredentialResolver::new(
-                credential,
-                CredentialSource::Override,
-            )),
             RetryPolicy::default(),
         )
         .unwrap();
         transport
             .cache_partition(
-                &RequestContext::with_timeout(Duration::from_secs(1), 1),
+                &RequestContext::new(
+                    RequestBudget::with_timeout(Duration::from_secs(1), 1),
+                    Some(ResolvedCredential::new(
+                        credential,
+                        CredentialSource::Override,
+                    )),
+                ),
                 None,
             )
-            .await
             .unwrap()
     }
 
     fn content(etag: Option<&str>) -> CachedContent {
         CachedContent {
-            bytes: b"private source".to_vec(),
+            bytes: b"private source".to_vec().into(),
             etag: etag.map(str::to_owned),
             resolved_ref: "sha".into(),
         }
-    }
-
-    fn json_files(dir: &Path) -> Vec<std::path::PathBuf> {
-        fs::read_dir(dir)
-            .unwrap()
-            .flatten()
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
-            .collect()
     }
 
     /// Rewind every disk entry by `seconds`, as if a later process read it.
@@ -250,7 +242,7 @@ mod tests {
         ] {
             let hit = reader.get(&part, key).await.expect(key);
             assert_eq!(hit.etag, None, "{key} is served without revalidation");
-            assert_eq!(hit.bytes, b"private source");
+            assert_eq!(hit.bytes, &b"private source"[..]);
         }
         assert_eq!(
             reader.get(&part, "github-tree:a").await.unwrap().etag,
@@ -258,6 +250,28 @@ mod tests {
             "a stale listing keeps its ETag for one conditional request"
         );
         assert_eq!(reader.get(&part, "github-ref:a").await, None);
+    }
+
+    /// A hit hands out the stored body, not a copy of it.
+    #[tokio::test]
+    async fn memory_hits_share_the_stored_body() {
+        let part = partition("endpoint/credential").await;
+        let cache = GitHubContentCache::new(CacheConfig::default(), None);
+        cache
+            .put(
+                &part,
+                "github-content:big".into(),
+                CachedContent {
+                    bytes: vec![b'x'; 4 << 20].into(),
+                    etag: None,
+                    resolved_ref: "sha".into(),
+                },
+            )
+            .await;
+        let first = cache.get(&part, "github-content:big").await.unwrap();
+        let second = cache.get(&part, "github-content:big").await.unwrap();
+        assert_eq!(first.bytes.len(), 4 << 20);
+        assert_eq!(first.bytes.as_ptr(), second.bytes.as_ptr());
     }
 
     #[tokio::test]
@@ -284,7 +298,7 @@ mod tests {
                 &part,
                 "github-content:k".into(),
                 CachedContent {
-                    bytes: body.clone(),
+                    bytes: body.clone().into(),
                     etag: None,
                     resolved_ref: "sha".into(),
                 },
@@ -301,7 +315,7 @@ mod tests {
         let reader = GitHubContentCache::new(CacheConfig::default(), Some(dir.path().into()));
         assert_eq!(
             reader.get(&part, "github-content:k").await.unwrap().bytes,
-            b"legacy"
+            &b"legacy"[..]
         );
     }
 }

@@ -213,7 +213,7 @@ impl CompiledPattern {
 
         let mut seen = HashSet::new();
         let mut matches = Vec::new();
-        let line_index = LineIndex::new(content);
+        let line_index = LineIndex::tree_sitter(content);
         visit_named(tree.root_node(), deadline, &mut |candidate| {
             if !self.matches_candidate(candidate) {
                 return Ok(());

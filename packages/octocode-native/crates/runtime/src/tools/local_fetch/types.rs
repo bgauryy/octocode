@@ -15,20 +15,6 @@ impl std::str::FromStr for MatchString {
     }
 }
 
-impl MatchString {
-    /// The searched text as one line: a list joins its entries with ` | `.
-    pub fn display(&self) -> String {
-        match self {
-            MatchString::String(one) => one.to_string(),
-            MatchString::Array(list) => list
-                .iter()
-                .map(|one| one.as_str())
-                .collect::<Vec<_>>()
-                .join(" | "),
-        }
-    }
-}
-
 /// The engine works in `usize`; the wire contract (generated from the core
 /// Zod schema) owns the field set and its JSON integer types.
 impl LocalFetchQuery {
@@ -39,28 +25,28 @@ impl LocalFetchQuery {
             _ => None,
         }
     }
-    pub fn start_line(&self) -> Option<usize> {
+    pub(crate) fn start_line(&self) -> Option<usize> {
         self.single_range().map(|range| range.start)
     }
-    pub fn end_line(&self) -> Option<usize> {
+    pub(crate) fn end_line(&self) -> Option<usize> {
         self.single_range().map(|range| range.end)
     }
     /// Sets the read to the one line span `start..=end`.
-    pub fn set_line_span(&mut self, start: usize, end: usize) {
+    pub(crate) fn set_line_span(&mut self, start: usize, end: usize) {
         self.ranges = format!("{start}-{end}").parse().ok().into_iter().collect();
     }
     /// `regex:"rust"` or `"pcre2"`: `matchString` is a regular expression.
-    pub fn is_regex(&self) -> bool {
+    pub(crate) fn is_regex(&self) -> bool {
         matches!(self.regex, Some(ReadRegex::Rust | ReadRegex::Pcre2))
     }
     /// `regex:"pcre2"`: lookaround and backreferences, under a deadline.
-    pub fn is_pcre2(&self) -> bool {
+    pub(crate) fn is_pcre2(&self) -> bool {
         self.regex == Some(ReadRegex::Pcre2)
     }
     /// Whether `pattern` matches case-sensitively. Omitted means smart, as
     /// in localSearch: sensitive only when the pattern has an uppercase
     /// letter.
-    pub fn case_sensitive_for(&self, pattern: &str) -> bool {
+    pub(crate) fn case_sensitive_for(&self, pattern: &str) -> bool {
         match self.case_mode {
             Some(ReadCaseMode::Sensitive) => true,
             Some(ReadCaseMode::Smart) | None => pattern.chars().any(char::is_uppercase),
@@ -68,20 +54,20 @@ impl LocalFetchQuery {
         }
     }
     /// Context lines per match; the contract bounds the request.
-    pub fn context_lines(&self) -> Option<usize> {
+    pub(crate) fn context_lines(&self) -> Option<usize> {
         self.context_lines.map(usize_of_signed)
     }
-    pub fn context_bytes(&self) -> Option<usize> {
+    pub(crate) fn context_bytes(&self) -> Option<usize> {
         self.context_bytes.map(usize_of_signed)
     }
-    pub fn offset(&self) -> Option<usize> {
+    pub(crate) fn offset(&self) -> Option<usize> {
         self.offset.map(usize_of_signed)
     }
-    pub fn window_length(&self) -> Option<usize> {
+    pub(crate) fn window_length(&self) -> Option<usize> {
         self.length.map(|n| usize_of(n.get()))
     }
     /// Every `matchString` entry (a list matches any of them).
-    pub fn match_strings(&self) -> Vec<&str> {
+    pub(crate) fn match_strings(&self) -> Vec<&str> {
         match &self.match_string {
             None => Vec::new(),
             Some(MatchString::String(one)) => vec![one.as_str()],
@@ -91,7 +77,7 @@ impl LocalFetchQuery {
     /// `ranges` parsed into 1-based inclusive line ranges, in request order.
     /// The contract admits only `start-end` digits, so a malformed entry
     /// (unreachable after validation) is skipped.
-    pub fn line_ranges(&self) -> Vec<LineRange> {
+    pub(crate) fn line_ranges(&self) -> Vec<LineRange> {
         self.ranges
             .iter()
             .filter_map(|range| {
@@ -100,22 +86,22 @@ impl LocalFetchQuery {
             })
             .collect()
     }
-    pub fn has_ranges(&self) -> bool {
+    pub(crate) fn has_ranges(&self) -> bool {
         !self.ranges.is_empty()
     }
     /// `block:true`: widen windows to the enclosing declaration.
-    pub fn block(&self) -> bool {
+    pub(crate) fn block(&self) -> bool {
         self.block == Some(true)
     }
     /// Drop the multi-window selectors (`ranges`, `block`) from a derived query.
-    pub fn clear_block_selectors(&mut self) {
+    pub(crate) fn clear_block_selectors(&mut self) {
         self.ranges = Vec::new();
         self.block = None;
     }
-    pub fn path(&self) -> &str {
+    pub(crate) fn path(&self) -> &str {
         self.path.as_str()
     }
-    pub fn minify_mode(&self) -> MinifyMode {
+    pub(crate) fn minify_mode(&self) -> MinifyMode {
         self.minify.unwrap_or(MinifyMode::None)
     }
 }
@@ -144,11 +130,15 @@ pub(crate) fn wire_count(value: usize) -> i64 {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LineRange {
+    /// First line (1-based), named like every span's start (X1).
+    #[serde(rename = "line")]
     pub start: usize,
+    /// Last line (1-based, inclusive).
+    #[serde(rename = "endLine")]
     pub end: usize,
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// One window of the selected view; [`PaginationWire`] writes it.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Pagination {
     pub unit: WindowUnit,
     pub offset: usize,
@@ -158,11 +148,9 @@ pub struct Pagination {
     pub total_lines: usize,
     pub total_bytes: usize,
     pub has_more: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub next_offset: Option<usize>,
     /// A byte page that finished an oversized line: the 0-based line the
     /// next page resumes line paging at, so only that line is byte-chunked.
-    #[serde(skip)]
     pub resume_line: Option<usize>,
 }
 /// A typed localFetch follow-up; it serializes through the one shared
@@ -221,19 +209,23 @@ pub struct NextCalls {
     #[serde(rename = "viewTree", skip_serializing_if = "Option::is_none", default)]
     pub view_tree: Option<serde_json::Value>,
     /// A structureSearch listing that finds a missing file by its stem.
-    #[serde(
-        rename = "viewStructure",
-        skip_serializing_if = "Option::is_none",
-        default
-    )]
-    pub view_structure: Option<serde_json::Value>,
+    #[serde(rename = "findFile", skip_serializing_if = "Option::is_none", default)]
+    pub find_file: Option<serde_json::Value>,
     /// A localSearch for a missed matchString in the file's directory.
     #[serde(
-        rename = "searchContent",
+        rename = "textSearch",
         skip_serializing_if = "Option::is_none",
         default
     )]
-    pub search_content: Option<serde_json::Value>,
+    pub text_search: Option<serde_json::Value>,
+    /// The same read matched case-insensitively, after a case-sensitive
+    /// matchString selected no line.
+    #[serde(
+        rename = "ignoreCase",
+        skip_serializing_if = "Option::is_none",
+        default
+    )]
+    pub ignore_case: Option<Continuation>,
 }
 
 impl NextCalls {
@@ -248,8 +240,9 @@ impl NextCalls {
             read_block,
             expand_context,
             view_tree,
-            view_structure,
-            search_content,
+            find_file,
+            text_search,
+            ignore_case,
         } = other;
         for (mine, theirs) in [
             (&mut self.r#continue, r#continue),
@@ -259,6 +252,7 @@ impl NextCalls {
             (&mut self.continue_block, continue_block),
             (&mut self.read_block, read_block),
             (&mut self.expand_context, expand_context),
+            (&mut self.ignore_case, ignore_case),
         ] {
             if mine.is_none() {
                 *mine = theirs;
@@ -266,8 +260,8 @@ impl NextCalls {
         }
         for (mine, theirs) in [
             (&mut self.view_tree, view_tree),
-            (&mut self.view_structure, view_structure),
-            (&mut self.search_content, search_content),
+            (&mut self.find_file, find_file),
+            (&mut self.text_search, text_search),
         ] {
             if mine.is_none() {
                 *mine = theirs;
@@ -362,27 +356,26 @@ pub fn uncovered(wanted: &[LineRange], shown: &[LineRange]) -> Vec<LineRange> {
     rest.dedup();
     rest
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MinifyFallback {
     pub requested: MinifyMode,
     pub applied: MinifyMode,
     pub reason: String,
 }
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub enum PartialReason {
     #[serde(rename = "full-content-size-limit")]
-    FullContentLimit,
+    FullContent,
     #[serde(rename = "full-content-source-size-limit")]
-    FullContentSourceSizeLimit,
+    FullContentSource,
     #[serde(rename = "security-selected-view-size-limit")]
-    SecuritySelectedViewSizeLimit,
+    SecuritySelectedView,
 }
 
 /// A declaration a `block:true` read widened a hit to: its name, name line
 /// and last line, an lspSearch anchor without parsing the text.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeclaredBlock {
     pub symbol_name: String,
@@ -393,75 +386,42 @@ pub struct DeclaredBlock {
 /// Internal read result. Rust callers see every field; the wire form (the
 /// manual `Serialize` below) omits values an agent can already derive from
 /// another emitted field.
-#[derive(Clone, Debug, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LocalFetchResult {
-    #[serde(skip_serializing_if = "String::is_empty")]
     pub path: String,
-    #[serde(skip)]
     pub status: String,
-    #[serde(skip)]
     pub resource_missing: bool,
-    #[serde(skip)]
     pub source_sha256: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub content_view: Option<MinifyMode>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub minify_fallback: Option<MinifyFallback>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub error_code: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub warnings: Vec<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub hints: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub total_lines: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub start_line: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub end_line: Option<usize>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub source_line_ranges: Vec<LineRange>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub match_ranges: Vec<LineRange>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub matched_lines: Vec<usize>,
     /// The declarations a `block:true` match read widened hits to.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub blocks: Vec<DeclaredBlock>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub selected_match_count: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub modified: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub source_chars: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub source_bytes: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub returned_chars: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub returned_bytes: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub returned_lines: Option<usize>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub pagination: Option<Pagination>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub is_partial: Option<bool>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub partial_reasons: Vec<PartialReason>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub terminal_limit: Option<bool>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub metadata_unavailable: Vec<String>,
     /// The requested offset is past the end of the selected view; emitted as
     /// `pagination.outOfRange`.
-    #[serde(default)]
     pub out_of_range: bool,
-    #[serde(skip_serializing_if = "Option::is_none", skip_deserializing)]
     pub next: Option<NextCalls>,
 }
 impl LocalFetchResult {
@@ -566,12 +526,12 @@ impl LocalFetchResult {
     }
 }
 
-/// Wire view of [`Pagination`]: the view total in `unit` only when it
-/// differs from the source total already emitted at the top level.
+/// Wire view of [`Pagination`]: the view total in `unit`. A line view's
+/// total is stated only when it differs from the top-level `totalLines`; a
+/// byte view always states it, because `sourceBytes` is debug-only.
 struct PaginationWire<'a> {
     page: &'a Pagination,
     source_lines: Option<usize>,
-    source_bytes: Option<usize>,
     out_of_range: bool,
 }
 impl Serialize for PaginationWire<'_> {
@@ -586,9 +546,7 @@ impl Serialize for PaginationWire<'_> {
             WindowUnit::Lines if self.source_lines != Some(page.total_lines) => {
                 map.serialize_entry("totalLines", &page.total_lines)?
             }
-            WindowUnit::Bytes if self.source_bytes != Some(page.total_bytes) => {
-                map.serialize_entry("totalBytes", &page.total_bytes)?
-            }
+            WindowUnit::Bytes => map.serialize_entry("totalBytes", &page.total_bytes)?,
             _ => {}
         }
         map.serialize_entry("hasMore", &page.has_more)?;
@@ -688,7 +646,6 @@ impl Serialize for LocalFetchResult {
                 &PaginationWire {
                     page,
                     source_lines: self.total_lines,
-                    source_bytes: self.source_bytes,
                     out_of_range: self.out_of_range,
                 },
             )?;
@@ -735,13 +692,21 @@ pub struct PathFailure {
 pub trait PathAccess {
     fn validate_read(&self, path: &Path) -> Result<ValidatedRead, PathFailure>;
 }
+/// Byte spans one regex selected, in source order. `truncated` says the scan
+/// stopped at its match limit with further matches unseen.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RegexSpans {
+    pub spans: Vec<(usize, usize)>,
+    pub truncated: bool,
+}
+
 pub trait RegexMatch {
     fn matching_ranges(
         &self,
         pattern: &str,
         case_sensitive: bool,
         input: &str,
-    ) -> Result<Vec<(usize, usize)>, String>;
+    ) -> Result<RegexSpans, String>;
 }
 
 #[derive(Clone, Default)]
@@ -759,18 +724,18 @@ impl RegexMatch for LocalFetchRegex {
         source: &str,
         case_sensitive: bool,
         input: &str,
-    ) -> Result<Vec<(usize, usize)>, String> {
+    ) -> Result<RegexSpans, String> {
         use crate::regex::{EcmaPattern, RegexExecutionClass, RegexLimits};
         // Matches select lines, so `^`/`$` must anchor per line.
         let flags = if case_sensitive { "gm" } else { "gim" };
         let limits = RegexLimits {
             max_pattern_bytes: 4_096,
             max_input_bytes: 10 * 1024 * 1024,
-            max_matches: 10_000,
+            max_matches: super::extraction::MAX_REGEX_MATCHES,
         };
         let pattern = EcmaPattern::compile(source, flags, limits)
             .map_err(|error| format!("Invalid regex pattern: {}", error.message))?;
-        let ranges = match pattern.execution_class() {
+        let found = match pattern.execution_class() {
             RegexExecutionClass::LinearInProcess => pattern.find_ranges(input),
             RegexExecutionClass::RequiresIsolatedEngine => self
                 .isolated
@@ -781,10 +746,14 @@ impl RegexMatch for LocalFetchRegex {
                 .find_ranges(source, flags, input),
         }
         .map_err(|error| format!("Invalid regex pattern: {}", error.message))?;
-        Ok(ranges
-            .into_iter()
-            .map(|range| (range.start, range.end))
-            .collect())
+        Ok(RegexSpans {
+            spans: found
+                .ranges
+                .into_iter()
+                .map(|range| (range.start, range.end))
+                .collect(),
+            truncated: found.truncated,
+        })
     }
 }
 

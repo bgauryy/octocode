@@ -6,11 +6,11 @@ For the public query contract, see [`lspSearch`](../../../../docs/OCTOCODE_TOOLS
 
 Tree-sitter and Oxc answer syntactic questions from embedded parsers. LSP operations launch a real language server over stdio to resolve cross-file identity, definitions, references, types, implementations, and call relationships. These evidence classes are not interchangeable.
 
-When an operation requires an unavailable server, `lspSearch` returns an error row with `errorCode:"lsp.serverUnavailable"` and valid recovery calls. It never labels same-file or syntactic guesses as semantic results. A running server that lacks the requested capability returns `lsp.capabilityUnavailable`. A supported server returning no rows establishes only an empty result within that server's indexed scope and configuration.
+When an operation requires an unavailable server, `lspSearch` returns an error row with `errorCode:"serverUnavailable"` and valid recovery calls. It never labels same-file or syntactic guesses as semantic results. A running server that lacks the requested capability returns `capabilityUnavailable`. A supported server returning no rows establishes only an empty result within that server's indexed scope and configuration.
 
 `documentSymbols` may use native Oxc or Markdown outline support without a server. Other semantic operations require their corresponding negotiated LSP capability.
 
-Public output positions are one-based (only the `position` input is zero-based), and servers communicate in UTF-16. A server selecting an unsupported encoding fails startup.
+Public positions, input and output, are one-based, and servers communicate in UTF-16. A server selecting an unsupported encoding fails startup.
 
 ## Resolution
 
@@ -94,19 +94,24 @@ A configuration maps file extensions to launch specs:
 - Successful use renews idle expiry and drives least-recently-used eviction.
 - Clearing a key invalidates pending starts and waiters; late completions cannot publish stale clients.
 - Failed health checks evict the client so the next acquisition starts a replacement.
+- A live client whose readiness wait ended in `timeout` stays pooled (it keeps indexing); the next acquisition waits for readiness again, so the stored `timeout` never fails every later call.
 - Runtime shutdown stops every client and joins owned work.
 
 Long-lived MCP sessions can reuse warm servers. A one-shot native CLI process cannot share its pool with a later process.
 
 ## Resource containment
 
-Language-server frames, writes, notifications, stderr, cancellation, and process teardown are bounded. Spawned servers default to a 4 GiB child-memory cap, configurable through `maxMemoryMb` (`0` disables it). Linux and other supported Unix targets apply `RLIMIT_AS` before `exec`; Windows retains a Job Object with `JOB_OBJECT_LIMIT_JOB_MEMORY` and kill-on-close behavior. macOS cannot use `RLIMIT_AS` (Darwin processes inherit virtual mappings that exceed the cap before `exec`, so lowering it in `pre_exec` fails every spawn with `EINVAL`). There an RSS watchdog samples the resident memory of the server and all its descendants every 2 s; over the cap it fails the connection with `language server exceeded memory cap (… MiB resident > … MiB maxMemoryMb)` and SIGKILLs the whole tree. The pool then replaces the server on the next acquisition.
+Language-server frames, writes, notifications, stderr, cancellation, and process teardown are bounded. Spawned servers default to a 4 GiB child-memory cap, configurable through `maxMemoryMb` (`0` disables it). The cap bounds memory the server tree uses, not address space it only reserves. On macOS and Linux an RSS watchdog samples the resident memory of the server and all its descendants every 2 s; over the cap it fails the connection with `language server exceeded memory cap (… MiB resident > … MiB maxMemoryMb)` and SIGKILLs the whole tree. The pool then replaces the server on the next acquisition. Windows keeps a Job Object with `JOB_OBJECT_LIMIT_JOB_MEMORY` (committed memory) and kill-on-close behavior. Other Unix targets have no watchdog and apply `RLIMIT_AS` before `exec` as their only bound.
+
+`RLIMIT_AS` is not used on macOS or Linux. It limits reserved virtual address space, and servers reserve far more than they touch: a JVM (jdtls) reserves its maximum heap (a quarter of host RAM by default) plus class space and code cache, V8 reserves WebAssembly memory cages, and Go and glibc reserve arenas. A 4 GiB address-space cap stops such servers from starting on large hosts while they use a fraction of it. On macOS it cannot be lowered at all (Darwin processes inherit virtual mappings that exceed the cap before `exec`, so `pre_exec` fails every spawn with `EINVAL`).
+
+Teardown sweeps the server's process group while the leader is still unreaped: `stop` waits for the leader's exit with `waitid(WNOWAIT)`, signals the group, and reaps the leader last. The unreaped leader keeps its pid, which is also the group id, reserved, so the sweep can never reach an unrelated process that received a recycled pid.
 
 Availability probes (for example `rust-analyzer --version`, which a rustup proxy may turn into a toolchain install) are bounded at 3 s. On timeout the probe's process group **and** every descendant found through parent links are frozen and SIGKILLed, so a child that called `setsid` does not escape.
 
 ### Verifying Linux-only paths
 
-The `/proc` parsing and tree walk in `lsp/process_tree.rs` are platform-independent and unit-tested on every host against a synthetic `/proc` directory (hostile `comm` fields, vanished and zombie pids, cycles, deep and oversized trees); only the `/proc` path and `sysconf` call are Linux-gated. The Linux `cfg` code itself (`RLIMIT_AS` pre-exec, the `/proc` readers, their tests) can be compile- and lint-checked from macOS with [`cargo-zigbuild`](https://github.com/rust-cross/cargo-zigbuild) and zig, no extra C flags needed:
+The `/proc` parsing and tree walk in `lsp/process_tree.rs` are platform-independent and unit-tested on every host against a synthetic `/proc` directory (hostile `comm` fields, vanished and zombie pids, cycles, deep and oversized trees); only the `/proc` path and `sysconf` call are Linux-gated. The Linux `cfg` code itself (the `/proc` readers, the watchdog, their tests) can be compile- and lint-checked from macOS with [`cargo-zigbuild`](https://github.com/rust-cross/cargo-zigbuild) and zig, no extra C flags needed:
 
 ```sh
 rustup target add aarch64-unknown-linux-gnu
@@ -115,15 +120,15 @@ cargo-zigbuild test -p octocode-engine --all-features --target aarch64-unknown-l
 cargo-zigbuild clippy -p octocode-native --no-default-features --all-targets --target aarch64-unknown-linux-gnu -- -D warnings
 ```
 
-Running the Linux tests (kernel `/proc`, `RLIMIT_AS` enforcement, SIGSTOP/SIGKILL of a `setsid` grandchild) still needs a real Linux kernel; the `engine.yml` workflow runs `cargo clippy` and `cargo test -p octocode-engine --all-features` on `ubuntu-latest`.
+Running the Linux tests (kernel `/proc`, address-space reservations past the cap, the RSS watchdog, SIGSTOP/SIGKILL of a `setsid` grandchild) still needs a real Linux kernel; the `engine.yml` workflow runs `cargo clippy` and `cargo test -p octocode-engine --all-features` on `ubuntu-latest`.
 
 `start` and `stop` take the client's locks in one order (`child` → `connection` → `stderr_task`) and hold `child` throughout, so a `stop` that overlaps a `start` waits for it and then shuts down the server it published.
 
 ## Readiness and diagnostics
 
-Timed-out and dropped requests emit `$/cancelRequest` when possible.
+Timed-out and dropped requests emit `$/cancelRequest` when possible. One request that uses its whole 30 s timeout is cancelled and the server is kept. The connection is retired (and the pool starts a replacement on the next acquisition) on a second consecutive timeout with no answered request between, or when the cancel cannot be written.
 
-Progress-aware servers must reach a full quiet interval before readiness is confirmed. New progress restarts that interval. Servers without progress use a bounded settle state, which does not prove indexing completion. Empty results with unconfirmed readiness remain partial.
+Progress-aware servers must reach a full quiet interval before readiness is confirmed. New progress restarts that interval. Servers without progress use a bounded settle state (2 s at startup), which does not prove indexing completion. A first `didOpen` waits a short settle (400 ms) for a project load the open starts; it is skipped when the startup wait already confirmed the project load (`progressIdle`), and only progress already under way is drained. Empty results with unconfirmed readiness remain partial.
 
 Pull-capable servers use `textDocument/diagnostic`. Push diagnostics are retained in a bounded per-document cache; content updates clear stale entries, versions reject older publications, and notifications for another document cannot satisfy a waiter.
 

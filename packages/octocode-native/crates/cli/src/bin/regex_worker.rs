@@ -15,11 +15,10 @@ fn main() {
         .unwrap_or_else(|error| WorkerResponse {
             version: REGEX_WORKER_PROTOCOL_VERSION,
             ranges: None,
-            replaced: None,
             error: Some(error),
         });
     let encoded = serde_json::to_vec(&response).unwrap_or_else(|_| {
-        br#"{"version":1,"ranges":null,"replaced":null,"error":"serialization failure"}"#.to_vec()
+        br#"{"version":1,"ranges":null,"error":"serialization failure"}"#.to_vec()
     });
     let _ = std::io::stdout().write_all(&encoded);
 }
@@ -161,29 +160,6 @@ fn run() -> Result<WorkerResponse, String> {
             Ok(WorkerResponse {
                 version: REGEX_WORKER_PROTOCOL_VERSION,
                 ranges: Some(ranges),
-                replaced: None,
-                error: None,
-            })
-        }
-        WorkerOperation::ReplaceLiteral { replacement } => {
-            let global = request.flags.contains('g');
-            let matches = regex
-                .find_iter(&request.input)
-                .take(if global { usize::MAX } else { 1 })
-                .map(|item| item.range())
-                .collect::<Vec<_>>();
-            let mut output = String::with_capacity(request.input.len());
-            let mut cursor = 0;
-            for range in matches {
-                output.push_str(&request.input[cursor..range.start]);
-                output.push_str(&replacement);
-                cursor = range.end;
-            }
-            output.push_str(&request.input[cursor..]);
-            Ok(WorkerResponse {
-                version: REGEX_WORKER_PROTOCOL_VERSION,
-                ranges: None,
-                replaced: Some(output),
                 error: None,
             })
         }

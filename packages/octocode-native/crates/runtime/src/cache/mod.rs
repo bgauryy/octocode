@@ -6,7 +6,7 @@ pub mod evictions;
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -31,7 +31,7 @@ pub(crate) fn create_private_dir_all(path: &Path) -> std::io::Result<()> {
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub struct CachePartition {
+pub struct StorePartition {
     pub endpoint: String,
     pub credential_fingerprint: String,
 }
@@ -40,7 +40,7 @@ pub struct CachePartition {
 pub struct CacheKey {
     pub namespace: String,
     pub resource: String,
-    pub partition: CachePartition,
+    pub partition: StorePartition,
 }
 
 /// How an entry ages; the writer chooses it at `put`.
@@ -96,11 +96,16 @@ struct Entry<V> {
     bytes: usize,
     class: CacheClass,
     stored_at: Instant,
+    /// This entry's slot in [`Memory::order`].
+    tick: u64,
 }
 
 struct Memory<V> {
     entries: HashMap<CacheKey, Entry<V>>,
-    order: VecDeque<CacheKey>,
+    /// Keys by last use: the first tick is the least recently used. A touch
+    /// moves one key, O(log n), instead of rescanning the whole order.
+    order: BTreeMap<u64, CacheKey>,
+    next_tick: u64,
     bytes: usize,
 }
 
@@ -108,8 +113,14 @@ impl<V> Memory<V> {
     fn remove(&mut self, key: &CacheKey) {
         if let Some(entry) = self.entries.remove(key) {
             self.bytes = self.bytes.saturating_sub(entry.bytes);
-            self.order.retain(|candidate| candidate != key);
+            self.order.remove(&entry.tick);
         }
+    }
+
+    fn tick(&mut self) -> u64 {
+        let tick = self.next_tick;
+        self.next_tick += 1;
+        tick
     }
 }
 
@@ -135,7 +146,8 @@ impl<V: Clone + Serialize + DeserializeOwned> Store<V> {
             disk: disk.map(Disk::new),
             memory: Mutex::new(Memory {
                 entries: HashMap::new(),
-                order: VecDeque::new(),
+                order: BTreeMap::new(),
+                next_tick: 0,
                 bytes: 0,
             }),
             config,
@@ -146,13 +158,18 @@ impl<V: Clone + Serialize + DeserializeOwned> Store<V> {
         let now = Instant::now();
         {
             let mut memory = self.memory.lock().unwrap_or_else(|p| p.into_inner());
-            if let Some(entry) = memory.entries.get(key) {
+            let tick = memory.next_tick;
+            let memory = &mut *memory;
+            if let Some(entry) = memory.entries.get_mut(key) {
                 let age = now.saturating_duration_since(entry.stored_at);
                 match freshness(&self.config, entry.class, age) {
                     Some(fresh) => {
                         let value = Arc::clone(&entry.value);
-                        memory.order.retain(|candidate| candidate != key);
-                        memory.order.push_back(key.clone());
+                        if let Some(touched) = memory.order.remove(&entry.tick) {
+                            memory.order.insert(tick, touched);
+                            entry.tick = tick;
+                            memory.next_tick += 1;
+                        }
                         return Some(Cached { value, fresh });
                     }
                     None => memory.remove(key),
@@ -218,6 +235,7 @@ impl<V: Clone + Serialize + DeserializeOwned> Store<V> {
         }
         let mut memory = self.memory.lock().unwrap_or_else(|p| p.into_inner());
         memory.remove(&key);
+        let tick = memory.tick();
         memory.entries.insert(
             key.clone(),
             Entry {
@@ -225,13 +243,14 @@ impl<V: Clone + Serialize + DeserializeOwned> Store<V> {
                 bytes,
                 class,
                 stored_at,
+                tick,
             },
         );
-        memory.order.push_back(key);
+        memory.order.insert(tick, key);
         memory.bytes = memory.bytes.saturating_add(bytes);
         while memory.entries.len() > self.config.max_entries || memory.bytes > self.config.max_bytes
         {
-            let Some(oldest) = memory.order.pop_front() else {
+            let Some((_, oldest)) = memory.order.pop_first() else {
                 break;
             };
             if let Some(entry) = memory.entries.remove(&oldest) {
@@ -432,4 +451,4 @@ impl Disk {
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

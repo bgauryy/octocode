@@ -1,20 +1,17 @@
 # Octocode config
 
-`@octocodeai/config` is the zero-runtime-dependency configuration loader shared by the
-Octocode CLI, MCP server, native packages, extensions, and standalone skills.
-It is the only owner of Octocode home-directory resolution and `.env` or
-`.octocoderc` parsing.
+`@octocodeai/config` is the zero-runtime-dependency owner of Octocode
+home-directory resolution, `.env` policy, and the configuration contract
+(`config-contract.json`), shared by the Octocode CLI launcher, MCP server,
+extensions, and standalone skills. Settings are resolved by the native runtime
+from the same contract; `octocode config` shows what it resolved.
 
 ## Public API
 
-- `getOctocodeHome(env?)` resolves `OCTOCODE_HOME` or the platform default.
-- `parseEnv(text)` parses environment-file content.
-- `loadOctocodeEnv(options)` loads Octocode environment values.
-- `propagateOctocodeEnv(options)` applies trusted global and project settings.
-- `loadOctocoderc(home?)` reads the global `.octocoderc`; `loadOctocodercLayers({ home?, cwd?, env? })` returns `[workspace, global]` for `resolveConfigFields(layers, env)` (per-field precedence). Broken files warn on stderr with their path and are ignored; nothing throws.
-- `PROTECTED_KEYS` identifies values that project configuration cannot replace.
-- `configFieldEnvNames(path)` lists a setting's env names, highest priority first; `ENV_TOKEN_VARS` lists GitHub token names.
-- `contractDriftAllowed(env, { bundled })` and `contractDriftMessage(core, native)` are the shared fail-closed core/native fingerprint gate (`devOverridesAllowed` covers every dev-only override); `INTERACTIVE_EXECUTION_TIMEOUT_SECS` is the CLI/MCP per-request budget.
+- `getOctocodeHome(env?)` resolves `OCTOCODE_HOME` or the platform default; `getConfigFilePath(home?)` and `getProjectConfigFilePath(cwd?)` name the global and workspace `.octocoderc`.
+- `loadOctocodeEnv(options)` loads the home and workspace `.env` files; `applyOctocodeEnv(map, options)` applies them under the protected-key policy; `propagateOctocodeEnv(options)` does both.
+- `CONFIG_FIELDS` (every setting's metadata), `DEFAULT_CONFIG` (generated defaults), `configFieldEnvNames(path)` (a setting's env names), and `ENV_TOKEN_VARS` (GitHub token names, priority order) come from the contract.
+- `contractDriftAllowed(env, { bundled })` and `contractDriftMessage(core, native)` are the shared fail-closed core/native fingerprint gate (`devOverridesAllowed` covers every dev-only override); `INTERACTIVE_EXECUTION_TIMEOUT_SECS` is the CLI/MCP per-request budget; `RuntimeSurface` names the runtime surfaces.
 
 Do not reimplement these rules in a consuming package.
 
@@ -40,15 +37,6 @@ propagateOctocodeEnv({
 Workspace loading defaults to on when `cwd` is supplied. Node embedders may explicitly opt out with `trusted: false`. Standalone CLI and MCP load workspace and global files; native `trustedProject` controls executable LSP configuration separately. Diagnostics report
 key names and source files without credential values. Credential aliases first choose the highest-priority source, then their declared alias order within that source. A workspace alias can override a global canonical key.
 
-## CLI
-
-The package also exposes `octocode-config`:
-
-```bash
-npx @octocodeai/config --keys
-npx @octocodeai/config --check OCTOCODE_HOME
-```
-
 ## Development
 
 From the repository root:
@@ -64,9 +52,9 @@ yarn workspace @octocodeai/config lint
 Configuration fields, defaults, environment bindings, trust policy, and
 validation constraints are edited only in `config-contract.json`. The
 TypeScript generator and native Rust build script independently validate that
-file against `config-contract.schema.json`, then generate language-native types
-and generic-interpreter metadata. The TypeScript generator also emits the user
-settings reference.
+file against `config-contract.schema.json`. The TypeScript generator emits the
+field metadata and defaults this package exports and the user settings
+reference; the native build emits the resolver the runtime uses.
 
 Tool input/output types are generated, never hand-written: TypeScript
 consumers import `ToolQuery<'localFetch'>`, `LocalSearchQuery`,

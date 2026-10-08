@@ -20,7 +20,7 @@ pub(super) fn provider_for_operation(operation: &str) -> Option<&'static str> {
         "documentSymbols" => Some("documentSymbolProvider"),
         "workspaceSymbol" => Some("workspaceSymbolProvider"),
         "diagnostic" => Some("diagnosticProvider"),
-        "callers" | "callees" | "callHierarchy" => Some("callHierarchyProvider"),
+        "callers" | "callees" => Some("callHierarchyProvider"),
         "supertypes" | "subtypes" => Some("typeHierarchyProvider"),
         _ => None,
     }
@@ -180,9 +180,8 @@ pub(super) fn attach_provider_context(
 }
 
 /// The anchor receipt a row shows: what the request did not say, the line a
-/// symbol moved to off its `lineHint`. A `position` anchor, or a symbol found
-/// on its `lineHint` (only its column is new), restates the request: no
-/// receipt.
+/// symbol moved to off its `lineHint`. A symbol found on its `lineHint`
+/// (only its column is new) restates the request: no receipt.
 pub(super) fn public_resolved_symbol(
     query: &LspSearchQuery,
     resolved_symbol: Option<Value>,

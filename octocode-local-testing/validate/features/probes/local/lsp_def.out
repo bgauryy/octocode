@@ -1,5 +1,0 @@
-# cmd: octocode lspSearch {"goal": "g", "reasoning": "r", "operation": "definition", "uri": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts", "symbolName": "helper", "lineHint": 4}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"resolvedSymbol":{"name":"helper","foundAtLine":4,"foundAtCharacter":13},"payload":{"kind":"definition","locations":[{"displayRange":{"startLine":1,"startCharacter":17,"endLine":1},"content":"export function helper(n: number): number {\n  console.log('helper', n);\n  return n * 2;\n}","path":"b.ts"}]},"path":"a.ts"}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

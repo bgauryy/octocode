@@ -46,7 +46,6 @@ describe('published package release contract', () => {
   it('wires desktop user settings to the runtime environment', () => {
     expect(dxtManifest.server.mcp_config.env).toMatchObject({
       GITHUB_TOKEN: '${user_config.github_token}',
-      NPM_CONFIG_REGISTRY: '${user_config.npm_registry}',
     });
   });
 

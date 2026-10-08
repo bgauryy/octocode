@@ -1,46 +1,15 @@
-# DXT packaging exclusions
-# Development files
+# DXT packaging exclusions: everything in this package that is not the
+# server bundle (dist/), its runtime dependencies, or the manifest assets.
+.octocode/
 src/
 tests/
-*.test.ts
-*.test.js
+sanity_tests/
+scripts/
 coverage/
-
-# Build tools
-rollup.config.js
+buildConfig.mjs
 tsconfig.json
-tsconfig.test.json
+tsconfig.build.json
+tsconfig.package.json
 vitest.config.ts
-jest.config.js
-
-# Documentation
-docs/
-CHANGELOG.md
-TODO.md
-
-# Development dependencies
-.yarn/
-.yarnrc
-yarn.lock
-package-lock.json
-
-# IDE and system files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Logs and temp files
-*.log
-tmp/
-temp/
-
-# Other DXT files
+ARCHITECTURE.md
 *.dxt
-
-# Test fixtures
-test/ 
-
-# sqlite DB
-mcp.sqlite

@@ -18,7 +18,7 @@ export interface DevOverrideOptions {
 type EnvLike = Readonly<Record<string, string | undefined>>;
 
 /**
- * Dev-only overrides (`OCTOCODE_NATIVE_BINDING`, `OCTOCODE_ALLOW_CONTRACT_DRIFT`)
+ * Dev-only overrides (`OCTOCODE_NATIVE_BINDING`, `OCTOCODE_NATIVE_BIN`, `OCTOCODE_ALLOW_CONTRACT_DRIFT`)
  * are never honoured under `NODE_ENV=production`. A shipped bundle is treated as
  * production by default — `npx` and registry installs leave `NODE_ENV` unset —
  * so it honours them only when `NODE_ENV` explicitly opts in with

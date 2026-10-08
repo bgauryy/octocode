@@ -4,7 +4,7 @@ use crate::minify::strategies::{
     minify_brace_code, minify_code_core, minify_css_quality, minify_embedded_web,
     minify_general_core, minify_javascript_core, minify_json_readable_inner, minify_markdown_core,
 };
-use crate::text::file_extension::get_extension_internal;
+use crate::text::file_extension::extension_of;
 
 /// Content-view minification — agent-readable; indentation is kept wherever
 /// it can carry syntax.
@@ -14,7 +14,7 @@ pub fn apply_content_view_minification_inner(content: &str, file_path: &str) -> 
         return content.to_owned();
     }
     let result = std::panic::catch_unwind(|| {
-        let ext = get_extension_internal(file_path, true, "txt");
+        let ext = extension_of(file_path, true, "txt");
         // Resolve the file-type config through the SAME shared resolver the full
         // minify path uses (`minifier::get_file_config`) rather than re-deriving
         // the basename / indentation-sensitive lookup here. The two entry points

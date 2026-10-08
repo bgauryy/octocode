@@ -3,38 +3,32 @@
 
 use napi::{Env, bindgen_prelude::PromiseRaw};
 use napi_derive::napi;
-use octocode_native::providers::github::login::{
-    client_id_for_host, get_token_with_refresh_in_store, refresh_auth_token_result_in_store,
-};
-use octocode_native::providers::github::{CredentialStore, StoredCredentials};
 use octocode_native::runtime::{HostOptions, RequestAdmission, RuntimeError, ToolRuntime};
 use octocode_native::security::{scrub_error_payload, scrub_error_text};
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::sync::Arc;
 
-fn credential_error(error: octocode_native::providers::github::ProviderError) -> napi::Error {
-    napi::Error::new(napi::Status::GenericFailure, error.message.to_string())
-}
-
-/// Admit `request_id`, then run `call` on the runtime as a JS promise.
+/// Admit `request_id` with its request options (`{githubToken?}`), then run
+/// `call` on the runtime as a JS promise.
 fn spawn_admitted<'env, Fut>(
     runtime: &Arc<ToolRuntime>,
     env: &'env Env,
     request_id: String,
+    options: Option<Value>,
     call: impl FnOnce(Arc<ToolRuntime>, RequestAdmission) -> Fut,
 ) -> napi::Result<PromiseRaw<'env, Value>>
 where
     Fut: std::future::Future<Output = Result<Value, RuntimeError>> + Send + 'static,
 {
-    let admission = runtime.admit(request_id).map_err(boundary_error)?;
+    // Admission runs synchronously in the `#[napi]` call: guard it like the
+    // other sync boundary methods so a panic becomes a catchable error.
+    let admission = boundary_guard("admission", || {
+        runtime
+            .admit_with(request_id, options)
+            .map_err(boundary_error)
+    })?;
     let future = call(Arc::clone(runtime), admission);
     env.spawn_future(async move { future.await.map_err(boundary_error) })
-}
-
-fn default_hostname(hostname: Option<String>) -> String {
-    hostname
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| "github.com".into())
 }
 
 #[napi]
@@ -117,11 +111,13 @@ impl NativeRuntime {
         request_id: String,
         tool: String,
         input: Value,
+        options: Option<Value>,
     ) -> napi::Result<PromiseRaw<'env, Value>> {
         spawn_admitted(
             &self.runtime,
             env,
             request_id,
+            options,
             |runtime, admission| async move {
                 runtime
                     .execute_admitted(admission, tool, input)
@@ -141,11 +137,13 @@ impl NativeRuntime {
         request_id: String,
         tool: String,
         input: Value,
+        options: Option<Value>,
     ) -> napi::Result<PromiseRaw<'env, Value>> {
         spawn_admitted(
             &self.runtime,
             env,
             request_id,
+            options,
             |runtime, admission| async move {
                 runtime.execute_mcp_admitted(admission, tool, input).await
             },
@@ -167,77 +165,6 @@ impl NativeRuntime {
     pub async fn close(&self) {
         self.runtime.close().await;
     }
-
-    #[napi]
-    pub fn store_credentials(&self, value: Value) -> napi::Result<Value> {
-        boundary_guard("store_credentials", || {
-            let credentials: StoredCredentials = serde_json::from_value(value).map_err(|_| {
-                napi::Error::new(napi::Status::InvalidArg, "Invalid stored credentials")
-            })?;
-            CredentialStore::new(&self.runtime.config().home)
-                .save(&credentials)
-                .map_err(credential_error)?;
-            Ok(json!({ "success": true }))
-        })
-    }
-
-    #[napi]
-    pub fn get_credentials(&self, hostname: Option<String>) -> napi::Result<Value> {
-        boundary_guard("get_credentials", || {
-            match CredentialStore::new(&self.runtime.config().home)
-                .load(&default_hostname(hostname))
-                .map_err(credential_error)?
-            {
-                Some((credentials, _)) => serde_json::to_value(credentials).map_err(|_| {
-                    napi::Error::new(
-                        napi::Status::GenericFailure,
-                        "Failed to serialize stored credentials",
-                    )
-                }),
-                None => Ok(Value::Null),
-            }
-        })
-    }
-
-    #[napi]
-    pub fn delete_credentials(&self, hostname: Option<String>) -> napi::Result<Value> {
-        boundary_guard("delete_credentials", || {
-            CredentialStore::new(&self.runtime.config().home)
-                .delete(&default_hostname(hostname))
-                .map_err(credential_error)?;
-            Ok(json!({ "success": true }))
-        })
-    }
-
-    #[napi]
-    pub async fn refresh_auth_token(&self, hostname: Option<String>) -> napi::Result<Value> {
-        let store = CredentialStore::new(&self.runtime.config().home);
-        let host = default_hostname(hostname);
-        let client = client_id_for_host(
-            &host,
-            self.runtime.config().env_value("OCTOCODE_GITHUB_CLIENT_ID"),
-        );
-        let result = refresh_auth_token_result_in_store(&host, client, &store).await;
-        serde_json::to_value(result).map_err(|_| {
-            napi::Error::new(
-                napi::Status::GenericFailure,
-                "Failed to serialize refresh result",
-            )
-        })
-    }
-
-    #[napi]
-    pub async fn get_token_with_refresh(&self, hostname: Option<String>) -> napi::Result<Value> {
-        let store = CredentialStore::new(&self.runtime.config().home);
-        let client = self.runtime.config().env_value("OCTOCODE_GITHUB_CLIENT_ID");
-        let result = get_token_with_refresh_in_store(hostname.as_deref(), client, &store).await;
-        serde_json::to_value(result).map_err(|_| {
-            napi::Error::new(
-                napi::Status::GenericFailure,
-                "Failed to serialize token refresh result",
-            )
-        })
-    }
 }
 
 impl Drop for NativeRuntime {
@@ -249,6 +176,7 @@ impl Drop for NativeRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn boundary_errors_redact_secrets_in_message_and_payload() {
@@ -263,5 +191,17 @@ mod tests {
         });
         assert!(!error.reason.contains("ghp_"), "{}", error.reason);
         assert!(error.reason.contains("[REDACTED-"), "{}", error.reason);
+    }
+    /// M4: a host `timeoutSecs` past the runtime's deadline range is a
+    /// catchable constructor error, never a later panic in sync `execute`.
+    #[test]
+    fn oversized_timeout_secs_is_a_constructor_error() {
+        let built = NativeRuntime::new(Some(
+            json!({"timeoutSecs": u64::MAX, "env": {"OCTOCODE_HOME": std::env::temp_dir()}}),
+        ));
+        let Err(error) = built else {
+            panic!("an unrepresentable timeout must be rejected");
+        };
+        assert!(error.reason.contains("timeoutSecs"), "{}", error.reason);
     }
 }

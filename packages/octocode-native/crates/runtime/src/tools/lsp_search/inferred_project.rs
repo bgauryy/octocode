@@ -14,15 +14,13 @@
 
 use super::LspSearchQuery;
 use super::failure::flag_partial;
-use super::importers::{MAX_CANDIDATE_FILES, SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED};
+use super::importers::{SCAN_CAPPED, SCAN_COMPLETE, SCAN_FAILED};
 use super::render::TS_LANGUAGE_IDS;
 use super::scope::Scope;
 use serde_json::{Value, json};
 use std::path::Path;
 
 pub(super) const REASON: &str = "inferredProject";
-/// More files mention the name than importer recovery verifies.
-pub(super) const CAPPED_REASON: &str = "importerScanCapped";
 /// The lexical importer scan failed, so no importer was verified.
 pub(super) const FAILED_REASON: &str = "importerScanFailed";
 const INFERRED_WARNING: &str = "No tsconfig.json or jsconfig.json covers this file, so the TypeScript server used an inferred project that sees only opened files and their imports; results from other files are missing. Add a tsconfig.json/jsconfig.json at the workspace root, or confirm with hints.textSearch.";
@@ -31,12 +29,7 @@ const INFERRED_WARNING: &str = "No tsconfig.json or jsconfig.json covers this fi
 pub(super) fn is_incoming(operation: &str) -> bool {
     matches!(
         operation,
-        "references"
-            | "callers"
-            | "callHierarchy"
-            | "implementation"
-            | "subtypes"
-            | "workspaceSymbol"
+        "references" | "callers" | "implementation" | "subtypes" | "workspaceSymbol"
     )
 }
 
@@ -71,19 +64,14 @@ pub(super) fn annotate(
         return;
     }
     // Importer recovery opened and verified every file that mentions the
-    // name, so an inferred project no longer hides importers; a capped scan
-    // leaves some unchecked even inside a configured project.
+    // name, so an inferred project no longer hides importers. A window with
+    // later windows left was flagged by `Importers::annotate`, which names
+    // the window and its `next.nextImporterPage`.
     let (reason, warning) = match row
         .pointer("/payload/coverage/importerScan")
         .and_then(Value::as_str)
     {
-        Some(SCAN_COMPLETE) => return,
-        Some(SCAN_CAPPED) => (
-            CAPPED_REASON,
-            format!(
-                "More than {MAX_CANDIDATE_FILES} files mention this name; only the first {MAX_CANDIDATE_FILES} were opened and verified as importers. Confirm the rest with hints.textSearch."
-            ),
-        ),
+        Some(SCAN_COMPLETE | SCAN_CAPPED) => return,
         Some(SCAN_FAILED) => (
             FAILED_REASON,
             "Importer recovery could not read, open, or resolve every candidate, or its scan failed. Some importers remain unverified; confirm with hints.textSearch.".to_owned(),
@@ -95,7 +83,7 @@ pub(super) fn annotate(
 }
 
 const CLANGD_LANGUAGE_IDS: [&str; 4] = ["c", "cpp", "objective-c", "objective-cpp"];
-const COMPILE_DATABASE_HINT: &str = "clangd found no compile_commands.json, compile_flags.txt, or .clangd for this file, so includes and cross-file symbols are unresolved; generate one (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON) or use astSearch/localSearch.";
+const COMPILE_DATABASE_HINT: &str = "Generate compile_commands.json for clangd (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON), or use astSearch/localSearch.";
 /// Coverage reason of a C/C++ row answered without a compilation database.
 pub(super) const NO_COMPILE_DATABASE_REASON: &str = "noCompileDatabase";
 const NO_COMPILE_DATABASE_WARNING: &str = "clangd found no compile_commands.json, compile_flags.txt, or .clangd for this file, so it answered from the opened file alone: references in other files are missing. Generate a compilation database (CMake: -DCMAKE_EXPORT_COMPILE_COMMANDS=ON; Make: bear -- make), or confirm with hints.textSearch.";

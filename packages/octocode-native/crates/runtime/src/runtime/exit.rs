@@ -3,8 +3,10 @@
 
 use super::engine::{RuntimeError, ToolOutcome};
 use crate::response::pages::{has_remaining_page, is_partial};
-use crate::response::rows::{is_invalid_input_code, is_not_found_code};
+use crate::response::rows::is_invalid_input_code;
 use crate::tools::id::ToolId;
+use crate::tools::id::error_class;
+use crate::tools::id::error_codes::ErrorClass;
 use crate::tools::result::FailureKind;
 use serde_json::Value;
 
@@ -45,7 +47,7 @@ impl ToolOutcome {
         } else if !rows.is_empty() && rows.iter().all(|row| row["status"] == "empty") {
             ExitClass::Empty
         } else if rows.iter().any(|row| has_row_continuation(self.tool, row))
-            || has_clasify_continuation(value)
+            || has_resource_continuation(self.tool, value)
             || value.pointer("/responsePagination/hasMore") == Some(&Value::Bool(true))
         {
             ExitClass::Incomplete
@@ -58,24 +60,23 @@ impl ToolOutcome {
 impl RuntimeError {
     #[must_use]
     pub fn exit_class(&self) -> ExitClass {
-        if self.code == "invalidInput" {
-            ExitClass::InvalidInput
-        } else {
-            ExitClass::Failed(FailureKind::Execution)
+        match error_class(&self.code) {
+            ErrorClass::InvalidInput => ExitClass::InvalidInput,
+            _ => ExitClass::Failed(failure_kind(&self.code)),
         }
     }
 }
 
-/// A missing local path, registry package, or unresolved LSP anchor is
-/// not-found (like a GitHub 404); every other domain error is an execution
-/// failure.
+/// The failure an error row with `code` reports. A rejected request is an
+/// execution failure here; [`ExitClass::InvalidInput`] is decided from the
+/// rows (see [`is_invalid_input_row`]).
 pub(crate) fn failure_kind(code: &str) -> FailureKind {
-    if matches!(code, "notFound" | "versionNotFound" | "anchorUnresolved")
-        || is_not_found_code(code)
-    {
-        FailureKind::NotFound
-    } else {
-        FailureKind::Execution
+    match error_class(code) {
+        ErrorClass::NotFound => FailureKind::NotFound,
+        ErrorClass::Authentication => FailureKind::Authentication,
+        ErrorClass::Permission => FailureKind::Permission,
+        ErrorClass::RateLimited => FailureKind::RateLimited,
+        ErrorClass::InvalidInput | ErrorClass::Execution => FailureKind::Execution,
     }
 }
 
@@ -108,14 +109,14 @@ fn clasify_failure(value: &Value, failure: Option<FailureKind>) -> Option<ExitCl
     if codes.is_empty() {
         return None;
     }
-    let all = |test: fn(&str) -> bool| codes.iter().all(|code| test(code));
-    Some(if all(is_clasify_caller_code) {
+    let all = |class: ErrorClass| codes.iter().all(|code| error_class(code) == class);
+    Some(if all(ErrorClass::InvalidInput) {
         ExitClass::InvalidInput
     } else if let Some(failure) = failure {
         ExitClass::Failed(failure)
-    } else if all(is_not_found_code) {
+    } else if all(ErrorClass::NotFound) {
         ExitClass::Failed(FailureKind::NotFound)
-    } else if all(|code| matches!(code, "classificationRateLimited" | "rateLimited")) {
+    } else if all(ErrorClass::RateLimited) {
         ExitClass::Failed(FailureKind::RateLimited)
     } else {
         ExitClass::Failed(FailureKind::Execution)
@@ -124,21 +125,6 @@ fn clasify_failure(value: &Value, failure: Option<FailureKind>) -> Option<ExitCl
 
 fn error_code(value: &Value) -> Option<&str> {
     value.pointer("/error/errorCode").and_then(Value::as_str)
-}
-
-/// clasify error codes that reject the caller's request rather than report a
-/// failed read or provider call.
-fn is_clasify_caller_code(code: &str) -> bool {
-    is_invalid_input_code(code)
-        || matches!(
-            code,
-            "invalidClassificationContext"
-                | "invalidClassificationRequest"
-                | "classificationLocateUnsupported"
-                | "classificationExpandedCellsExceeded"
-                | "outsideAllowedRoots"
-                | "pathValidationFailed"
-        )
 }
 
 /// An error row whose `errorCode` rejects the caller's input.
@@ -156,17 +142,19 @@ fn all_rows_invalid_input(value: &Value) -> bool {
         .is_some_and(|rows| !rows.is_empty() && rows.iter().all(is_invalid_input_row))
 }
 
-/// clasify returns `queries[].next.clasify`, a complete query rather than a
-/// `{tool, query}` row continuation.
-fn has_clasify_continuation(value: &Value) -> bool {
-    value["queries"].as_array().is_some_and(|queries| {
-        queries.iter().any(|query| {
-            query
-                .get("next")
-                .and_then(|next| next.get(ToolId::Clasify.as_str()))
-                .is_some_and(Value::is_object)
+/// A resource-major tool (clasify) resumes its own walk with
+/// `queries[].next.<tool>`, a complete query rather than a `{tool, query}`
+/// row continuation.
+fn has_resource_continuation(tool: ToolId, value: &Value) -> bool {
+    tool.output().resource_major()
+        && value["queries"].as_array().is_some_and(|queries| {
+            queries.iter().any(|query| {
+                query
+                    .get("next")
+                    .and_then(|next| next.get(tool.as_str()))
+                    .is_some_and(Value::is_object)
+            })
         })
-    })
 }
 
 /// A row with more of its result remaining: a page that leaves more to read
@@ -174,7 +162,7 @@ fn has_clasify_continuation(value: &Value) -> bool {
 /// any `next.*` it carries (e.g. astSearch `expandCaptures`) is a drill-down.
 fn has_row_continuation(tool: ToolId, row: &Value) -> bool {
     let data = &row["data"];
-    let complete = data["complete"] == Value::Bool(true);
+    let complete = crate::response::pages::is_complete(data);
     (!complete && has_remaining_page(tool, data))
         || (is_partial(data)
             && data["content"]
@@ -253,7 +241,8 @@ mod tests {
     #[test]
     fn optional_drill_downs_are_not_remaining_pages() {
         let call = json!({"tool":"ghGetHistoryItem","query":{"queries":[{"number":1}]}});
-        let menu = json!({"data":{"next":{"readBody":call,"readPullRequest":call,"verifyReferences":call}}});
+        let menu =
+            json!({"data":{"next":{"readBody":call,"readPullRequest":call,"references":call}}});
         assert!(!has_row_continuation(ToolId::LocalSearch, &menu));
         for name in ["nextPage", "continue", "expandScan", "retry"] {
             let row = json!({"data":{"next":{name:call}}});
@@ -287,6 +276,42 @@ mod tests {
         }
     }
 
+    /// X13: the contract's `errorCodes` table decides every exit; one code,
+    /// one class, whichever tool or runtime layer reports it.
+    #[test]
+    fn every_declared_code_maps_to_one_exit_class() {
+        use crate::tools::id::error_codes::ALL;
+        assert!(!ALL.is_empty());
+        for (code, class) in ALL {
+            assert!(
+                code.chars().all(|c| c.is_ascii_alphanumeric())
+                    && code.starts_with(|c: char| c.is_ascii_lowercase()),
+                "{code} is not camelCase"
+            );
+            let expected = match class {
+                ErrorClass::InvalidInput => ExitClass::InvalidInput,
+                ErrorClass::NotFound => ExitClass::Failed(FailureKind::NotFound),
+                ErrorClass::Authentication => ExitClass::Failed(FailureKind::Authentication),
+                ErrorClass::Permission => ExitClass::Failed(FailureKind::Permission),
+                ErrorClass::RateLimited => ExitClass::Failed(FailureKind::RateLimited),
+                ErrorClass::Execution => ExitClass::Failed(FailureKind::Execution),
+            };
+            let row = json!({"results":[{"status":"error","data":{"errorCode":code}}]});
+            assert_eq!(
+                outcome(row, Some(failure_kind(code)), true).exit_class(),
+                expected,
+                "{code}"
+            );
+            let runtime = RuntimeError::new(code, "m");
+            assert_eq!(runtime.exit_class(), expected, "runtime {code}");
+        }
+        // No suffix or prefix matching: an undeclared spelling has no class.
+        for undeclared in ["ast.language.required", "x.input.invalid", "lsp.timeout"] {
+            assert_eq!(failure_kind(undeclared), FailureKind::Execution);
+            assert!(!is_invalid_input_code(undeclared), "{undeclared}");
+        }
+    }
+
     #[test]
     fn rows_rejecting_caller_input_are_invalid_input() {
         let rows = json!({"results":[
@@ -308,10 +333,12 @@ mod tests {
             {"id":"a","results":[]},
             {"id":"b","results":[],"next":{"clasify":{"queries":[{"id":"b","resources":[]}]}}}
         ]});
-        assert!(has_clasify_continuation(&pending));
-        assert!(!has_clasify_continuation(
+        assert!(has_resource_continuation(ToolId::Clasify, &pending));
+        assert!(!has_resource_continuation(
+            ToolId::Clasify,
             &json!({"queries":[{"id":"a","results":[]}]})
         ));
+        assert!(!has_resource_continuation(ToolId::LocalSearch, &pending));
     }
 
     #[test]

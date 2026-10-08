@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { resolve, join } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { paginate } from './lib/pagination.mjs';
 import { fileURLToPath } from 'node:url';
 import { readJson as readJsonFile, readJsonl as readJsonlFile } from './lib/bridge.mjs';
 
@@ -15,7 +16,7 @@ function invalid(message) {
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) usage(0);
 const options = new Map();
-const flags = new Set(['--session-dir', '--query', '--limit', '--offset']);
+const flags = new Set(['--session-dir', '--query', '--limit', '--offset', '--snapshot']);
 for (let index = 0; index < args.length; index += 2) {
   const flag = args[index];
   if (!flags.has(flag)) invalid(`Unknown option: ${flag}`);
@@ -37,6 +38,7 @@ const query = (options.get('--query') ?? '').trim();
 if (!sessionDir?.trim() || !query) invalid('--session-dir and a non-empty --query are required');
 const dir = resolve(sessionDir);
 const limit = integerOption('--limit', 20, 1);
+if (limit > 300) invalid('--limit must be <= 300');
 const offset = integerOption('--offset', 0, 0);
 const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
 const readJson = (rel, fallback = null) => readJsonFile(dir, rel, fallback);
@@ -62,36 +64,37 @@ const graph = await readJson('graph/site-graph.json', { pages: [], edges: [] });
 // Body-text scan with document-frequency damping: nav/sidebar text repeats on
 // every page and must not dominate ranking, while a term that appears in only
 // a few page bodies is a strong signal even when titles/links miss it.
-const TEXT_SCAN_CAP = 65536;
 const sourceRows = await readJsonl('sources.jsonl');
-const pageTexts = new Map();
+const pageTexts = new Map(), bodyFiles = [];
 for (const row of sourceRows) {
-  const rel = Array.isArray(row.textParts) ? row.textParts[0] : null;
-  if (!row.pageId || !rel) continue;
-  try {
-    const body = (await readFile(join(dir, rel), 'utf8')).slice(0, TEXT_SCAN_CAP).toLowerCase();
-    if (body.trim()) pageTexts.set(row.pageId, { rel, body, url: row.url });
-  } catch {}
+  const parts = Array.isArray(row.textParts) ? row.textParts : [];
+  if (!row.pageId || !parts.length) continue;
+  const counts = new Map(terms.map(term => [term, 0])); let firstMatch = null, tail = '';
+  const overlap = Math.max(...terms.map(t => t.length)) - 1;
+  for (const rel of parts) {
+    const file = join(dir, rel); bodyFiles.push(file);
+    try { for await (const chunk of createReadStream(file, {encoding:'utf8',highWaterMark:65536})) {
+      const body = tail + chunk.toLowerCase();
+      for (const term of terms) {
+        let at = 0, hit; while ((hit = body.indexOf(term, at)) !== -1) {
+          if (hit + term.length > tail.length) { counts.set(term, Math.min(32, counts.get(term) + 1)); firstMatch ??= rel; }
+          at = hit + term.length;
+        }
+      }
+      tail = overlap ? body.slice(-overlap) : '';
+    } } catch (error) { invalid('Cannot scan source '+file+': '+error.message); }
+  }
+  pageTexts.set(row.pageId, {rel:firstMatch || parts[0], counts, url:row.url});
 }
 const docFrequency = new Map(terms.map((t) => [t, 0]));
-for (const { body } of pageTexts.values()) {
-  for (const t of terms) if (body.includes(t)) docFrequency.set(t, docFrequency.get(t) + 1);
+for (const { counts } of pageTexts.values()) {
+  for (const t of terms) if (counts.get(t) > 0) docFrequency.set(t, docFrequency.get(t) + 1);
 }
 const totalTexts = Math.max(1, pageTexts.size);
 const termWeight = (t) => {
   const df = docFrequency.get(t) || 0;
   return df === 0 ? 0 : Math.log2(1 + totalTexts / df);
 };
-function countOccurrences(haystack, needle, cap = 32) {
-  let count = 0, at = 0;
-  while (count < cap) {
-    at = haystack.indexOf(needle, at);
-    if (at === -1) break;
-    count += 1;
-    at += needle.length;
-  }
-  return count;
-}
 // Occurrence-frequency weighting: a page that uses a term throughout its body
 // outranks a page whose only hit is a nav/sidebar mention.
 function textScore(pageId) {
@@ -99,7 +102,7 @@ function textScore(pageId) {
   if (!rec) return 0;
   let score = 0;
   for (const t of terms) {
-    const hits = countOccurrences(rec.body, t);
+    const hits = rec.counts.get(t) || 0;
     if (hits > 0) score += termWeight(t) * (1 + Math.log2(hits));
   }
   return score;
@@ -126,16 +129,18 @@ for (const l of topLinks) candidates.push({ type: 'link', score: scoreLabel(l.te
 for (const n of automationGraph.nodes || []) candidates.push({ type: `graph:${n.kind}`, score: scoreLabel(n.text || n.title || n.kind, n.url) + scoreText((n.workflowTypes || []).join(' ')), pageId: n.pageId, nodeId: n.id, url: n.url, text: n.text || n.title || null, workflowTypes: n.workflowTypes || [], risk: n.risk || null, evidence: [n.source || { file: 'graph/graph.json' }] });
 for (const e of automationGraph.edges || []) candidates.push({ type: `edge:${e.kind}`, score: scoreLabel(e.label || e.kind, JSON.stringify(e.source || {})) + scoreText(e.workflowType || ''), edgeKind: e.kind, from: e.from, to: e.to, label: e.label || null, workflowType: e.workflowType || null, risk: e.risk || null, evidence: [e.source || { file: 'graph/graph.json' }] });
 for (const w of workflows.workflows || []) candidates.push({ type: 'workflow', score: scoreText(`${w.workflowType} ${w.label} ${w.entryUrl}`) + (w.confidence === 'high' ? 1 : 0), workflowType: w.workflowType, label: w.label, entryUrl: w.entryUrl, evidence: w.evidence });
-for (const e of elements) candidates.push({ type: 'element', score: scoreText(JSON.stringify(e)), pageId: e.pageId, kind: e.kind || e._file, workflowHint: e.workflowHint || null, preview: JSON.stringify(e).slice(0, 500) });
+for (const e of elements) candidates.push({ type: 'element', score: scoreText(JSON.stringify(e)), pageId: e.pageId, kind: e.kind || e._file, workflowHint: e.workflowHint || null, element: e });
 for (const r of resources) candidates.push({ type: 'resource', score: scoreText(`${r.kind} ${r.src}`), pageId: r.pageId, kind: r.kind, src: r.src });
 const ranked = candidates.filter((c) => c.score > 0).sort((a, b) => b.score - a.score);
-const matches = ranked.slice(offset, offset + limit);
+const paging = await paginate({lists:{matches:ranked},files:['AGENT_INDEX.json','sources.jsonl','graph/site-graph.json','graph/graph.json','graph/workflows.json','indexes/top-links.jsonl','extracts/elements.jsonl','extracts/resources.jsonl'].map(p=>join(dir,p)).concat(bodyFiles),dir,args:['--limit',String(limit),'--cursor-matches',String(Math.min(offset,ranked.length)),...(options.get('--snapshot')?['--snapshot',options.get('--snapshot')]:[])],script:fileURLToPath(import.meta.url)});
+const matches = paging.matches;
 const remainingMatches = Math.max(0, ranked.length - offset - matches.length);
 const hasMore = remainingMatches > 0;
 console.log(JSON.stringify({
   ok: true,
   sessionDir: dir,
   query,
+  snapshot: paging.snapshot,
   matches,
   isPartial: hasMore,
   completeness: hasMore ? 'partial' : 'complete',
@@ -143,7 +148,7 @@ console.log(JSON.stringify({
   next: hasMore ? {
     page: {
       command: process.execPath,
-      args: [fileURLToPath(import.meta.url), '--session-dir', dir, '--query', query, '--limit', String(limit), '--offset', String(offset + matches.length)],
+      args: [fileURLToPath(import.meta.url), '--session-dir', dir, '--query', query, '--limit', String(limit), '--offset', String(offset + matches.length), '--snapshot', paging.snapshot],
     },
   } : null,
   suggestedFiles: [...new Set(matches.map((m) => m.files?.textParts?.[0] || m.evidence?.[0]?.file || 'graph/site-graph.json'))].slice(0, 5),

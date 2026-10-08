@@ -16,7 +16,7 @@ Load when a query shape is non-obvious. `schema <tool>` lists every variant with
   {"tool":"ghGetHistoryItem","query":{"operation":"issue","owner":"cli","repo":"cli","number":14404}},
   {"tool":"ghGetHistoryItem","query":{"operation":"pullRequest","owner":"cli","repo":"cli","number":13541,"matchString":"MatchCategory","contextLines":0,"include":["pkg/"]}},
   {"tool":"ghGetHistoryItem","query":{"operation":"compare","owner":"octokit","repo":"octokit.js","base":"v4.0.0","head":"v5.0.0"}},
-  {"tool":"artifactSearch","query":{"type":"npm","packageName":"express","version":"4.21.2"}},
+  {"tool":"artifactSearch","query":{"ecosystem":"npm","packageName":"express","version":"4.21.2"}},
   {"tool":"ghCloneRepo","query":{"owner":"octokit","repo":"octokit.js","ref":"main","path":["src","test"]}},
   {"tool":"clasify","query":{"mainGoal":"<research question>","reasoning":"<next read depends on>","resources":[{"tool":"ghGetFileContent","query":{"owner":"psf","repo":"requests","path":"src/requests/sessions.py","ref":"v2.32.3"},"prefilter":["Authorization"]}],"questions":[{"id":"auth","type":"locate","ask":"The condition for removing authorization on a cross-host redirect."}]}}
 ]

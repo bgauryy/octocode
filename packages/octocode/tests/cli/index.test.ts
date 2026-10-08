@@ -6,12 +6,6 @@ const mocks = vi.hoisted(() => ({
   resolve: vi.fn((): string | null => '/native/octocode'),
   skillHandler: vi.fn(),
   schemaHandler: vi.fn(),
-  setRuntimeSurface: vi.fn(),
-}));
-
-vi.mock('@octocodeai/config', async importOriginal => ({
-  ...(await importOriginal<typeof import('@octocodeai/config')>()),
-  setRuntimeSurface: mocks.setRuntimeSurface,
 }));
 
 vi.mock('../../src/cli/native-delegate.js', async importOriginal => ({
@@ -88,19 +82,6 @@ describe('runCLI native boundary', () => {
     expect(mocks.skillHandler).not.toHaveBeenCalled();
   });
 
-  it('loads the config surface only for commands Node handles in-process', async () => {
-    const { runCLI } = await import('../../src/cli/index.js');
-    await runCLI(['localSearch', '{"queries":[]}']);
-    await runCLI(['localSearch', '--help']);
-    expect(mocks.setRuntimeSurface).not.toHaveBeenCalled();
-    await runCLI(['schema']);
-    expect(mocks.setRuntimeSurface).toHaveBeenLastCalledWith('cli');
-    mocks.setRuntimeSurface.mockClear();
-    // Root help is native and appends nothing.
-    await runCLI(['--help']);
-    expect(mocks.setRuntimeSurface).not.toHaveBeenCalled();
-  });
-
   it('keeps clasify execution and help native while schema discovery stays Node-owned', async () => {
     const { runCLI } = await import('../../src/cli/index.js');
     const invocation = ['clasify', '{"resources":[],"questions":[]}'];
@@ -156,9 +137,7 @@ describe('runCLI native boundary', () => {
     await withStdoutTty(true, async () => {
       await runCLI([]);
     });
-    expect(mocks.delegate).toHaveBeenCalledWith('/native/octocode', [
-      '--help',
-    ]);
+    expect(mocks.delegate).toHaveBeenCalledWith('/native/octocode', ['--help']);
     expect(mocks.schemaHandler).not.toHaveBeenCalled();
   });
 

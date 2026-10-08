@@ -10,6 +10,11 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Barrier, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+fn api_github_endpoint() -> GitHubEndpoint {
+    GitHubEndpoint::new("https://api.github.com/".parse().expect("static URL"))
+        .expect("static endpoint")
+}
+
 static TEMP_ID: AtomicU64 = AtomicU64::new(0);
 
 struct Temp(PathBuf);
@@ -300,7 +305,7 @@ fn clone_rows_continue_into_local_tools_and_name_the_cache_age() {
     let fixture = Fixture::new();
     let (root, cache_home) = home_root("next");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
     let config = CloneConfig::persistent(&cache_home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
@@ -399,7 +404,7 @@ fn creates_a_new_configured_home_before_authorizing_the_clone_target() {
         ..Default::default()
     })
     .expect("policy");
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
     let config = CloneConfig::persistent(&cache_home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
@@ -417,7 +422,7 @@ fn denied_cache_home_is_not_created() {
     let outside = Temp::new("denied");
     let cache_home = outside.0.join("home");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = SystemGit::default();
     let config = CloneConfig::persistent(&cache_home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
@@ -429,11 +434,45 @@ fn denied_cache_home_is_not_created() {
 }
 
 #[test]
+fn policy_denials_use_the_codes_the_local_tools_share() {
+    use crate::policy::PolicyErrorCode;
+    for (code, expected) in [
+        (
+            PolicyErrorCode::IgnoredPath,
+            crate::policy::PATH_POLICY_DENIED,
+        ),
+        (PolicyErrorCode::NotFound, crate::policy::PATH_NOT_FOUND),
+        (PolicyErrorCode::InputTooLarge, "fileTooLarge"),
+        (PolicyErrorCode::OutsideAllowedRoots, "outsideAllowedRoots"),
+        (PolicyErrorCode::SymlinkLoop, "pathValidationFailed"),
+    ] {
+        let error = policy_denied(PolicyError::new(code, "denied"));
+        assert_eq!(error.code, expected, "{code:?}");
+        assert_eq!(error.message, "denied");
+    }
+}
+
+#[test]
+fn withheld_cache_home_is_denied_as_path_policy() {
+    let root = Temp::new("withheld");
+    let cache_home = root.0.join(".ssh").join("home");
+    let policy = root_policy(&root.0);
+    let endpoint = api_github_endpoint();
+    let runner = SystemGit::default();
+    let config = CloneConfig::persistent(&cache_home);
+    let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
+
+    let error = execute_clone(&query(), &context).expect_err("withheld cache home");
+    assert_eq!(error.code, crate::policy::PATH_POLICY_DENIED, "{error:?}");
+    assert!(!cache_home.exists(), "a withheld home must not be created");
+}
+
+#[test]
 fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
     let fixture = Fixture::new();
     let (root, cache_home) = home_root("cache");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let derived = "https://github.com/fixture-owner/fixture-repo.git";
     let runner = RewriteRunner::new(derived, &fixture.bare_url);
     let mut config = CloneConfig::persistent(&cache_home);
@@ -567,7 +606,7 @@ fn dirty_checkout_preserves_tracked_untracked_ignored_and_user_metadata_names() 
     let fixture = Fixture::new();
     let (root, cache_home) = home_root("preserve");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
     let config = CloneConfig::persistent(&cache_home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
@@ -658,7 +697,7 @@ fn refresh_rechecks_user_changes_written_while_fetching() {
     let fixture = Fixture::new();
     let (root, cache_home) = home_root("late-write");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = LateWriteRunner {
         inner: fixture_runner(&fixture),
         target: Mutex::new(None),
@@ -692,7 +731,7 @@ fn clone_eviction_preserves_dirty_expired_and_over_budget_checkouts() {
     let fixture = Fixture::new();
     let (root, cache_home) = home_root("dirty-eviction");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
     let mut config = CloneConfig::persistent(&cache_home);
     config.max_clone_count = 1;
@@ -818,7 +857,7 @@ fn repository_metadata_filename_conflict_never_replaces_an_existing_checkout() {
     let fixture = Fixture::new();
     let (root, cache_home) = home_root("metadata-collision");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = CollisionRunner {
         inner: fixture_runner(&fixture),
         collide: AtomicBool::new(true),
@@ -878,7 +917,7 @@ fn sparse_file_path_checks_out_only_that_file() {
     let fixture = Fixture::new();
     let (root, cache_home) = home_root("sparse-file");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
     let config = CloneConfig::persistent(&cache_home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
@@ -913,7 +952,7 @@ fn corruption_expiry_stale_lock_and_failed_publication_preserve_cache() {
     let fixture = Fixture::new();
     let (root, cache_home) = home_root("recovery");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
     let mut config = CloneConfig::persistent(&cache_home);
     config.cache_ttl = Duration::from_secs(60);
@@ -976,7 +1015,7 @@ fn cache_limits_live_lock_and_failed_sparse_refresh_are_bounded() {
     let fixture = Fixture::new();
     let (root, cache_home) = home_root("limits");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
     let mut config = CloneConfig::persistent(&cache_home);
     config.max_clone_count = 1;
@@ -1050,7 +1089,7 @@ fn cache_limits_live_lock_and_failed_sparse_refresh_are_bounded() {
 fn missing_branch_endpoint_git_and_portable_paths_fail_closed() {
     let (root, cache_home) = home_root("negative");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let config = CloneConfig::persistent(&cache_home);
     let missing_git = SystemGit::new(root.0.join("does-not-exist/git"));
     let mut context = setup(
@@ -1286,7 +1325,7 @@ fn concurrent_requests_publish_once_and_validation_fails_closed() {
     let fixture = Fixture::new();
     let (root, cache_home) = home_root("race");
     let policy = Arc::new(root_policy(&root.0));
-    let endpoint = Arc::new(GitHubEndpoint::github_com());
+    let endpoint = Arc::new(api_github_endpoint());
     let runner = Arc::new(fixture_runner(&fixture));
     let config = Arc::new(CloneConfig::persistent(&cache_home));
     let barrier = Arc::new(Barrier::new(2));
@@ -1368,7 +1407,7 @@ fn repository_symlinks_are_checked_out_as_plain_files() {
 
     let (root, cache_home) = home_root("symlinks");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
     let mut config = CloneConfig::persistent(&cache_home);
     config.cache_ttl = Duration::from_secs(60);
@@ -1419,7 +1458,7 @@ fn uppercase_commit_refs_share_the_cache_and_mismatched_meta_is_a_miss() {
     let fixture = Fixture::new();
     let (root, cache_home) = home_root("sha-case");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
     let mut config = CloneConfig::persistent(&cache_home);
     config.cache_ttl = Duration::from_secs(60);
@@ -1485,7 +1524,7 @@ impl Bench {
             fixture,
             _root: root,
             policy,
-            endpoint: GitHubEndpoint::github_com(),
+            endpoint: api_github_endpoint(),
             runner,
             config,
         }
@@ -1751,7 +1790,7 @@ fn cache_hits_skip_the_git_probe_and_report_the_recorded_size() {
     let fixture = Fixture::new();
     let (root, cache_home) = home_root("hit-cost");
     let policy = root_policy(&root.0);
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_endpoint();
     let runner = fixture_runner(&fixture);
     let config = CloneConfig::persistent(&cache_home);
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);

@@ -90,7 +90,11 @@ pub(super) fn dead_code(
         rows,
         summary,
         warnings,
-        low_entries || b.truncated || b.files_skipped > 0 || !b.diagnostics.is_empty(),
+        low_entries
+            || b.truncated
+            || b.edges_capped
+            || b.files_skipped > 0
+            || !b.diagnostics.is_empty(),
     )
 }
 

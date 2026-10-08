@@ -26,7 +26,7 @@ const has = (s, x) => s.includes(x);
 scen('huge-search-one', 'Find one declaration in 3.2MB checker.ts', `rg -n 'function checkSourceElementWorker' ${CHECKER}`, 'localSearch',
   { path: CHECKER, searchText: 'function checkSourceElementWorker', regex: 'literal' }, (s, o) => ({ bothLine49064: has(s.stdout, '49064:') && has(o, '"line":49064') }), { shellCwd: REPOS, ocCwd: REPOS });
 scen('huge-search-many', 'Frequent identifier getTypeOfSymbol in checker.ts (default output)', `rg -n -w getTypeOfSymbol ${CHECKER}`, 'localSearch',
-  { path: CHECKER, searchText: 'getTypeOfSymbol', wholeWord: true }, (s, o) => ({ rgLines: s.stdout.split('\n').filter(Boolean).length, ocReportsTotal: (o.match(/"totalMatches":(\d+)/) || [])[1] }), { shellCwd: REPOS, ocCwd: REPOS });
+  { path: CHECKER, searchText: 'getTypeOfSymbol', wholeWord: true }, (s, o) => ({ rgLines: s.stdout.split('\n').filter(Boolean).length, ocReportsTotal: (o.match(/"matchCount":(\d+)/) || [])[1] }), { shellCwd: REPOS, ocCwd: REPOS });
 scen('huge-fetch-full', 'Read whole 3.2MB checker.ts (cat vs fullContent)', `cat ${CHECKER}`, 'localFetch',
   { path: CHECKER, fullContent: true }, (s, o) => ({ catChars: s.stdout.length, ocMentionsClip: /clip|truncat|too large|large|chunk|responseChar|hasMore/i.test(o) }), { shellCwd: REPOS, ocCwd: REPOS });
 scen('huge-symbols', 'Declarations in checker.ts (astSearch symbols vs rg decl regex)', `rg -c '^\\s*function \\w+' ${CHECKER}`, 'astSearch',
@@ -89,14 +89,14 @@ scen('zero-results-ast', 'No structural matches', `ast-grep run -p 'nonexistentF
 scen('regex-error', 'Invalid regex', `rg -n 'foo(bar' src`, 'localSearch', { path: S('src'), searchText: 'foo(bar' }, (s, o) => ({ rgExit: s.code, ocError: /regex|parse|unclosed|group/i.test(o) }));
 scen('regex-error-ast', 'Invalid ast-grep pattern', `ast-grep run -p 'foo(' -l typescript src`, 'astSearch', { operation: 'match', path: S('src'), langType: 'typescript', pattern: 'foo(' }, (s, o) => ({ ocMsg: o.slice(0, 400) }));
 
-// ---------- unicode columns: truth: NEEDLE_EMOJI on line 1 starts at UTF-16 col (0-based) 26, byte col (1-based) 31, char col 24
+// ---------- unicode columns: truth: NEEDLE_EMOJI on line 1 starts at UTF-16 col (1-based) 27, byte col (1-based) 31, char col 24
 {
   const line = fs.readFileSync(S('src/emoji.ts'), 'utf8').split('\n')[0];
   const idx16 = line.indexOf('NEEDLE_EMOJI'); const byte1 = Buffer.byteLength(line.slice(0, idx16)) + 1; const cp0 = [...line.slice(0, idx16)].length;
   const truth = { utf16_0based: idx16, byte_1based: byte1, codepoint_0based: cp0 };
   scen('unicode-col-search', 'Column of a hit after emoji (rg --column is bytes)', `rg -n --column NEEDLE_EMOJI src/emoji.ts`, 'localSearch', { path: S('src/emoji.ts'), searchText: 'NEEDLE_EMOJI', resultView: 'matchOnly' },
     (s, o) => ({ truth, rgColumn: +(s.stdout.split('\n')[0].split(':')[1] || 0), ocColumns: [...o.matchAll(/"column":(\d+)/g)].map(m => +m[1]) }));
-  scen('unicode-col-ast', 'astSearch column after emoji (documented UTF-16 0-based)', `ast-grep run -p 'const NEEDLE_EMOJI = $V;' -l typescript src/emoji.ts --json=stream | jq -c '.range.start'`, 'astSearch',
+  scen('unicode-col-ast', 'astSearch column after emoji (documented UTF-16 1-based)', `ast-grep run -p 'const NEEDLE_EMOJI = $V;' -l typescript src/emoji.ts --json=stream | jq -c '.range.start'`, 'astSearch',
     { operation: 'match', path: S('src/emoji.ts'), langType: 'typescript', pattern: 'const NEEDLE_EMOJI = $V;' },
     (s, o) => ({ truthConstKeyword_utf16: line.indexOf('const NEEDLE_EMOJI'), sgStart: s.stdout.trim(), ocColumns: [...o.matchAll(/"column":(\d+)/g)].map(m => +m[1]) }));
   scen('unicode-col-symbols', 'astSearch symbols line for emojiFn after emoji comment', `rg -n 'function emojiFn' src/emoji.ts`, 'astSearch', { operation: 'symbols', path: S('src/emoji.ts') },

@@ -18,9 +18,9 @@ function ocRows(all) {
     for (const r of p.results || []) for (const f of r.data?.files || []) rows.push({ ...f, rel: path.relative(REPOS, path.resolve(base, f.path)) }); }
   return rows;
 }
-const ocLineKeys = (all) => [...new Set(ocRows(all).flatMap(f => (f.matches || []).flatMap(m => (m.matchLines || [m.line]).map(l => `${f.rel}:${l}`))))];
+const ocLineKeys = (all) => [...new Set(ocRows(all).flatMap(f => (f.matches || []).flatMap(m => (m.matchedLines || [m.line]).map(l => `${f.rel}:${l}`))))];
 const ocFiles = (all) => [...new Set(ocRows(all).map(f => f.rel))];
-function ocCounts(all, field) { const m = {}; for (const f of ocRows(all)) m[f.rel] = f[field] ?? f.totalMatchedLines ?? f.matchCount ?? f.count; return m; }
+function ocCounts(all, field) { const m = {}; for (const f of ocRows(all)) m[f.rel] = f[field] ?? f.matchedLineCount ?? f.matchCount ?? f.count; return m; }
 function cmpCounts(a, t) {
   const keys = new Set([...Object.keys(a), ...Object.keys(t)]); let diff = [];
   for (const k of keys) if (a[k] !== t[k]) diff.push(`${k}: got ${a[k]} want ${t[k]}`);
@@ -78,7 +78,7 @@ const tasks = [
     shell: `rg -c -w unsafe -t rust rust/tokio/src`,
     oc: { path: A('rust/tokio/src'), searchText: 'unsafe', wholeWord: true, langType: 'rust', resultView: 'countLines', pageSize: 1000 },
     truth: () => ggCounts('rust', `-w -F unsafe`, `'tokio/src/*.rs'`),
-    judge: 'counts', parseShell: rgCounts, countField: 'totalMatchedLines' },
+    judge: 'counts', parseShell: rgCounts, countField: 'matchedLineCount' },
   { id: 'rs-multiline-U', lang: 'rust', task: '#[track_caller] immediately followed by `pub fn spawn*` (multiline)',
     shell: `rg -U -n '#\\[track_caller\\]\\s*\\n\\s*pub fn spawn' -t rust rust`,
     oc: { path: A('rust'), searchText: '#\\[track_caller\\]\\s*\\n\\s*pub fn spawn', multiline: 'on', langType: 'rust', maxMatchesPerFile: 100, pageSize: 100 },
@@ -89,7 +89,7 @@ const tasks = [
     shell: `rg -S -c 'semaphore' rust/tokio/src/sync`,
     oc: { path: A('rust/tokio/src/sync'), searchText: 'semaphore', caseMode: 'smart', resultView: 'countLines', pageSize: 1000 },
     truth: () => ggCounts('rust', `-i -F semaphore`, `'tokio/src/sync/*'`),
-    judge: 'counts', parseShell: rgCounts, countField: 'totalMatchedLines' },
+    judge: 'counts', parseShell: rgCounts, countField: 'matchedLineCount' },
   // ---------------- Go (prometheus) ----------------
   { id: 'go-l-F-notest', lang: 'go', task: 'Non-test files in tsdb/ that call errors.New("…")',
     shell: `rg -l -F 'errors.New("' -g '!*_test.go' go/tsdb`,
@@ -122,7 +122,7 @@ const tasks = [
     shell: `rg -c -F '@CanIgnoreReturnValue' -t java java/guava/src`,
     oc: { path: A('java/guava/src'), searchText: '@CanIgnoreReturnValue', regex: 'literal', langType: 'java', resultView: 'countLines', pageSize: 1000 },
     truth: () => ggCounts('java', `-F '@CanIgnoreReturnValue'`, `'guava/src/*.java'`),
-    judge: 'counts', parseShell: rgCounts, countField: 'totalMatchedLines' },
+    judge: 'counts', parseShell: rgCounts, countField: 'matchedLineCount' },
   { id: 'java-l-F-meta', lang: 'java', task: 'Files in common/base calling checkNotNull( (literal with regex metachar)',
     shell: `rg -l -F 'checkNotNull(' java/guava/src/com/google/common/base`,
     oc: { path: A('java/guava/src/com/google/common/base'), searchText: 'checkNotNull(', regex: 'literal', resultView: 'files', pageSize: 1000 },
@@ -138,7 +138,7 @@ const tasks = [
     shell: `rg -c -w zfree -g '*.c' c/src`,
     oc: { path: A('c/src'), searchText: 'zfree', wholeWord: true, include: ['*.c'], resultView: 'countLines', pageSize: 1000 },
     truth: () => ggCounts('c', `-w -F zfree`, `'src/*.c'`),
-    judge: 'counts', parseShell: rgCounts, countField: 'totalMatchedLines' },
+    judge: 'counts', parseShell: rgCounts, countField: 'matchedLineCount' },
   // ---------------- C++ (nlohmann json) ----------------
   { id: 'cpp-hot-file-all', lang: 'cpp', task: 'All JSON_HEDLEY_ lines under include/ (1 file has 1266 hits: pagination honesty)',
     shell: `rg -n -F JSON_HEDLEY_ cpp/include`,
@@ -149,7 +149,7 @@ const tasks = [
     shell: `rg -c -F JSON_HEDLEY_ cpp/include`,
     oc: { path: A('cpp/include'), searchText: 'JSON_HEDLEY_', regex: 'literal', resultView: 'countLines', pageSize: 1000 },
     truth: () => ggCounts('cpp', `-F JSON_HEDLEY_`, `'include/*'`),
-    judge: 'counts', parseShell: rgCounts, countField: 'totalMatchedLines' },
+    judge: 'counts', parseShell: rgCounts, countField: 'matchedLineCount' },
 ];
 
 const only = process.argv[2];

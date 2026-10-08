@@ -4,21 +4,18 @@ mod dates;
 pub mod login;
 
 pub use auth::{
-    AuthMode, AuthSelection, Authentication, CredentialRequest, CredentialResolver,
-    CredentialSource, CredentialStore, OAuthToken, ResolvedCredential, StaticCredentialResolver,
-    StoredCredentials, delete_platform_credential, load_stored_credentials,
-    store_platform_credential, token_from_stored_blob,
+    AuthMode, AuthSelection, Authentication, CredentialSource, CredentialStore, OAuthToken,
+    ResolvedCredential, StoredCredentials, configured_credential_host,
 };
 pub use dates::{resolve_date_window, utc_timestamp};
+#[cfg(test)]
+pub(crate) use octocode_github::NoCache;
 pub use octocode_github::{
-    CachePartition, CachedContent, CodeSearchItem, CodeSearchPage, CodeSearchRequest,
-    CommitListRequest, ConditionalCache, ContentRequest, ContentResponse, ContentsEntry,
-    ContentsListing, ExecutorConfig, GitHubBudget, GitHubEndpoint, GitHubProvider, GitHubResource,
-    GitHubTransport, GraphQlError, GraphQlPage, HistoryPage, HistoryRequest, HttpMethod,
-    LimiterKey, NamedRef, NoCache, ProviderError, ProviderErrorKind, ProviderErrorReason,
-    PullListRequest, RateLimit, RefKind, RefPage, RepositoryMetadata, RepositorySearchItem,
-    RepositorySearchPage, RepositorySearchRequest, RequestContext, RequestSpec, ResponsePage,
-    RetryPolicy, SearchName, TextMatch, TreeEntry, TreeRequest, TreeResponse, credential_host,
-    qualifier_value, quote_search_keyword, search_phrase, validate_qualifier_value,
-    validate_search_name,
+    CachePartition, CachedContent, CodeSearchItem, CodeSearchRequest, CommitListRequest,
+    ConditionalCache, ContentRequest, ContentResponse, ContentsEntry, GitHubBudget, GitHubEndpoint,
+    GitHubProvider, GitHubTransport, GraphQlError, HistoryPage, HistoryRequest, LimiterKey,
+    NamedRef, ProviderError, ProviderErrorKind, ProviderErrorReason, PullListRequest, RateLimit,
+    RefKind, RepositorySearchItem, RepositorySearchPage, RepositorySearchRequest, RequestContext,
+    RequestSpec, RetryPolicy, SearchName, TextMatch, TreeRequest, TreeResponse, qualifier_value,
+    quote_search_keyword, search_phrase, validate_qualifier_value, validate_search_name,
 };

@@ -1,4 +1,5 @@
 use crate::policy::prune::DefaultsFlag;
+use crate::tools::result::ToolError;
 use crate::{
     policy::{path::PathPolicy, prune::PruneMode},
     security::ContentSecurity,
@@ -16,53 +17,59 @@ impl StructureSearchQueryFiles {
     fn depth(value: Option<std::num::NonZeroU64>) -> Option<u32> {
         value.map(|depth| u32::try_from(depth.get()).unwrap_or(u32::MAX))
     }
-    pub fn max_depth(&self) -> Option<u32> {
+    pub(crate) fn max_depth(&self) -> Option<u32> {
         Self::depth(self.max_depth)
     }
-    pub fn min_depth(&self) -> Option<u32> {
+    pub(crate) fn min_depth(&self) -> Option<u32> {
         Self::depth(self.min_depth)
     }
     fn non_empty(values: &[String]) -> Option<Vec<String>> {
         (!values.is_empty()).then(|| values.to_vec())
     }
-    pub fn include(&self) -> Option<Vec<String>> {
+    pub(crate) fn include(&self) -> Option<Vec<String>> {
         Self::non_empty(&self.include).map(|globs| crate::policy::include::include_globs(&globs))
     }
-    pub fn extensions(&self) -> Option<Vec<String>> {
+    pub(crate) fn extensions(&self) -> Option<Vec<String>> {
         Self::non_empty(&self.extensions)
     }
-    pub fn exclude(&self) -> Option<Vec<String>> {
+    pub(crate) fn exclude(&self) -> Option<Vec<String>> {
         Self::non_empty(&self.exclude)
     }
-    pub fn entry_type(&self) -> Option<String> {
+    pub(crate) fn entry_type(&self) -> Option<String> {
         self.entry_type.map(|kind| kind.to_string())
     }
-    pub fn permissions(&self) -> Option<String> {
+    pub(crate) fn permissions(&self) -> Option<String> {
         self.permissions.as_ref().map(ToString::to_string)
     }
-    pub fn access(&self) -> Option<String> {
+    pub(crate) fn access(&self) -> Option<String> {
         self.access.map(|access| access.to_string())
     }
-    pub fn detail(&self) -> String {
+    pub(crate) fn detail(&self) -> String {
         self.detail.to_string()
     }
-    pub fn sort(&self) -> String {
+    pub(crate) fn sort(&self) -> String {
         self.sort.to_string()
     }
-    pub fn max_entries(&self) -> Option<u32> {
+    pub(crate) fn max_entries(&self) -> Option<u32> {
         self.max_entries
             .map(|limit| u32::try_from(limit.get()).unwrap_or(u32::MAX))
     }
-    pub fn page(&self) -> u32 {
+    pub(crate) fn page(&self) -> u32 {
         u32::try_from(self.page.get()).unwrap_or(u32::MAX)
     }
     /// The caller's page size; `None` pages by the response budget.
-    pub fn page_size(&self) -> Option<usize> {
+    pub(crate) fn page_size(&self) -> Option<usize> {
         self.page_size
             .map(|size| usize::try_from(size.get()).unwrap_or(usize::MAX))
     }
-    pub fn snapshot(&self) -> Option<&str> {
+    pub(crate) fn snapshot(&self) -> Option<&str> {
         self.snapshot.as_deref().map(String::as_str)
+    }
+    /// Listing rows (in walk or sort order) earlier windows listed.
+    pub(crate) fn scan_offset(&self) -> usize {
+        self.scan_offset.map_or(0, |offset| {
+            usize::try_from(offset.get()).unwrap_or(usize::MAX)
+        })
     }
 }
 
@@ -71,6 +78,8 @@ struct Row {
     dir: String,
     /// The entry text inside its directory group ([`entry_text`]).
     entry: String,
+    display_name: String,
+    kind: &'static str,
     path: String,
     /// A regular file (not a directory or symlink).
     is_file: bool,
@@ -80,12 +89,18 @@ struct Row {
     lines: usize,
     /// The walked entry, for the continuation pages' change check.
     source: std::path::PathBuf,
+    /// Its size and time as the walk read them (the stored walk's stamp).
+    seen: (u64, Option<std::time::SystemTime>),
 }
 
 /// A files walk: its rows in listing order (cut to `maxEntries`) and what
 /// the walk left out.
 struct FilesWalk {
     rows: Vec<Row>,
+    /// Listing rows before this window's end (`scanOffset` plus the rows
+    /// this window took, before grouped directories folded into headers):
+    /// where `next.expandScan` resumes.
+    covered: usize,
     available: usize,
     total_discovered: usize,
     was_capped: bool,
@@ -94,8 +109,15 @@ struct FilesWalk {
 }
 
 impl super::memo::Listed for FilesWalk {
-    fn sources(&self) -> Vec<&std::path::Path> {
-        self.rows.iter().map(|row| row.source.as_path()).collect()
+    fn sources(&self) -> Vec<super::memo::Seen<'_>> {
+        self.rows
+            .iter()
+            .map(|row| super::memo::Seen {
+                path: row.source.as_path(),
+                size: row.seen.0,
+                modified: row.seen.1,
+            })
+            .collect()
     }
 }
 
@@ -133,6 +155,7 @@ pub fn execute_files(
         q.sort(),
         q.detail(),
         requested,
+        q.scan_offset(),
         q.page_size(),
         q.no_ignore,
         q.default_excludes,
@@ -161,18 +184,26 @@ pub fn execute_files(
     let page_size = q
         .page_size()
         .map(|size| size.clamp(1, super::structure_max("pageSize") as usize));
-    let pages = super::page_ranges(&files_costs(&walk.rows), page_size, budget);
+    let prefix = super::listing_prefix(paths, &validated.canonical);
+    let deferred_detail = q.detail() == "full" && q.sort() != "lines";
+    let pages = super::page_ranges(
+        &files_costs(&walk.rows, &prefix, deferred_detail),
+        page_size,
+        budget,
+    );
     if !stored && pages.len() > 1 {
         super::memo::put(snapshot.clone(), policy, &validated.canonical, &walk);
     }
-    Ok(files_page(
+    files_page(
         q,
         &walk,
         &pages,
         snapshot,
-        &validated.canonical,
+        (&validated.canonical, &prefix),
         requested,
-    ))
+        paths,
+        cancel,
+    )
 }
 
 /// Path order is the walk order (name-sorted, depth-first), so the first
@@ -191,7 +222,7 @@ fn walk_files(
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
     requested: usize,
-) -> Result<FilesWalk, super::StructureError> {
+) -> Result<FilesWalk, ToolError> {
     let time = &q.time;
     let access = q.access();
     let access = access.as_deref();
@@ -216,7 +247,7 @@ fn walk_files(
         super::max_walk()
     };
     let discovery = paths.discovery_walk();
-    let native = octocode_engine::portable::query_file_system_filtered(
+    let native = octocode_engine::portable::query_file_system_typed(
         FileSystemQueryOptions {
             path: root.to_string_lossy().into_owned(),
             include_root: Some(true),
@@ -244,16 +275,15 @@ fn walk_files(
             stop_at_limit: Some(true),
             limit: Some(walk_limit),
         },
-        &|path| {
-            if gitignore
-                .as_ref()
-                .is_some_and(|filter| filter.is_ignored(path))
-            {
+        &|path, file_type| {
+            if gitignore.as_ref().is_some_and(|filter| {
+                filter.is_ignored_as(path, file_type.map(|kind| kind.is_dir()))
+            }) {
                 ignored.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 ignored_dirs.record(path);
                 return Ok(false);
             }
-            let allowed = super::allow_discovery(path, &discovery, cancel)?;
+            let allowed = super::allow_discovery(path, file_type, &discovery, cancel)?;
             // Only an entry these filters could list makes absence unproven.
             if !allowed && probe.could_list(path) {
                 withheld
@@ -265,8 +295,8 @@ fn walk_files(
         },
     )
     .map_err(|error| super::walk_error(error, q.path.as_str()))?;
-    cancel.check().map_err(super::cancelled)?;
-    let count_lines = detail == "full" || sort == "lines";
+    cancel.check().map_err(ToolError::cancelled)?;
+    let count_lines = sort == "lines";
     // A directory root is the listing itself, never one of its rows.
     let mut rows = native
         .entries
@@ -276,10 +306,16 @@ fn walk_files(
                 && (e.relative_path.is_empty() || std::path::Path::new(&e.path) == root))
         })
         .map(|e| make_row(e, root, security, &detail, count_lines, paths, cancel))
-        .collect::<Result<Vec<_>, super::StructureError>>()?;
+        .collect::<Result<Vec<_>, ToolError>>()?;
     sort_rows(&mut rows, &sort);
     let available = rows.len();
     rows.truncate(requested);
+    // An expanded scan lists only the rows past the window earlier pages
+    // listed: listing order is stable, so the rows before `scanOffset` are
+    // the ones they showed.
+    let offset = q.scan_offset().min(rows.len());
+    rows.drain(..offset);
+    let covered = offset + rows.len();
     // Path order groups like `tree`: `path`'s own entries first, then each
     // directory once, in walk order (the sort is stable). Other sorts keep
     // their order, so a directory may open several groups.
@@ -295,6 +331,7 @@ fn walk_files(
     drop_grouped_dirs(&mut rows);
     Ok(FilesWalk {
         rows,
+        covered,
         available,
         total_discovered: native.total_discovered as usize,
         was_capped: native.was_capped,
@@ -330,20 +367,22 @@ fn drop_grouped_dirs(rows: &mut Vec<Row>) {
 /// directory rendered as the response shows it whenever it opens a group
 /// (a page repeats the header of a group it continues). Costs are bound
 /// by the snapshot, so every page of it cuts at the same rows.
-fn files_costs(rows: &[Row]) -> Vec<super::RowCost> {
+fn files_costs(rows: &[Row], prefix: &str, deferred_detail: bool) -> Vec<super::RowCost> {
     let mut headers = std::collections::HashMap::<&str, usize>::new();
     rows.iter()
         .enumerate()
         .map(|(index, row)| {
             let header = *headers.entry(row.dir.as_str()).or_insert_with(|| {
-                if row.dir.is_empty() {
-                    0
-                } else {
-                    crate::tools::stream_page::json_chars(&json!({"dir":row.dir,"files":[]})) + 1
-                }
+                crate::tools::stream_page::json_chars(
+                    &json!({"dir":super::group_dir(prefix, &row.dir),"files":[]}),
+                ) + 1
             });
             super::RowCost {
-                entry: crate::tools::stream_page::json_chars(&row.entry) + 1,
+                // Reserve the maximum `, lineCount=<usize>` field before
+                // paging so deferred detail cannot overflow the window.
+                entry: crate::tools::stream_page::json_chars(&row.entry)
+                    + 1
+                    + usize::from(deferred_detail && row.kind != "directory") * 40,
                 header,
                 continues: index > 0 && rows[index - 1].dir == row.dir,
             }
@@ -357,9 +396,11 @@ fn files_page(
     walk: &FilesWalk,
     pages: &[std::ops::Range<usize>],
     snapshot: String,
-    root: &std::path::Path,
+    (root, prefix): (&std::path::Path, &str),
     requested: usize,
-) -> Value {
+    paths: &PathPolicy,
+    cancel: &dyn CancellationCheck,
+) -> Result<Value, ToolError> {
     let page = q.page().max(1) as usize;
     let total = walk.rows.len();
     let early_exit = early_exit(q);
@@ -380,19 +421,38 @@ fn files_page(
         scan_cut,
         early_exit,
         total_discovered: walk.total_discovered,
+        scan_offset: q.scan_offset(),
+        covered: walk.covered,
         snapshot: snapshot.clone(),
     };
     let shown = pages.get(page - 1).cloned().unwrap_or(total..total);
-    let files = super::dir_groups(
-        &walk.rows[shown.clone()],
-        |row| (&row.dir, &row.entry),
-        "files",
-    );
-    let mut out = json!({"path":super::display_name(root),"snapshot":snapshot,"files":files,"pagination":{"currentPage":page,"totalPages":cut.total_pages,"totalItems":total,"hasMore":cut.has_more()}});
+    let deferred_detail = q.detail() == "full" && q.sort() != "lines";
+    let shown_rows = walk.rows[shown.clone()]
+        .iter()
+        .map(|row| {
+            let entry = if deferred_detail && row.kind != "directory" {
+                let lines = line_count(&row.source, paths, cancel)?;
+                entry_text(
+                    &row.display_name,
+                    row.kind,
+                    Some(row.size),
+                    (lines > 0).then_some(lines),
+                    Some(row.modified.round() as i64),
+                )
+            } else {
+                row.entry.clone()
+            };
+            Ok((row.dir.clone(), entry))
+        })
+        .collect::<Result<Vec<_>, ToolError>>()?;
+    let files = super::dir_groups(&shown_rows, |row| (&row.0, &row.1), prefix);
+    let mut facts =
+        crate::response::pages::PageFacts::sized(page, cut.total_pages, total, cut.has_more())
+            .out_of_range(cut.out_of_range());
     if let Some(size) = q.page_size() {
-        out["pagination"]["pageSize"] =
-            json!(size.clamp(1, super::structure_max("pageSize") as usize));
+        facts = facts.with_page_size(size.clamp(1, super::structure_max("pageSize") as usize));
     }
+    let mut out = json!({"path":super::display_name(root),"snapshot":snapshot,"files":files,"pagination":facts.to_value()});
     if total == 0 {
         out["status"] = json!("empty")
     }
@@ -420,15 +480,12 @@ fn files_page(
     {
         pagination["totalFilesFound"] = json!(walk.total_discovered)
     }
-    if cut.out_of_range() {
-        out["pagination"]["outOfRange"] = json!(true);
-    }
     warnings.extend(walk.uncovered.withheld.notice());
     if !warnings.is_empty() {
         out["warnings"] = json!(warnings)
     }
     walk.uncovered.note_empty(&mut out, q);
-    out
+    Ok(out)
 }
 
 /// `next.read` on a listing's first page: the outline (localFetch
@@ -493,7 +550,7 @@ fn make_row(
     count_lines: bool,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
-) -> Result<Row, super::StructureError> {
+) -> Result<Row, ToolError> {
     let full = detail == "full";
     // Rows name paths relative to the walked root, like `tree`: `""` is the
     // root itself, which a directory root lists as `.`.
@@ -537,6 +594,8 @@ fn make_row(
     Ok(Row {
         dir,
         entry,
+        display_name: name.to_owned(),
+        kind,
         path,
         is_file: kind == "file",
         name: e.name.clone(),
@@ -544,10 +603,14 @@ fn make_row(
         modified,
         lines,
         source: std::path::PathBuf::from(&e.path),
+        seen: {
+            let seen = super::memo::Seen::walked(std::path::Path::new(&e.path), e);
+            (seen.size, seen.modified)
+        },
     })
 }
 /// Page layout tag folded into the snapshot: rows grouped by directory.
-const ROW_LAYOUT: &str = "pathRelativeDirGroups";
+const ROW_LAYOUT: &str = "workspaceRelativeDirGroups";
 
 /// One listed entry inside its directory group: the name, `/` after a
 /// directory, then ` (<fields>)` naming the size in bytes (every non-directory
@@ -599,9 +662,11 @@ fn line_count(
     path: &std::path::Path,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
-) -> Result<usize, super::StructureError> {
+) -> Result<usize, ToolError> {
     use std::io::Read;
-    cancel.check().map_err(super::cancelled)?;
+    #[cfg(test)]
+    LINE_COUNT_READS.with(|reads| reads.set(reads.get() + 1));
+    cancel.check().map_err(ToolError::cancelled)?;
     // Revalidate immediately before reading: discovery authorization is not
     // permission to follow a subsequently changed link or open a special file.
     let Ok(validated) = paths.validate_read(path) else {
@@ -615,7 +680,7 @@ fn line_count(
     let mut lines = 0_usize;
     let mut last_byte = None;
     loop {
-        cancel.check().map_err(super::cancelled)?;
+        cancel.check().map_err(ToolError::cancelled)?;
         match file.read(&mut buffer) {
             Ok(0) => return Ok(lines + usize::from(last_byte.is_some_and(|b| b != b'\n'))),
             Ok(bytes) => {
@@ -629,6 +694,16 @@ fn line_count(
             Err(_) => return Ok(0),
         }
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    static LINE_COUNT_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(super) fn line_count_reads() -> usize {
+    LINE_COUNT_READS.with(std::cell::Cell::get)
 }
 pub(super) fn format_size(n: i64) -> String {
     let b = n as f64;
@@ -644,9 +719,7 @@ pub(super) fn format_size(n: i64) -> String {
         format!("{:.1}TB", b / 1_099_511_627_776.)
     }
 }
-fn validate_time(
-    time: Option<&StructureSearchQueryFilesTime>,
-) -> Result<(), super::StructureError> {
+fn validate_time(time: Option<&StructureSearchQueryFilesTime>) -> Result<(), ToolError> {
     let Some(t) = time else {
         return Ok(());
     };
@@ -656,7 +729,7 @@ fn validate_time(
         ("accessedWithin", &t.accessed_within),
     ] {
         if let Some(value) = value.as_deref().filter(|value| !valid_duration(value)) {
-            return Err(super::StructureError::new(
+            return Err(ToolError::new(
                 "invalidInput",
                 format!(
                     "time.{key}=\"{value}\" has an unsupported format. Use a relative duration like \"7d\", \"2h\", \"1w\", or \"3m\"."
@@ -720,7 +793,7 @@ mod tests {
         let paths = crate::tools::test_support::workspace_policy(&root);
         let error = line_count(&file, &paths, &Cancel(AtomicUsize::new(0)))
             .expect_err("cancel while reading");
-        assert_eq!(error.code, "structure.execution.cancelled");
+        assert_eq!(error.code, "cancelled");
         std::fs::remove_dir_all(root).expect("cleanup");
     }
 }

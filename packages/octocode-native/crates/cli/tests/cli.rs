@@ -249,13 +249,7 @@ fn tool_help_uses_canonical_core_short_descriptions() {
     // The tool commands are exactly the contract tools: a tool dropped from
     // the contract must not linger as a command, and none may be missing.
     let system = [
-        "schema",
-        "config",
-        "auth",
-        "graph",
-        "skill",
-        "install",
-        "help",
+        "schema", "config", "auth", "graph", "skill", "install", "help",
     ];
     let mut listed_tools = stdout(&root)
         .split("Commands:")
@@ -629,6 +623,7 @@ fn tool_without_query_exits_two_with_schema_hint() {
     let error: serde_json::Value = serde_json::from_str(stdout(&output)).expect("JSON error");
     assert_eq!(error["kind"], "octocode.toolError", "{error}");
     assert_eq!(error["tool"], "astSearch", "{error}");
+    assert_eq!(error["errorCode"], "invalidInput", "{error}");
     let message = error["error"].as_str().unwrap_or_default();
     assert!(
         message.contains("Missing JSON query") && message.contains("octocode schema astSearch"),
@@ -672,7 +667,11 @@ fn tool_reads_query_from_stdin() {
         .expect("write query");
     let output = child.wait_with_output().expect("output");
     assert!(output.status.success(), "{}", stderr(&output));
-    assert!(stdout(&output).contains("from_stdin"), "{}", stdout(&output));
+    assert!(
+        stdout(&output).contains("from_stdin"),
+        "{}",
+        stdout(&output)
+    );
 }
 
 #[test]
@@ -766,7 +765,10 @@ fn schema_help_is_native_and_execution_names_the_launcher() {
         .expect("schema help");
     assert!(help.status.success(), "{}", stderr(&help));
     let help = stdout(&help);
-    assert!(help.contains("octocode schema <tool> --view query"), "{help}");
+    assert!(
+        help.contains("octocode schema <tool> --view query"),
+        "{help}"
+    );
     assert!(help.contains("--select"), "{help}");
 
     let output = workspace
@@ -976,7 +978,33 @@ fn json_mode_errors_go_to_stdout_without_stderr() {
         serde_json::from_str(stdout(&malformed)).expect("machine-readable parse error");
     assert_eq!(error["kind"], "octocode.toolError");
     assert_eq!(error["tool"], "localSearch");
+    assert_eq!(error["errorCode"], "invalidInput", "{error}");
     assert!(stderr(&malformed).is_empty(), "{}", stderr(&malformed));
+
+    // A schema-invalid query answers with the same typed envelope MCP
+    // returns as structuredContent, repair details kept.
+    let typo = workspace
+        .cli()
+        .args([
+            "localFetch",
+            r#"{"queries":[{"path":"a.rs","matchstring":"x"}]}"#,
+        ])
+        .output()
+        .expect("schema-invalid query");
+    assert_eq!(exit_code(&typo), Some(2));
+    let error: serde_json::Value =
+        serde_json::from_str(stdout(&typo)).expect("machine-readable input error");
+    assert_eq!(error["kind"], "octocode.toolError", "{error}");
+    assert_eq!(error["tool"], "localFetch", "{error}");
+    assert_eq!(error["errorCode"], "invalidInput", "{error}");
+    assert!(
+        error["details"]
+            .as_array()
+            .is_some_and(|details| details.iter().any(|d| d
+                .as_str()
+                .is_some_and(|d| d.contains("did you mean 'matchString'?")))),
+        "{error}"
+    );
 
     let unknown = workspace
         .cli()
@@ -1056,7 +1084,9 @@ fn install_rejects_unknown_method_and_names_near_miss_ids() {
         .expect("near miss text");
     let text = stderr(&near);
     assert!(
-        text.contains("Did you mean") && text.contains("claude-code") && text.contains("claude-desktop"),
+        text.contains("Did you mean")
+            && text.contains("claude-code")
+            && text.contains("claude-desktop"),
         "{text}"
     );
     let desktop = workspace

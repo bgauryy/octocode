@@ -46,8 +46,9 @@ for (const r of REPOS_BY_LANG) {
   const sym1 = await call('astSearch', { operation: 'symbols', path: L, pageSize: 100, ...(r.language ? { language: r.language } : {}) });
   const symPages = await walk(client, sym1, 'nextPage', 200, { keepError: true });
   const decls = symPages.flatMap(p => declarations(p));
-  // Symbols carry no id: identity is name + line + character + parent.
-  const identity = d => `${d.name}|${d.line}|${d.character ?? ''}|${d.parent ?? ''}|${d.parentLine ?? ''}`;
+  // Symbols carry no id: identity is name + kind + line + character + parent
+  // (`typedef struct X X;` declares a struct tag and a type of one name on one line).
+  const identity = d => `${d.name}|${d.kind ?? ''}|${d.line}|${d.character ?? ''}|${d.parent ?? ''}|${d.parentLine ?? ''}`;
   const dupes = decls.length - new Set(decls.map(identity)).size;
   row.symbols = `${decls.length} in ${symPages.length}p`;
   check(`${r.lang}: symbols paged to the end, unique identities`, decls.length > 0 && dupes === 0 && !symPages.some(p => p.isError), `${decls.length} dupes=${dupes} ${sym1.isError ? sym1.text.slice(0, 120) : ''}`);

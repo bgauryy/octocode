@@ -2,12 +2,10 @@
 //! each, with per-item body windows.
 use super::patch::{attach_patch_cursor, shape_files};
 use super::patch_hop::{DiffCursors, attach_diff_continuations, take_reshaped_paths};
-use super::util::{array, body_matches, needle, str_at, string, window_body};
+use super::util::{array, body_matches, delivered_earlier, needle, str_at, string, window_body};
 use super::window::{WindowState, paginate_window};
 use super::{HistoryItemRequest, ItemOperation, fetch};
-use crate::providers::github::{
-    CredentialResolver, GitHubTransport, ProviderError, RequestContext,
-};
+use crate::providers::github::{GitHubTransport, ProviderError, RequestContext};
 use crate::tools::id::ToolId;
 use crate::tools::result::remove_nulls;
 use futures_util::{StreamExt as _, TryStreamExt as _};
@@ -165,6 +163,11 @@ pub(super) fn shape_pr_comments(
             &mut first_body_page,
             &mut dropped,
         );
+        // A body continuation lists only the bodies it continues: a whole
+        // body an earlier window delivered is not repeated as an empty row.
+        if delivered_earlier(query.char_offset(), &body_page) {
+            continue;
+        }
         // A whole body restates no window, and an unedited comment no
         // second timestamp.
         let windowed = body_page["offset"] != 0 || body_page["hasMore"] == true;
@@ -187,7 +190,7 @@ pub(super) fn shape_pr_comments(
     }
     if !shaped.is_empty() {
         row["comments"] = Value::Array(shaped);
-        row["reviewSummary"] = json!({"totalComments":total_comments,"inlineComments":inline_comments,"discussionComments":total_comments-inline_comments,"commenters":commenters.iter().take(8).collect::<Vec<_>>(),"commenterCount":commenters.len(),"latestCommentAt":latest,"countScope":"providerBatch"});
+        row["reviewSummary"] = json!({"commentsCount":total_comments,"inlineComments":inline_comments,"discussionComments":total_comments-inline_comments,"commenters":commenters.iter().take(8).collect::<Vec<_>>(),"commenterCount":commenters.len(),"latestCommentAt":latest,"countScope":"providerBatch"});
     }
     pagination.insert("comments".into(), page);
     if let Some(page) = first_body_page {
@@ -230,6 +233,9 @@ pub(super) fn shape_pr_reviews(
             &mut first_body_page,
             &mut dropped,
         );
+        if delivered_earlier(query.char_offset(), &body_page) {
+            continue;
+        }
         let mut item = json!({
             // A review without an identity has none: never the text "null".
             "id": match &review["id"] {
@@ -237,11 +243,11 @@ pub(super) fn shape_pr_reviews(
                 Value::String(id) if !id.is_empty() => Some(id.clone()),
                 _ => None,
             },
-            "user": str_at(&review,"/user/login").unwrap_or("unknown"),
+            "author": str_at(&review,"/user/login").unwrap_or("unknown"),
             "state": string(review.get("state")),
             "body": (!body.is_empty()).then_some(body),
             "bodyPagination": (!raw_body.is_empty() && (query.char_offset().unwrap_or(0)>0 || body_page["hasMore"]==true)).then_some(body_page),
-            "submittedAt": review.get("submitted_at"), "commitId": review.get("commit_id")
+            "submittedAt": review.get("submitted_at"), "commitSha": review.get("commit_id")
         });
         remove_nulls(&mut item);
         shaped.push(item);
@@ -254,8 +260,8 @@ pub(super) fn shape_pr_reviews(
     dropped
 }
 
-pub(super) async fn shape_pr_commits<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+pub(super) async fn shape_pr_commits(
+    transport: &GitHubTransport,
     row: &mut Value,
     pagination: &mut Map<String, Value>,
     commits: Vec<Value>,
@@ -478,7 +484,47 @@ mod tests {
         assert_eq!(row["reviewSummary"]["countScope"], "providerBatch", "{row}");
     }
 
-    /// X5: a commit names its GitHub account first, else its git name.
+    /// QA2: a body continuation (`offset` > 0) re-reads the comment page
+    /// to continue its cut bodies; a comment whose whole body an earlier
+    /// window delivered is not listed again as an empty row.
+    #[test]
+    fn body_continuation_lists_only_unfinished_bodies() {
+        let query = HistoryItemRequest::from_row(json!({
+            "operation":"pullRequest","owner":"o","repo":"r","number":1,
+            "sections":["comments"],"minify":"none","offset":10,"length":10
+        }))
+        .expect("pull request row");
+        let mut row = json!({});
+        let mut pagination = Map::new();
+        let comments = map_comments(
+            vec![
+                raw(json!({"id":1,"body":"short"})),
+                raw(json!({"id":2,"body":"x".repeat(25)})),
+                raw(json!({"id":3,"body":"y".repeat(10)})),
+                // An empty body was whole on the first window too.
+                raw(json!({"id":4,"body":""})),
+            ],
+            "discussion",
+            true,
+        );
+        shape_pr_comments(
+            &mut row,
+            &mut pagination,
+            comments,
+            WindowState::COMPLETE,
+            &query,
+        );
+        let listed = array(row["comments"].clone());
+        assert_eq!(listed.len(), 1, "{row}");
+        assert_eq!(listed[0]["id"], "2", "{row}");
+        assert_eq!(listed[0]["body"], "x".repeat(10), "{row}");
+        assert_eq!(
+            pagination["commentBody"]["remainingChars"], 5,
+            "{pagination:?}"
+        );
+    }
+
+    /// X5: a commit names its GitHub account first, else its git name.    /// X5: a commit names its GitHub account first, else its git name.
     #[test]
     fn commit_person_is_login_first() {
         let login = json!({"author":{"login":"rickhanlonii"},"commit":{"author":{"name":"Ricky"}}});

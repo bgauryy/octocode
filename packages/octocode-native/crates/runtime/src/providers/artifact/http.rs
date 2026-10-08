@@ -1,6 +1,6 @@
 use super::{ArtifactError, ArtifactType};
-use crate::cache::{CacheClass, CacheConfig, CacheKey, CachePartition, Store};
-use crate::providers::{BudgetStop, RequestBudget};
+use crate::cache::{CacheClass, CacheConfig, CacheKey, Store, StorePartition};
+use crate::providers::{BudgetStop, RequestBudget, RuntimeClients};
 use bytes::BytesMut;
 use futures_util::StreamExt;
 use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderValue, USER_AGENT};
@@ -9,7 +9,6 @@ use std::fmt;
 use std::future::Future;
 use std::net::SocketAddr;
 use std::pin::Pin;
-use std::sync::OnceLock;
 use std::time::Duration;
 use url::Url;
 
@@ -50,7 +49,7 @@ fn cache_key(url: &Url, accept: &str, credential: &str) -> CacheKey {
     CacheKey {
         namespace: "artifact".into(),
         resource,
-        partition: CachePartition {
+        partition: StorePartition {
             endpoint: url.host_str().unwrap_or("registry").to_owned(),
             credential_fingerprint: credential.to_owned(),
         },
@@ -61,7 +60,7 @@ fn fact_key(resource: &str) -> CacheKey {
     CacheKey {
         namespace: "artifact-fact".into(),
         resource: resource.to_owned(),
-        partition: CachePartition {
+        partition: StorePartition {
             endpoint: "registry".into(),
             credential_fingerprint: "anonymous".into(),
         },
@@ -128,14 +127,14 @@ pub struct SystemArtifactHttp {
 }
 
 impl SystemArtifactHttp {
-    /// The process-wide registry client: one connection pool and TLS
-    /// configuration for every call. A DNS-pinned registry request builds
-    /// its own pinned client (see [`DnsPin`]).
+    /// The registry client for the current Tokio runtime: one connection pool
+    /// and TLS configuration for every call on it. A DNS-pinned registry
+    /// request uses a client pinned to its validated addresses (see
+    /// [`pinned_client`]).
     pub fn shared() -> Result<Self, ArtifactError> {
-        static CLIENT: OnceLock<Result<reqwest::Client, ArtifactError>> = OnceLock::new();
-        CLIENT
-            .get_or_init(|| build_client(None))
-            .clone()
+        static CLIENTS: RuntimeClients<()> = RuntimeClients::new(MAX_RUNTIME_CLIENTS);
+        CLIENTS
+            .get((), || build_client(None))
             .map(|client| Self { client, retries: 1 })
     }
 
@@ -147,14 +146,26 @@ impl SystemArtifactHttp {
     }
 }
 
-#[cfg(test)]
-static UNPINNED_BUILDS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+/// Clients kept for reuse per runtime; the oldest is dropped past this count.
+const MAX_RUNTIME_CLIENTS: usize = 8;
+
+/// The client pinned to `pin`'s exact host and validated addresses, reused
+/// across calls on one runtime so a later GET to the same registry keeps its
+/// pooled connection and TLS session. A different address set (a new DNS
+/// answer) is a different key, so a reused client never connects anywhere the
+/// registry policy did not validate for this call.
+fn pinned_client(pin: &DnsPin) -> Result<reqwest::Client, ArtifactError> {
+    static CLIENTS: RuntimeClients<(String, Vec<SocketAddr>)> =
+        RuntimeClients::new(MAX_RUNTIME_CLIENTS);
+    let mut addresses = pin.addresses.clone();
+    addresses.sort_unstable();
+    addresses.dedup();
+    CLIENTS.get((pin.host.to_ascii_lowercase(), addresses), || {
+        build_client(Some(pin))
+    })
+}
 
 fn build_client(dns_pin: Option<&DnsPin>) -> Result<reqwest::Client, ArtifactError> {
-    #[cfg(test)]
-    if dns_pin.is_none() {
-        UNPINNED_BUILDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    }
     let mut builder = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none());
     if let Some(pin) = dns_pin {
         // A proxy would resolve the target independently and defeat the pin.
@@ -166,7 +177,7 @@ fn build_client(dns_pin: Option<&DnsPin>) -> Result<reqwest::Client, ArtifactErr
     }
     builder.build().map_err(|_| {
         ArtifactError::new(
-            "provider_error",
+            "providerError",
             "Failed to initialize artifact registry HTTP client.",
         )
     })
@@ -180,7 +191,7 @@ impl ArtifactHttp for SystemArtifactHttp {
     ) -> ArtifactHttpFuture<'a> {
         Box::pin(async move {
             let client = match request.dns_pin.as_ref() {
-                Some(pin) => build_client(Some(pin))?,
+                Some(pin) => pinned_client(pin)?,
                 None => self.client.clone(),
             };
             for attempt in 0..=self.retries {
@@ -209,6 +220,7 @@ impl ArtifactHttp for SystemArtifactHttp {
                     && attempt < self.retries
                     && let Some(delay) = retry_delay(response.headers(), attempt, budget)
                 {
+                    drain(response, budget).await?;
                     budget
                         .wait(tokio::time::sleep(delay))
                         .await
@@ -217,7 +229,7 @@ impl ArtifactHttp for SystemArtifactHttp {
                 }
                 if status.is_redirection() {
                     return Err(ArtifactError::new(
-                        "provider_error",
+                        "providerError",
                         "Artifact registry redirects are not followed.",
                     )
                     .with_status(status.as_u16()));
@@ -228,7 +240,7 @@ impl ArtifactHttp for SystemArtifactHttp {
                     let chunk = chunk.map_err(transport_error)?;
                     if body.len().saturating_add(chunk.len()) > budget.max_body_bytes {
                         return Err(ArtifactError::new(
-                            "provider_error",
+                            "providerError",
                             "Artifact registry response exceeded the configured body limit.",
                         ));
                     }
@@ -240,11 +252,32 @@ impl ArtifactHttp for SystemArtifactHttp {
                 });
             }
             Err(ArtifactError::new(
-                "provider_error",
+                "providerError",
                 "Artifact registry request failed. Retry later.",
             ))
         })
     }
+}
+
+/// The most of an error body read before a retry. Reading a short body to
+/// its end hands the connection back to the pool; a longer one is dropped
+/// with its connection.
+const MAX_DRAIN_BYTES: usize = 64 * 1024;
+
+/// Read and discard a retried response's body, up to [`MAX_DRAIN_BYTES`].
+async fn drain(response: reqwest::Response, budget: &RequestBudget) -> Result<(), ArtifactError> {
+    let mut read = 0_usize;
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = budget.wait(stream.next()).await.map_err(budget_error)? {
+        let Ok(chunk) = chunk else {
+            return Ok(());
+        };
+        read = read.saturating_add(chunk.len());
+        if read > MAX_DRAIN_BYTES {
+            return Ok(());
+        }
+    }
+    Ok(())
 }
 
 /// Longest wait before a retry; a registry that asks for more gets its
@@ -260,10 +293,14 @@ fn retry_delay(
     attempt: u8,
     budget: &RequestBudget,
 ) -> Option<Duration> {
-    let delay = octocode_github::retry_after_delay(headers, Duration::from_secs(86_400))
-        .unwrap_or_else(|| {
-            octocode_github::full_jitter(RETRY_BASE, u32::from(attempt), MAX_RETRY_WAIT)
-        });
+    let delay = crate::providers::retry_after(
+        headers,
+        Duration::from_secs(86_400),
+        std::time::SystemTime::now(),
+    )
+    .unwrap_or_else(|| {
+        octocode_github::full_jitter(RETRY_BASE, u32::from(attempt), MAX_RETRY_WAIT)
+    });
     (delay <= MAX_RETRY_WAIT && std::time::Instant::now() + delay < budget.deadline)
         .then_some(delay)
 }
@@ -282,7 +319,7 @@ fn budget_error(stop: BudgetStop) -> ArtifactError {
 
 fn transport_error(_error: impl fmt::Display) -> ArtifactError {
     ArtifactError::new(
-        "provider_error",
+        "providerError",
         "Artifact registry request failed. Retry later.",
     )
 }
@@ -464,7 +501,7 @@ impl RegistryClient<'_> {
             )
             .with_status(response.status)),
             429 => Err(ArtifactError::new(
-                "rate_limit",
+                "rateLimited",
                 format!(
                     "{} rate limit reached. Retry later.",
                     artifact_type.as_str()
@@ -474,7 +511,7 @@ impl RegistryClient<'_> {
             // Remaining 4xx (except 408) are deterministic request errors:
             // retrying cannot help, so name the status and blame the query.
             status @ 400..=499 if status != 408 => Err(ArtifactError::new(
-                "invalid_query",
+                "invalidInput",
                 format!(
                     "{} registry rejected the request (HTTP {status}). Check the package name or query.",
                     artifact_type.as_str()
@@ -482,7 +519,7 @@ impl RegistryClient<'_> {
             )
             .with_status(status)),
             status => Err(ArtifactError::new(
-                "provider_error",
+                "providerError",
                 format!(
                     "{} registry request failed (HTTP {status}). Retry later.",
                     artifact_type.as_str()
@@ -495,7 +532,7 @@ impl RegistryClient<'_> {
 
 pub(crate) fn invalid_response(artifact_type: ArtifactType) -> ArtifactError {
     ArtifactError::new(
-        "provider_error",
+        "providerError",
         format!(
             "{} returned an invalid registry response.",
             artifact_type.as_str()
@@ -561,7 +598,7 @@ mod tests {
         // coordinates) with 405, not 404; it must not read as retryable.
         for status in [400u16, 405, 422] {
             let error = classify(status).expect_err("4xx is an error");
-            assert_eq!(error.code, "invalid_query");
+            assert_eq!(error.code, "invalidInput");
             assert_eq!(error.status, Some(status));
             assert!(
                 error.message.contains(&format!("HTTP {status}")),
@@ -575,7 +612,7 @@ mod tests {
     fn server_errors_and_408_stay_retryable_provider_error() {
         for status in [408u16, 500, 502, 503] {
             let error = classify(status).expect_err("5xx is an error");
-            assert_eq!(error.code, "provider_error");
+            assert_eq!(error.code, "providerError");
             assert_eq!(error.status, Some(status));
             assert!(
                 error.message.contains(&format!("HTTP {status}"))
@@ -592,7 +629,7 @@ mod tests {
         assert_eq!(classify(401).expect_err("401").code, "authentication");
         assert_eq!(classify(403).expect_err("403").code, "authentication");
         let limited = classify(429).expect_err("429");
-        assert_eq!(limited.code, "rate_limit");
+        assert_eq!(limited.code, "rateLimited");
         assert_eq!(limited.status, Some(429));
     }
 
@@ -705,7 +742,7 @@ mod tests {
         ))
         .expect("test URL");
         let read = || client.json(ArtifactType::Npm, url.clone(), false, None);
-        assert_eq!(read().await.expect_err("malformed").code, "provider_error");
+        assert_eq!(read().await.expect_err("malformed").code, "providerError");
         assert_eq!(read().await.expect("retry").expect("body")["name"], "ok");
         assert_eq!(read().await.expect("cached").expect("body")["name"], "ok");
         assert_eq!(
@@ -801,14 +838,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn every_call_shares_one_registry_client() {
-        for _ in 0..3 {
-            SystemArtifactHttp::shared().expect("HTTP client");
-        }
-        assert_eq!(UNPINNED_BUILDS.load(Ordering::Relaxed), 1);
-    }
-
     /// A 5xx answer is retried `network.maxRetries` times, then returned.
     #[tokio::test]
     async fn server_errors_retry_the_configured_number_of_times() {
@@ -841,10 +870,15 @@ mod tests {
     }
 
     /// A 429 retries after the registry's short `Retry-After`; a wait longer
-    /// than the retry cap returns the rate limit at once.
+    /// than the retry cap (as delta-seconds or an HTTP-date) returns the rate
+    /// limit at once.
     #[tokio::test]
     async fn rate_limits_follow_retry_after() {
-        for (retry_after, requests) in [("0", 2usize), ("120", 1)] {
+        for (retry_after, requests) in [
+            ("0", 2usize),
+            ("120", 1),
+            ("Fri, 31 Dec 9999 23:59:59 GMT", 1),
+        ] {
             let server = MockServer::start().await;
             Mock::given(method("GET"))
                 .respond_with(ResponseTemplate::new(429).insert_header("retry-after", retry_after))
@@ -872,6 +906,114 @@ mod tests {
                 "retry-after {retry_after}"
             );
         }
+    }
+
+    /// A keep-alive HTTP/1.1 server that answers the n-th request with
+    /// `responses[n]` (the last one repeats) and counts accepted connections.
+    fn counting_server(responses: Vec<&'static str>) -> (SocketAddr, Arc<AtomicUsize>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind");
+        let address = listener.local_addr().expect("address");
+        let connections = Arc::new(AtomicUsize::new(0));
+        let accepted = Arc::clone(&connections);
+        let served = Arc::new(AtomicUsize::new(0));
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else {
+                    return;
+                };
+                accepted.fetch_add(1, Ordering::SeqCst);
+                let responses = responses.clone();
+                let served = Arc::clone(&served);
+                std::thread::spawn(move || {
+                    let mut buffer = Vec::new();
+                    let mut chunk = [0_u8; 4096];
+                    loop {
+                        while !buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+                            match stream.read(&mut chunk) {
+                                Ok(0) | Err(_) => return,
+                                Ok(read) => buffer.extend_from_slice(&chunk[..read]),
+                            }
+                        }
+                        let end = buffer
+                            .windows(4)
+                            .position(|window| window == b"\r\n\r\n")
+                            .expect("request head")
+                            + 4;
+                        buffer.drain(..end);
+                        let index = served.fetch_add(1, Ordering::SeqCst);
+                        let response = responses[index.min(responses.len() - 1)];
+                        if stream.write_all(response.as_bytes()).is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        (address, connections)
+    }
+
+    const OK_JSON: &str =
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\n\r\n{}";
+
+    /// A retried 5xx body is read, so the retry reuses the connection.
+    #[tokio::test]
+    async fn a_retry_reuses_the_connection_after_reading_the_error_body() {
+        let body = "x".repeat(MAX_DRAIN_BYTES / 2);
+        let failed: &'static str = Box::leak(
+            format!(
+                "HTTP/1.1 503 Service Unavailable\r\nretry-after: 0\r\ncontent-length: {}\r\n\r\n{body}",
+                body.len()
+            )
+            .into_boxed_str(),
+        );
+        let (address, connections) = counting_server(vec![failed, OK_JSON]);
+        let request = ArtifactHttpRequest {
+            url: Url::parse(&format!("http://{address}/pkg")).expect("test URL"),
+            accept: "application/json",
+            authorization: None,
+            dns_pin: None,
+        };
+        let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
+        let response = SystemArtifactHttp::shared()
+            .expect("HTTP client")
+            .with_retries(1)
+            .get(request, &budget)
+            .await
+            .expect("retried answer");
+        assert_eq!(response.status, 200);
+        assert_eq!(connections.load(Ordering::SeqCst), 1);
+    }
+
+    /// Two reads pinned to the same validated address share one client and
+    /// its pooled connection.
+    #[tokio::test]
+    async fn pinned_reads_reuse_one_client_and_connection() {
+        let (address, connections) = counting_server(vec![OK_JSON]);
+        let pin = DnsPin {
+            host: "pinned-reuse.invalid".to_owned(),
+            addresses: vec![address],
+        };
+        let budget = RequestBudget::with_timeout(Duration::from_secs(60), 1024);
+        for _ in 0..3 {
+            let request = ArtifactHttpRequest {
+                url: Url::parse(&format!(
+                    "http://pinned-reuse.invalid:{}/pkg",
+                    address.port()
+                ))
+                .expect("test URL"),
+                accept: "application/json",
+                authorization: None,
+                dns_pin: Some(pin.clone()),
+            };
+            let response = SystemArtifactHttp::shared()
+                .expect("HTTP client")
+                .get(request, &budget)
+                .await
+                .expect("pinned read");
+            assert_eq!(response.status, 200);
+        }
+        assert_eq!(connections.load(Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

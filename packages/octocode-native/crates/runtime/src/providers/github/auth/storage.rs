@@ -1,8 +1,6 @@
 use super::super::{ProviderError, ProviderErrorKind};
 use super::normalize_host;
-use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
 pub fn delete_platform_credential(host: &str) -> Result<(), ProviderError> {
     let Ok(entry) = platform_entry(host) else {
@@ -120,17 +118,6 @@ impl std::fmt::Debug for OAuthToken {
             .field("refresh_token_expires_at", &self.refresh_token_expires_at)
             .finish()
     }
-}
-
-pub fn token_from_stored_blob(blob: &str) -> SecretString {
-    let trimmed = blob.trim();
-    if let Ok(value) = serde_json::from_str::<Value>(trimmed)
-        && let Some(token) = value.pointer("/token/token").and_then(Value::as_str)
-        && !token.is_empty()
-    {
-        return SecretString::from(token);
-    }
-    SecretString::from(trimmed)
 }
 
 pub fn store_platform_credential(credentials: &StoredCredentials) -> Result<(), ProviderError> {

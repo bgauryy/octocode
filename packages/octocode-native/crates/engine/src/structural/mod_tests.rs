@@ -114,6 +114,7 @@ fn structural_review_rule_prefilter_preserves_directory_recall() {
             no_ignore: None,
             max_depth: None,
             max_files: None,
+            skip_files: None,
             max_file_bytes: None,
         })
         .expect("directory search");
@@ -321,9 +322,9 @@ fn unsupported_extension_errors() {
 
 #[test]
 fn supported_extensions_are_rust_owned() {
-    let exts = supported_structural_extensions();
-    assert!(exts.iter().any(|ext| ext == "ts"));
-    assert!(exts.iter().any(|ext| ext == "rs"));
+    let exts = languages::supported_extensions();
+    assert!(exts.contains(&"ts"));
+    assert!(exts.contains(&"rs"));
 }
 
 #[test]
@@ -344,6 +345,7 @@ fn search_files_finds_matches_and_prefilters_non_matching_files() {
         no_ignore: None,
         max_depth: None,
         max_files: Some(10),
+        skip_files: None,
         max_file_bytes: None,
     })
     .expect("search files");
@@ -381,6 +383,7 @@ fn search_files_errors_on_nonexistent_root_for_every_prefilter_branch() {
             no_ignore: None,
             max_depth: None,
             max_files: Some(10),
+            skip_files: None,
             max_file_bytes: None,
         });
         match result {
@@ -416,6 +419,7 @@ fn search_files_respects_excluded_directories_and_large_file_limit() {
         no_ignore: None,
         max_depth: None,
         max_files: Some(10),
+        skip_files: None,
         max_file_bytes: Some(14),
     })
     .expect("search files");
@@ -445,6 +449,7 @@ fn search_files_reports_non_utf8_and_oversized_sources_per_file() {
         no_ignore: None,
         max_depth: None,
         max_files: Some(10),
+        skip_files: None,
         max_file_bytes: Some(14),
     })
     .expect("search files");
@@ -504,6 +509,7 @@ fn search_files_accepts_single_file_root() {
         no_ignore: None,
         max_depth: None,
         max_files: None,
+        skip_files: None,
         max_file_bytes: None,
     })
     .expect("search file");
@@ -561,13 +567,10 @@ fn ast_audit_detailed_search_reports_unknown_node_kind() {
 }
 
 #[test]
-fn detailed_search_match_ids_are_stable() {
+fn detailed_search_matches_carry_the_node_kind() {
     let content = "target(value);\n";
     let first = search_detailed(content, "a.ts", "ts", Some("target($X)"), None);
-    let second = search_detailed(content, "a.ts", "ts", Some("target($X)"), None);
     assert_eq!(first.matches.len(), 1);
-    assert_eq!(first.matches[0].id, second.matches[0].id);
-    assert_eq!(first.matches[0].confidence, "exact-ast");
     // node_kind is populated from the matched tree-sitter node (a
     // `target(value)` call), not left None.
     assert_eq!(
@@ -594,6 +597,7 @@ fn detailed_file_search_explains_prefilter_and_unsupported_files() {
         no_ignore: None,
         max_depth: None,
         max_files: Some(10),
+        skip_files: None,
         max_file_bytes: None,
     })
     .expect("detailed file search");
@@ -785,12 +789,9 @@ fn scala_comment_and_string_immunity() {
 #[cfg(feature = "tree-sitter-scala")]
 #[test]
 fn scala_extensions_are_supported() {
-    let exts = supported_structural_extensions();
+    let exts = languages::supported_extensions();
     for ext in ["scala", "sc", "sbt"] {
-        assert!(
-            exts.iter().any(|e| e == ext),
-            "structural search must support .{ext}"
-        );
+        assert!(exts.contains(&ext), "structural search must support .{ext}");
     }
 }
 
@@ -810,12 +811,9 @@ fn mts_uses_typescript_grammar_and_dollar_expando() {
 
 #[test]
 fn retained_alias_extensions_are_supported() {
-    let exts = supported_structural_extensions();
+    let exts = languages::supported_extensions();
     for ext in ["mts", "cts", "pyi"] {
-        assert!(
-            exts.iter().any(|e| e == ext),
-            "structural search must support .{ext}"
-        );
+        assert!(exts.contains(&ext), "structural search must support .{ext}");
     }
 }
 
@@ -841,6 +839,7 @@ fn search_files_supports_recursive_glob_includes() {
         no_ignore: None,
         max_depth: None,
         max_files: Some(50),
+        skip_files: None,
         max_file_bytes: None,
     })
     .expect("glob search");
@@ -877,6 +876,7 @@ fn search_files_honors_dot_ignore_files() {
         no_ignore: None,
         max_depth: None,
         max_files: Some(50),
+        skip_files: None,
         max_file_bytes: None,
     })
     .expect("ignore search");
@@ -907,6 +907,7 @@ fn search_files_prefilters_rule_by_inner_pattern() {
         no_ignore: None,
         max_depth: None,
         max_files: Some(50),
+        skip_files: None,
         max_file_bytes: None,
     })
     .expect("rule search");
@@ -935,6 +936,7 @@ fn search_files_operator_only_pattern_parses_every_candidate() {
         no_ignore: None,
         max_depth: None,
         max_files: Some(50),
+        skip_files: None,
         max_file_bytes: None,
     })
     .expect("operator anchor search");
@@ -963,6 +965,7 @@ fn operator_spacing_does_not_split_directory_and_file_results() {
             no_ignore: None,
             max_depth: None,
             max_files: Some(50),
+            skip_files: None,
             max_file_bytes: None,
         })
         .expect("directory search");
@@ -1034,6 +1037,7 @@ fn structural_files_honors_exclude_globs() {
         no_ignore: None,
         max_depth: None,
         max_files: Some(50),
+        skip_files: None,
         max_file_bytes: None,
     });
     assert!(paths.iter().any(|p| p == "match.ts"), "match.ts present");
@@ -1060,6 +1064,7 @@ fn structural_files_honors_hidden_flag() {
         no_ignore: None,
         max_depth: None,
         max_files: Some(50),
+        skip_files: None,
         max_file_bytes: None,
     });
     assert!(
@@ -1085,6 +1090,7 @@ fn structural_files_honors_no_ignore_flag() {
         no_ignore: Some(true),
         max_depth: None,
         max_files: Some(50),
+        skip_files: None,
         max_file_bytes: None,
     });
     assert!(
@@ -1110,6 +1116,7 @@ fn structural_files_honors_max_depth() {
         no_ignore: None,
         max_depth: Some(1),
         max_files: Some(50),
+        skip_files: None,
         max_file_bytes: None,
     });
     assert!(paths.iter().any(|p| p == "match.ts"), "root file present");
@@ -1139,6 +1146,7 @@ fn structural_anchor_prefilter_prunes_beyond_max_depth_before_search() {
         // Structural native depth counts the root as 0 and root files as 1.
         max_depth: Some(1),
         max_files: Some(10),
+        skip_files: None,
         max_file_bytes: None,
     })
     .expect("structural search");
@@ -1148,6 +1156,78 @@ fn structural_anchor_prefilter_prunes_beyond_max_depth_before_search() {
         result.skipped_by_pre_filter, 0,
         "the anchor prefilter must not scan the nested file before depth filtering"
     );
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// The anchor prefilter reads a candidate once: a hit's bytes feed the
+/// parse, and a file over the parse cap is streamed, never held. Each skip
+/// keeps the reason and text the separate prefilter and parse reads gave.
+#[test]
+fn search_files_prefilter_read_feeds_the_parse_and_keeps_skip_reasons() {
+    let root = temp_root("prefilter_once");
+    fs::write(root.join("a.ts"), "target(value);\n").expect("hit");
+    // Over the cap: the anchor sits past aho-corasick's stream buffer.
+    let filler = "// filler line for the stream search\n".repeat(8_000);
+    fs::write(root.join("big_hit.ts"), format!("{filler}target(value);\n")).expect("big hit");
+    fs::write(root.join("big_miss.ts"), &filler).expect("big miss");
+    fs::write(root.join("bad.ts"), b"target(\xff);\n").expect("not utf8");
+    let options = |max_file_bytes| StructuralSearchFilesOptions {
+        path: root.to_string_lossy().to_string(),
+        pattern: Some("target($X)".to_owned()),
+        rule: None,
+        include: None,
+        exclude_dir: None,
+        exclude: None,
+        hidden: None,
+        no_ignore: None,
+        max_depth: None,
+        max_files: Some(10),
+        skip_files: None,
+        max_file_bytes,
+    };
+    let result = search_files_detailed(options(Some(1_000))).expect("search files");
+    assert_eq!(result.total_matches, 1);
+    assert_eq!(matched_paths(&result).len(), 1);
+    assert_eq!(
+        result.skipped_by_pre_filter, 1,
+        "big_miss.ts lacks the anchor"
+    );
+    assert_eq!(result.skipped_large, 1, "big_hit.ts holds it past the cap");
+    assert_eq!(result.skipped_unreadable, 1, "bad.ts is not UTF-8");
+    let row = |name: &str| {
+        result
+            .files
+            .iter()
+            .find(|file| file.path.ends_with(name))
+            .expect("file row")
+    };
+    let big = fs::metadata(root.join("big_hit.ts")).expect("meta").len();
+    assert_eq!(
+        row("big_hit.ts").skipped_reason.as_deref(),
+        Some("maxFileBytes")
+    );
+    assert!(
+        row("big_hit.ts").diagnostics[0]
+            .message
+            .starts_with(&format!("File is {big} bytes")),
+        "{}",
+        row("big_hit.ts").diagnostics[0].message
+    );
+    assert_eq!(
+        row("big_miss.ts").skipped_reason.as_deref(),
+        Some("preFilter")
+    );
+    let utf8 = fs::read_to_string(root.join("bad.ts")).expect_err("invalid UTF-8");
+    assert_eq!(row("bad.ts").skipped_reason.as_deref(), Some("read"));
+    assert_eq!(
+        row("bad.ts").diagnostics[0].message,
+        format!("Could not read file content as UTF-8: {utf8}.")
+    );
+    // Under the default cap both big files parse; only big_hit.ts matches.
+    let result = search_files_detailed(options(None)).expect("search files");
+    assert_eq!(result.total_matches, 2);
+    assert_eq!(result.skipped_large, 0);
+    assert_eq!(result.skipped_by_pre_filter, 1);
     fs::remove_dir_all(root).expect("cleanup");
 }
 
@@ -1173,6 +1253,7 @@ fn search_files_separates_unsupported_from_prefilter_skips() {
         no_ignore: None,
         max_depth: None,
         max_files: Some(10),
+        skip_files: None,
         max_file_bytes: None,
     })
     .expect("search files");
@@ -1252,6 +1333,7 @@ fn review_file_options(
         no_ignore: None,
         max_depth: Some(1),
         max_files: Some(limit),
+        skip_files: None,
         max_file_bytes: None,
     }
 }
@@ -1410,7 +1492,7 @@ fn search_and_rewrite_agree_on_pattern_matches() {
             .into_iter()
             .map(|m| (m.start_line - 1, m.start_col))
             .collect::<Vec<_>>();
-        let rewritten = structural_rewrite(
+        let rewritten = rewrite(
             source,
             serde_json::json!({
                 "id": "parity",

@@ -32,7 +32,7 @@ Fetch → scan → gate before any destination write.
 
 1. Confirm intent: verbatim install or adapt.
 2. Normalize the source and resolve destinations (steps 1–2 above).
-3. Inspect through `octocode-research`, then fetch: `npx -y octocode cache fetch owner/repo path --depth clone` (add `--branch <ref>`; omit `path` for the whole repository). The result stays in the Octocode cache.
+3. Inspect through `octocode-research`, then fetch: `npx -y octocode ghCloneRepo '{"queries":[{"owner":"OWNER","repo":"REPO","path":"PATH"}]}'` (add `"ref":"<ref>"`; omit `path` for the whole repository). The checkout stays in the Octocode cache at the result's `location.localPath`.
 4. Validate: the folder has `SKILL.md` with `name` + `description`.
 5. Safety-scan `SKILL.md`, `scripts/`, and hooks (`references/hooks.md`); flag risk before any write.
 6. To adapt, follow `references/skill-authoring.md` § Create a local skill. Reuse only license-allowed patterns and cite the source.

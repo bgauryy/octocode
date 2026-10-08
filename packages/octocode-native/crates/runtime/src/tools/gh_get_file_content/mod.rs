@@ -6,8 +6,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::providers::github::{
-    ConditionalCache, ContentRequest, CredentialResolver, GitHubProvider, ProviderError,
-    RequestContext,
+    ConditionalCache, ContentRequest, GitHubProvider, ProviderError, RequestContext,
 };
 use crate::security::scan::ContentScan;
 use crate::tools::cancel::CancellationCheck;
@@ -58,10 +57,6 @@ pub struct GhGetFileContentFile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub match_not_found: Option<bool>,
     #[serde(skip)]
-    pub etag: Option<String>,
-    #[serde(skip)]
-    pub raw_response_bytes: usize,
-    #[serde(skip)]
     pub from_cache: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next: Option<Value>,
@@ -81,8 +76,8 @@ pub struct FileRead {
 /// Run one ghGetFileContent row: the read, or the failure with its one
 /// recovery (a missing path walks to the case-corrected file or the nearest
 /// existing directory).
-pub async fn run<R, C>(
-    provider: &GitHubProvider<R, C>,
+pub async fn run<C>(
+    provider: &GitHubProvider<C>,
     query: &GhGetFileContentQuery,
     request: Result<&RequestContext, ProviderError>,
     window: Option<usize>,
@@ -91,7 +86,6 @@ pub async fn run<R, C>(
     regex: &impl RegexMatch,
 ) -> Result<FileRead, GhFailure>
 where
-    R: CredentialResolver,
     C: ConditionalCache,
 {
     let request_context = request.map_err(|error| errors::failure(error, query, None))?;
@@ -165,8 +159,8 @@ fn file_read(result: GhGetFileContentResult, query: &GhGetFileContentQuery) -> F
     }
 }
 
-pub async fn execute<R, C>(
-    provider: &GitHubProvider<R, C>,
+pub async fn execute<C>(
+    provider: &GitHubProvider<C>,
     query: &GhGetFileContentQuery,
     request_context: &RequestContext,
     window: Option<usize>,
@@ -175,7 +169,6 @@ pub async fn execute<R, C>(
     regex: &impl RegexMatch,
 ) -> Result<GhGetFileContentResult, ProviderError>
 where
-    R: CredentialResolver,
     C: ConditionalCache,
 {
     // Resolve the ref once (memoized across a batch), then read the body at
@@ -307,6 +300,12 @@ where
     {
         calls.insert(name.into(), lead);
     }
+    if match_not_found
+        && let Some(lead) = ignore_case_lead(query, &local, &acquired.resolved_ref)
+        && let Some(calls) = next.get_or_insert_with(|| json!({})).as_object_mut()
+    {
+        calls.insert("ignoreCase".into(), lead);
+    }
     Ok(GhGetFileContentResult {
         owner: query.owner.to_string(),
         repo: query.repo.to_string(),
@@ -315,8 +314,6 @@ where
             commit_sha: acquired.resolved_ref,
             file_type: file_type(&query.path),
             match_not_found: match_not_found.then_some(true),
-            etag: acquired.etag,
-            raw_response_bytes: acquired.raw_response_bytes,
             from_cache: acquired.from_cache,
             next,
             last_modified,
@@ -422,7 +419,7 @@ fn empty_match_lead(
         return None;
     }
     Some((
-        "searchContent",
+        "searchCode",
         crate::tools::result::Continuation::new(
             crate::tools::id::ToolId::GhSearchCode,
             json!({"owner": query.owner.as_str(), "repo": query.repo.as_str(), "keywords": [first]}),
@@ -431,6 +428,33 @@ fn empty_match_lead(
         .confidence("medium")
         .build(),
     ))
+}
+
+/// The same read at the same commit, matched case-insensitively: the
+/// runnable recovery of a case-sensitive matchString that selected no line.
+fn ignore_case_lead(
+    query: &GhGetFileContentQuery,
+    local: &LocalFetchQuery,
+    sha: &str,
+) -> Option<Value> {
+    let sensitive = local
+        .match_strings()
+        .iter()
+        .any(|pattern| local.case_sensitive_for(pattern));
+    if !sensitive {
+        return None;
+    }
+    let mut row = query.clone();
+    row.case_mode = Some(crate::contracts::tool_types::ReadCaseMode::Insensitive);
+    row.ref_ = Some(sha.to_owned());
+    let mut row = serde_json::to_value(row).ok()?;
+    crate::tools::result::remove_null_fields(&mut row);
+    Some(
+        crate::tools::result::Continuation::new(crate::tools::id::ToolId::GhGetFileContent, row)
+            .why("Match the text case-insensitively.")
+            .confidence("high")
+            .build(),
+    )
 }
 
 /// The kind of file a read returned (`fileType`).
@@ -524,17 +548,16 @@ fn complete_small_file(
 /// Last commit touching `path` at `reference` (a resolved SHA). History below
 /// a commit is immutable, so the answer is cached per (owner, repo, SHA, path)
 /// and repeated offset-0 reads skip the `commits?path=` round trip.
-async fn file_timestamp<R, C>(
-    provider: &GitHubProvider<R, C>,
+async fn file_timestamp<C>(
+    provider: &GitHubProvider<C>,
     query: &GhGetFileContentQuery,
     reference: &str,
     context: &RequestContext,
 ) -> (Option<String>, Option<String>)
 where
-    R: CredentialResolver,
     C: ConditionalCache,
 {
-    let partition = provider.transport.cache_partition(context, None).await.ok();
+    let partition = provider.transport.cache_partition(context, None).ok();
     let key = {
         use sha2::{Digest, Sha256};
         let mut digest = Sha256::new();
@@ -604,7 +627,7 @@ where
                 key,
                 crate::providers::github::CachedContent {
                     etag: None,
-                    bytes,
+                    bytes: bytes.into(),
                     resolved_ref: reference.to_owned(),
                 },
             )
@@ -622,7 +645,13 @@ fn rewrite_continuations(
     let Value::Object(object) = &mut value else {
         return None;
     };
-    // Each localFetch call becomes the same read of the GitHub file.
+    // Each localFetch call becomes the same read of the GitHub file. A lead
+    // to another local tool (the miss's `textSearch` localSearch of the
+    // file's directory) has no GitHub form here and is dropped; the GitHub
+    // miss adds its own repository-level lead.
+    object.retain(|_, continuation| {
+        continuation["tool"] == crate::tools::id::ToolId::LocalFetch.as_str()
+    });
     for continuation in object.values_mut() {
         let Some(Value::Object(mut query)) =
             crate::tools::result::continuation_row(continuation).cloned()
@@ -663,7 +692,7 @@ fn rewrite_continuations(
         }
         *continuation = call.build();
     }
-    Some(value)
+    (!object.is_empty()).then_some(value)
 }
 
 /// The GitHub file query is the localFetch extraction query plus repository
@@ -723,10 +752,10 @@ impl crate::tools::output::ToolOutput for Output {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::github::{NoCache, RetryPolicy, StaticCredentialResolver};
+    use crate::providers::github::{NoCache, RetryPolicy};
     use crate::security::scan::{MemoizedScan, SanitizedViewMemo};
     use crate::tools::cancel::NeverCancel;
-    use crate::tools::gh_shared::test_support::{mock_provider, mount_json};
+    use crate::tools::gh_shared::test_support::{fixture_context, mock_provider, mount_json};
     use crate::tools::local_fetch::wire_positive;
     use base64::{Engine as _, engine::general_purpose::STANDARD};
     use std::{path::Path, time::Duration};
@@ -735,8 +764,8 @@ mod tests {
         matchers::{method, path, query_param},
     };
 
-    async fn execute_default_regex<R, C>(
-        provider: &GitHubProvider<R, C>,
+    async fn execute_default_regex<C>(
+        provider: &GitHubProvider<C>,
         query: &GhGetFileContentQuery,
         request_context: &RequestContext,
         window: Option<usize>,
@@ -744,7 +773,6 @@ mod tests {
         cancel: &impl CancellationCheck,
     ) -> Result<GhGetFileContentResult, ProviderError>
     where
-        R: CredentialResolver,
         C: ConditionalCache,
     {
         execute(
@@ -855,7 +883,7 @@ mod tests {
         let result = execute_default_regex(
             &provider,
             &query,
-            &RequestContext::with_timeout(Duration::from_secs(2), 4096),
+            &fixture_context(Duration::from_secs(2), 4096),
             None,
             &Safe,
             &NeverCancel,
@@ -897,7 +925,7 @@ mod tests {
         let result = execute_default_regex(
             &provider,
             &query,
-            &RequestContext::with_timeout(Duration::from_secs(2), 4096),
+            &fixture_context(Duration::from_secs(2), 4096),
             None,
             &Safe,
             &NeverCancel,
@@ -912,10 +940,7 @@ mod tests {
         );
     }
 
-    async fn read(
-        provider: &GitHubProvider<StaticCredentialResolver, NoCache>,
-        query: Value,
-    ) -> GhGetFileContentResult {
+    async fn read(provider: &GitHubProvider<NoCache>, query: Value) -> GhGetFileContentResult {
         let mut query = query;
         query["mainGoal"] = "test".into();
         query["reasoning"] = "test".into();
@@ -923,7 +948,7 @@ mod tests {
         execute_default_regex(
             provider,
             &query,
-            &RequestContext::with_timeout(Duration::from_secs(5), 1 << 20),
+            &fixture_context(Duration::from_secs(5), 1 << 20),
             Some(50_000),
             &Safe,
             &NeverCancel,
@@ -985,7 +1010,7 @@ mod tests {
             execute_default_regex(
                 &provider,
                 &missing,
-                &RequestContext::with_timeout(Duration::from_secs(5), 1 << 20),
+                &fixture_context(Duration::from_secs(5), 1 << 20),
                 None,
                 &Safe,
                 &NeverCancel,
@@ -1139,7 +1164,7 @@ mod tests {
         let result = execute_default_regex(
             &provider,
             &query,
-            &RequestContext::with_timeout(Duration::from_secs(2), 1 << 20),
+            &fixture_context(Duration::from_secs(2), 1 << 20),
             Some(50_000),
             &Safe,
             &NeverCancel,
@@ -1165,7 +1190,7 @@ mod tests {
     }
 
     async fn run_default(
-        provider: &GitHubProvider<StaticCredentialResolver, NoCache>,
+        provider: &GitHubProvider<NoCache>,
         query: Value,
     ) -> Result<FileRead, crate::tools::gh_shared::GhFailure> {
         let mut query = query;
@@ -1175,10 +1200,7 @@ mod tests {
         run(
             provider,
             &query,
-            Ok(&RequestContext::with_timeout(
-                Duration::from_secs(5),
-                1 << 20,
-            )),
+            Ok(&fixture_context(Duration::from_secs(5), 1 << 20)),
             None,
             &Safe,
             &NeverCancel,
@@ -1284,13 +1306,55 @@ mod tests {
         assert_eq!(data["hints"].as_array().map(Vec::len), Some(1), "{data}");
         // FIX §0 #4: a runnable lead beside the tip, a repository search for
         // a small file.
-        let lead = &data["next"]["searchContent"];
+        let lead = &data["next"]["searchCode"];
         assert_eq!(lead["tool"], "ghSearchCode", "{data}");
         assert_eq!(
             lead["query"]["queries"][0]["keywords"],
             serde_json::json!(["absent"]),
             "{data}"
         );
+        // A case-insensitive miss has no ignoreCase lead.
+        assert!(data["next"].get("ignoreCase").is_none(), "{data}");
+        // QA2: the shared localFetch miss offers a localSearch of the file's
+        // directory; it has no GitHub equivalent, so it must not be rewritten
+        // into a ghGetFileContent read of that directory (an invalidInput
+        // "is a directory" row when run verbatim).
+        assert!(data["next"].get("textSearch").is_none(), "{data}");
+        for (name, lead) in data["next"].as_object().into_iter().flatten() {
+            if lead["tool"] == "ghGetFileContent" {
+                assert_eq!(
+                    lead["query"]["queries"][0]["path"], "a.txt",
+                    "{name} reads another path: {data}"
+                );
+            }
+        }
+
+        // X12: a case-sensitive miss runs the same read, ignoring case, at
+        // the read's commit; the tip names the lead, not the field.
+        let sensitive = run_default(
+            &provider,
+            serde_json::json!({"owner":"a","repo":"b","path":"a.txt","ref":sha,"matchString":"Two"}),
+        )
+        .await
+        .expect("read");
+        let data = &sensitive.output.data;
+        let hint = data["hints"][0].as_str().unwrap_or_default();
+        assert!(
+            hint.contains("ignoreCase") && !hint.contains("caseMode"),
+            "{data}"
+        );
+        let row = &data["next"]["ignoreCase"]["query"]["queries"][0];
+        assert_eq!(data["next"]["ignoreCase"]["tool"], "ghGetFileContent");
+        assert_eq!(row["caseMode"], "insensitive", "{data}");
+        assert_eq!(row["matchString"], "Two", "{data}");
+        assert_eq!(row["ref"], sha, "{data}");
+        let mut shipped = data.clone();
+        shipped["hints"] = serde_json::json!({"text": data["hints"]});
+        crate::contracts::validate_output(
+            "ghGetFileContent",
+            &serde_json::json!({"results":[{"index":0,"status":"empty","data":shipped}]}),
+        )
+        .expect("an ignoreCase lead satisfies the output contract");
     }
 
     /// FIX §0 #4: a literal missed in a large file leads to a clasify locate

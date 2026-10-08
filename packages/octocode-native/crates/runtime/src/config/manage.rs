@@ -124,20 +124,39 @@ pub fn edit_setting(
             _ => std::io::Error::other("Cannot safely write configuration."),
         })
 }
-/// A URL setting without its userinfo, so a credential embedded in it is never shown.
+/// A URL setting without the parts that carry credentials (userinfo, query
+/// values, fragment), so a token embedded in it is never shown. Query keys
+/// stay: they name what is set without revealing it.
 fn shown(field: &ConfigFieldSpec, value: Option<Value>) -> Option<Value> {
-    if field.kind == ConfigFieldKind::Url
-        && let Some(mut url) = value
-            .as_ref()
-            .and_then(Value::as_str)
-            .and_then(|v| url::Url::parse(v).ok())
-        && (!url.username().is_empty() || url.password().is_some())
-    {
-        let _ = url.set_username("");
-        let _ = url.set_password(None);
-        return Some(Value::String(url.into()));
+    if field.kind != ConfigFieldKind::Url {
+        return value;
     }
-    value
+    let Some(mut url) = value
+        .as_ref()
+        .and_then(Value::as_str)
+        .and_then(|v| url::Url::parse(v).ok())
+    else {
+        return value;
+    };
+    let sensitive = !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some_and(|query| !query.is_empty())
+        || url.fragment().is_some();
+    if !sensitive {
+        return value;
+    }
+    let _ = url.set_username("");
+    let _ = url.set_password(None);
+    let keys: Vec<String> = url.query_pairs().map(|(key, _)| key.into_owned()).collect();
+    if keys.is_empty() {
+        url.set_query(None);
+    } else {
+        url.query_pairs_mut()
+            .clear()
+            .extend_pairs(keys.iter().map(|key| (key.as_str(), "[REDACTED]")));
+    }
+    url.set_fragment(None);
+    Some(Value::String(url.into()))
 }
 /// Each file degrades on its own: one that cannot be read safely (a symlink,
 /// a device, too large) is reported read-only and never read through.
@@ -256,6 +275,29 @@ pub fn inspect_management(config: &ConfigOutput, workspace: &Path) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// A URL setting shown by `config` hides every credential it embeds:
+    /// userinfo, query values and the fragment (tokens often ride there).
+    #[test]
+    fn shown_url_hides_query_and_fragment_credentials() {
+        let field = CONFIG_FIELDS
+            .iter()
+            .find(|field| field.kind == ConfigFieldKind::Url)
+            .expect("a URL setting");
+        let secret = "s3cr3tvalue";
+        let shown_value = shown(
+            field,
+            Some(json!(format!(
+                "https://user:{secret}@api.example/v1?access_token={secret}&region=eu#key={secret}"
+            ))),
+        )
+        .expect("value");
+        let text = shown_value.as_str().expect("string");
+        assert!(!text.contains(secret), "{text}");
+        assert!(text.starts_with("https://api.example/v1?"), "{text}");
+        assert!(text.contains("access_token="), "{text}");
+        let plain = json!("https://api.example/v1");
+        assert_eq!(shown(field, Some(plain.clone())), Some(plain));
+    }
     #[test]
     fn strict_environment_types() {
         assert!(validate_env_value("REQUEST_TIMEOUT", "12ms").is_err());

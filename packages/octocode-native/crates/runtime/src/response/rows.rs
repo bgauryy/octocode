@@ -36,7 +36,11 @@ pub(crate) fn attach_diagnostics(
     }
 }
 
-const MAX_GUIDANCE_CHARS: usize = 120;
+/// Budget every hint and lead `why` source fits (X11): the runtime never
+/// clips guidance, so each source is written within it
+/// (`every_hint_source_fits_the_guidance_budget`).
+#[cfg(test)]
+pub(crate) const MAX_GUIDANCE_CHARS: usize = 120;
 
 /// Row containers whose prose `hints` are agent guidance. `meta` is debug
 /// diagnostics: it keeps its own hints and never takes the row's one tip.
@@ -52,22 +56,14 @@ const METADATA_CONTAINERS: &[&str] = &[
     "items",
 ];
 
+/// One guidance line: whitespace collapsed and a closing period. Never
+/// clipped: a cut hint loses the recovery it names (X11).
 pub(super) fn concise(value: &str) -> String {
     let mut text = value.split_whitespace().collect::<Vec<_>>().join(" ");
     if !text.is_empty() && !matches!(text.chars().last(), Some('.' | '!' | '?' | '…')) {
         text.push('.');
     }
-    if text.chars().count() <= MAX_GUIDANCE_CHARS {
-        return text;
-    }
-    let prefix: String = text.chars().take(MAX_GUIDANCE_CHARS - 1).collect();
-    let boundary = prefix.rfind(' ').unwrap_or(0);
-    let cut = if boundary > 60 {
-        boundary
-    } else {
-        MAX_GUIDANCE_CHARS - 1
-    };
-    format!("{}…", prefix.chars().take(cut).collect::<String>())
+    text
 }
 
 pub(super) fn has_executable_call(value: &Value) -> bool {
@@ -121,21 +117,17 @@ fn has_recovery(value: &Value) -> bool {
 /// Recovery keyed by the exact `errorCode` values the runtime emits
 /// (provider kinds, policy/AST/LSP/clone/classification codes). Codes not
 /// listed fall back to the tool hint.
-fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> {
+pub(super) fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> {
     Some(match code {
         "outsideAllowedRoots" | "symlinkEscape" => SANDBOX_HINT,
         "authentication" => "Authenticate or correct credentials; do not broaden the query.",
         "permission" | "permissionDenied" => {
             "Verify access and token scopes; do not treat denial as absence."
         }
-        "rateLimited" | "rate_limit" | "classificationRateLimited" => {
+        "rateLimited" | "classificationRateLimited" => {
             "Wait for Retry-After or the provider reset before retrying."
         }
-        "timeout"
-        | "transport"
-        | "network.timeout"
-        | "lsp.timeout"
-        | "ast.rewrite.lock_timeout" => {
+        "timeout" | "transport" | "lockTimeout" => {
             "Retry once; if it persists, narrow scope and verify provider availability."
         }
         "staleSnapshot" => "Discard prior pages and restart without the stale snapshot.",
@@ -145,8 +137,6 @@ fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> {
         code => {
             if let Some(hint) = tool.output().error_hint(code) {
                 hint
-            } else if is_not_found_code(code) {
-                crate::tools::output::VERIFY_PATH_HINT
             } else if is_invalid_input_code(code) {
                 "Correct the rejected field named in the error; broadening will not help."
             } else {
@@ -315,7 +305,9 @@ pub fn result_row(
     if data.get("errorCode").and_then(Value::as_str) == Some("staleSnapshot") {
         super::pages::restart_stale(tool, query, &mut data);
     }
-    let paged = !tool.output().resource_major() && super::pages::has_remaining_page(tool, &data);
+    let paged = !tool.output().resource_major()
+        && !super::pages::is_complete(&data)
+        && super::pages::has_remaining_page(tool, &data);
     if let Some(object) = data.as_object_mut()
         && object.get("isPartial") == Some(&Value::Null)
     {
@@ -632,7 +624,7 @@ fn minimize_stats(data: &mut Map<String, Value>, more: bool) {
     };
     if !has_rows {
         stats.retain(|key, _| {
-            matches!(key.as_str(), "filesScanned" | "totalMatches") || keep_cap(key)
+            matches!(key.as_str(), "filesScanned" | "matchCount") || keep_cap(key)
         });
         return;
     }
@@ -640,14 +632,14 @@ fn minimize_stats(data: &mut Map<String, Value>, more: bool) {
         stats.retain(|key, _| {
             matches!(
                 key.as_str(),
-                "totalMatches" | "totalMatchedLines" | "filesMatched"
+                "matchCount" | "matchedLineCount" | "fileCount"
             ) || keep_cap(key)
         });
     } else {
         stats.retain(|key, _| {
             keep_cap(key)
                 || ((capped || cap_reason || unreadable)
-                    && matches!(key.as_str(), "totalMatches" | "filesMatched"))
+                    && matches!(key.as_str(), "matchCount" | "fileCount"))
         });
         if stats.is_empty() {
             data.remove("stats");
@@ -658,28 +650,7 @@ fn minimize_stats(data: &mut Map<String, Value>, more: bool) {
 /// Row `errorCode`s that reject the caller's input (CLI exit 2): the request
 /// is wrong, so broadening or retrying it cannot help.
 pub fn is_invalid_input_code(code: &str) -> bool {
-    matches!(
-        code,
-        "invalidInput" | "invalidPattern" | "invalid_query" | "notAFile" | "notADirectory"
-    ) || [
-        ".input.invalid",
-        ".options.invalidLimit",
-        ".rewrite.invalid",
-        ".language.required",
-        ".language.unsupported",
-        ".language.mismatch",
-        ".language.fileRequired",
-        ".language.directoryRequired",
-        ".language.invalidGlob",
-    ]
-    .iter()
-    .any(|suffix| code.ends_with(suffix))
-}
-
-/// Row `errorCode`s that mean the requested local path does not exist
-/// (CLI exit 3, like a GitHub not-found).
-pub fn is_not_found_code(code: &str) -> bool {
-    code == "pathNotFound"
+    crate::tools::id::error_class(code) == crate::tools::id::error_codes::ErrorClass::InvalidInput
 }
 
 /// Build the public envelope for executed rows; `queries` maps each row
@@ -1168,7 +1139,7 @@ mod tests {
         let row = minimized(
             ToolId::LocalSearch,
             json!({"path":"/r","matchString":"x"}),
-            json!({"files":[{"path":"a.rs"}],"stats":{"totalMatches":1,"filesScanned":9},
+            json!({"files":[{"path":"a.rs"}],"stats":{"matchCount":1,"filesScanned":9},
                 "pagination":{"currentPage":1,"totalPages":1,"hasMore":false},
                 "snapshot":"s","searchEngine":"rg","truncated":false,
                 "diagnostics":[{"severity":"info","message":"routine"},{"severity":"warning","message":"keep"}]}),
@@ -1237,7 +1208,7 @@ mod tests {
         let row = minimized(
             ToolId::LocalSearch,
             json!({}),
-            json!({"files":[{"path":"a.rs"}],"stats":{"totalMatches":40,"totalMatchedLines":31,"filesMatched":9,"bytesSearched":7},
+            json!({"files":[{"path":"a.rs"}],"stats":{"matchCount":40,"matchedLineCount":31,"fileCount":9,"bytesSearched":7},
                 "pagination":{"currentPage":1,"hasMore":true},"next":{"nextPage":{"tool":"localSearch","query":{"queries":[{"snapshot":"s"}]}}}}),
         );
         let data = &row["data"];
@@ -1246,7 +1217,7 @@ mod tests {
         // named, so the two totals never read as one disagreeing count.
         assert_eq!(
             data["stats"],
-            json!({"totalMatches":40,"totalMatchedLines":31,"filesMatched":9})
+            json!({"matchCount":40,"matchedLineCount":31,"fileCount":9})
         );
         assert_eq!(
             data["next"]["nextPage"]["query"]["queries"][0]["snapshot"],
@@ -1268,11 +1239,11 @@ mod tests {
         let row = minimized(
             ToolId::LocalSearch,
             json!({}),
-            json!({"stats":{"totalMatches":0,"filesScanned":176,"bytesSearched":9}}),
+            json!({"stats":{"matchCount":0,"filesScanned":176,"bytesSearched":9}}),
         );
         assert_eq!(
             row["data"]["stats"],
-            json!({"totalMatches":0,"filesScanned":176})
+            json!({"matchCount":0,"filesScanned":176})
         );
     }
 
@@ -1288,8 +1259,8 @@ mod tests {
                 json!({ "debug": false }),
                 json!({
                     "files": files,
-                    "stats": {"capped": true, "capReason": "maxCollectedFiles", "totalMatches": 10002,
-                        "filesMatched": 10002, "filesScanned": 10002, "bytesSearched": 70014},
+                    "stats": {"capped": true, "capReason": "maxCollectedFiles", "matchCount": 10002,
+                        "fileCount": 10002, "filesScanned": 10002, "bytesSearched": 70014},
                     "pagination": {"currentPage": if more { 1 } else { 20 }, "hasMore": more},
                     "isPartial": true,
                     "terminalLimit": !more,
@@ -1301,7 +1272,7 @@ mod tests {
                 "{row}"
             );
             assert_eq!(row["data"]["isPartial"], true, "{row}");
-            assert_eq!(row["data"]["stats"]["totalMatches"], 10002, "{row}");
+            assert_eq!(row["data"]["stats"]["matchCount"], 10002, "{row}");
             assert_eq!(row["data"]["terminalLimit"] == true, !more, "{row}");
             assert!(row["data"]["stats"].get("bytesSearched").is_none(), "{row}");
             crate::contracts::validate_output("localSearch", &json!({"results": [row]}))
@@ -1323,7 +1294,7 @@ mod tests {
                 json!({ "debug": false }),
                 json!({
                     "files": files,
-                    "stats": {"totalMatches": 1, "filesMatched": 1, "filesScanned": 2,
+                    "stats": {"matchCount": 1, "fileCount": 1, "filesScanned": 2,
                         "bytesSearched": 9, "errorCount": 1,
                         "firstError": "/r/b.txt: Permission denied (os error 13)"},
                     "pagination": {"currentPage": 1, "hasMore": more},
@@ -1427,7 +1398,7 @@ mod tests {
         // astRewrite attaches its own code-specific hints; the fallback only
         // covers rows without recovery and never invents a hash instruction.
         let apply = json!({"apply": true, "path": "/repo"});
-        for code in ["ast.rewrite.hash_mismatch", "ast.rewrite.io"] {
+        for code in ["hashMismatch", "fileAccessFailed"] {
             let hint = error_hint("astRewrite", &apply, code, "failed");
             assert!(!hint.contains("beforeHash"), "{code}: {hint}");
         }
@@ -1436,7 +1407,7 @@ mod tests {
     #[test]
     fn ast_rewrite_unreachable_root_points_at_the_path_not_the_pattern() {
         let query = json!({"path": "/repo/nope"});
-        let hint = error_hint("astRewrite", &query, "ast.rewrite.root_unavailable", "x");
+        let hint = error_hint("astRewrite", &query, "rootUnavailable", "x");
         assert!(hint.contains("Verify the path exists"), "{hint}");
         assert!(!hint.contains("Broaden"), "{hint}");
     }
@@ -2336,30 +2307,28 @@ mod tests {
         // astSearch rejects a missing, unknown, or mismatched grammar and an
         // unparseable pattern: the caller must fix the request (exit 2).
         for code in [
-            "ast.language.required",
-            "ast.language.unsupported",
-            "ast.language.mismatch",
-            "ast.language.fileRequired",
-            "ast.language.directoryRequired",
+            "languageRequired",
+            "languageUnsupported",
+            "languageMismatch",
+            "languageFileRequired",
+            "languageDirectoryRequired",
             "invalidPattern",
-            "structural.language.unsupported",
-            "syntaxTree.language.unsupported",
-            "syntaxTree.options.invalidLimit",
+            "invalidGlob",
             "invalidInput",
         ] {
             assert!(is_invalid_input_code(code), "{code}");
         }
         for code in [
-            "structural.parse.interrupted",
-            "structural.match.depthLimit",
-            "ast.source.limit",
+            "timeout",
+            "executionFailed",
+            "fileTooLarge",
             "pathNotFound",
-            "ast.execution.io",
+            "fileAccessFailed",
+            // Undeclared spellings are no class at all, never invalid input.
+            "structural.language.unsupported",
         ] {
             assert!(!is_invalid_input_code(code), "{code}");
         }
-        assert!(is_not_found_code("pathNotFound"));
-        assert!(!is_not_found_code("fileAccessFailed"));
     }
 
     #[test]
@@ -2369,10 +2338,10 @@ mod tests {
             ("outsideAllowedRoots", "allowed root"),
             ("structural.query.compileFailed", "syntaxTree"),
             ("fileTooLarge", "smaller"),
-            ("ast.language.required", "language"),
-            ("ast.language.unsupported", "language"),
-            ("ast.language.fileRequired", "languageGlobs"),
-            ("ast.language.directoryRequired", "language"),
+            ("languageRequired", "language"),
+            ("languageUnsupported", "language"),
+            ("languageFileRequired", "languageGlobs"),
+            ("languageDirectoryRequired", "language"),
         ] {
             let mut row = json!({
                 "index": 0,
@@ -2394,9 +2363,9 @@ mod tests {
         crate::runtime::ExecutionContext {
             cancellation: tokio_util::sync::CancellationToken::new(),
             deadline: std::time::Instant::now() + std::time::Duration::from_secs(1),
-            output_bytes: 16_000,
             walk_threads: None,
             response_window: None,
+            github_credential: None,
         }
     }
 

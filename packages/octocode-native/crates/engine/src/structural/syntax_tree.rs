@@ -9,7 +9,7 @@ use std::time::Instant;
 use tree_sitter::Node;
 
 use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
-use crate::text::file_extension::get_extension_internal;
+use crate::text::file_extension::extension_of;
 use crate::text::utf8_offsets::LineIndex;
 
 use super::octo::parse_tree_with_deadline;
@@ -70,17 +70,10 @@ fn diagnostic(
         .with_recovery("Use a supported source extension and keep the same content when requesting the next page.")
 }
 
-/// Inspect a bounded preorder view of the syntax tree. IDs are assigned only
-/// to emitted nodes, so `named_only` pages remain contiguous and parent IDs
+/// Inspect a bounded preorder view of the syntax tree, parsed with the
+/// grammar of `extension` (default: the path's own). IDs are assigned only to
+/// emitted nodes, so `named_only` pages remain contiguous and parent IDs
 /// always point to the nearest emitted ancestor.
-pub fn inspect(
-    content: &str,
-    file_path: &str,
-    options: Option<SyntaxTreeInspectOptions>,
-) -> SyntaxTreeInspectResult {
-    inspect_with_extension(content, file_path, None, options)
-}
-
 pub fn inspect_with_extension(
     content: &str,
     file_path: &str,
@@ -126,7 +119,7 @@ fn inspect_bounded(
     let limit = requested_limit.min(MAX_NODE_LIMIT);
     let ext = extension
         .map(str::to_owned)
-        .unwrap_or_else(|| get_extension_internal(file_path, true, "txt"));
+        .unwrap_or_else(|| extension_of(file_path, true, "txt"));
 
     if content.len() > crate::signatures::MAX_PARSE_SIZE {
         return SyntaxTreeInspectResult {
@@ -183,7 +176,7 @@ fn inspect_bounded(
         }
     };
 
-    let line_index = LineIndex::new(content);
+    let line_index = LineIndex::tree_sitter(content);
     let mut pending = vec![Pending {
         node: tree.root_node(),
         included_parent: None,
@@ -250,8 +243,8 @@ fn inspect_bounded(
             }
             let id = next_id as u32;
             if (window_start..window_end).contains(&next_id) {
-                let start = line_index.byte_to_position(node.start_byte() as u32);
-                let end = line_index.byte_to_position(node.end_byte() as u32);
+                let start = line_index.byte_to_position(content, node.start_byte() as u32);
+                let end = line_index.byte_to_position(content, node.end_byte() as u32);
                 page_nodes.push(SyntaxTreeNode {
                     id,
                     parent_id: included_parent,
@@ -305,7 +298,7 @@ mod tests {
         path: &str,
         options: Option<SyntaxTreeInspectOptions>,
     ) -> SyntaxTreeInspectResult {
-        inspect(source, path, options)
+        inspect_with_extension(source, path, None, options)
     }
 
     #[test]

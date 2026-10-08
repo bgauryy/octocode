@@ -1,5 +1,0 @@
-# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src", "searchText": "export\\s+(function|class)\\s+\\w+", "regex": "rust", "resultView": "matchOnly", "unique": "list"}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"files":[{"path":"a.ts","matches":[{"line":3,"column":0,"value":"export function alphaNeedle"},{"line":8,"column":0,"value":"export class Widget"}]},{"path":"b.ts","matches":[{"line":1,"column":0,"value":"export function helper"}]}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

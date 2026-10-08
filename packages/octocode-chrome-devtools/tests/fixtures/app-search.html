@@ -1,0 +1,3 @@
+<!doctype html><title>App search</title><form><label>Search collection <input id="q"></label><button>Search</button></form><div id="results"></div><script>
+document.querySelector('form').onsubmit=event=>{event.preventDefault();window.submissions=(window.submissions||0)+1;const q=document.querySelector('#q').value;setTimeout(()=>document.querySelector('#results').innerHTML='<a href="/done?q='+encodeURIComponent(q)+'">Result '+q+'</a>',350);};
+</script>

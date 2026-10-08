@@ -7,7 +7,7 @@ import { octocodeHome } from '../shared/home.js';
 import { sanitizeTerminalText } from '../shared/sanitize.js';
 
 /**
- * Octocode MCP (local code, LSP, GitHub and npm research) runs on Pi's built-in MCP support: one
+ * Octocode MCP (local code, LSP, GitHub and package registry research) runs on Pi's built-in MCP support: one
  * `pi.registerMcpServer` call, so connection, reconnects, OAuth, `/mcp` and exposure are Pi's. A server named
  * `octocode` in Pi's `mcp.json` (`~/.pi/agent/mcp.json`, `.pi/mcp.json`) takes precedence, which is how users override
  * or disable it.
@@ -24,13 +24,13 @@ export const OCTOCODE_MCP_VERSION = '19.1.0';
 export const isOctocodeTool = (name: string): boolean => name.startsWith(OCTOCODE_TOOL_PREFIX);
 
 /**
- * Tools declared only once `tool_search` loads them: the GitHub and npm tools, which carry most of the schema text and
- * which a local coding task rarely needs. Local search, reads, graph and LSP stay declared. `OCTOCODE_MCP_DIRECT=1`
- * declares everything.
+ * Tools declared only once `tool_search` loads them: the GitHub tools (`gh*`) and the package tool (`artifactSearch`),
+ * which carry most of the schema text and which a local coding task rarely needs. Local search, reads, structure, AST
+ * and LSP stay declared. `OCTOCODE_MCP_DIRECT=1` declares everything.
  */
-export const DEFERRED_TOOL_EXPOSURE: Readonly<Record<string, 'deferred'>> = { 'gh*': 'deferred', npmSearch: 'deferred' };
+export const DEFERRED_TOOL_EXPOSURE: Readonly<Record<string, 'deferred'>> = { 'gh*': 'deferred', artifactSearch: 'deferred' };
 
-/** Whether the GitHub and npm tools are deferred (the default) rather than declared directly. */
+/** Whether the GitHub and package registry tools are deferred (the default) rather than declared directly. */
 export const octocodeToolsDeferred = (env: NodeJS.ProcessEnv = process.env): boolean => !envFlag(env, MCP_DIRECT_ENV);
 
 /**
@@ -54,7 +54,7 @@ export function octocodeServerConfig(cwd: string, env: NodeJS.ProcessEnv = proce
     env: { WORKSPACE_ROOT: literalConfigValue(cwd), ALLOWED_PATHS: literalConfigValue(allowed) },
     exposure: 'direct',
     ...(octocodeToolsDeferred(env) ? { toolExposure: { ...DEFERRED_TOOL_EXPOSURE } } : {}),
-    description: 'Repository and package evidence: local code search and reads, LSP, GitHub code/PRs/history and npm metadata. Use the connected tools\' schemas and result pagination hints; availability follows Pi MCP configuration.',
+    description: 'Repository and package evidence: local code search and reads, LSP, GitHub code/PRs/history and package registry metadata (npm, PyPI, crates, Maven, NuGet, Go, Packagist, RubyGems). Use the connected tools\' schemas and result pagination hints; availability follows Pi MCP configuration.',
   };
 }
 
@@ -114,7 +114,7 @@ function sanitizeJson(value: unknown): unknown {
 }
 
 /**
- * Octocode returns repository, GitHub and npm text verbatim, and any of it is untrusted: strip terminal control
+ * Octocode returns repository, GitHub and package registry text verbatim, and any of it is untrusted: strip terminal control
  * sequences, bidi overrides and invisible characters (Unicode tags among them) from its text parts and structured
  * content before the model reads it or the terminal draws it. Undefined when the result is clean or not Octocode's.
  */

@@ -1,5 +1,0 @@
-# cmd: octocode structureSearch {"goal": "g", "reasoning": "r", "operation": "files", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx", "names": ["*.js", "*.rs", "s.txt", "ci.yml", "h.txt", ".env"]}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"path":"fx","files":[{"path":"fx/.github/workflows/ci.yml","sizeFormatted":"24B"},{"path":"fx/.hidden/h.txt","sizeFormatted":"17B"}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local"}

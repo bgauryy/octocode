@@ -224,7 +224,7 @@ describe('ArtifactSearch schema', () => {
         {
           mainGoal: 'test goal',
           reasoning: 'exercise artifact lookup',
-          type: 'npm',
+          ecosystem: 'npm',
           packageName: 'react',
         },
       ],

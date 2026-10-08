@@ -6,7 +6,7 @@
 //! reason `dynamicDispatch`. rust-analyzer analyzes one feature set, so code
 //! under disabled `cfg(feature)` gates is compiled out: reason
 //! `cfgGatedFiles` when files that mention the name carry such gates, with
-//! an `allFeatures` rerun lead. An all-features run compiles out
+//! an `expandFeatures` rerun page. An all-features run compiles out
 //! `cfg(not(feature …))` code instead: reason `cfgNegatedFeatures`. Every
 //! such row gets the lexical `textSearch` lead. Gate scans cover the
 //! request's search scope (the repository), not the member crate.
@@ -26,6 +26,7 @@ const PYTHON_WARNING: &str = "The Python language server resolves a use only thr
 /// Bound of the Rust gate scan; a larger workspace counts what it reached.
 const MAX_SCANNED_FILES: usize = 20_000;
 const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const GATE_SCAN_BUDGET: std::time::Duration = std::time::Duration::from_millis(250);
 
 /// Where an `lspSearch` continuation named `name` lands in the response
 /// (`next.<name>` for a page, `hints.<name>` for a lead), so tool text
@@ -65,9 +66,11 @@ fn annotate_rust(row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
     let root = Path::new(&scope.root);
     if context["features"] == "all" {
         let negated = gated_files_mentioning(root, name, has_negated_feature_gate);
-        if negated > 0 {
+        if negated.matches > 0 || negated.incomplete() {
             let warning = format!(
-                "{negated} Rust files that mention `{name}` carry cfg(not(feature …)) gates; an all-features build compiles that code out, so its uses are missing here. Compare with the default-features run, or confirm with {}.",
+                "{} Rust files that mention `{name}` carry cfg(not(feature …)) gates; an all-features build compiles that code out. {}Compare with the default-features run, or confirm with {}.",
+                negated.matches,
+                negated.incomplete_warning(),
                 lead_ref("textSearch")
             );
             flag_partial(row, query, CFG_NEGATED_REASON, &warning, scope);
@@ -75,15 +78,27 @@ fn annotate_rust(row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
         return;
     }
     let gated = gated_files_mentioning(root, name, has_feature_gate);
-    if gated == 0 {
+    if gated.matches == 0 && !gated.incomplete() {
         return;
     }
-    let warning = format!(
-        "{gated} Rust files that mention `{name}` carry cfg(feature …) gates; rust-analyzer analyzed one feature set, so code under disabled features is missing. Rerun with {} (rustContext.features:\"all\") or confirm with {}.",
-        lead_ref("allFeatures"),
+    let follow = if gated.matches > 0 {
+        format!(
+            "{} or {}",
+            lead_ref("expandFeatures"),
+            lead_ref("textSearch")
+        )
+    } else {
         lead_ref("textSearch")
+    };
+    let warning = format!(
+        "{} Rust files that mention `{name}` carry cfg(feature …) gates. {}Uses under features rust-analyzer left off may be missing: {follow}.",
+        gated.matches,
+        gated.incomplete_warning(),
     );
     flag_partial(row, query, CFG_REASON, &warning, scope);
+    if gated.matches == 0 {
+        return;
+    }
     let mut rerun = query.to_row();
     if let Some(fields) = rerun.as_object_mut() {
         fields
@@ -92,33 +107,94 @@ fn annotate_rust(row: &mut Value, query: &LspSearchQuery, scope: &Scope) {
     let mut context = context;
     context["features"] = json!("all");
     rerun["rustContext"] = context;
-    row["next"]["allFeatures"] = crate::tools::result::Continuation::new(ToolId::LspSearch, rerun)
-        .why("Analyze every Cargo feature so feature-gated uses are compiled in.")
-        .confidence("medium")
-        .build();
+    row["next"]["expandFeatures"] =
+        crate::tools::result::Continuation::new(ToolId::LspSearch, rerun)
+            .why("Analyze every Cargo feature so feature-gated uses are compiled in.")
+            .confidence("medium")
+            .build();
 }
 
 /// Rust files under `root` (ignore-aware) that spell `name` as a word and
 /// carry a gate `gate` detects.
-fn gated_files_mentioning(root: &Path, name: &str, gate: fn(&str) -> bool) -> usize {
-    let walker = ignore::WalkBuilder::new(root)
-        .filter_entry(|entry| entry.file_name() != "target")
-        .build();
-    walker
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry.file_type().is_some_and(|kind| kind.is_file())
-                && entry.path().extension().is_some_and(|ext| ext == "rs")
-                && entry
-                    .metadata()
-                    .is_ok_and(|meta| meta.len() <= MAX_FILE_BYTES)
-        })
-        .take(MAX_SCANNED_FILES)
-        .filter(|entry| {
-            std::fs::read_to_string(entry.path())
-                .is_ok_and(|text| gate(&text) && mentions_word(&text, name))
-        })
-        .count()
+#[derive(Default)]
+struct GateScan {
+    matches: usize,
+    has_more: bool,
+    unreadable: usize,
+}
+
+impl GateScan {
+    fn incomplete(&self) -> bool {
+        self.has_more || self.unreadable > 0
+    }
+
+    fn incomplete_warning(&self) -> String {
+        if self.incomplete() {
+            format!(
+                "The gate scan was incomplete (unvisited files: {}, unreadable or oversized files: {}); the count is a lower bound. ",
+                if self.has_more {
+                    "at least one"
+                } else {
+                    "none"
+                },
+                self.unreadable
+            )
+        } else {
+            String::new()
+        }
+    }
+}
+
+fn gated_files_mentioning(root: &Path, name: &str, gate: fn(&str) -> bool) -> GateScan {
+    gated_files_mentioning_limit(root, name, gate, MAX_SCANNED_FILES)
+}
+
+fn gated_files_mentioning_limit(
+    root: &Path,
+    name: &str,
+    gate: fn(&str) -> bool,
+    limit: usize,
+) -> GateScan {
+    let walker = crate::tools::pruned_walk(root, crate::tools::syntax_prune(&[])).build();
+    let mut scan = GateScan::default();
+    let mut visited = 0;
+    let started = std::time::Instant::now();
+    for entry in walker {
+        if started.elapsed() >= GATE_SCAN_BUDGET {
+            scan.has_more = true;
+            break;
+        }
+        let Ok(entry) = entry else {
+            scan.unreadable += 1;
+            continue;
+        };
+        if !entry.file_type().is_some_and(|kind| kind.is_file())
+            || entry.path().extension().is_none_or(|ext| ext != "rs")
+        {
+            continue;
+        }
+        if visited >= limit {
+            scan.has_more = true;
+            break;
+        }
+        visited += 1;
+        if !entry
+            .metadata()
+            .is_ok_and(|meta| meta.len() <= MAX_FILE_BYTES)
+        {
+            scan.unreadable += 1;
+            continue;
+        }
+        match crate::tools::source::read_bounded(entry.path(), MAX_FILE_BYTES as usize)
+            .ok()
+            .and_then(|bytes| String::from_utf8(bytes).ok())
+        {
+            Some(text) if gate(&text) && mentions_word(&text, name) => scan.matches += 1,
+            Some(_) => {}
+            None => scan.unreadable += 1,
+        }
+    }
+    scan
 }
 
 fn has_feature_gate(text: &str) -> bool {
@@ -155,6 +231,20 @@ fn mentions_word(text: &str, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gate_scan_reports_unvisited_files_after_its_cap() {
+        let root = tempfile::tempdir().expect("root");
+        std::fs::write(root.path().join("a.rs"), "pub fn other() {}\n").expect("first");
+        std::fs::write(
+            root.path().join("z.rs"),
+            "#[cfg(feature = \"extra\")] pub fn wanted() {}\n",
+        )
+        .expect("second");
+        let scan = gated_files_mentioning_limit(root.path(), "wanted", has_feature_gate, 1);
+        assert_eq!(scan.matches, 0);
+        assert!(scan.has_more);
+    }
 
     fn query(value: Value) -> LspSearchQuery {
         serde_json::from_value(value).expect("query")
@@ -208,7 +298,7 @@ mod tests {
                 .is_some_and(|w| w.starts_with("1 Rust files")),
             "{row}"
         );
-        let rerun = &row["next"]["allFeatures"]["query"]["queries"][0];
+        let rerun = &row["next"]["expandFeatures"]["query"]["queries"][0];
         assert_eq!(rerun["rustContext"]["features"], "all", "{row}");
         assert_eq!(rerun["symbolName"], "spawn_blocking", "{row}");
         // An all-features run is not flagged again.
@@ -221,7 +311,7 @@ mod tests {
 
     #[test]
     fn warning_names_the_channel_the_lead_lands_in() {
-        assert_eq!(lead_ref("allFeatures"), "hints.allFeatures");
+        assert_eq!(lead_ref("expandFeatures"), "next.expandFeatures");
         assert_eq!(lead_ref("textSearch"), "hints.textSearch");
         assert_eq!(lead_ref("nextPage"), "next.nextPage");
         let dir = tempfile::tempdir().expect("dir");
@@ -238,8 +328,8 @@ mod tests {
         );
         annotate(&mut row, &q, Some("rust"), &scope);
         let warning = row["warnings"][0].as_str().expect("warning");
-        assert!(warning.contains("hints.allFeatures"), "{warning}");
-        assert!(!warning.contains("next.allFeatures"), "{warning}");
+        assert!(warning.contains("next.expandFeatures"), "{warning}");
+        assert!(!warning.contains("hints.expandFeatures"), "{warning}");
     }
 
     #[test]
@@ -261,7 +351,7 @@ mod tests {
         annotate(&mut row, &q, Some("rust"), &scope);
         assert_eq!(row["partialReasons"], json!([CFG_NEGATED_REASON]), "{row}");
         assert_eq!(row["next"]["textSearch"]["tool"], "localSearch", "{row}");
-        assert!(row["next"].get("allFeatures").is_none(), "{row}");
+        assert!(row["next"].get("expandFeatures").is_none(), "{row}");
         assert!(has_negated_feature_gate(
             "#[cfg(all(unix, not( feature = \"x\")))]"
         ));

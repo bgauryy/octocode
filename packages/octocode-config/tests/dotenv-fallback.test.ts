@@ -7,7 +7,7 @@ import {
   ENV_TOKEN_VARS,
   HOME_TRUSTED_ENV_KEYS,
 } from '../src/config/contract.generated.js';
-import { propagateOctocodeEnv, resolveEnvToken } from '../src/index.js';
+import { propagateOctocodeEnv } from '../src/index.js';
 
 describe('trusted dotenv credential fallbacks', () => {
   let root: string;
@@ -92,7 +92,9 @@ describe('trusted dotenv credential fallbacks', () => {
     writeFileSync(join(cwd, '.octocode', '.env'), 'GH_TOKEN=project-secret');
     const env = { GITHUB_TOKEN: 'explicit-secret' };
     propagateOctocodeEnv({ home, cwd, trusted: true, env });
-    expect(resolveEnvToken(env)?.token).toBe('explicit-secret');
+    // The explicit lower-priority name shadows the files' higher-priority
+    // one, so the native token resolver still picks the process value.
+    expect(env).toEqual({ GITHUB_TOKEN: 'explicit-secret' });
   });
 
   it.each([

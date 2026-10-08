@@ -7,6 +7,8 @@ use crate::providers::github::{ProviderError, ProviderErrorKind};
 pub(super) struct Filters {
     pub assignee: Option<String>,
     pub author: Option<String>,
+    /// Commit committer (login or email); commits only.
+    pub committer: Option<String>,
     pub commenter: Option<String>,
     pub mentions: Option<String>,
     pub created: Option<String>,
@@ -14,6 +16,8 @@ pub(super) struct Filters {
     pub closed: Option<String>,
     pub comments: Option<String>,
     pub reactions: Option<String>,
+    /// `linked:pr` / `linked:issue`: items linked to a pull request or issue.
+    pub linked: Option<String>,
     /// Labels; all must match.
     pub label: Vec<String>,
     /// The text fields keywords search (`in:`).
@@ -48,6 +52,7 @@ impl Filters {
 enum Field {
     Assignee,
     Author,
+    Committer,
     Commenter,
     Mentions,
     Created,
@@ -55,6 +60,7 @@ enum Field {
     Closed,
     Comments,
     Reactions,
+    Linked,
     Label,
     Match,
     State,
@@ -74,6 +80,7 @@ impl Field {
         match self {
             Self::Assignee => "assignee",
             Self::Author => "author",
+            Self::Committer => "committer",
             Self::Commenter => "commenter",
             Self::Mentions => "mentions",
             Self::Created => "created",
@@ -81,6 +88,7 @@ impl Field {
             Self::Closed => "closed",
             Self::Comments => "comments",
             Self::Reactions => "reactions",
+            Self::Linked => "linked",
             Self::Label => "label",
             Self::Match => "match",
             Self::State => "state",
@@ -97,32 +105,49 @@ impl Field {
     }
 }
 
-/// `qualifiers` keys, the filter each one sets, and whether it applies to
-/// pull requests only.
-const QUALIFIER_KEYS: &[(&str, Field, bool)] = &[
-    ("assignee", Field::Assignee, false),
-    ("author", Field::Author, false),
-    ("commenter", Field::Commenter, false),
-    ("mentions", Field::Mentions, false),
-    ("created", Field::Created, false),
-    ("updated", Field::Updated, false),
-    ("closed", Field::Closed, false),
-    ("comments", Field::Comments, false),
-    ("reactions", Field::Reactions, false),
-    ("label", Field::Label, false),
-    ("in", Field::Match, false),
-    ("is", Field::State, false),
-    ("archived", Field::Archived, false),
-    ("review-requested", Field::ReviewRequested, true),
-    ("reviewed-by", Field::ReviewedBy, true),
-    ("review", Field::Review, true),
-    ("status", Field::Checks, true),
-    ("checks", Field::Checks, true),
-    ("merged", Field::MergedAt, true),
-    ("merged-at", Field::MergedAt, true),
-    ("draft", Field::Draft, true),
-    ("head", Field::Head, true),
-    ("base", Field::Base, true),
+/// Operations a qualifier key applies to (bit set).
+const PR: u8 = 1;
+const ISSUE: u8 = 2;
+const COMMIT: u8 = 4;
+const SEARCH: u8 = PR | ISSUE;
+
+/// The operation bit of `operation`.
+fn operation_bit(operation: HistoryOperation) -> u8 {
+    match operation {
+        HistoryOperation::PullRequest => PR,
+        HistoryOperation::Issue => ISSUE,
+        HistoryOperation::Commit => COMMIT,
+    }
+}
+
+/// `qualifiers` keys, the filter each one sets, and the operations it
+/// applies to.
+const QUALIFIER_KEYS: &[(&str, Field, u8)] = &[
+    ("assignee", Field::Assignee, SEARCH),
+    ("author", Field::Author, SEARCH | COMMIT),
+    ("committer", Field::Committer, COMMIT),
+    ("commenter", Field::Commenter, SEARCH),
+    ("mentions", Field::Mentions, SEARCH),
+    ("created", Field::Created, SEARCH),
+    ("updated", Field::Updated, SEARCH),
+    ("closed", Field::Closed, SEARCH),
+    ("comments", Field::Comments, SEARCH),
+    ("reactions", Field::Reactions, SEARCH),
+    ("linked", Field::Linked, SEARCH),
+    ("label", Field::Label, SEARCH),
+    ("in", Field::Match, SEARCH),
+    ("is", Field::State, SEARCH),
+    ("archived", Field::Archived, SEARCH),
+    ("review-requested", Field::ReviewRequested, PR),
+    ("reviewed-by", Field::ReviewedBy, PR),
+    ("review", Field::Review, PR),
+    ("status", Field::Checks, PR),
+    ("checks", Field::Checks, PR),
+    ("merged", Field::MergedAt, PR),
+    ("merged-at", Field::MergedAt, PR),
+    ("draft", Field::Draft, PR),
+    ("head", Field::Head, PR),
+    ("base", Field::Base, PR),
 ];
 /// Scope comes from owner/repo/operation, never from free text.
 const SCOPE_QUALIFIERS: &[&str] = &["repo", "org", "user", "owner", "type"];
@@ -131,26 +156,39 @@ fn qualifier_error(message: String) -> ProviderError {
     ProviderError::new(ProviderErrorKind::Validation, message)
 }
 
-/// The qualifier key table entry for `key`, or the unknown-key error with a
-/// suggestion.
-fn qualifier_field(key: &str) -> Result<(Field, bool), ProviderError> {
-    if let Some(&(_, field, pr_only)) = QUALIFIER_KEYS.iter().find(|(name, _, _)| *name == key) {
-        return Ok((field, pr_only));
-    }
-    let suggestion = QUALIFIER_KEYS
+/// The keys `operation` accepts, in table order.
+fn operation_keys(operation: u8) -> impl Iterator<Item = &'static str> {
+    QUALIFIER_KEYS
         .iter()
-        .map(|(name, _, _)| (crate::contracts::levenshtein(key, name), *name))
+        .filter(move |(_, _, applies)| applies & operation != 0)
+        .map(|(name, _, _)| *name)
+}
+
+/// The filter `key` sets for `operation`, or the error naming where the key
+/// applies, or the unknown-key error with a suggestion.
+fn qualifier_field(key: &str, operation: u8) -> Result<Field, ProviderError> {
+    if let Some(&(_, field, applies)) = QUALIFIER_KEYS.iter().find(|(name, _, _)| *name == key) {
+        if applies & operation != 0 {
+            return Ok(field);
+        }
+        return Err(qualifier_error(match applies {
+            PR => format!("qualifiers: {key}: applies to pull requests only."),
+            COMMIT => format!("qualifiers: {key}: applies to commits only."),
+            _ => format!(
+                "qualifiers: {key}: does not apply here; allowed: {}.",
+                operation_keys(operation).collect::<Vec<_>>().join(", ")
+            ),
+        }));
+    }
+    let suggestion = operation_keys(operation)
+        .map(|name| (crate::contracts::levenshtein(key, name), name))
         .filter(|(distance, _)| *distance <= 2)
         .min();
     Err(qualifier_error(match suggestion {
         Some((_, name)) => format!("qualifiers: unknown key {key}:; did you mean {name}:?"),
         None => format!(
             "qualifiers: unknown key {key}:; allowed: {}.",
-            QUALIFIER_KEYS
-                .iter()
-                .map(|(name, _, _)| *name)
-                .collect::<Vec<_>>()
-                .join(", ")
+            operation_keys(operation).collect::<Vec<_>>().join(", ")
         ),
     }))
 }
@@ -235,6 +273,7 @@ impl Filters {
         match field {
             Field::Assignee => text(&mut self.assignee, value),
             Field::Author => text(&mut self.author, value),
+            Field::Committer => text(&mut self.committer, value),
             Field::Commenter => text(&mut self.commenter, value),
             Field::Mentions => text(&mut self.mentions, value),
             Field::Created => text(&mut self.created, value),
@@ -242,6 +281,7 @@ impl Filters {
             Field::Closed => text(&mut self.closed, value),
             Field::Comments => text(&mut self.comments, value),
             Field::Reactions => text(&mut self.reactions, value),
+            Field::Linked => text(&mut self.linked, value),
             Field::State => text(&mut self.state, value),
             Field::ReviewRequested => text(&mut self.review_requested, value),
             Field::ReviewedBy => text(&mut self.reviewed_by, value),
@@ -283,7 +323,8 @@ impl Filters {
         let Some(text) = query.qualifiers() else {
             return Ok(filters);
         };
-        let pull_request = query.operation() == HistoryOperation::PullRequest;
+        let operation = operation_bit(query.operation());
+        let pull_request = operation == PR;
         for term in crate::contracts::qualifier_terms(text) {
             let (negated, term) = match term.strip_prefix('-') {
                 Some(rest) => (true, rest),
@@ -303,12 +344,7 @@ impl Filters {
                     "qualifiers: {key}: is not allowed; scope comes from owner/repo."
                 )));
             }
-            let (field, pr_only) = qualifier_field(&key)?;
-            if pr_only && !pull_request {
-                return Err(qualifier_error(format!(
-                    "qualifiers: {key}: applies to pull requests only."
-                )));
-            }
+            let field = qualifier_field(&key, operation)?;
             let (field, value) = setting(&key, field, value, negated, pull_request)?;
             filters.set(&key, field, value)?;
         }
@@ -352,14 +388,16 @@ mod tests {
     }
 
     /// SH4 drift: native `QUALIFIER_KEYS` is the contract's key list, per
-    /// operation (pull-request-only keys only on pull requests).
+    /// operation (A10: commit people filters are qualifiers too).
     #[test]
     fn native_qualifier_keys_match_the_contract() {
-        for (operation, pull_request) in [("pullRequest", true), ("issue", false)] {
-            let mut native = super::QUALIFIER_KEYS
-                .iter()
-                .filter(|(_, _, pr_only)| pull_request || !pr_only)
-                .map(|(name, _, _)| (*name).to_owned())
+        for (operation, bit) in [
+            ("pullRequest", super::PR),
+            ("issue", super::ISSUE),
+            ("commit", super::COMMIT),
+        ] {
+            let mut native = super::operation_keys(bit)
+                .map(str::to_owned)
                 .collect::<Vec<_>>();
             let mut contract = contract_keys(operation);
             native.sort();

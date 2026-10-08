@@ -17,8 +17,17 @@ pub(super) fn validate_schema(
     path: &mut Vec<String>,
 ) -> Result<(), ContractValidationError> {
     if let Some(forbidden) = schema.get("not") {
-        let mut candidate = value.clone();
-        if validate_schema(root, forbidden, &mut candidate, &mut path.clone()).is_ok() {
+        // Only acceptance matters here: probe speculatively, and an empty
+        // schema accepts every value without a copy.
+        let accepted = forbidden
+            .as_object()
+            .is_some_and(|schema| schema.is_empty())
+            || {
+                let _speculation = union::Speculation::enter();
+                let mut candidate = value.clone();
+                validate_schema(root, forbidden, &mut candidate, &mut path.clone()).is_ok()
+            };
+        if accepted {
             // `{"not":{}}` forbids the field outright in this variant.
             let message = if forbidden
                 .as_object()
@@ -144,6 +153,8 @@ fn validate_object(
         }
     };
     let properties = schema.get("properties").and_then(Value::as_object);
+    // A speculative probe reads only pass/fail: it stops at the first issue.
+    let speculative = union::speculative();
     let mut issues = Vec::new();
     if let Err(error) = check_size(schema, object.len(), path) {
         issues.extend(error.issues);
@@ -159,9 +170,13 @@ fn validate_object(
         }
     }
     if schema.get("additionalProperties") == Some(&Value::Bool(false)) {
-        let known_fields: Vec<serde_json::Value> = properties
-            .map(|p| p.keys().map(|k| serde_json::json!(k)).collect())
-            .unwrap_or_default();
+        // Built on the first unknown field only; a speculative probe skips it.
+        let known_fields = || -> Value {
+            let known: Vec<Value> = properties
+                .map(|p| p.keys().map(|k| serde_json::json!(k)).collect())
+                .unwrap_or_default();
+            serde_json::json!({ "knownFields": known })
+        };
         for key in object.keys() {
             if !properties.is_some_and(|known| known.contains_key(key)) {
                 let mut field_path = path.clone();
@@ -171,7 +186,7 @@ fn validate_object(
                     path: field_path,
                     message: format!("Unknown field: {key}"),
                     // Embed known fields so format_input_error can suggest alternatives.
-                    schema: Some(serde_json::json!({ "knownFields": known_fields })),
+                    schema: (!speculative).then(known_fields),
                     received: None,
                 });
             }
@@ -190,6 +205,9 @@ fn validate_object(
             path.pop();
             if let Err(error) = result {
                 issues.extend(error.issues);
+                if speculative {
+                    return Err(ContractValidationError { issues });
+                }
             }
         }
     }
@@ -226,6 +244,9 @@ fn validate_object(
             );
         }
     }
+    if speculative && !issues.is_empty() {
+        return Err(ContractValidationError { issues });
+    }
     if let Some(properties) = properties {
         for (name, field_schema) in properties {
             if let Some(field) = object.get_mut(name) {
@@ -234,6 +255,9 @@ fn validate_object(
                 path.pop();
                 if let Err(error) = result {
                     issues.extend(error.issues);
+                    if speculative {
+                        break;
+                    }
                 }
             }
         }
@@ -287,6 +311,10 @@ fn validate_array(
             path.pop();
             if let Err(error) = result {
                 issues.extend(error.issues);
+                // A speculative probe reads only pass/fail.
+                if union::speculative() {
+                    break;
+                }
             }
         }
     }
@@ -330,23 +358,28 @@ fn validate_string(
 }
 
 /// Compiled schema patterns, keyed by source. Patterns come from the embedded
-/// contract (a small fixed set), so the cache stays bounded; `Regex` clones
-/// share one compiled program.
-type PatternCache = std::collections::HashMap<String, Result<Regex, String>>;
+/// contract (a small fixed set), so the cache stays bounded. Callers share one
+/// `Regex` (and its match-state pool) instead of cloning it per value, and a
+/// hit allocates nothing.
+type PatternCache = std::collections::HashMap<String, Result<std::sync::Arc<Regex>, String>>;
 
 fn pattern_cache() -> &'static std::sync::Mutex<PatternCache> {
     static CACHE: std::sync::OnceLock<std::sync::Mutex<PatternCache>> = std::sync::OnceLock::new();
     CACHE.get_or_init(Default::default)
 }
 
-fn compiled_pattern(pattern: &str) -> Result<Regex, String> {
+fn compiled_pattern(pattern: &str) -> Result<std::sync::Arc<Regex>, String> {
     let mut cache = pattern_cache()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    cache
-        .entry(pattern.to_owned())
-        .or_insert_with(|| Regex::new(pattern).map_err(|error| error.to_string()))
-        .clone()
+    if let Some(compiled) = cache.get(pattern) {
+        return compiled.clone();
+    }
+    let compiled = Regex::new(pattern)
+        .map(std::sync::Arc::new)
+        .map_err(|error| error.to_string());
+    cache.insert(pattern.to_owned(), compiled.clone());
+    compiled
 }
 
 /// A blank value fails the non-blank patterns (`\S`) paths and names use

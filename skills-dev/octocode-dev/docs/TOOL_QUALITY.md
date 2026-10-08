@@ -5,7 +5,7 @@ How to evaluate the tools in the Octocode catalog.
 | Need | Owner |
 |---|---|
 | Concept | `<repo>/docs/OCTOCODE_PROTOCOL.md` |
-| Routing decisions | `<repo>/docs/OCTOCODE_RESEARCH_MANIFEST.md` |
+| Routing decisions | `<repo>/docs/OCTOCODE_WORKFLOWS.md` |
 | Parameters and defaults | `<repo>/docs/OCTOCODE_TOOLS.md` and live schemas |
 | Response fields, path reconstruction, pagination layers, handoffs | `<repo>/docs/TOOL_DATA_CONTRACT.md` |
 | Base-call rules (normative prose) | `<repo>/docs/OCTOCODE_TOOLS.md#how-every-tool-call-works` |

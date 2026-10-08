@@ -1,1 +1,0 @@
-ghSearchHistory {"goal":"validate feature","reasoning":"live probe of documented claim","operation":"issue","owner":"expressjs","repo":"express","keywords":["router"],"match":["title"],"state":"closed","pageSize":2}

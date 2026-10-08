@@ -321,10 +321,7 @@ fn unparsed_target<'a>(
 /// One label per language regardless of which parser produced the facts
 /// (oxc reports the extension, tree-sitter a language id).
 pub(crate) fn canonical_language(file: &str, raw: &str) -> String {
-    let ext = file
-        .rsplit_once('.')
-        .map_or("", |(_, ext)| ext)
-        .to_ascii_lowercase();
+    let ext = octocode_engine::text::extension_of(file, true, "");
     let known = match ext.as_str() {
         "ts" | "mts" | "cts" => "typescript",
         "tsx" => "tsx",
@@ -1060,6 +1057,15 @@ impl<'a> Projector<'a> {
                 (!digest.is_empty()).then(|| (*id, self.strings.id(digest)))
             })
             .collect();
+        let stamps = self
+            .file_nodes
+            .iter()
+            .filter_map(|(file, id)| {
+                let facts = built.facts.get(*file)?;
+                let stamp = facts.stamp.filter(|_| !facts.digest.is_empty())?;
+                Some((*id, stamp))
+            })
+            .collect();
         let components = self
             .file_nodes
             .iter()
@@ -1095,6 +1101,7 @@ impl<'a> Projector<'a> {
             edges: self.edges,
             diagnostics,
             digests,
+            stamps,
             ..Default::default()
         };
         tables.index();

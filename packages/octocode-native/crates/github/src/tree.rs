@@ -1,7 +1,4 @@
-use super::{
-    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, RequestContext,
-    RequestSpec,
-};
+use super::{ProviderError, ProviderErrorKind};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -20,26 +17,6 @@ pub struct ContentsEntry {
 pub struct ContentsListing {
     pub entries: Vec<ContentsEntry>,
     pub raw_entry_count: usize,
-}
-
-impl<R: CredentialResolver> GitHubTransport<R> {
-    pub async fn repository_contents(
-        &self,
-        owner: &str,
-        repo: &str,
-        path: &str,
-        reference: &str,
-        context: &RequestContext,
-    ) -> Result<ContentsListing, ProviderError> {
-        let mut segments = vec!["repos", owner, repo, "contents"];
-        if !path.is_empty() && path != "." {
-            segments.push(path);
-        }
-        let mut url = self.endpoint().rest(&segments)?;
-        url.query_pairs_mut().append_pair("ref", reference);
-        let response = self.execute(RequestSpec::get(url), context).await?;
-        parse_contents_listing(&response.body)
-    }
 }
 
 /// A contents response: an array listing, or one entry for a file path.

@@ -237,9 +237,7 @@ pub(super) fn review_selection(files: &[Value], budget: usize) -> Vec<String> {
         .enumerate()
         .filter_map(|(index, file)| {
             let path = str_at(file, "/filename")?;
-            let binary = path.rsplit_once('.').is_some_and(|(_, ext)| {
-                BINARY_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str())
-            });
+            let binary = is_binary_name(path);
             let tier = if binary { 3 } else { review_tier(path) };
             let changed = usize_at(file, "/additions") + usize_at(file, "/deletions");
             (tier == 0 || tier == 2).then_some((
@@ -472,10 +470,17 @@ pub(super) fn missing_patch_reason(file: &Value) -> Option<&'static str> {
         return None;
     }
     let name = str_at(file, "/filename").unwrap_or("");
-    let binary = name
-        .rsplit_once('.')
-        .is_some_and(|(_, ext)| BINARY_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()));
-    Some(if binary { "binary" } else { "omitted" })
+    Some(if is_binary_name(name) {
+        "binary"
+    } else {
+        "omitted"
+    })
+}
+
+/// Whether a changed file's name has a binary extension (its basename's,
+/// never a dotted directory's).
+fn is_binary_name(path: &str) -> bool {
+    BINARY_EXTENSIONS.contains(&octocode_engine::text::extension_of(path, true, "").as_str())
 }
 
 /// Inventory rows flag files GitHub sent without a patch. Only REST entries

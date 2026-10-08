@@ -1,5 +1,0 @@
-# cmd: octocode lspSearch {"goal": "g", "reasoning": "r", "operation": "callees", "uri": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts", "symbolName": "alphaNeedle", "lineHint": 3}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"resolvedSymbol":{"name":"alphaNeedle","foundAtLine":3,"foundAtCharacter":17},"payload":{"kind":"callees","items":[{"to":{"name":"helper","kind":"function","displayRange":{"startLine":1,"startCharacter":17,"endLine":4},"path":"b.ts"},"fromRanges":[{"startLine":4,"startCharacter":13,"endLine":4}],"level":1}]},"path":"a.ts"}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

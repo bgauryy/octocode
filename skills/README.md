@@ -20,7 +20,7 @@ Pick by the job in front of you. Each row says when the skill applies and when a
 
 | Skill | Use it when | Use something else when |
 |---|---|---|
-| [octocode-brainstorming](octocode-brainstorming/) | An idea is still open and needs options, feasibility checks, or scope exploration before building; also an exploratory, out-of-the-box pass (18+ mode) | The decision is settled → implement it |
+| [octocode-brainstorming](octocode-brainstorming/) | An issue, idea, or open decision needs a check from more than one direction before acting; also an exploratory pass when someone asks for the 18+ practice by name | The decision is settled → implement it. One known lookup → do that lookup |
 | [octocode-architect](octocode-architect/) | An architecture decision or refactor needs evidence about boundaries, contracts, data and control flow, coupling, blast radius, cycles, or performance | You only need facts → octocode-research. Behavior-preserving cleanup → octocode-clean-agentic-code |
 | [octocode-rfc-generator](octocode-rfc-generator/) | A consequential architecture, migration, public-contract, or multi-phase change needs a written decision, an execution plan, or an audit of an existing RFC | The edit is trivial, the idea is still open, or the decision is already an ADR |
 

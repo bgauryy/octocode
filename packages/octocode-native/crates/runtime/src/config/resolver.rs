@@ -119,7 +119,8 @@ pub(super) fn parse_candidate(
 /// Resolve every contract field. `files` are `.octocoderc` layers in priority
 /// order (workspace before global); for each field the environment wins, then
 /// the first layer holding a valid value, then the generated default.
-pub fn resolve_sections(
+#[cfg(test)]
+pub(crate) fn resolve_sections(
     files: &[&Value],
     environment: &BTreeMap<String, String>,
 ) -> Result<ResolvedConfig, String> {
@@ -237,20 +238,6 @@ pub(super) fn workspace_setting_allowed(field: &ConfigFieldSpec, value: &Value) 
                 .iter()
                 .any(|binding| super::dotenv::workspace_may_narrow(binding.name, value))
         })
-}
-
-#[cfg(test)]
-pub(super) fn insert_path(root: &mut Value, field_path: &str, value: Value) {
-    let mut current = root;
-    let mut parts = field_path.split('.').peekable();
-    while let Some(part) = parts.next() {
-        let object = current.as_object_mut().expect("object path");
-        if parts.peek().is_none() {
-            object.insert(part.to_owned(), value);
-            return;
-        }
-        current = object.entry(part).or_insert_with(|| json!({}));
-    }
 }
 
 pub(super) fn remove_path(root: &mut Value, field_path: &str) -> bool {

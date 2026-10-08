@@ -686,8 +686,10 @@ fn find_regex_literal(content: &str, pos: usize) -> Option<usize> {
     while i < bytes.len() {
         let c = bytes[i];
         if escaped {
+            // Step over the whole escaped character: one byte would land
+            // inside a multibyte char and skip past the closing `/` (review L8).
             escaped = false;
-            i += 1;
+            i += next_char_len(bytes, i);
             continue;
         }
         if c == b'\\' {
@@ -797,7 +799,7 @@ pub fn remove_comments(content: &str, groups: &[&str]) -> String {
         if let Some(rules) = rules_for(group) {
             result = strip_string_aware_comments(&result, rules);
         }
-        // Unknown group → skip silently (matches TS behaviour)
+        // An unknown group strips nothing.
     }
     result
 }
@@ -860,6 +862,22 @@ mod tests {
         assert_eq!(ranges.len(), 1);
         let (start, end) = ranges[0];
         assert_eq!(&content[start..end], "/a\\/b*c/g");
+    }
+
+    /// Review L8: an escaped multibyte character inside a regex literal is
+    /// stepped over whole, so the closing `/` still ends the literal and the
+    /// following comment is stripped.
+    #[test]
+    fn regex_literal_with_escaped_multibyte_char_ends_at_its_slash() {
+        let rules = rules_for("c-style").unwrap();
+        let content = "const re = /\\é/g; // gone\nkeep();";
+        let ranges = literal_ranges(content, rules);
+        assert_eq!(ranges.len(), 1);
+        let (start, end) = ranges[0];
+        assert_eq!(&content[start..end], "/\\é/g");
+        let stripped = strip_string_aware_comments(content, rules);
+        assert!(!stripped.contains("gone"), "{stripped:?}");
+        assert!(stripped.contains("keep();"), "{stripped:?}");
     }
 
     #[test]

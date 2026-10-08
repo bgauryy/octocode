@@ -63,23 +63,6 @@ describe('openAgentDb', () => {
     third.close();
   });
 
-  it('migrates v2 to v3: sessions keep only what Pi does not know, and the team tables join', () => {
-    const file = path.join(tmp(), 'octocode.db');
-    const { DatabaseSync } = loadSqlite();
-    const old = new DatabaseSync(file);
-    ensureSchema(old, file, undefined, 2);
-    old.prepare("INSERT INTO sessions (id, cwd, repo_key, repo_name, branch, head, created_at, updated_at, cost, tokens, files_changed, pid) VALUES ('s1', '/w', 'k', 'w', 'main', 'abc', 1, 2, 1.5, 300, 4, 42)").run();
-    old.close();
-    const agent = openAgentDb(file);
-    try {
-      expect(agent.db.prepare('SELECT * FROM sessions').all()).toEqual([{ id: 's1', branch: 'main', head: 'abc', cost: 1.5, tokens: 300, files_changed: 4, pid: 42 }]);
-      const tables = (agent.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((row) => row.name);
-      expect(tables).toEqual(expect.arrayContaining(['agents', 'messages', 'leases']));
-    } finally {
-      agent.close();
-    }
-  });
-
   it('indexes memories for full-text search when FTS5 is there, following inserts, updates and deletes', () => {
     const agent = openAgentDb(path.join(tmp(), 'a.db'));
     try {
@@ -151,27 +134,6 @@ describe('openAgentDb', () => {
     openAgentDb(undefined, { OCTOCODE_HOME: home }).close();
     expect(fs.statSync(dir).mode & 0o777).toBe(0o700);
     expect(fs.statSync(file).mode & 0o777).toBe(0o600);
-  });
-
-  it('upgrades a v3 file in place: old dead letters count as already told, open ones keep waiting', () => {
-    const { DatabaseSync } = loadSqlite();
-    const file = path.join(tmp(), 'v3.db');
-    const old = new DatabaseSync(file);
-    old.exec('BEGIN');
-    ensureSchema(old, file, undefined, 3);
-    old.exec('COMMIT');
-    old.exec(`INSERT INTO messages (id, workspace, sender, body, created_at) VALUES (1, '/w', 'a', 'hi', 1), (2, '/w', 'a', 'yo', 2);
-      INSERT INTO deliveries (message, recipient, dead_at) VALUES (1, 'b', 5);
-      INSERT INTO deliveries (message, recipient) VALUES (2, 'b');`);
-    old.close();
-    const agentDb = openAgentDb(file);
-    const { db } = agentDb;
-    expect(db.prepare('PRAGMA user_version').get()).toEqual({ user_version: AGENT_SCHEMA_VERSION });
-    expect(db.prepare('SELECT message, wake, notified_at FROM deliveries ORDER BY message').all()).toEqual([
-      { message: 1, wake: null, notified_at: 5 },
-      { message: 2, wake: null, notified_at: null },
-    ]);
-    agentDb.close();
   });
 
   it('runs migrations in order inside the caller transaction and rolls a failed step back', () => {

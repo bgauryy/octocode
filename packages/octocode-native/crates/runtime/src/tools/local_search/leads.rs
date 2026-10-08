@@ -139,7 +139,7 @@ impl Coverage {
             return vec![];
         }
         if self.scope_miss {
-            vec!["Nothing searched: include/exclude matched no file. hints.viewStructure lists what they match.".into()]
+            vec!["Nothing searched: include/exclude matched no file. hints.viewTree lists what they match.".into()]
         } else if self.error_count > 0 {
             vec![unreadable_hint(self.error_count)]
         } else if let Some(hint) = &self.skip_hint {
@@ -150,7 +150,7 @@ impl Coverage {
             vec!["No matches where searched; the withheld entries named in warnings may hold it (unproven).".into()]
         } else if self.binary_cut {
             vec![
-                "No matches in the searched text, but binary file(s) were searched only up to their first NUL byte; absence is not proven for them.".into(),
+                "No matches, but binary file(s) were searched only up to their first NUL byte; absence is not proven for them.".into(),
                 empty_hint(query),
             ]
         } else {
@@ -207,7 +207,7 @@ impl Found<'_> {
             )
         {
             add(
-                "verifyReferences".into(),
+                crate::tools::lsp_search::lead_name(&row),
                 Continuation::new(ToolId::LspSearch, row)
                     .why("Uses of the searched symbol's declaration.")
                     .build(),
@@ -602,8 +602,8 @@ pub(super) fn unsearched_lead(query: &LocalSearchQuery) -> Value {
 /// later files stay unnamed, and the page says so.
 pub(super) const ENCLOSING_MAX_FILES: usize = DEFAULT_SNIPPET_PAGE_SIZE as usize;
 
-/// Serialized chars an `in` field adds besides its value: `,"in":""`.
-pub(super) const ENCLOSING_FIELD_CHARS: usize = 8;
+/// Serialized chars an `enclosing` field adds besides its value: `,"enclosing":`.
+pub(super) const ENCLOSING_FIELD_CHARS: usize = 13;
 
 /// The current outline of a shown file, or `None` when it is too large,
 /// unreadable, unsupported, or no longer the bytes a stored scan matched.
@@ -619,7 +619,17 @@ pub(super) fn shown_outline(
     {
         return None;
     }
-    let text = security.decode_source_bytes(&bytes, limit).ok()?;
+    outline_of(&bytes, source, security)
+}
+
+/// The outline of a shown file's `bytes`, read within the parse cap.
+pub(super) fn outline_of(
+    bytes: &[u8],
+    source: &std::path::Path,
+    security: &ContentSecurity,
+) -> Option<super::enclosing::Outline> {
+    let limit = crate::tools::ast_search::MAX_PARSE_SOURCE_BYTES;
+    let text = security.decode_source_bytes(bytes, limit).ok()?;
     super::enclosing::Outline::of(&text, &source.to_string_lossy())
 }
 
@@ -628,11 +638,12 @@ pub(super) fn row_lines(row: &SearchMatch) -> Vec<u32> {
     row.match_lines.clone().unwrap_or_else(|| vec![row.line])
 }
 
-/// Set `in` on the hit rows of a page's first [`ENCLOSING_MAX_FILES`]
+/// Set `enclosing` on the hit rows of a page's first [`ENCLOSING_MAX_FILES`]
 /// files, in page order while the names fit the page budget, and find the
 /// first shown hit that declares `symbol`. Each file is parsed once. Rows a
 /// name was found for but not shown (budget or parse bound) are counted in
 /// the returned note, never dropped silently.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn annotate_enclosing(
     files: &mut [SearchFile],
     symbol: Option<&str>,
@@ -640,9 +651,10 @@ pub(super) fn annotate_enclosing(
     output_root: &std::path::Path,
     page_budget: usize,
     expected: &dyn Fn(&std::path::Path) -> Option<Option<super::manifest::Digest>>,
+    mut outlines: super::verify::Outlines,
     security: &ContentSecurity,
 ) -> (Option<Definition>, Option<String>) {
-    let mut names: Vec<Vec<Option<String>>> = Vec::with_capacity(files.len());
+    let mut names: Vec<Vec<Option<super::types::Enclosing>>> = Vec::with_capacity(files.len());
     let mut definition = None;
     let mut unparsed_rows = 0usize;
     for (position, file) in files.iter().enumerate() {
@@ -656,7 +668,12 @@ pub(super) fn annotate_enclosing(
             continue;
         }
         let source = output_root.join(&file.path);
-        let Some(outline) = shown_outline(&source, expected(&source), security) else {
+        // The secret check already read and outlined most shown files.
+        let outline = match outlines.remove(&source) {
+            Some(outline) => outline,
+            None => shown_outline(&source, expected(&source), security),
+        };
+        let Some(outline) = outline else {
             names.push(Vec::new());
             continue;
         };
@@ -678,12 +695,12 @@ pub(super) fn annotate_enclosing(
         names.push(row_owners(&outline, matches, declaring));
     }
     // Names go on in page order while the page stays within its budget.
-    let mut used = serde_json::to_string(&*files).map_or(usize::MAX, |text| text.len());
+    let mut used = json_bytes(&*files);
     let mut over_budget = 0usize;
     for (file, names) in files.iter_mut().zip(names) {
         for (row, name) in file.matches.iter_mut().flatten().zip(names) {
             let Some(name) = name else { continue };
-            let added = crate::tools::stream_page::json_text_chars(&name) + ENCLOSING_FIELD_CHARS;
+            let added = json_bytes(&name).saturating_add(ENCLOSING_FIELD_CHARS);
             if over_budget == 0 && used.saturating_add(added) <= page_budget {
                 used += added;
                 row.enclosing = Some(name);
@@ -695,16 +712,33 @@ pub(super) fn annotate_enclosing(
     let note = match (over_budget, unparsed_rows) {
         (0, 0) => None,
         (0, rows) => Some(format!(
-            "Enclosing declarations (in) are named for the first {ENCLOSING_MAX_FILES} files only; {rows} hit rows after them have none."
+            "Enclosing declarations (enclosing) are named for the first {ENCLOSING_MAX_FILES} files only; {rows} hit rows after them have none."
         )),
         (rows, _) => Some(format!(
-            "Enclosing declarations (in) omitted on {rows} later rows to keep the page within its size budget."
+            "Enclosing declarations (enclosing) omitted on {rows} later rows to keep the page within its size budget."
         )),
     };
     (definition, note)
 }
 
-/// Each row's `in` name. A run of consecutive rows in one declaration names
+/// Bytes `value` serializes to as JSON, counted without building the text;
+/// `usize::MAX` when it does not serialize.
+pub(super) fn json_bytes<T: serde::Serialize + ?Sized>(value: &T) -> usize {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0 += buf.len();
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    serde_json::to_writer(&mut count, value).map_or(usize::MAX, |()| count.0)
+}
+
+/// Each row's `enclosing` declaration. A run of consecutive rows in one declaration names
 /// it once, on its first row, with the declaration's last line; the rows
 /// after it inside that range share it. With `declaring` (a declaration
 /// search), only rows that declare that symbol are named.
@@ -712,7 +746,7 @@ pub(super) fn row_owners(
     outline: &super::enclosing::Outline,
     rows: &[SearchMatch],
     declaring: Option<&str>,
-) -> Vec<Option<String>> {
+) -> Vec<Option<super::types::Enclosing>> {
     let owners = rows
         .iter()
         .map(|row| {
@@ -883,6 +917,7 @@ pub(super) fn ignored_probe(
     options.count_unique = Some(false);
     options.context_lines = Some(0);
     options.sort = Some("path".into());
+    options.digest_max_bytes = None;
     let started = std::time::Instant::now();
     let deadline = std::time::Duration::from_millis(IGNORED_PROBE_MS);
     let found = search_ripgrep_cancellable(options, Arc::new(paths.clone()), &|| {
@@ -1002,10 +1037,7 @@ pub(super) fn binary_groups(paths: &[String]) -> Vec<octocode_engine::types::Bin
     let mut groups = std::collections::BTreeMap::<String, (u32, Vec<String>)>::new();
     for path in paths {
         let path = std::path::Path::new(path);
-        let extension = path
-            .extension()
-            .map(|extension| extension.to_string_lossy().to_lowercase())
-            .unwrap_or_default();
+        let extension = octocode_engine::text::extension_of(&path.to_string_lossy(), true, "");
         let group = groups.entry(extension.clone()).or_default();
         group.0 = group.0.saturating_add(1);
         if extension.is_empty()

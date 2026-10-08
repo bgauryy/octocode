@@ -1,27 +1,19 @@
 import * as esbuild from 'esbuild';
-import { builtinModules } from 'module';
 import { chmodSync, readFileSync, writeFileSync } from 'fs';
 import { rm } from 'fs/promises';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { assertDeclaredRuntimeImports } from '../../skills-dev/octocode-dev/scripts/runtime-import-contract.mjs';
+import { packageExternals } from '../../skills-dev/octocode-dev/scripts/package-build.mjs';
 import { stageSkills } from './scripts/stage-skills.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const pkg = JSON.parse(readFileSync('./package.json', 'utf-8'));
-const nodeExternals = [
-  ...builtinModules,
-  ...builtinModules.map(m => `node:${m}`),
-];
-
-// Published runtime dependencies stay external. This keeps the CLI a true
-// interface package and leaves native and shared packages responsible for their dependency graphs
-// instead of partially inlining them into this bundle.
-const runtimeExternals = Object.keys(pkg.dependencies ?? {});
-
-const external = [...nodeExternals, ...runtimeExternals];
+// Published runtime dependencies stay external: the CLI is an interface
+// package, not a partial copy of the native and shared packages.
+const external = packageExternals(pkg);
 
 // Vite's `?raw` convention, so tests and the bundle share one asset import:
 // config-view browser assets ship inlined as strings.
@@ -63,7 +55,6 @@ const buildResult = await esbuild.build({
   plugins: [rawText],
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
-    'process.env.NODE_ENV': '"production"',
     __OCTOCODE_BUNDLED__: 'true',
   },
   logLevel: 'info',

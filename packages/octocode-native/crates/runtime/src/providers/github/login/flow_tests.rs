@@ -106,17 +106,6 @@ async fn grant_token_once(server: &MockServer) {
         .await;
 }
 
-#[test]
-fn token_refresh_debug_does_not_expose_the_access_token() {
-    let result = TokenWithRefreshResult {
-        token: Some("synthetic-debug-secret".into()),
-        source: "stored",
-        username: None,
-        refresh_error: None,
-    };
-    assert!(!format!("{result:?}").contains("synthetic-debug-secret"));
-}
-
 #[tokio::test]
 async fn missing_enterprise_client_id_never_posts_a_refresh() {
     let server = MockServer::start().await;

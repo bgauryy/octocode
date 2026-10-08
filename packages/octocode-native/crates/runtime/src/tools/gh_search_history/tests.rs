@@ -13,19 +13,11 @@ use serde_json::{Value, json};
 
 use crate::security::scan::Passthrough;
 
-fn transport(
-    server: &wiremock::MockServer,
-) -> GitHubTransport<crate::providers::github::StaticCredentialResolver> {
-    use crate::providers::github::{
-        CredentialSource, GitHubEndpoint, RetryPolicy, StaticCredentialResolver,
-    };
+fn transport(server: &wiremock::MockServer) -> GitHubTransport {
+    use crate::providers::github::{GitHubEndpoint, RetryPolicy};
     GitHubTransport::new(
         GitHubEndpoint::new(url::Url::parse(&format!("{}/api/v3", server.uri())).expect("url"))
             .expect("endpoint"),
-        std::sync::Arc::new(StaticCredentialResolver::new(
-            "fixture",
-            CredentialSource::Override,
-        )),
         RetryPolicy {
             max_attempts: 1,
             ..Default::default()
@@ -35,7 +27,10 @@ fn transport(
 }
 
 fn context() -> RequestContext {
-    RequestContext::with_timeout(std::time::Duration::from_secs(5), 1 << 20)
+    crate::tools::gh_shared::test_support::fixture_context(
+        std::time::Duration::from_secs(5),
+        1 << 20,
+    )
 }
 
 fn search(q: &GhSearchHistoryQuery) -> Result<HistorySearch, ProviderError> {
@@ -50,8 +45,8 @@ fn should_use_search_for_prs(q: &GhSearchHistoryQuery) -> bool {
 fn needs_issue_search_qualifiers(q: &GhSearchHistoryQuery) -> bool {
     query::needs_issue_search_qualifiers(&search(q).expect("qualifiers"))
 }
-async fn execute<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn execute(
+    transport: &GitHubTransport,
     query: &GhSearchHistoryQuery,
     context: &RequestContext,
     security: &impl ContentScan,
@@ -76,6 +71,21 @@ fn canonical_issue_qualifier_order() {
             .ends_with("archived:true")
     );
 }
+/// SH4: `linked:pr` (issues with a linked PR) and `linked:issue` reach the
+/// search query on issues and pull requests.
+#[test]
+fn linked_qualifier_reaches_the_search_query() {
+    for (operation, linked) in [("issue", "pr"), ("pullRequest", "issue")] {
+        let row = json!({"operation":operation,"mainGoal":"g","reasoning":"r","owner":"o","repo":"r",
+            "qualifiers":format!("linked:{linked}")});
+        let query = build_query(&serde_json::from_value(row).expect("typed")).expect("query");
+        assert!(
+            query.contains(&format!("linked:{linked}")),
+            "{operation}: {query}"
+        );
+    }
+}
+
 #[test]
 fn report_probes_cannot_rewrite_the_history_scope() {
     // A leading-quote keyword, an owner carrying operators,
@@ -100,7 +110,7 @@ fn report_probes_cannot_rewrite_the_history_scope() {
         r#"{"operation":"pullRequest","mainGoal":"test","reasoning":"test","owner":"a","qualifiers":"author:\"x OR is:public\""}"#,
         r#"{"operation":"issue","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","qualifiers":"label:x\" OR is:public\""}"#,
         r#"{"operation":"issue","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","qualifiers":"created:\"x OR is:public\""}"#,
-        r#"{"operation":"commit","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["x"],"committer":"a b"}"#,
+        r#"{"operation":"commit","mainGoal": "test", "reasoning":"test","owner":"a","repo":"b","keywords":["x"],"qualifiers":"committer:\"a b\""}"#,
     ] {
         // Rejected by the published pattern or by native validation.
         if let Ok(query) = serde_json::from_str::<GhSearchHistoryQuery>(raw) {
@@ -161,12 +171,48 @@ fn quotes_multiword_history_keywords() {
 #[test]
 fn commit_search_uses_email_and_committer_date() {
     let q: GhSearchHistoryQuery = serde_json::from_str(
-        r#"{"operation":"commit","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"author":"dev@example.com","since":"2026-01-01T00:00:00Z"}"#,
+        r#"{"operation":"commit","mainGoal":"test","reasoning":"test","owner":"a","repo":"b","keywords":["fix"],"qualifiers":"author:dev@example.com committer:web-flow","since":"2026-01-01T00:00:00Z"}"#,
     )
     .expect("GitHub history search test data should be valid");
     let query = build_query(&q).expect("GitHub history search test data should be valid");
-    assert!(query.contains("author-email:dev@example.com"));
+    assert!(query.contains("author-email:dev@example.com"), "{query}");
+    assert!(query.contains("committer:web-flow"), "{query}");
     assert!(query.contains("committer-date:>=2026-01-01T00:00:00Z"));
+}
+
+/// A10: commit people filters ride `qualifiers` (one name per purpose);
+/// issue/PR keys are refused on commits, and `committer:` on PR/issue.
+#[test]
+fn commit_qualifiers_take_author_and_committer_only() {
+    // The contract types each operation's keys: other operations' keys
+    // never reach a filter.
+    for raw in [
+        r#"{"operation":"commit","owner":"a","repo":"b","qualifiers":"label:bug"}"#,
+        r#"{"operation":"issue","owner":"a","repo":"b","qualifiers":"committer:x"}"#,
+        r#"{"operation":"commit","owner":"a","repo":"b","qualifiers":"reviewed-by:x"}"#,
+    ] {
+        assert!(
+            serde_json::from_str::<GhSearchHistoryQuery>(raw).is_err(),
+            "{raw}"
+        );
+    }
+    // The native key table agrees (its errors name where a key applies).
+    let commit: GhSearchHistoryQuery = serde_json::from_str(
+        r#"{"operation":"commit","owner":"a","repo":"b","qualifiers":"committer:web-flow author:dev"}"#,
+    )
+    .expect("commit qualifiers");
+    let built = build_query(&commit).expect("valid");
+    assert!(
+        built.contains("author:dev") && built.contains("committer:web-flow"),
+        "{built}"
+    );
+    for field in ["author", "committer"] {
+        let raw = format!(r#"{{"operation":"commit","owner":"a","repo":"b","{field}":"x"}}"#);
+        assert!(
+            serde_json::from_str::<GhSearchHistoryQuery>(&raw).is_err(),
+            "typed {field} is gone"
+        );
+    }
 }
 #[test]
 fn rejects_unscoped_commit() {
@@ -359,8 +405,10 @@ fn qualifiers_set_the_search_filters() {
         let error = built(row).expect_err(bad);
         assert!(error.message.contains(needle), "{bad}: {}", error.message);
     }
-    let issue: GhSearchHistoryQuery = serde_json::from_value(json!({"operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","qualifiers":"review:approved"})).expect("issue");
-    assert!(Filters::parse(&issue).is_err());
+    assert!(
+        serde_json::from_value::<GhSearchHistoryQuery>(json!({"operation":"issue","mainGoal":"g","reasoning":"r","owner":"o","repo":"r","qualifiers":"review:approved"})).is_err(),
+        "a PR-only key is no issue qualifier"
+    );
 }
 
 /// The published schema admits exactly the negated qualifiers native
@@ -454,6 +502,8 @@ async fn cap_is_terminal_only_after_the_last_reachable_page() {
             "{data}"
         );
         assert_eq!(data["next"]["nextPage"].is_object(), page < 1000, "{data}");
+        // QA2: a capped page states GitHub's full match count.
+        assert!(data["warnings"].to_string().contains("1001"), "{data}");
         // A search beyond one repository names each row's repository,
         // and the read targets it: a bare number is unreadable.
         assert_eq!(
@@ -871,8 +921,14 @@ fn branch_and_label_filters_come_from_qualifiers() {
     for term in ["head:feature", "base:main", "label:\"bug\"", "label:\"ui\""] {
         assert!(built.contains(term), "{term}: {built}");
     }
-    let issue = parse(r#"{"operation":"issue","owner":"o","repo":"r","qualifiers":"head:x"}"#);
-    assert!(Filters::parse(&issue).is_err());
+    // Issue qualifiers are typed by the issue key list: a PR-only key is
+    // refused before any filter runs.
+    assert!(
+        serde_json::from_str::<GhSearchHistoryQuery>(
+            r#"{"operation":"issue","owner":"o","repo":"r","qualifiers":"head:x"}"#
+        )
+        .is_err()
+    );
     for hidden in ["label", "sourceBranch", "targetBranch"] {
         let mut row = json!({"operation":"pullRequest","owner":"o","repo":"r"});
         row[hidden] = json!(if hidden == "label" {

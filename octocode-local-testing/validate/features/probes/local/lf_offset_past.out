@@ -1,5 +1,0 @@
-# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/big.txt", "offset": 5000}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"path":"big.txt","content":"","warnings":["offset 5000 is past the end of the selected view (300 lines); nothing was returned. Follow next.restart to read from the start."],"totalLines":300,"next":{"restart":{"tool":"localFetch","query":{"path":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/big.txt","offset":0,"followUp":true},"confidence":"exact"}},"returnedLines":0}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

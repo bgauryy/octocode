@@ -31,6 +31,7 @@
       "require": "./js/runtime.cjs"
     },
     "./bin/octocode.cjs": "./bin/octocode.cjs",
+    "./bin/launch-native.cjs": "./bin/launch-native.cjs",
     "./bin/octocode-regex-worker.cjs": "./bin/octocode-regex-worker.cjs",
     "./bin/resolve-binary.cjs": "./bin/resolve-binary.cjs",
     "./package.json": "./package.json"

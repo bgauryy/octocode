@@ -1,13 +1,12 @@
 mod commands;
 mod config;
-mod config_view;
 mod graph;
+mod launcher;
 mod lsp_provision;
 mod mcp_clients;
 mod mcp_install;
 mod mcp_manage;
 mod serve;
-mod skill;
 mod system;
 use clap::{CommandFactory, FromArgMatches, Parser};
 use commands::{AuthCommand, Command, ConfigCommand, ToolArgs};
@@ -57,23 +56,24 @@ Exit codes:
 
 /// The one error envelope, shared with contract input errors
 /// (`contracts::validate`) so callers parse a single shape.
-fn error_envelope(tool: Option<&str>, msg: &str) -> Value {
-    let mut value = json!({"kind": "octocode.toolError", "version": 1, "error": msg});
-    if let Some(tool) = tool {
-        value["tool"] = json!(tool);
-    }
-    value
-}
-
 fn emit_error(msg: &str, json_out: bool) {
-    emit_tool_error(None, msg, json_out);
+    if json_out {
+        println!(
+            "{}",
+            octocode_native::contracts::tool_error(None, msg, None)
+        );
+    } else {
+        eprintln!("{msg}");
+    }
 }
 
-/// An error in the command's output mode: the JSON envelope on stdout, or text
-/// on stderr.
-fn emit_tool_error(tool: Option<&str>, msg: &str, json_out: bool) {
+/// A tool call's unusable query (missing or malformed JSON) in the command's
+/// output mode: the `invalidInput` envelope on stdout, or text on stderr.
+fn emit_tool_error(tool: &str, msg: &str, json_out: bool) {
     if json_out {
-        println!("{}", error_envelope(tool, msg));
+        let mut envelope = octocode_native::contracts::tool_error(Some(tool), msg, None);
+        envelope["errorCode"] = json!("invalidInput");
+        println!("{envelope}");
     } else {
         eprintln!("{msg}");
     }
@@ -196,7 +196,7 @@ fn meta_fields(tool: &Value) -> Vec<&str> {
         .collect()
 }
 
-/// Compact field list for `scheme` rows. Union tools (`anyOf`/`oneOf`) list
+/// Compact field list for hidden `catalog` rows. Union tools (`anyOf`/`oneOf`) list
 /// each mode, labelled by its discriminator const (or branch title):
 /// `operation=code[keywords*, owner*, …] | operation=tree[…]`.
 fn compact_fields(tool: &Value) -> String {
@@ -394,8 +394,8 @@ fn compact_tool_catalog(
                         .and_then(Value::as_bool)
                         .unwrap_or(false);
                     let mut availability = json!({ "enabled": enabled });
-                    let tool_list_excluded = tool.get("unavailableReason").and_then(Value::as_str)
-                        == Some("toolsList");
+                    let tool_list_excluded =
+                        tool.get("unavailableReason").and_then(Value::as_str) == Some("toolsList");
                     if !enabled {
                         if let Some(env_var) =
                             availability_env_var(name).filter(|_| !tool_list_excluded)
@@ -437,7 +437,13 @@ pub async fn run(args: Args) -> u8 {
                     idle_timeout,
                 }),
             ..
-        } => return config_view::run(no_open, idle_timeout),
+        } => {
+            let mut args = vec!["--idle-timeout".to_owned(), idle_timeout.to_string()];
+            if no_open {
+                args.push("--no-open".to_owned());
+            }
+            return launcher::CONFIG_VIEW.run(&args);
+        }
         Command::Serve { socket } => return serve::run(&socket).await,
         Command::Tool(tool) => return run_tool(tool).await,
         command => command,
@@ -473,7 +479,9 @@ impl Command {
             Self::Tool(tool) => machine_output(tool.args.json),
             Self::Catalog | Self::Graph { .. } | Self::Schema { .. } => machine_output(false),
             Self::Config {
-                json, command: None, ..
+                json,
+                command: None,
+                ..
             } => *json,
             Self::Config {
                 command:
@@ -552,7 +560,7 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
             AuthCommand::Logout => system::logout(runtime),
         },
         Command::Graph { command } => graph::graph(runtime, command),
-        Command::Skill { args } => skill::skill(&args),
+        Command::Skill { args } => launcher::SKILL.run(&args),
         Command::Install {
             ide,
             force,
@@ -576,7 +584,7 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
             method,
             rollback,
         }),
-        Command::Cache { action } => system::cache(runtime, &action),
+        Command::Cache { action } => system::cache(runtime, action),
         Command::LspServer {
             action,
             names,
@@ -590,14 +598,24 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
     }
 }
 
-fn config_management(runtime: &ToolRuntime) -> u8 {
+/// Read at most `limit` bytes from `reader`; `Ok(None)` when it holds more.
+fn read_bounded(reader: impl io::Read, limit: u64) -> io::Result<Option<Vec<u8>>> {
     use std::io::Read;
-    let mut request = Vec::new();
-    let result = io::stdin()
-        .take(131_073)
-        .read_to_end(&mut request)
+    let mut bytes = Vec::new();
+    reader.take(limit + 1).read_to_end(&mut bytes)?;
+    Ok((bytes.len() as u64 <= limit).then_some(bytes))
+}
+
+/// Largest management request read from stdin.
+const MAX_MANAGEMENT_REQUEST_BYTES: u64 = 128 * 1024;
+
+fn config_management(runtime: &ToolRuntime) -> u8 {
+    let result = read_bounded(io::stdin(), MAX_MANAGEMENT_REQUEST_BYTES)
         .map_err(|_| config::ManageError::from("Cannot read management request."))
-        .and_then(|_| config_management_response(runtime, &request));
+        .and_then(|request| {
+            let request = request.ok_or("Management request exceeds 128 KiB.")?;
+            config_management_response(runtime, &request)
+        });
     match result {
         Ok(response) => write_json(&response, true),
         Err(error) => {
@@ -614,9 +632,6 @@ fn config_management_response(
     runtime: &ToolRuntime,
     bytes: &[u8],
 ) -> Result<Value, config::ManageError> {
-    if bytes.len() > 131_072 {
-        return Err("Management request exceeds 128 KiB.".into());
-    }
     let request: Value =
         serde_json::from_slice(bytes).map_err(|_| "Management request must be valid JSON.")?;
     if !request.is_object() {
@@ -678,7 +693,7 @@ fn tool_input(tool: &str, args: &ToolArgs, json_out: bool) -> Result<Value, u8> 
         Ok(Some(text)) => text,
         Ok(None) => {
             emit_tool_error(
-                Some(tool),
+                tool,
                 &format!(
                     "Missing JSON query. Usage: octocode {tool} '<json>' | --input FILE|-. Contract: octocode schema {tool}"
                 ),
@@ -687,18 +702,38 @@ fn tool_input(tool: &str, args: &ToolArgs, json_out: bool) -> Result<Value, u8> 
             return Err(2);
         }
         Err(error) => {
-            emit_tool_error(Some(tool), &error, json_out);
+            emit_tool_error(tool, &error, json_out);
             return Err(2);
         }
     };
     serde_json::from_str::<Value>(&query_text).map_err(|parse_error| {
         emit_tool_error(
-            Some(tool),
+            tool,
             &format!("Invalid JSON query: {parse_error}"),
             json_out,
         );
         2
     })
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Interrupted {
+    /// The cancelled work finished.
+    Drained,
+    /// A second interrupt arrived first.
+    Forced,
+}
+
+/// Wait for cancelled `execution` to finish, unless `second` (the next
+/// interrupt) arrives first.
+async fn drain_after_interrupt<T>(
+    execution: impl std::future::Future<Output = T>,
+    second: impl std::future::Future,
+) -> Interrupted {
+    tokio::select! {
+        _ = execution => Interrupted::Drained,
+        _ = second => Interrupted::Forced,
+    }
 }
 
 /// Execute one tool call and print its result: the structured JSON in JSON
@@ -709,15 +744,29 @@ async fn execute(runtime: &ToolRuntime, tool: &str, input: Value, json_out: bool
         if json_out {
             runtime.execute("cli-1".into(), tool.into(), input).await
         } else {
-            runtime.execute_rendered("cli-1".into(), tool.into(), input).await
+            runtime
+                .execute_rendered("cli-1".into(), tool.into(), input)
+                .await
         }
     };
     tokio::pin!(execution);
     let result = tokio::select! {
         result = &mut execution => result,
         signal = tokio::signal::ctrl_c() => {
-            if signal.is_ok() { runtime.requests.cancel("cli-1"); let _ = execution.await; return 130; }
-            execution.await
+            if signal.is_err() {
+                execution.await
+            } else {
+                runtime.requests.cancel("cli-1");
+                eprintln!("Cancelling; press Ctrl-C again to exit now.");
+                if drain_after_interrupt(&mut execution, tokio::signal::ctrl_c()).await
+                    == Interrupted::Forced
+                {
+                    // Work that ignores cancellation must not hold the
+                    // terminal hostage: the user asked twice (M5).
+                    std::process::exit(130);
+                }
+                return 130;
+            }
         }
     };
     let (printed, class) = match result {
@@ -757,30 +806,31 @@ fn outcome_text(content: &[octocode_native::response::pager::TextContent]) -> St
         .join("\n")
 }
 
-/// One line for a runtime error on a terminal: the message, then its hints.
+/// The terminal text for a runtime error: the runtime's one tool-error
+/// projection (the error, then its repair details).
 fn runtime_error_text(value: &Value) -> String {
-    let message = value["error"].as_str().unwrap_or("Tool call failed.");
-    let hints = value["hints"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .map(|hint| format!("\n  {hint}"))
-        .collect::<String>();
-    format!("{message}{hints}")
+    octocode_native::runtime::error::tool_error_text(value)
+        .unwrap_or_else(|| "Tool call failed.".to_owned())
 }
 
-/// The stdout JSON for a runtime error: its structured payload, else an
+/// The stdout JSON for a runtime error: its structured payload typed with
+/// the error's `errorCode` (as MCP's structuredContent), else an
 /// `{error, errorCode}` envelope (stdout, so a caller discarding stderr still
 /// sees why the call failed). Every string is secret-scrubbed, as at the
 /// N-API boundary.
 fn runtime_error_output(error: octocode_native::runtime::RuntimeError) -> Value {
     let mut value = match error.payload {
-        Some(payload) => *payload,
+        Some(payload) => {
+            let mut value = *payload;
+            if value.is_object() && value.get("errorCode").is_none() {
+                value["errorCode"] = json!(error.code);
+            }
+            value
+        }
         None => {
             let mut value = json!({ "error": error.message, "errorCode": error.code });
             if error.code == "timeout" {
-                value["hints"] = json!([
+                value["details"] = json!([
                     "Retry -- the first call initialises the language server (~60 s cold start)."
                 ]);
             }
@@ -832,9 +882,23 @@ pub(super) fn write_json(value: &Value, compact: bool) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::{
-        INTERACTIVE_EXECUTION_TIMEOUT_SECS, error_envelope, parse_args_from, runtime_error_output,
+        INTERACTIVE_EXECUTION_TIMEOUT_SECS, parse_args_from, runtime_error_output,
+        runtime_error_text,
     };
     use serde_json::json;
+
+    /// M5: after the first Ctrl-C cancels, a second Ctrl-C must stop waiting
+    /// for work that ignores cancellation; without one, the drain completes.
+    #[tokio::test]
+    async fn second_interrupt_stops_waiting_for_uncooperative_work() {
+        use super::{Interrupted, drain_after_interrupt};
+        let forced =
+            drain_after_interrupt(std::future::pending::<()>(), std::future::ready(())).await;
+        assert_eq!(forced, Interrupted::Forced);
+        let drained =
+            drain_after_interrupt(std::future::ready(()), std::future::pending::<()>()).await;
+        assert_eq!(drained, Interrupted::Drained);
+    }
 
     #[test]
     fn runtime_errors_are_secret_scrubbed_on_stdout() {
@@ -854,13 +918,41 @@ mod tests {
         assert!(!payload.to_string().contains("ghp_"), "{payload}");
     }
 
+    /// The terminal channel prints the same repair details as the JSON
+    /// payload (a typo names the field it meant), and a timeout still tells
+    /// the caller to retry.
     #[test]
-    fn json_error_envelope_matches_contract_tool_errors() {
-        assert_eq!(
-            error_envelope(Some("localSearch"), "bad"),
-            json!({"kind":"octocode.toolError","version":1,"tool":"localSearch","error":"bad"})
-        );
-        assert!(error_envelope(None, "bad").get("tool").is_none());
+    fn terminal_errors_carry_the_repair_details() {
+        use octocode_native::contracts;
+        let tool = "localFetch";
+        let error = contracts::prepare_many_and_validate(
+            tool,
+            json!({"queries":[{"path":"a.rs","matchstring":"x"}]}),
+        )
+        .expect_err("invalid input");
+        let invalid = octocode_native::runtime::RuntimeError {
+            code: "invalidInput".into(),
+            message: error.to_string(),
+            payload: Some(Box::new(contracts::format_input_error(tool, &error, false))),
+            validation_issues: None,
+        };
+        let envelope = runtime_error_output(invalid);
+        assert_eq!(envelope["kind"], "octocode.toolError", "{envelope}");
+        assert_eq!(envelope["errorCode"], "invalidInput", "{envelope}");
+        let text = runtime_error_text(&envelope);
+        assert!(text.starts_with("Unknown field(s): matchstring"), "{text}");
+        assert!(text.contains("did you mean 'matchString'?"), "{text}");
+        assert!(text.contains("octocode schema localFetch"), "{text}");
+
+        let timeout = octocode_native::runtime::RuntimeError {
+            code: "timeout".into(),
+            message: "Tool call timed out.".into(),
+            payload: None,
+            validation_issues: None,
+        };
+        let text = runtime_error_text(&runtime_error_output(timeout));
+        assert!(text.starts_with("Tool call timed out."), "{text}");
+        assert!(text.contains("initialises the language server"), "{text}");
     }
 
     #[test]

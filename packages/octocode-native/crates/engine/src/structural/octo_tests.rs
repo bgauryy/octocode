@@ -789,6 +789,19 @@ fn rust_macro_bodies_keep_enclosing_ancestors_and_skip_the_delimiter_wrapper() {
     );
 }
 
+/// X14: a `macro_rules!` template body is searched like an invocation's
+/// arguments (re-parsed in place), never silently skipped.
+#[test]
+fn rust_macro_rules_template_bodies_are_searched() {
+    let source = "macro_rules! get {\n    ($e:expr) => {\n        config.value.unwrap()\n    };\n}\nfn main() {\n    other.unwrap();\n}\n";
+    let found = run_pattern(source, "rs", "$X.unwrap()");
+    let texts: Vec<_> = found.iter().map(|m| m.text.as_str()).collect();
+    assert_eq!(texts, ["config.value.unwrap()", "other.unwrap()"]);
+    assert_eq!((found[0].start_line, found[0].start_col), (3, 8));
+    // The matcher pattern half (`($e:expr)`) is no source and stays flat.
+    assert!(run_rule(source, "rs", "kind: parenthesized_expression").is_empty());
+}
+
 #[test]
 fn rust_macro_bodies_without_the_anchor_keep_flat_tokens() {
     // Flat token-tree identifiers already match; a re-parsed body replaces

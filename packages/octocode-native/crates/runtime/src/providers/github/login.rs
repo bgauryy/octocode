@@ -16,12 +16,14 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
-pub const GITHUB_APP_CLIENT_ID: &str = "178c6fc778ccc68e1d6a";
+const GITHUB_APP_CLIENT_ID: &str = "178c6fc778ccc68e1d6a";
 
-/// Select the shared OAuth client for native CLI and Node authentication.
+/// The OAuth client for `host`: the configured one, else the Octocode app on
+/// github.com; empty for an enterprise host without a configured client.
 pub fn client_id_for_host<'a>(host: &str, configured: Option<&'a str>) -> &'a str {
     configured
-        .filter(|value| !value.trim().is_empty())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .unwrap_or_else(|| {
             if super::auth::normalize_host(host) == "github.com" {
                 GITHUB_APP_CLIENT_ID
@@ -114,28 +116,6 @@ pub struct RefreshResult {
     pub error: Option<String>,
 }
 
-#[derive(Clone, serde::Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct TokenWithRefreshResult {
-    pub token: Option<String>,
-    pub source: &'static str,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub username: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub refresh_error: Option<String>,
-}
-
-impl std::fmt::Debug for TokenWithRefreshResult {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("TokenWithRefreshResult")
-            .field("token", &self.token.as_ref().map(|_| "[REDACTED]"))
-            .field("source", &self.source)
-            .field("username", &self.username)
-            .field("refresh_error", &self.refresh_error)
-            .finish()
-    }
-}
-
 const LOGIN_HTTP_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// One pooled client for OAuth web-origin calls (device code, polling,
@@ -173,7 +153,7 @@ async fn post_form(
     client
         .post(format!("{}{path}", endpoints.web_origin))
         .header(ACCEPT, "application/json")
-        .header(USER_AGENT, "octocode-native")
+        .header(USER_AGENT, octocode_github::HTTP_USER_AGENT)
         .header(
             reqwest::header::CONTENT_TYPE,
             "application/x-www-form-urlencoded",
@@ -314,11 +294,8 @@ async fn login_device_flow_with_store(
                 fetch_authenticated_login(&endpoints.api_origin, &access, LOGIN_HTTP_TIMEOUT)
                     .await
                     .unwrap_or_default();
-            let now_secs = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|value| value.as_secs())
-                .unwrap_or(0);
-            let now = unix_to_rfc3339(now_secs);
+            let now_secs = unix_now();
+            let now = crate::civil_date::iso8601_secs(now_secs);
             let scopes = token.scope.as_deref().map(parse_granted_scopes);
             let stored = StoredCredentials {
                 hostname: endpoints.host.clone(),
@@ -330,10 +307,10 @@ async fn login_device_flow_with_store(
                     refresh_token: token.refresh_token,
                     expires_at: token
                         .expires_in
-                        .map(|seconds| unix_to_rfc3339(now_secs.saturating_add(seconds))),
+                        .map(|seconds| expires_after(now_secs, seconds)),
                     refresh_token_expires_at: token
                         .refresh_token_expires_in
-                        .map(|seconds| unix_to_rfc3339(now_secs.saturating_add(seconds))),
+                        .map(|seconds| expires_after(now_secs, seconds)),
                 },
                 git_protocol: "https".into(),
                 created_at: now.clone(),
@@ -373,10 +350,6 @@ pub async fn verify_token(api_url: &str, token: &str, timeout: Duration) -> Toke
         .and_then(|endpoint| {
             let transport = super::GitHubTransport::new(
                 endpoint.clone(),
-                std::sync::Arc::new(super::StaticCredentialResolver::new(
-                    token.to_owned(),
-                    super::CredentialSource::Override,
-                )),
                 super::RetryPolicy {
                     max_attempts: 2,
                     ..Default::default()
@@ -394,7 +367,13 @@ pub async fn verify_token(api_url: &str, token: &str, timeout: Duration) -> Toke
     match transport
         .execute(
             super::RequestSpec::get(url),
-            &super::RequestContext::with_timeout(timeout, 1024 * 1024),
+            &super::RequestContext::new(
+                crate::providers::RequestBudget::with_timeout(timeout, 1024 * 1024),
+                Some(super::ResolvedCredential::new(
+                    token.to_owned(),
+                    super::CredentialSource::Override,
+                )),
+            ),
         )
         .await
     {
@@ -454,22 +433,22 @@ fn parse_granted_scopes(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn rfc3339_now() -> String {
-    unix_to_rfc3339(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|value| value.as_secs())
-            .unwrap_or(0),
-    )
+/// Seconds since the Unix epoch (0 if the clock is before it).
+fn unix_now() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |value| {
+            i64::try_from(value.as_secs()).unwrap_or(i64::MAX)
+        })
 }
 
-fn unix_to_rfc3339(secs: u64) -> String {
-    let rem = secs % 86_400;
-    let hour = rem / 3600;
-    let minute = (rem % 3600) / 60;
-    let second = rem % 60;
-    let (year, month, day) = crate::civil_date::civil_from_days((secs / 86_400) as i64);
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+fn rfc3339_now() -> String {
+    crate::civil_date::iso8601_secs(unix_now())
+}
+
+/// The RFC 3339 instant `seconds` after `now`.
+fn expires_after(now: i64, seconds: u64) -> String {
+    crate::civil_date::iso8601_secs(now.saturating_add_unsigned(seconds))
 }
 
 pub fn is_token_expired(credentials: &StoredCredentials) -> bool {
@@ -497,38 +476,11 @@ pub fn is_refresh_token_expired(credentials: &StoredCredentials) -> bool {
 
 fn parse_expiry(value: &str) -> Option<SystemTime> {
     let trimmed = value.trim();
-    if let Ok(secs) = trimmed.parse::<u64>() {
-        return Some(UNIX_EPOCH + Duration::from_secs(secs));
-    }
-    let trimmed = trimmed
-        .trim_end_matches('Z')
-        .split_once('+')
-        .map(|(head, _)| head)
-        .unwrap_or(trimmed.trim_end_matches('Z'));
-    let (date, time) = trimmed.split_once('T')?;
-    let mut date = date.split('-');
-    let year: i32 = date.next()?.parse().ok()?;
-    let month: u32 = date.next()?.parse().ok()?;
-    let day: u32 = date.next()?.parse().ok()?;
-    let time = time.split('.').next().unwrap_or(time);
-    let mut time = time.split(':');
-    let hour: u32 = time.next()?.parse().ok()?;
-    let minute: u32 = time.next()?.parse().ok()?;
-    let second: u32 = time.next()?.parse().ok()?;
-    let days = days_from_civil(year, month, day)?;
-    let secs = days * 86_400 + i64::from(hour) * 3600 + i64::from(minute) * 60 + i64::from(second);
-    Some(UNIX_EPOCH + Duration::from_secs(secs.max(0) as u64))
-}
-
-fn days_from_civil(year: i32, month: u32, day: u32) -> Option<i64> {
-    if !(1..=12).contains(&month) || day == 0 || day > 31 {
-        return None;
-    }
-    Some(crate::civil_date::days_from_civil(
-        i64::from(year),
-        i64::from(month),
-        i64::from(day),
-    ))
+    let secs = match trimmed.parse::<u64>() {
+        Ok(secs) => secs,
+        Err(_) => super::dates::unix_seconds(trimmed)?.max(0) as u64,
+    };
+    Some(UNIX_EPOCH + Duration::from_secs(secs))
 }
 
 fn mask_token_text(message: &str) -> String {
@@ -563,6 +515,9 @@ struct RefreshStore<'a> {
     lock_path: std::path::PathBuf,
 }
 
+/// The refresh lock for a platform (OS keychain) credential. The keychain
+/// entry belongs to the OS user, not to one `OCTOCODE_HOME`, so processes with
+/// different homes must share this lock: GitHub refresh tokens are single-use.
 fn refresh_lock_path(host: &str) -> std::path::PathBuf {
     let name = host
         .chars()
@@ -750,10 +705,7 @@ async fn refresh_stored_credentials(
         ));
     }
     let token = exchange_refresh_token(endpoints, client_id, &refresh_token).await?;
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|value| value.as_secs())
-        .unwrap_or(0);
+    let now = unix_now();
     let updated = StoredCredentials {
         hostname: stored.hostname.clone(),
         username: stored.username.clone(),
@@ -762,12 +714,10 @@ async fn refresh_stored_credentials(
             token_type: token.token_type,
             scopes: stored.token.scopes.clone(),
             refresh_token: token.refresh_token.or(stored.token.refresh_token.clone()),
-            expires_at: token
-                .expires_in
-                .map(|seconds| unix_to_rfc3339(now.saturating_add(seconds))),
+            expires_at: token.expires_in.map(|seconds| expires_after(now, seconds)),
             refresh_token_expires_at: token
                 .refresh_token_expires_in
-                .map(|seconds| unix_to_rfc3339(now.saturating_add(seconds))),
+                .map(|seconds| expires_after(now, seconds)),
         },
         git_protocol: stored.git_protocol.clone(),
         created_at: stored.created_at.clone(),
@@ -869,67 +819,6 @@ fn refresh_result(host: &str, result: Result<StoredCredentials, ProviderError>) 
     }
 }
 
-fn token_refresh_error(error: ProviderError) -> TokenWithRefreshResult {
-    TokenWithRefreshResult {
-        token: None,
-        source: "none",
-        username: None,
-        refresh_error: Some(mask_token_text(&error.message)),
-    }
-}
-
-pub async fn get_token_with_refresh_in_store(
-    host: Option<&str>,
-    client_id: Option<&str>,
-    store: &CredentialStore,
-) -> TokenWithRefreshResult {
-    let host = host.unwrap_or("github.com");
-    let endpoints = LoginEndpoints::from_host(host);
-    let (stored, source) = match store.load(&endpoints.host) {
-        Ok(Some(value)) => value,
-        Ok(None) => {
-            return TokenWithRefreshResult {
-                token: None,
-                source: "none",
-                username: None,
-                refresh_error: None,
-            };
-        }
-        Err(error) => return token_refresh_error(error),
-    };
-    if !is_token_expired(&stored) {
-        return TokenWithRefreshResult {
-            token: Some(stored.token.token),
-            source: "stored",
-            username: Some(stored.username),
-            refresh_error: None,
-        };
-    }
-    match refresh_selected(
-        &endpoints,
-        client_id_for_host(host, client_id),
-        RefreshMode::IfExpired,
-        store,
-        source,
-    )
-    .await
-    {
-        Ok(None) => TokenWithRefreshResult {
-            token: None,
-            source: "none",
-            username: None,
-            refresh_error: None,
-        },
-        Ok(Some(updated)) => TokenWithRefreshResult {
-            token: Some(updated.token.token),
-            source: "refreshed",
-            username: Some(updated.username),
-            refresh_error: None,
-        },
-        Err(error) => token_refresh_error(error),
-    }
-}
-
 pub(crate) async fn refresh_stored_in_store(
     host: &str,
     client_id: &str,
@@ -952,13 +841,12 @@ mod tests {
         LoginEndpoints, RefreshMode, RefreshStore, StoredCredentials, device_code_form,
         exchange_refresh_token, is_refresh_token_expired, is_token_expired,
         login_device_flow_in_store, parse_granted_scopes, refresh_locked, refresh_token_form,
-        token_poll_form, unix_to_rfc3339,
+        token_poll_form, unix_now,
     };
     use crate::providers::github::OAuthToken;
     use crate::providers::github::{ProviderError, ProviderErrorKind};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use std::time::{SystemTime, UNIX_EPOCH};
     use tokio_util::sync::CancellationToken;
     use wiremock::matchers::{body_string_contains, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -1044,24 +932,32 @@ mod tests {
 
     #[test]
     fn expiry_helpers_match_five_minute_skew() {
-        let future = unix_to_rfc3339(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-                + 3600,
-        );
+        let future = crate::civil_date::iso8601_secs(unix_now() + 3600);
         assert!(!is_token_expired(&stored(Some(&future), Some("r"))));
-        let soon = unix_to_rfc3339(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-                + 30,
-        );
+        let soon = crate::civil_date::iso8601_secs(unix_now() + 30);
         assert!(is_token_expired(&stored(Some(&soon), Some("r"))));
         assert!(!is_token_expired(&stored(None, Some("r"))));
         assert!(!is_refresh_token_expired(&stored(None, Some("r"))));
+    }
+
+    /// D-20: a negative UTC offset is a valid RFC 3339 expiry, not an
+    /// unparsable (and so expired) one.
+    #[test]
+    fn expiry_honors_negative_and_positive_offsets() {
+        let in_two_hours = crate::civil_date::iso8601_secs(unix_now() + 2 * 3600);
+        let local = |sign: char| {
+            // The same instant written in UTC-05:00 / UTC+05:00 local time.
+            let shift = if sign == '-' { -5 * 3600 } else { 5 * 3600 };
+            let wall = crate::civil_date::iso8601_secs(unix_now() + 2 * 3600 + shift);
+            format!("{}.000{sign}05:00", wall.trim_end_matches('Z'))
+        };
+        for expiry in [in_two_hours, local('-'), local('+')] {
+            let mut credentials = stored(Some(&expiry), Some("r"));
+            assert!(!is_token_expired(&credentials), "{expiry}");
+            credentials.token.refresh_token_expires_at = Some(expiry.clone());
+            assert!(!is_refresh_token_expired(&credentials), "{expiry}");
+        }
+        assert!(is_token_expired(&stored(Some("not a date"), Some("r"))));
     }
 
     #[tokio::test]
@@ -1092,13 +988,7 @@ mod tests {
     }
 
     fn expired_stored(refresh: &str) -> StoredCredentials {
-        let past = unix_to_rfc3339(
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-                - 60,
-        );
+        let past = crate::civil_date::iso8601_secs(unix_now() - 60);
         let mut value = stored(Some(&past), Some(refresh));
         value.hostname = "example.test".into();
         value

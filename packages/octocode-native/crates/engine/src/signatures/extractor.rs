@@ -219,12 +219,13 @@ fn cached_query(language: &Language, body_query: &'static str) -> Option<Arc<Que
     Some(query)
 }
 
-/// Returns `(1-based line number, trimmed text)` pairs.
-pub fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, String)>> {
+/// Test helper: `(1-based line number, trimmed text)` pairs.
+#[cfg(test)]
+pub(crate) fn extract(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, String)>> {
     extract_with_limits(content, cfg, Instant::now() + AST_EXECUTION_TIMEOUT, 65_536)
 }
 
-/// [`extract`] for the rendered outline: a run of top-level imports becomes
+/// The extracted lines for the rendered outline: a run of top-level imports becomes
 /// one summary line (`3| import … (lines 3-40)`), since an outline is for
 /// the file's own declarations and imports read better as a range.
 pub fn extract_outline(content: &str, cfg: &LangExtractConfig) -> Option<Vec<(usize, String)>> {
@@ -378,8 +379,8 @@ fn extract_with_limits(
 
                 if brace_style {
                     // Keep opening `{` line ONLY; drop interior AND closing `}`.
-                    // This matches TS behaviour: function heads are shown without
-                    // the trailing `}`.  Class closing `}` is preserved naturally
+                    // Function heads are shown without the trailing `}`.
+                    // Class closing `}` is preserved naturally
                     // because class_body is never queried.
                     let hi = end.min(n.saturating_sub(1));
                     if start < hi {

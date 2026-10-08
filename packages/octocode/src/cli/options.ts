@@ -2,14 +2,11 @@ import type { ParsedArgs } from './types.js';
 
 type Options = ParsedArgs['options'];
 
-export function getBool(opts: Options, ...keys: string[]): boolean {
-  return keys.some(k => Boolean(opts[k]));
+export function getBool(opts: Options, key: string): boolean {
+  return Boolean(opts[key]);
 }
 
-export function getString(opts: Options, ...keys: string[]): string {
-  for (const k of keys) {
-    const v = opts[k];
-    if (typeof v === 'string') return v;
-  }
-  return '';
+export function getString(opts: Options, key: string): string {
+  const value = opts[key];
+  return typeof value === 'string' ? value : '';
 }

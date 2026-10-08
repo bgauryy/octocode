@@ -635,6 +635,20 @@ pub(super) fn shape_patch_page_reserving(
         _ => patch_window(query.char_length(), query.auto_page_chars),
     };
     let window = window.saturating_sub(reserve).max(window / 4).max(1);
+    // The first window also lists every patch-less file of the page as a
+    // metadata row on the same response page: a window that would push the
+    // row past the page's patch share shrinks by those rows (an explicit
+    // smaller `length` already fits). The quarter floor keeps a walk moving.
+    let window = if offset == 0 {
+        let share = match needle(query) {
+            Some(_) => literal_patch_window(query.auto_page_chars),
+            None => patch_window(None, query.auto_page_chars),
+        };
+        let used = reserve + patchless_rows_chars(&files, &views, &lengths);
+        window.min(share.saturating_sub(used).max(share / 4)).max(1)
+    } else {
+        window
+    };
     // Stream start of every file.
     let starts = lengths
         .iter()
@@ -665,6 +679,31 @@ pub(super) fn shape_patch_page_reserving(
         cursor,
         clipped,
     }
+}
+
+/// Serialized chars of the metadata rows a first window shows for files
+/// without patch text (no provider patch, or an empty one), in the compact
+/// header form the response carries.
+fn patchless_rows_chars(files: &[Value], views: &[Option<String>], lengths: &[usize]) -> usize {
+    files
+        .iter()
+        .zip(views.iter().zip(lengths))
+        .filter(|(_, (view, len))| view.is_none() || **len == 0)
+        .map(|(file, (view, _))| {
+            let mut row = file_metadata(file);
+            match (view, missing_patch_reason(file)) {
+                (None, Some(reason)) => {
+                    row["isPartial"] = json!(true);
+                    row["terminalLimit"] = json!(true);
+                    row["patchUnavailable"] = json!(reason);
+                }
+                _ => row["patch"] = json!(""),
+            }
+            remove_nulls(&mut row);
+            super::inventory::compact_file_header(&mut row);
+            crate::tools::stream_page::json_chars(&row) + 1
+        })
+        .sum()
 }
 
 /// One window over a file page's patch stream.
@@ -868,8 +907,11 @@ pub(super) fn attach_patch_cursor(files_pagination: &mut Value, cursor: Option<u
 /// page less a fixed reserve for the row header and metadata, never below
 /// 2/5 of it: a default window plus row metadata fits one response page.
 /// An explicit `length` is honoured up to that one-row budget: a larger
-/// window would split the row into response `rowPart`s whose patch cursor
-/// rides only the first part, so following it would skip the unread parts.
+/// window would only be re-sliced into response `rowPart`s, more calls for
+/// the same patch text. A row that still outgrows its page is lossless:
+/// walk hops page by rows (`responseScope:"rows"`), and the walk's
+/// `next.continuePatch`/`nextFilePage` rides the row's last part
+/// (`id::resumes_after_shown`), so following it never skips a part.
 /// A bigger window comes with a bigger response page (`responseLength`).
 pub(super) const PATCH_DEFAULT_SHARE: (usize, usize) = (4, 5);
 
@@ -1558,7 +1600,60 @@ mod tests {
         assert_eq!(summary(json!({"offset":5,"length":20})), None);
     }
 
-    /// Code hunks are never minified: the default PR view (`minify`
+    /// QA2 (PR microsoft/TypeScript#51387 file page 6 at a 40k page): a
+    /// first window lists every patch-less file of its page (`omitted`,
+    /// `tooLarge`, binary) as a metadata row beside the summary. Those rows
+    /// come out of the patch window too, so the row still fits one response
+    /// page; before, 61 such rows pushed a 40k page to 42.6k and the
+    /// response fell back to text windows that hide the structured rows.
+    #[test]
+    fn first_window_reserves_patchless_rows_and_summary() {
+        let page = 40_000;
+        let mut files = (0..90)
+            .map(|i| {
+                json!({"filename":format!("src/testRunner/unittests/tsserver/someLongDirectory/file{i:03}.ts"),
+                       "status":"modified","additions":0,"deletions":0,"sha":"1"})
+            })
+            .collect::<Vec<_>>();
+        files.extend((0..4).map(|i| {
+            let patch = format!("@@ -1,900 +1,900 @@\n{}", "-old line of code here\n+new line of code here\n".repeat(450));
+            json!({"filename":format!("src/big{i}.ts"),"status":"modified","additions":450,"deletions":450,"sha":"2","patch":patch})
+        }));
+        let mut query = patch_request(json!({}));
+        query.auto_page_chars = Some(page);
+        let mut row = json!({});
+        let mut pagination = Map::new();
+        shape_pr_files(
+            &mut row,
+            &mut pagination,
+            files,
+            WindowState::COMPLETE,
+            &query,
+            None,
+            "all",
+            None,
+        );
+        assert!(row.get("fileSummary").is_some(), "{row}");
+        assert!(pagination.contains_key("patches"), "the patches continue");
+        // The row may use the page's patch share; the rest of the page holds
+        // the envelope (identity, pagination, continuation, warnings).
+        // Patch text renders verbatim in the text channel: count its chars,
+        // not its JSON escapes.
+        let mut meta = row.clone();
+        let mut patch_chars = 0;
+        for file in meta["files"].as_array_mut().into_iter().flatten() {
+            if let Some(patch) = file.get("patch").and_then(Value::as_str) {
+                patch_chars += patch.chars().count();
+                file["patch"] = json!("");
+            }
+        }
+        let chars = crate::tools::stream_page::json_chars(&meta) + patch_chars;
+        // The envelope around the row (identity, pagination, continuation,
+        // warnings) takes well under 2k chars.
+        assert!(chars <= page - 2_000, "row {chars} chars on a {page} page");
+    }
+
+    /// Code hunks are never minified: the default PR view (`minify`    /// Code hunks are never minified: the default PR view (`minify`
     /// omitted or `standard`) returns every context line, so no row is
     /// marked for a re-read.
     #[test]

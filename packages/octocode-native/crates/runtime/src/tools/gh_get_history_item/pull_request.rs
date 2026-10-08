@@ -21,9 +21,7 @@ use super::window::{
     WindowSpec, WindowState, load_window, reconcile_file_totals,
 };
 use super::{HistoryItemRequest, fetch, validation};
-use crate::providers::github::{
-    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, RequestContext,
-};
+use crate::providers::github::{GitHubTransport, ProviderError, ProviderErrorKind, RequestContext};
 use crate::tools::id::ToolId;
 use crate::tools::result::remove_nulls;
 use serde_json::{Map, Value, json};
@@ -69,8 +67,8 @@ pub(super) fn content_wants(query: &HistoryItemRequest) -> ContentWants {
 
 /// One PR collection: the whole list when GraphQL returned it complete,
 /// otherwise the REST window covering the requested public page.
-async fn load_collection<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn load_collection(
+    transport: &GitHubTransport,
     wanted: bool,
     graphql: Option<Vec<Value>>,
     segments: &[&str],
@@ -89,8 +87,8 @@ async fn load_collection<R: CredentialResolver>(
         .map(Some)
 }
 
-pub(super) async fn pull_request<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+pub(super) async fn pull_request(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<Value, ProviderError> {
@@ -104,8 +102,8 @@ pub(super) async fn pull_request<R: CredentialResolver>(
 
 /// The GraphQL fast path. REST serves whatever GraphQL could not; a failed
 /// fast path keeps its reason, and a cancelled or expired request stops here.
-async fn fast_path<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn fast_path(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
     wants: &ContentWants,
@@ -191,8 +189,8 @@ struct PrLoads {
 /// Requests that run before the collections: the PR itself, beside the
 /// first file batch, when a filtered file scan or a later comment page needs
 /// the PR's counts to read every batch at once.
-async fn first_requests<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn first_requests(
+    transport: &GitHubTransport,
     context: &RequestContext,
     pulls: &[&str],
     filtered_files: bool,
@@ -223,8 +221,8 @@ async fn first_requests<R: CredentialResolver>(
 /// the PR's counts in hand they read every batch at once. When the first
 /// file batch is the whole list (most PRs), a filtered read costs one round
 /// trip.
-async fn prefetch<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn prefetch(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
     wants: &ContentWants,
@@ -248,8 +246,8 @@ async fn prefetch<R: CredentialResolver>(
 }
 
 /// The PR itself: from GraphQL, the prefetch, or one REST read.
-async fn load_raw<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn load_raw(
+    transport: &GitHubTransport,
     context: &RequestContext,
     pulls: &[&str],
     graphql: Option<&GraphqlPr>,
@@ -272,8 +270,8 @@ fn provider_count(raw: Option<&Value>, key: &str) -> Option<usize> {
         .map(|total| usize::try_from(total).unwrap_or(usize::MAX))
 }
 
-async fn load_pr<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn load_pr(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
     wants: &ContentWants,
@@ -561,8 +559,8 @@ const MAX_HEAD_SOURCES: usize = 10;
 /// The head text of each in-scope file whose `matchString` hit runs need
 /// more context than its hunks hold, read once at `sourceSha` (the history
 /// read cache revalidates it). `None` when no file needs it.
-async fn head_sources<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn head_sources(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
     raw: &Value,
@@ -667,8 +665,8 @@ struct ShapedPr {
     comment_read: Option<Value>,
 }
 
-async fn shape_pr<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn shape_pr(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
     wants: &ContentWants,

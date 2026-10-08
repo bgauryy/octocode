@@ -19,15 +19,28 @@ afterAll(() => Promise.all([runtime.close(), mcpRuntime.close()]));
 
 const brief = { mainGoal: 'g', reasoning: 'r' };
 
+type ToolErrorEnvelope = {
+  kind?: string;
+  tool?: string;
+  errorCode?: string;
+  details?: string[];
+};
+
 const mcpMessage = async (tool: string, input: unknown) => {
   const result = (await mcpRuntime.executeMcp(
     `mcp-${request++}`,
     tool,
     input
-  )) as { isError?: boolean; content?: { text?: string }[] };
-  return result.isError
-    ? (result.content ?? []).map(block => block.text ?? '').join('\n')
-    : '';
+  )) as {
+    isError?: boolean;
+    content?: { text?: string }[];
+    structuredContent?: ToolErrorEnvelope;
+  };
+  if (!result.isError) return { text: '', envelope: undefined };
+  return {
+    text: (result.content ?? []).map(block => block.text ?? '').join('\n'),
+    envelope: result.structuredContent,
+  };
 };
 
 let request = 0;
@@ -35,12 +48,17 @@ const nativeDetails = async (tool: string, input: unknown) => {
   try {
     await runtime.execute(`parity-${request++}`, tool, input);
   } catch (error) {
-    const payload = JSON.parse((error as Error).message).payload as {
-      details?: string[];
+    const thrown = JSON.parse((error as Error).message) as {
+      code?: string;
+      payload: ToolErrorEnvelope;
     };
-    return (payload.details ?? []).join('\n');
+    return {
+      text: (thrown.payload.details ?? []).join('\n'),
+      code: thrown.code,
+      envelope: thrown.payload,
+    };
   }
-  return '';
+  return { text: '', code: undefined, envelope: undefined };
 };
 
 const cases: ReadonlyArray<{
@@ -120,10 +138,22 @@ const cases: ReadonlyArray<{
 describe('CLI and MCP validation guidance parity', () => {
   it.each(cases)('$name', async ({ tool, query, says, never = [] }) => {
     const input = { queries: [{ ...brief, ...query }] };
-    const surfaces = {
-      mcp: await mcpMessage(tool, input),
-      cli: await nativeDetails(tool, input),
-    };
+    const mcp = await mcpMessage(tool, input);
+    const cli = await nativeDetails(tool, input);
+    // Both surfaces answer with the typed octocode.toolError envelope.
+    expect(mcp.envelope).toMatchObject({
+      kind: 'octocode.toolError',
+      tool,
+      errorCode: 'invalidInput',
+    });
+    expect(mcp.text).toContain('(errorCode: invalidInput)');
+    expect(cli.code).toBe('invalidInput');
+    expect(cli.envelope).toMatchObject({
+      kind: 'octocode.toolError',
+      tool,
+      errorCode: 'invalidInput',
+    });
+    const surfaces = { mcp: mcp.text, cli: cli.text };
     for (const [surface, text] of Object.entries(surfaces)) {
       expect(text, surface).not.toBe('');
       for (const guidance of says) expect(text, surface).toContain(guidance);

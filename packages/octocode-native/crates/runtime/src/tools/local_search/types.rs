@@ -11,37 +11,37 @@ pub use crate::contracts::tool_types::{
 /// JSON integer types.
 impl LocalSearchQuery {
     /// Context lines per hit; the contract bounds the request.
-    pub fn context_lines(&self) -> Option<u32> {
+    pub(crate) fn context_lines(&self) -> Option<u32> {
         self.context_lines.map(u32_of_signed)
     }
-    pub fn match_content_length(&self) -> Option<u32> {
+    pub(crate) fn match_content_length(&self) -> Option<u32> {
         self.match_content_length.map(|n| u32_of(n.get()))
     }
     /// The caller's per-file row cap; `None` lets the result size decide.
-    pub fn match_page_size(&self) -> Option<u32> {
+    pub(crate) fn match_page_size(&self) -> Option<u32> {
         self.match_page_size.map(|n| u32_of(n.get()))
     }
     /// The walk depth below `path` in engine terms (0 = files directly in
     /// `path`): the wire `maxDepth` counts levels, 1 = its children.
-    pub fn max_depth(&self) -> Option<u32> {
+    pub(crate) fn max_depth(&self) -> Option<u32> {
         self.max_depth
             .map(|depth| u32_of(depth.get()).saturating_sub(1))
     }
-    pub fn page(&self) -> u32 {
+    pub(crate) fn page(&self) -> u32 {
         u32_of(self.page.get())
     }
-    pub fn match_page(&self) -> u32 {
+    pub(crate) fn match_page(&self) -> u32 {
         u32_of(self.match_page.get())
     }
-    pub fn page_size(&self) -> Option<u32> {
+    pub(crate) fn page_size(&self) -> Option<u32> {
         self.page_size.map(|n| u32_of(n.get()))
     }
-    pub fn snapshot(&self) -> Option<&str> {
+    pub(crate) fn snapshot(&self) -> Option<&str> {
         self.snapshot.as_deref().map(String::as_str)
     }
     /// The search mode: the caller's `regex`, else literal text unless
     /// `matchString` uses a regex operator.
-    pub fn regex_mode(&self) -> LocalSearchQueryRegex {
+    pub(crate) fn regex_mode(&self) -> LocalSearchQueryRegex {
         self.regex
             .unwrap_or(if self.match_string.contains(REGEX_OPERATORS) {
                 LocalSearchQueryRegex::Rust
@@ -63,14 +63,6 @@ pub enum SearchStatus {
     Partial,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LocalSearchError {
-    pub code: &'static str,
-    pub message: String,
-    pub hints: Vec<String>,
-    pub next: Option<Box<serde_json::Value>>,
-}
-
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchMatch {
@@ -82,7 +74,7 @@ pub struct SearchMatch {
     pub value: String,
     /// Every matched line inside a merged context block, in order; present
     /// only when overlapping/adjacent windows were merged into this one.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "matchedLines", skip_serializing_if = "Option::is_none")]
     pub match_lines: Option<Vec<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub count: Option<u32>,
@@ -92,10 +84,11 @@ pub struct SearchMatch {
     pub original_chars: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub returned_chars: Option<usize>,
-    /// The innermost declaration around the hit, `kind name@line-end` (its
-    /// name line and last line), on the first row of a run inside it.
-    #[serde(rename = "in", skip_serializing_if = "Option::is_none")]
-    pub enclosing: Option<String>,
+    /// The innermost declaration around the hit (its name, kind, name line
+    /// and last line: an lspSearch anchor and a localFetch span), on the
+    /// first row of a run inside it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enclosing: Option<Enclosing>,
     /// `true` on a row whose hit line declares a name (the lspSearch
     /// anchor among same-name hits); absent on every other row.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -113,12 +106,27 @@ pub struct ItemPagination {
     #[serde(rename = "totalItems")]
     pub total_matches: u32,
     pub has_more: bool,
-    /// Lines of this file's hits on later pages, ascending and
-    /// comma-joined (`"548,591,1098"`): read them directly or page on.
+    /// Lines of this file's hits on later pages, ascending (X1: numbers,
+    /// not a packed list): read them directly or page on.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub more_lines: Option<String>,
+    pub more_lines: Option<Vec<u32>>,
+    /// Later-page hit lines past the listed `moreLines` (the match pages
+    /// still hold them).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub more_lines_unlisted: Option<u32>,
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub out_of_range: bool,
+}
+
+/// A declaration enclosing a hit, named like the inputs that take it
+/// (`symbolName` + `lineHint` = `line`, `ranges` = `line-endLine`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Enclosing {
+    pub symbol_name: String,
+    pub kind: String,
+    pub line: u32,
+    pub end_line: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -129,7 +137,7 @@ pub struct SearchFile {
     pub matches: Option<Vec<SearchMatch>>,
     #[serde(rename = "matchCount", skip_serializing_if = "Option::is_none")]
     pub total_occurrences: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "matchedLineCount", skip_serializing_if = "Option::is_none")]
     pub total_matched_lines: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pagination: Option<ItemPagination>,
@@ -138,10 +146,11 @@ pub struct SearchFile {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchStats {
-    #[serde(rename = "totalMatches")]
+    #[serde(rename = "matchCount")]
     pub total_occurrences: u32,
-    #[serde(rename = "totalMatchedLines")]
+    #[serde(rename = "matchedLineCount")]
     pub matched_lines: u32,
+    #[serde(rename = "fileCount")]
     pub files_matched: u32,
     #[serde(rename = "filesScanned")]
     pub files_searched: u32,

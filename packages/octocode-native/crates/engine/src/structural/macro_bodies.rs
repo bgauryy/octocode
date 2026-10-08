@@ -4,6 +4,8 @@
 //! invocation's token tree (delimiters included, so `(a, b)` reads as a tuple
 //! and `{ … }` as a block) with tree-sitter included ranges: node positions
 //! stay in file coordinates, and nested invocations are expanded the same way.
+//! A `macro_rules!` arm's template body is re-parsed too; its matcher half
+//! (`($e:expr)`) is no source and keeps its flat tokens.
 
 use std::time::Instant;
 
@@ -19,6 +21,9 @@ pub(super) const MAX_MACRO_DEPTH: usize = 16;
 #[derive(Clone)]
 pub(super) struct MacroBodies {
     macro_invocation: u16,
+    /// A `macro_rules!` arm: its right-hand token tree is the template
+    /// body, searched like an invocation's arguments.
+    macro_rule: Option<u16>,
     token_tree: u16,
     /// Literals one of which every match contains; a body without any of them
     /// cannot match and keeps its flat token tree.
@@ -29,12 +34,14 @@ impl MacroBodies {
     pub(super) fn for_language(language: &Language, anchors: Option<Vec<String>>) -> Option<Self> {
         Some(Self {
             macro_invocation: named_kind_id(language, "macro_invocation")?,
+            macro_rule: named_kind_id(language, "macro_rule"),
             token_tree: named_kind_id(language, "token_tree")?,
             anchors: anchors.filter(|anchors| !anchors.is_empty()),
         })
     }
 
-    /// Whether `node` is a macro invocation's argument token tree worth re-parsing.
+    /// Whether `node` is a macro invocation's argument token tree, or a
+    /// `macro_rules!` arm's template body, worth re-parsing.
     pub(super) fn is_expandable(
         &self,
         node: Node<'_>,
@@ -42,7 +49,10 @@ impl MacroBodies {
         content: &str,
     ) -> bool {
         node.kind_id() == self.token_tree
-            && parent.is_some_and(|parent| parent.kind_id() == self.macro_invocation)
+            && parent.is_some_and(|parent| {
+                parent.kind_id() == self.macro_invocation
+                    || Some(parent.kind_id()) == self.macro_rule
+            })
             && node.end_byte() > node.start_byte() + 2
             && self.anchors.as_ref().is_none_or(|anchors| {
                 let text = content.get(node.byte_range()).unwrap_or_default();

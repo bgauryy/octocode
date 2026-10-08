@@ -1,14 +1,24 @@
 //! OS-level memory containment for spawned language servers.
 //!
 //! Every internal buffer in the LSP path is bounded, but internal bounds do
-//! not stop a runaway *server* from exhausting host memory. The cap is applied
-//! at spawn: `setrlimit(RLIMIT_AS)` in `pre_exec` on supported Unix targets,
-//! and a Job Object with `JOB_OBJECT_LIMIT_JOB_MEMORY` on Windows. macOS
-//! cannot use `RLIMIT_AS` (lowering it below the process's inherited virtual
-//! mappings makes every child spawn fail with `EINVAL`), so there the cap is
-//! enforced by an RSS watchdog ([`watch_memory`]): the server tree's resident
-//! memory is sampled every [`MEMORY_WATCHDOG_INTERVAL`] and a tree over the
-//! cap is killed and its connection failed with a clear error.
+//! not stop a runaway *server* from exhausting host memory. The cap bounds
+//! memory the server tree actually uses, never address space it only reserves:
+//!
+//! - macOS and Linux: an RSS watchdog ([`watch_memory`]) samples the whole
+//!   server tree's resident memory every [`MEMORY_WATCHDOG_INTERVAL`]; a tree
+//!   over the cap is killed and its connection failed with a clear error.
+//! - Windows: a Job Object with `JOB_OBJECT_LIMIT_JOB_MEMORY` (committed
+//!   memory of the whole job).
+//! - Other Unix targets, which have no watchdog: `setrlimit(RLIMIT_AS)` in
+//!   `pre_exec`, the only bound available there.
+//!
+//! `RLIMIT_AS` is not used where the watchdog runs. It limits reserved virtual
+//! address space, and servers routinely reserve far more than they touch: a
+//! JVM (jdtls) reserves its maximum heap (a quarter of host RAM by default)
+//! plus class space and code cache, V8 reserves WebAssembly memory cages, Go
+//! and glibc reserve arenas. A 4 GiB address-space cap makes such servers fail
+//! to start on large hosts while they use a fraction of it. On macOS it cannot
+//! be lowered at all (inherited mappings make every spawn fail with `EINVAL`).
 
 #[cfg(windows)]
 use crate::error::Error;
@@ -17,7 +27,7 @@ use std::time::Duration;
 use tokio::process::{Child, Command};
 
 /// How often the RSS watchdog samples a language-server tree.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // Wired on macOS only.
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))] // Wired on macOS and Linux only.
 pub(crate) const MEMORY_WATCHDOG_INTERVAL: Duration = Duration::from_secs(2);
 
 /// Generous default (4 GiB): large enough for heavyweight servers such as
@@ -32,15 +42,11 @@ pub(crate) fn memory_cap_bytes(max_memory_mb: Option<u32>) -> Option<u64> {
     }
 }
 
-/// Supported Unix targets: cap the child's address space before `exec`. Must
-/// be called before `Command::spawn`.
-///
-/// macOS processes inherit virtual mappings (including the shared cache) that
-/// routinely exceed the configured cap before `exec`; lowering `RLIMIT_AS` in
-/// the forked child therefore returns `EINVAL` and prevents every server from
-/// starting. Darwin has no equivalent enforceable per-child address-space cap,
-/// so its implementation below is deliberately a no-op.
-#[cfg(all(unix, not(target_os = "macos")))]
+/// Unix targets without the RSS watchdog: cap the child's address space
+/// before `exec`, the only bound available there. Must be called before
+/// `Command::spawn`. macOS and Linux bound resident memory with
+/// [`watch_memory`] instead (see the module docs), so there this is a no-op.
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
 pub(crate) fn apply_pre_spawn_cap(command: &mut Command, cap_bytes: u64) {
     let limit = libc::rlimit {
         rlim_cur: cap_bytes as libc::rlim_t,
@@ -59,11 +65,11 @@ pub(crate) fn apply_pre_spawn_cap(command: &mut Command, cap_bytes: u64) {
     }
 }
 
-#[cfg(any(not(unix), target_os = "macos"))]
+#[cfg(any(not(unix), target_os = "macos", target_os = "linux"))]
 pub(crate) fn apply_pre_spawn_cap(_command: &mut Command, _cap_bytes: u64) {}
 
 /// Error text for a server killed by the memory watchdog.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // Wired on macOS only.
+#[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))] // Wired on macOS and Linux only.
 pub(crate) fn memory_cap_exceeded_message(rss_bytes: u64, cap_bytes: u64) -> String {
     format!(
         "language server exceeded memory cap ({} MiB resident > {} MiB maxMemoryMb); it was killed. Raise maxMemoryMb (0 disables the cap) for very large workspaces.",
@@ -79,8 +85,7 @@ pub(crate) fn memory_cap_exceeded_message(rss_bytes: u64, cap_bytes: u64) -> Str
 /// Returns when the leader is gone, `alive()` turns false, or after a kill.
 /// The caller aborts the task before reaping the leader, so the pid being
 /// sampled can never have been recycled.
-#[cfg(unix)]
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))] // Wired on macOS only.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 pub(crate) async fn watch_memory<A, E>(
     pid: u32,
     cap_bytes: u64,
@@ -304,12 +309,46 @@ mod tests {
         let _ = small.kill().await;
     }
 
-    /// Linux enforces the cap with `RLIMIT_AS` at spawn: the default cap still
-    /// lets a child start, and an allocation past a small cap fails inside
-    /// the child instead of growing host memory.
-    #[cfg(target_os = "linux")]
+    /// `RLIMIT_AS` limits reserved address space, not memory in use. JVMs
+    /// reserve their maximum heap and class space up front, V8 reserves
+    /// WebAssembly memory cages and Go its arenas, all far past what they
+    /// touch. Where the RSS watchdog runs (macOS, Linux), a server must be able
+    /// to reserve well past the cap; only resident memory over it is stopped
+    /// (`memory_watchdog_kills_a_tree_over_its_cap`).
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[tokio::test]
-    async fn rlimit_as_cap_allows_spawn_and_blocks_allocation_past_it_on_linux() {
+    async fn default_policy_lets_a_server_reserve_address_space_past_the_cap() {
+        let has_python = std::process::Command::new("python3")
+            .arg("--version")
+            .output()
+            .is_ok_and(|output| output.status.success());
+        if !has_python {
+            return;
+        }
+        let cap = memory_cap_bytes(None).expect("default cap");
+        let reserve = cap * 2;
+        let mut command = Command::new("python3");
+        command.args([
+            "-c",
+            &format!(
+                "import mmap\nm = mmap.mmap(-1, {reserve}, flags=mmap.MAP_PRIVATE | mmap.MAP_ANONYMOUS, prot=0)\nprint(len(m))\n"
+            ),
+        ]);
+        apply_pre_spawn_cap(&mut command, cap);
+        let output = command.output().await.expect("spawn python");
+        assert!(
+            output.status.success(),
+            "reserving {reserve} bytes (untouched) must not fail under a {cap}-byte cap: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    /// Unix targets without the RSS watchdog keep `RLIMIT_AS` as their only
+    /// bound: the default cap still lets a child start, and an allocation past
+    /// a small cap fails inside the child instead of growing host memory.
+    #[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+    #[tokio::test]
+    async fn rlimit_as_cap_allows_spawn_and_blocks_allocation_past_it() {
         let mut command = Command::new("/bin/true");
         apply_pre_spawn_cap(&mut command, memory_cap_bytes(None).expect("default cap"));
         assert!(

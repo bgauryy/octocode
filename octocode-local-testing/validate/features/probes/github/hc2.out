@@ -1,1 +1,0 @@
-{"kind":"octocode.toolError","version":1,"tool":"ghSearchHistory","error":"Unknown field(s): includeDiff","details":["Remove unknown field(s) from query 1: includeDiff","Run scheme ghSearchHistory --view query --compact to see valid fields."]}

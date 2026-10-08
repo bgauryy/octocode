@@ -11,7 +11,7 @@
 use super::render::decode_uri_path;
 use crate::policy::path::PathPolicy;
 use octocode_engine::lsp::client::SnippetReadPolicy;
-use octocode_engine::lsp::resolver::LineIndex;
+use octocode_engine::text::LineIndex;
 use serde_json::Value;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

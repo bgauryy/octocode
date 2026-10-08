@@ -127,8 +127,8 @@ fn match_only_caps_display_after_unique_grouping_and_preserves_continuations() {
     assert_eq!(matched["originalChars"], 4105);
     assert_eq!(matched["returnedChars"], 30);
     assert_eq!(matched["count"], 2);
-    assert_eq!(body["stats"]["totalMatches"], 3);
-    assert_eq!(body["stats"]["totalMatchedLines"], 3);
+    assert_eq!(body["stats"]["matchCount"], 3);
+    assert_eq!(body["stats"]["matchedLineCount"], 3);
     assert_eq!(body["stats"]["capped"], false);
     assert_eq!(body["files"][0]["pagination"]["totalItems"], 2);
     assert!(
@@ -959,7 +959,7 @@ fn an_include_that_matches_no_file_says_so() {
 /// function) when a language server would start for the file. A sweep of
 /// more hits than one small page stays plain lines.
 #[test]
-fn small_pages_name_enclosing_declarations_and_lead_to_references() {
+fn small_pages_name_enclosing_declarations_and_lead_to_callers() {
     let source = "struct Harness;\nimpl Harness {\n    fn try_read_output(&self) {\n        helper();\n    }\n}\n\nfn helper() {}\n\nfn caller() {\n    helper();\n}\n";
     let body = search_fixture(
         &[("src/a.rs", source)],
@@ -967,11 +967,19 @@ fn small_pages_name_enclosing_declarations_and_lead_to_references() {
     );
     let rows = &body["files"][0]["matches"];
     assert_eq!(rows[0]["line"], 4, "{body}");
-    assert_eq!(rows[0]["in"], "method try_read_output@3-5", "{body}");
+    assert_eq!(
+        rows[0]["enclosing"],
+        serde_json::json!({"symbolName":"try_read_output","kind":"method","line":3,"endLine":5}),
+        "{body}"
+    );
     assert_eq!(rows[1]["line"], 8, "{body}");
-    assert!(rows[1].get("in").is_none(), "{body}");
-    assert_eq!(rows[2]["in"], "fn caller@10-12", "{body}");
-    let lead = &body["next"]["verifyReferences"];
+    assert!(rows[1].get("enclosing").is_none(), "{body}");
+    assert_eq!(
+        rows[2]["enclosing"],
+        serde_json::json!({"symbolName":"caller","kind":"function","line":10,"endLine":12}),
+        "{body}"
+    );
+    let lead = &body["next"]["callers"];
     let declared_at = body["files"][0]["path"].as_str().expect("path").to_owned();
     let server = crate::tools::lsp_search::verify_query(
         &declared_at,
@@ -1004,7 +1012,7 @@ fn small_pages_name_enclosing_declarations_and_lead_to_references() {
         ls_query(serde_json::json!({"matchString": "fn helper"}), None),
     );
     assert_eq!(
-        keyword["next"]["verifyReferences"]["query"]["queries"][0]["lineHint"], 8,
+        keyword["next"]["callers"]["query"]["queries"][0]["lineHint"], 8,
         "{keyword}"
     );
     let insensitive = search_fixture(
@@ -1015,7 +1023,7 @@ fn small_pages_name_enclosing_declarations_and_lead_to_references() {
         ),
     );
     assert!(
-        insensitive["next"].get("verifyReferences").is_none(),
+        insensitive["next"].get("callers").is_none(),
         "{insensitive}"
     );
 
@@ -1028,9 +1036,13 @@ fn small_pages_name_enclosing_declarations_and_lead_to_references() {
         ls_query(serde_json::json!({"matchString": "helper"}), None),
     );
     let rows = &body["files"][0]["matches"];
-    assert_eq!(rows[0]["in"], "fn f@1-5", "{body}");
+    assert_eq!(
+        rows[0]["enclosing"],
+        serde_json::json!({"symbolName":"f","kind":"function","line":1,"endLine":5}),
+        "{body}"
+    );
     for row in 1..4 {
-        assert!(rows[row].get("in").is_none(), "{body}");
+        assert!(rows[row].get("enclosing").is_none(), "{body}");
     }
     assert_eq!(rows[3]["line"], 6, "{body}");
 
@@ -1045,9 +1057,13 @@ fn small_pages_name_enclosing_declarations_and_lead_to_references() {
         ),
     );
     let rows = &body["files"][0]["matches"];
-    assert_eq!(rows[0]["in"], "impl Harness@1-3", "{body}");
+    assert_eq!(
+        rows[0]["enclosing"],
+        serde_json::json!({"symbolName":"Harness","kind":"impl","line":1,"endLine":3}),
+        "{body}"
+    );
     assert_eq!(rows[1]["line"], 5, "{body}");
-    assert!(rows[1].get("in").is_none(), "{body}");
+    assert!(rows[1].get("enclosing").is_none(), "{body}");
 
     let sweep = format!("fn many() {{\n{}}}\n", "    helper();\n".repeat(60));
     let wide = search_fixture(
@@ -1057,9 +1073,13 @@ fn small_pages_name_enclosing_declarations_and_lead_to_references() {
     // A sweep names its owner too: once, on the first row of the run.
     let rows = wide["files"][0]["matches"].as_array().expect("rows");
     assert_eq!(rows.len(), 60, "{wide}");
-    assert_eq!(rows[0]["in"], "fn many@1-62", "{wide}");
+    assert_eq!(
+        rows[0]["enclosing"],
+        serde_json::json!({"symbolName":"many","kind":"function","line":1,"endLine":62}),
+        "{wide}"
+    );
     assert!(
-        rows[1..].iter().all(|row| row.get("in").is_none()),
+        rows[1..].iter().all(|row| row.get("enclosing").is_none()),
         "{wide}"
     );
 }
@@ -1418,10 +1438,10 @@ fn grid_pages_count_the_rows_a_match_page_reaches_and_name_the_match_page() {
     // The shared page stage says how many rows `nextMatchPage` reaches.
     assert!(body.get("warnings").is_none(), "{body}");
     assert!(body["next"].get("nextMatchPage").is_some(), "{body}");
-    assert!(body["pagination"].get("totalMatches").is_none(), "{body}");
+    assert!(body["pagination"].get("matchCount").is_none(), "{body}");
     assert!(body["pagination"].get("matchPage").is_none(), "{body}");
-    assert_eq!(body["stats"]["totalMatchedLines"], 11, "{body}");
-    assert_eq!(body["stats"]["totalMatches"], 12, "{body}");
+    assert_eq!(body["stats"]["matchedLineCount"], 11, "{body}");
+    assert_eq!(body["stats"]["matchCount"], 12, "{body}");
     let second = search_fixture(&files, request(2));
     assert_eq!(second["pagination"]["currentPage"], 1, "{second}");
     assert_eq!(second["pagination"]["matchPage"], 2, "{second}");
@@ -1460,12 +1480,16 @@ fn a_clipped_file_shows_its_deciding_hits_first_and_lists_the_rest() {
     assert_eq!(lines(&first), [5, 8, 9], "{first}");
     // The rows still unseen are named, cheap to read at their lines.
     assert_eq!(
-        first["files"][0]["pagination"]["moreLines"], "1-4,6-7",
+        first["files"][0]["pagination"]["moreLines"],
+        serde_json::json!([1, 2, 3, 4, 6, 7]),
         "{first}"
     );
     let second = search_fixture(&[("CacheBuilder.java", &file)], request(2));
     assert_eq!(lines(&second), [1, 6, 7], "{second}");
-    assert_eq!(second["files"][0]["pagination"]["moreLines"], "2-4");
+    assert_eq!(
+        second["files"][0]["pagination"]["moreLines"],
+        serde_json::json!([2, 3, 4])
+    );
     let last = search_fixture(&[("CacheBuilder.java", &file)], request(3));
     assert_eq!(lines(&last), [2, 3, 4], "{last}");
     assert!(last["files"][0].get("pagination").is_none(), "{last}");
@@ -1490,7 +1514,10 @@ fn a_repeated_row_follows_every_distinct_row_of_a_clipped_file() {
         .filter_map(|m| m["line"].as_u64())
         .collect();
     assert_eq!(lines, [1, 3], "{body}");
-    assert_eq!(body["files"][0]["pagination"]["moreLines"], "2");
+    assert_eq!(
+        body["files"][0]["pagination"]["moreLines"],
+        serde_json::json!([2])
+    );
 }
 
 #[test]
@@ -1517,7 +1544,7 @@ fn line_rows_omit_the_column_that_span_rows_need() {
         .iter()
         .filter_map(|m| m["column"].as_u64())
         .collect();
-    assert_eq!(columns, [2, 9], "{spans}");
+    assert_eq!(columns, [3, 10], "{spans}");
 }
 
 #[test]
@@ -1825,7 +1852,7 @@ fn overlapping_context_windows_merge_into_one_block() {
     // 5 and 7 overlap (3..=9), 12 is adjacent (10..=14 follows 9), 25 is apart.
     assert_eq!(matches.len(), 2, "{body}");
     assert_eq!(matches[0]["line"], 5);
-    assert_eq!(matches[0]["matchLines"], serde_json::json!([5, 7, 12]));
+    assert_eq!(matches[0]["matchedLines"], serde_json::json!([5, 7, 12]));
     let expected: String = (3..=14)
         .map(|n| {
             if [5, 7, 12].contains(&n) {
@@ -1838,13 +1865,13 @@ fn overlapping_context_windows_merge_into_one_block() {
         .join("\n");
     assert_eq!(matches[0]["value"], expected);
     assert_eq!(matches[1]["line"], 25);
-    assert!(matches[1].get("matchLines").is_none(), "{body}");
+    assert!(matches[1].get("matchedLines").is_none(), "{body}");
     assert_eq!(
         matches[1]["value"],
         "23\tline 23\n24\tline 24\n25\tline 25 needle\n26\tline 26\n27\tline 27"
     );
     // Counts stay per matched line.
-    assert_eq!(body["stats"]["totalMatchedLines"], 4);
+    assert_eq!(body["stats"]["matchedLineCount"], 4);
 }
 
 #[test]
@@ -1863,7 +1890,7 @@ fn windows_merge_at_file_edges_and_stay_apart_when_disjoint() {
         matches[0]["value"],
         "1\tline 1 needle\n2\tline 2 needle\n3\tline 3"
     );
-    assert_eq!(matches[0]["matchLines"], serde_json::json!([1, 2]));
+    assert_eq!(matches[0]["matchedLines"], serde_json::json!([1, 2]));
     assert_eq!(matches[1]["value"], "5\tline 5\n6\tline 6 needle");
     // matchOnly never merges: it carries spans, not windows.
     let body = search_fixture(
@@ -1875,7 +1902,7 @@ fn windows_merge_at_file_edges_and_stay_apart_when_disjoint() {
     );
     let matches = body["files"][0]["matches"].as_array().expect("matches");
     assert_eq!(matches.len(), 3, "{body}");
-    assert!(matches.iter().all(|m| m.get("matchLines").is_none()));
+    assert!(matches.iter().all(|m| m.get("matchedLines").is_none()));
 }
 
 // A truncated window must never be merged (its line structure is unknown).
@@ -1892,7 +1919,7 @@ fn truncated_windows_are_not_merged() {
     );
     let matches = body["files"][0]["matches"].as_array().expect("matches");
     assert_eq!(matches.len(), 2, "{body}");
-    assert!(matches.iter().all(|m| m.get("matchLines").is_none()));
+    assert!(matches.iter().all(|m| m.get("matchedLines").is_none()));
 }
 
 // Single-page results carry no redundant accounting: no engine constant,
@@ -2132,7 +2159,7 @@ fn a_nul_keeps_the_matches_before_it_and_warns() {
     assert_ne!(result.status, SearchStatus::Empty);
     let body = serde_json::to_value(&result).expect("serialize");
     assert_eq!(body["files"][0]["matches"][0]["line"], 1, "{body}");
-    assert_eq!(body["stats"]["totalMatches"], 1, "{body}");
+    assert_eq!(body["stats"]["matchCount"], 1, "{body}");
     // The warning names the file it could not search past the NUL.
     assert!(
         result
@@ -2728,6 +2755,7 @@ fn clipped_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
             rank: None,
             original_chars: Some(400),
         }],
+        source: None,
     };
     let missing = tempfile::tempdir()
         .expect("fixture directory")
@@ -2769,6 +2797,7 @@ fn clipped_secret_guard_fails_closed_when_the_match_line_is_gone() {
             rank: None,
             original_chars: Some(400),
         }],
+        source: None,
     };
     let verified = verify::guard_clipped_secrets(
         &mut file,
@@ -2796,7 +2825,7 @@ fn clipped_secret_guard_fails_closed_when_the_match_line_is_gone() {
 fn an_unset_regex_reads_operator_free_text_literally() {
     let files = [("a.rs", "x.unwrap();\nunwrap_or(1);\nfoo_unwrap()\n")];
     let run = |fields: serde_json::Value| search_fixture(&files, ls_query(fields, None));
-    let lines = |body: &serde_json::Value| body["stats"]["totalMatchedLines"].as_u64().unwrap_or(0);
+    let lines = |body: &serde_json::Value| body["stats"]["matchedLineCount"].as_u64().unwrap_or(0);
     let warned = |body: &serde_json::Value, text: &str| {
         body["warnings"].as_array().is_some_and(|all| {
             all.iter()
@@ -3169,7 +3198,7 @@ fn withheld_notice_appears_once_on_empty_rows() {
         ],
         ls_query(serde_json::json!({"matchString": "ISecretX"}), None),
     );
-    assert_eq!(body["stats"]["totalMatches"], 0, "{body}");
+    assert_eq!(body["stats"]["matchCount"], 0, "{body}");
     let text = body.to_string();
     assert_eq!(text.matches("withheld by path policy").count(), 1, "{body}");
     let hint = body["hints"][0].as_str().expect("empty hint");
@@ -3210,7 +3239,7 @@ fn scope_miss_leads_to_files_listing_with_same_globs() {
         ),
     );
     assert_eq!(body["stats"]["filesScanned"], 0, "{body}");
-    let lead = &body["next"]["viewStructure"];
+    let lead = &body["next"]["viewTree"];
     assert_eq!(lead["tool"], "structureSearch", "{body}");
     let listing = &lead["query"]["queries"][0];
     assert_eq!(listing["operation"], "files", "{body}");
@@ -3247,13 +3276,16 @@ fn large_page_keeps_enclosing_labels() {
     );
     let rows = body["files"][0]["matches"].as_array().expect("rows");
     assert_eq!(rows.len(), 60, "{body}");
-    let label = regex::Regex::new(r"^\w+ \w+@\d+-\d+$").expect("regex");
     for (index, row) in rows.iter().enumerate() {
         if index % 10 == 0 {
-            let name = row["in"].as_str().unwrap_or_default();
-            assert!(label.is_match(name), "row {index}: {body}");
+            let enclosing = &row["enclosing"];
+            assert_eq!(enclosing["kind"], "function", "row {index}: {body}");
+            assert!(
+                enclosing["endLine"].as_u64() > enclosing["line"].as_u64(),
+                "row {index}: {body}"
+            );
         } else {
-            assert!(row.get("in").is_none(), "row {index}: {body}");
+            assert!(row.get("enclosing").is_none(), "row {index}: {body}");
         }
     }
 }
@@ -3277,4 +3309,245 @@ fn declaration_rows_are_marked_sparsely() {
     assert_eq!(by_line(1)["declaration"], true, "{body}");
     assert!(by_line(2).get("declaration").is_none(), "{body}");
     assert!(by_line(3).get("declaration").is_none(), "{body}");
+}
+
+/// Thirty TS files of needle hits (every third also holds a token on a hit
+/// line), a key file whose hit sits inside a private-key block, and an
+/// innocent base64 hit: enough rows for several pages, with values that
+/// redaction replaces and files whose key-block scans read their bytes.
+fn paged_fixture(root: &std::path::Path) {
+    for file in 0..30 {
+        let mut body = (0..15)
+            .map(|n| {
+                format!(
+                    "export function compute_{file}_{n}(value: number): number {{\n  const needle_{n} = value * {n};\n  return needle_{n} + {file};\n}}\n"
+                )
+            })
+            .collect::<String>();
+        if file % 3 == 0 {
+            body.push_str(&format!(
+                "const needle_token = \"ghp_{file:02}ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567\";\n"
+            ));
+        }
+        fs::write(root.join(format!("m{file:02}.ts")), body).expect("fixture");
+    }
+    fs::write(
+        root.join("zkey.ts"),
+        "export const pem = `\n-----BEGIN RSA PRIVATE KEY-----\nMIIEpQIBAAKCAQEAneedleKeyBodyAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n-----END RSA PRIVATE KEY-----\n`;\n",
+    )
+    .expect("key fixture");
+    fs::write(
+        root.join("zbase64.ts"),
+        "export const blob = `\nneedleAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n`;\n",
+    )
+    .expect("base64 fixture");
+}
+
+/// A later page served from the stored scan (whose digests the search took
+/// in the read it searched with, whose snapshot it derives from the stored
+/// query key, and whose redaction it replays) is byte-identical to the same
+/// page cut from a fresh rescan, enclosing names and redacted values
+/// included; so is a repeated page 1.
+#[test]
+fn a_stored_page_is_byte_identical_to_the_page_a_rescan_cuts() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    paged_fixture(root.path());
+    let (policy, security) = policy_for(root.path());
+    let search = |request: &LocalSearchQuery| {
+        execute_local_search(request, &policy, &security, &NeverCancel, None, Some(6_000))
+            .expect("search")
+    };
+    let run = |request: &LocalSearchQuery| {
+        let result = search(request);
+        format!(
+            "{}\n{:?}",
+            serde_json::to_string(&result).expect("serialize"),
+            result.source_snapshot
+        )
+    };
+    let request = ls_query(
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": "needle"}),
+        None,
+    );
+    let first = run(&request);
+    assert_eq!(first, run(&request), "page 1 is deterministic");
+    let page_one = search(&request);
+    let snapshot = page_one.source_snapshot.clone().expect("snapshot");
+    let pages = page_one.pagination.as_ref().expect("paged").total_pages;
+    assert!(pages >= 4, "{pages}");
+    let stored = super::manifest::get(&snapshot, &policy.identity()).expect("stored scan");
+    let record = stored
+        .redaction
+        .expect("the page-1 redaction is replayable");
+    assert!(!record.changes.is_empty(), "{record:?}");
+    assert_eq!(record.key_files.len(), 2, "{record:?}");
+    let mut every_page = first;
+    for page in 2..=pages {
+        let next = ls_query(
+            serde_json::json!({"snapshot": snapshot, "page": page}),
+            Some(&request),
+        );
+        assert!(
+            super::manifest::get(&snapshot, &policy.identity())
+                .is_some_and(|stored| stored.redaction.is_some()),
+            "page {page} replays the stored scan's redaction"
+        );
+        let stored = run(&next);
+        assert!(stored.contains("\"enclosing\""), "{stored}");
+        super::manifest::evict(&snapshot);
+        let rescanned = run(&next);
+        assert_eq!(stored, rescanned, "page {page}");
+        every_page.push_str(&stored);
+    }
+    assert!(every_page.contains("zkey.ts") && every_page.contains("zbase64.ts"));
+    assert!(!every_page.contains("ABCDEFGHIJKLMNOPQRSTUVWXYZ01234567"));
+    assert!(!every_page.contains("KeyBody"));
+    assert!(every_page.contains(&crate::security::key_fragment_placeholder()));
+}
+
+/// The files a page of the stored scan shows (`path` list).
+fn page_paths(
+    request: &LocalSearchQuery,
+    policy: &PathPolicy,
+    security: &ContentSecurity,
+) -> Vec<String> {
+    execute_local_search(request, policy, security, &NeverCancel, None, Some(6_000))
+        .expect("page")
+        .files
+        .into_iter()
+        .map(|file| file.path)
+        .collect()
+}
+
+/// Swap `path` for a symlink to a copy outside the allowed root with the
+/// same bytes and modification time: size, time and digest all match the
+/// stored scan, and only the read policy sees the change.
+#[cfg(unix)]
+fn swap_for_outside_copy(path: &std::path::Path, outside: &std::path::Path) {
+    let copy = outside.join(path.file_name().expect("file name"));
+    fs::copy(path, &copy).expect("copy outside");
+    let modified = fs::metadata(path)
+        .and_then(|m| m.modified())
+        .expect("mtime");
+    fs::File::options()
+        .write(true)
+        .open(&copy)
+        .and_then(|file| file.set_modified(modified))
+        .expect("restore mtime");
+    fs::remove_file(path).expect("remove");
+    std::os::unix::fs::symlink(&copy, path).expect("symlink");
+}
+
+/// A stored page checks the read policy of every file it shows: a shown
+/// file swapped for a symlink out of the root, under its stored stamp and
+/// digest, fails the page. A swapped file the page neither reads nor shows
+/// leaves the page as it was; the page that shows it fails.
+#[cfg(unix)]
+#[test]
+fn a_stored_page_checks_the_read_policy_of_the_files_it_shows() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    let outside = tempfile::tempdir().expect("outside directory");
+    paged_fixture(root.path());
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": "needle"}),
+        None,
+    );
+    let page_one = execute_local_search(
+        &request,
+        &policy,
+        &security,
+        &NeverCancel,
+        None,
+        Some(6_000),
+    )
+    .expect("page 1");
+    let snapshot = page_one.source_snapshot.clone().expect("snapshot");
+    let page = |page: u32| {
+        ls_query(
+            serde_json::json!({"snapshot": snapshot, "page": page}),
+            Some(&request),
+        )
+    };
+    let run = |page: &LocalSearchQuery| {
+        execute_local_search(page, &policy, &security, &NeverCancel, None, Some(6_000))
+    };
+    let second = serde_json::to_string(&run(&page(2)).expect("page 2")).expect("json");
+    let on_two = page_paths(&page(2), &policy, &security);
+    let on_three = page_paths(&page(3), &policy, &security);
+    let later = on_three
+        .iter()
+        .find(|path| !on_two.contains(path))
+        .expect("a page-3 file");
+    swap_for_outside_copy(&root.path().join(later), outside.path());
+    assert!(super::manifest::get(&snapshot, &policy.identity()).is_some());
+    let unchanged =
+        serde_json::to_string(&run(&page(2)).expect("page 2 neither reads nor shows it"))
+            .expect("json");
+    assert_eq!(unchanged, second);
+    let denied = run(&page(3)).expect_err("page 3 shows the swapped file");
+    assert!(
+        denied.message.contains("denied by the active path policy"),
+        "{}",
+        denied.message
+    );
+    swap_for_outside_copy(&root.path().join(&on_two[0]), outside.path());
+    let denied = run(&page(2)).expect_err("page 2 shows the swapped file");
+    assert!(
+        denied.message.contains("denied by the active path policy"),
+        "{}",
+        denied.message
+    );
+}
+
+/// A key file the stored redaction scanned, rewritten in place under its
+/// stored size and time, restarts the snapshot on a page that does not even
+/// show it: the replay reads the key file again and binds it to the stored
+/// digest, as a fresh redaction does.
+#[test]
+fn a_key_file_rewritten_under_its_stamp_restarts_a_replayed_page() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    paged_fixture(root.path());
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": "needle"}),
+        None,
+    );
+    let snapshot = execute_local_search(
+        &request,
+        &policy,
+        &security,
+        &NeverCancel,
+        None,
+        Some(6_000),
+    )
+    .expect("page 1")
+    .source_snapshot
+    .expect("snapshot");
+    let page_two = ls_query(
+        serde_json::json!({"snapshot": snapshot, "page": 2}),
+        Some(&request),
+    );
+    assert!(
+        !page_paths(&page_two, &policy, &security)
+            .iter()
+            .any(|path| path == "zkey.ts")
+    );
+    let key = root.path().join("zkey.ts");
+    let text = fs::read_to_string(&key).expect("key fixture");
+    rewrite_keeping_stamp(&key, &text.replace("export const pem", "export const pex"));
+    assert!(
+        super::manifest::get(&snapshot, &policy.identity())
+            .is_some_and(|stored| stored.redaction.is_some())
+    );
+    let error = execute_local_search(
+        &page_two,
+        &policy,
+        &security,
+        &NeverCancel,
+        None,
+        Some(6_000),
+    )
+    .expect_err("changed key file");
+    assert_eq!(error.code, "staleSnapshot");
 }

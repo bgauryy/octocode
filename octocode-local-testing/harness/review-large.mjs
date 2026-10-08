@@ -3,10 +3,11 @@ const c=await startServer();const {check,summary}=checks('review-large');const c
 const q={operation:'pullRequest',owner:'microsoft',repo:'TypeScript',number:51387};
 async function run(label,args,hint){const e=hint?await c.follow(hint):await c.call('ghGetHistoryItem',args);calls.push({...e,label,bytes:Buffer.byteLength(e.text)});check(label+' succeeds',!e.isError&&!e.rowErrors);return e}
 try {
- const m=rowData(await run('metadata',q)).pullRequests[0];
+ const meta=rowData(await run('metadata',q));const m=meta.pullRequests[0];
  check('fixture exceeds 100 changed files',m.changedFilesCount>100,m.changedFilesCount);
  check('metadata excludes changed-file bodies',!m.files);
- check('metadata offers file inventory',!!m.hints?.readFiles);
+ // PR leads ride the row's one capped `hints` list, never a list nested in the PR (pull_request.rs; runtime_github.rs asserts data.hints.readFiles).
+ check('metadata offers file inventory',!!meta.hints?.readFiles);
  let e=await run('inventory page 1',{...q,sections:['files'],pageSize:100});let files=[];let pages=0;
  for(;e&&pages<40;pages++){
   const pr=rowData(e)?.pullRequests?.[0];
@@ -30,5 +31,7 @@ try {
  if(!res.ok)throw Error('independent GitHub files oracle HTTP '+res.status);
  apiFiles.push(...await res.json());
  }
- check('inventory paths and stats equal independent API',apiFiles.length===files.length&&apiFiles.every((f,i)=>files[i].path===f.filename&&files[i].additions===f.additions&&files[i].deletions===f.deletions));
+ // HI8: an `omitted` row (no counts) must be a file GitHub sent with 0/0 and no patch; every other row's counts equal the API's.
+ const statsMatch=(row,f)=>row.patchUnavailable==='omitted'?row.additions===undefined&&f.additions===0&&f.deletions===0&&!Object.hasOwn(f,'patch'):row.additions===f.additions&&row.deletions===f.deletions;
+ check('inventory paths and stats equal independent API',apiFiles.length===files.length&&apiFiles.every((f,i)=>files[i].path===f.filename&&statsMatch(files[i],f)),files.filter(r=>r.patchUnavailable==='omitted').length+' omitted');
 } catch(error){check('audit completes',false,error.stack)} finally {const result=summary();writeResults('review-large',{at:new Date().toISOString(),...result,calls});console.table(calls.map(({label,ms,bytes})=>({label,ms,bytes})));c.close();process.exitCode=result.failed.length?1:0;}

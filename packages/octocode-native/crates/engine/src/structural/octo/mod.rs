@@ -82,7 +82,7 @@ fn compile_matcher_inner(
                 }
 
                 let tree = parse_tree_with_deadline(compiled.language(), content, deadline)?;
-                let line_index = LineIndex::new(content);
+                let line_index = LineIndex::tree_sitter(content);
                 let mut matches = Vec::new();
                 let visit: &mut CandidateVisitor<'_> = &mut |candidate, _, _| {
                     if !compiled.matches_candidate(candidate) {
@@ -135,7 +135,7 @@ fn compile_matcher_inner(
             Ok(Box::new(move |content| {
                 let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
                 let tree = parse_tree_with_deadline(&language, content, deadline)?;
-                let line_index = LineIndex::new(content);
+                let line_index = LineIndex::tree_sitter(content);
                 let mut matches = Vec::new();
                 visit_named_expanding_macros(
                     tree.root_node(),

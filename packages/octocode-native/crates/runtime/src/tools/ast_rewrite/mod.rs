@@ -28,7 +28,9 @@ mod request;
 mod staged;
 use patch::create_unified_patch;
 use raw::{RawByteRange, RawCapture, RawMatch, RawMetaVariables, RawPosition, RawRange};
-use staged::{StagedAnalyzer, StagedFacts, note_parses};
+#[cfg(test)]
+use staged::note_parses;
+use staged::{StagedAnalyzer, StagedFacts};
 
 const DEFAULT_MAX_PATCH_BYTES: usize = 512 * 1024;
 const MAX_FILE_BYTES: usize = 1_000_000;
@@ -68,7 +70,7 @@ struct PrepareContext<'a> {
     analyzer: &'a StagedAnalyzer,
 }
 
-pub use request::{ArPostconditionsItem, AstRewriteQuery, RewriteRequest};
+pub use request::RewriteRequest;
 
 #[derive(Clone, Debug)]
 struct PreparedMatch {
@@ -82,7 +84,12 @@ struct PreparedMatch {
 
 #[derive(Clone, Debug)]
 struct PreparedFile {
+    /// Relative to the boundary: the internal identity match ids and the
+    /// syntax analyzer key on.
     path: String,
+    /// Workspace-relative (absolute outside the workspace): the one public
+    /// spelling, in patch headers and `expectedHashes` keys (D4).
+    shown: String,
     absolute: PathBuf,
     before_hash: String,
     after_hash: String,
@@ -215,32 +222,32 @@ impl RewriteError {
 /// names its own fix instead of a generic "preview again" fallback.
 fn recovery_hint(code: &str) -> Option<&'static str> {
     Some(match code {
-        "ast.rewrite.snapshot_required" | "ast.rewrite.expected_hashes_required" => {
+        "snapshotRequired" | "expectedHashesRequired" => {
             "Run the complete preview's hints.apply unchanged; it carries snapshot and expectedHashes."
         }
-        "ast.rewrite.expected_hash_invalid" => {
-            "Copy expectedHashes from hints.apply (paged previews: files[].path → beforeHash), or run hints.apply unchanged."
+        "expectedHashInvalid" => {
+            "Keys are workspace-relative paths; re-run the preview and run its hints.apply unchanged."
         }
-        "ast.rewrite.expected_hash_set_mismatch" | "ast.rewrite.expected_hash_missing" => {
-            "expectedHashes must list exactly the preview's affected files; run the complete preview's hints.apply unchanged."
+        "expectedHashSetMismatch" | "expectedHashMissing" => {
+            "expectedHashes must list exactly the preview's files; re-run the preview, run its hints.apply unchanged."
         }
-        "ast.rewrite.hash_mismatch" => {
+        "hashMismatch" => {
             "A file changed since preview; follow next.restart, then apply with the new preview's hints.apply."
         }
-        "ast.rewrite.source_mismatch" => {
+        "sourceMismatch" => {
             "Match bytes or the generated replacement disagree with the verified source; preview again with the same query."
         }
         "staleSnapshot" => {
             "Discard earlier preview pages; follow next.restart and page the new preview to its hints.apply."
         }
-        "ast.rewrite.broken_syntax" => {
-            "Fix the rewrite template so the replaced node still parses (keep its delimiters and $$$ lists); details.path names the file."
+        "brokenSyntax" => {
+            "Fix the rewrite template so the replaced node still parses (keep delimiters and $$$ lists); details.path names the file."
         }
         ast_rule::INVALID_PATTERN => ast_rule::INVALID_PATTERN_HINT,
-        "ast.rewrite.overlap" => {
+        "editOverlap" => {
             "Innermost first: rule {pattern:P, not:{has:{pattern:P with new $VARS, stopBy:\"end\"}}}; apply, repeat. Or narrow path."
         }
-        "ast.rewrite.postcondition_failed" => {
+        "postconditionFailed" => {
             "remainingMatches counts only the files this apply rewrites; adjust equals or the selection, then preview again."
         }
         _ => return None,
@@ -279,12 +286,12 @@ fn execute(
     let _process_guard = query
         .apply()
         .then(|| APPLY_LOCK.lock().unwrap_or_else(|error| error.into_inner()));
-    let lock = if query.apply() {
+    let (lock, recovery_warnings) = if query.apply() {
         let lock = RootLock::acquire(&boundary)?;
-        recover_transactions(&boundary, cancellation)?;
-        Some(lock)
+        let warnings = recover_transactions(&boundary, cancellation)?;
+        (Some(lock), warnings)
     } else {
-        None
+        (None, Vec::new())
     };
     let executable = embedded_engine_receipt();
     // Compiling validates the rule; no probe parse.
@@ -326,7 +333,7 @@ fn execute(
     if (query.apply() || query.page() > 1) && query.snapshot() != Some(snapshot.as_str()) {
         return Err(RewriteError::new(
             "staleSnapshot",
-            "The source, executable, query, or selected file set changed. Preview again before continuing.",
+            crate::response::pages::STALE_SNAPSHOT_ERROR,
         )
         .detail(json!({"snapshot":snapshot}))
         .restart(&query));
@@ -335,8 +342,7 @@ fn execute(
         let mut empty = json!({
             "status":"empty","operation":"rewrite",
             "mode":if query.apply() {"apply"} else {"preview"},
-            "root":root,
-            "totalMatches":0,"affectedFiles":0,"matches":[],"files":[]
+            "matchCount":0,"affectedFiles":0,"matches":[],"files":[]
         });
         attach_receipts(&mut empty, &query, &executable);
         empty
@@ -370,7 +376,17 @@ fn execute(
     };
     drop(lock);
     mark_gaps(&mut value, &coverage);
+    push_warnings(&mut value, recovery_warnings);
     Ok(value)
+}
+
+fn push_warnings(value: &mut Value, extra: impl IntoIterator<Item = String>) {
+    for warning in extra {
+        match value.get_mut("warnings").and_then(Value::as_array_mut) {
+            Some(warnings) => warnings.push(json!(warning)),
+            None => value["warnings"] = json!([warning]),
+        }
+    }
 }
 
 /// The preview memo key: the query as its continuations spell it, without
@@ -420,13 +436,13 @@ fn admit(query: &RewriteRequest, options: &AstRewriteRuntimeOptions) -> Result<(
     validate_query(query)?;
     if query.apply() && !options.allow_apply {
         return Err(RewriteError::new(
-            "ast.rewrite.apply_disabled",
+            "applyDisabled",
             "Applying rewrites requires the separate astRewrite apply capability.",
         ));
     }
     if query.apply() && query.snapshot().is_none() {
         return Err(RewriteError::new(
-            "ast.rewrite.snapshot_required",
+            "snapshotRequired",
             "Apply requires the exact snapshot returned by preview.",
         ));
     }
@@ -441,16 +457,13 @@ fn open_root(
     cancellation: &dyn CancellationCheck,
 ) -> Result<(PathBuf, PathBuf), RewriteError> {
     let validated = paths.validate(query.path()).map_err(|error| {
-        RewriteError::new(
-            error.local_error_code("ast.rewrite.root_unavailable"),
-            error.message,
-        )
+        RewriteError::new(error.local_error_code("rootUnavailable"), error.message)
     })?;
     let root = validated.canonical;
     let metadata = fs::metadata(&root).map_err(io_error)?;
     if !metadata.is_file() && !metadata.is_dir() {
         return Err(RewriteError::new(
-            "ast.rewrite.root_invalid",
+            "rootInvalid",
             "The requested rewrite path must be a file or directory.",
         ));
     }
@@ -481,7 +494,7 @@ fn commit(
     cancellation: &dyn CancellationCheck,
 ) -> Result<Value, RewriteError> {
     validate_expected_hashes(query, files, boundary, paths).map_err(|error| {
-        if error.code == "ast.rewrite.hash_mismatch" {
+        if error.code == "hashMismatch" {
             error.restart(query)
         } else {
             error
@@ -504,10 +517,7 @@ fn mark_gaps(value: &mut Value, coverage: &RewriteCoverage) {
     if value["status"] != "empty" {
         value["terminalLimit"] = json!(true);
     }
-    match value.get_mut("warnings").and_then(Value::as_array_mut) {
-        Some(warnings) => warnings.push(json!(coverage.warning())),
-        None => value["warnings"] = json!([coverage.warning()]),
-    }
+    push_warnings(value, [coverage.warning()]);
 }
 
 fn validate_query(query: &RewriteRequest) -> Result<(), RewriteError> {
@@ -517,8 +527,16 @@ fn validate_query(query: &RewriteRequest) -> Result<(), RewriteError> {
             .is_some_and(|language| language.trim().is_empty())
     {
         return Err(RewriteError::new(
-            "ast.rewrite.input.invalid",
+            "invalidInput",
             "path and language must not be blank.",
+        ));
+    }
+    if let Some(language) = query.language()
+        && ast_rule::language_extensions(language).is_none()
+    {
+        return Err(RewriteError::new(
+            "languageUnsupported",
+            ast_rule::unsupported_language_message(language),
         ));
     }
     // The wire type requires each rule kind's fields; only a blank pattern
@@ -528,20 +546,20 @@ fn validate_query(query: &RewriteRequest) -> Result<(), RewriteError> {
         .is_some_and(|pattern| pattern.trim().is_empty())
     {
         return Err(RewriteError::new(
-            "ast.rewrite.input.invalid",
+            "invalidInput",
             "pattern must not be blank.",
         ));
     }
     if query.apply() {
         let hashes = query.expected_hashes().ok_or_else(|| {
             RewriteError::new(
-                "ast.rewrite.expected_hashes_required",
+                "expectedHashesRequired",
                 "Apply requires expectedHashes copied from preview.",
             )
         })?;
         if hashes.is_empty() {
             return Err(RewriteError::new(
-                "ast.rewrite.expected_hashes_required",
+                "expectedHashesRequired",
                 "Apply requires non-empty expectedHashes copied from preview.",
             ));
         }
@@ -558,7 +576,7 @@ fn infer_language(
     paths: &PathPolicy,
     cancellation: &dyn CancellationCheck,
 ) -> Result<String, RewriteError> {
-    let required = |message: String| RewriteError::new("ast.rewrite.language_required", message);
+    let required = |message: String| RewriteError::new("languageRequired", message);
     let candidates = if directory {
         let prune =
             crate::policy::prune::PruneMode::SyntaxVisible.directories(query.default_excludes());
@@ -638,11 +656,9 @@ fn engine_error(error: String) -> RewriteError {
         .and_then(|rest| rest.split_once(']'))
         .map(|(tag, _)| tag);
     let code = match tag {
-        Some("structural.rewrite.invalid" | "structural.rewrite.json") => {
-            "ast.rewrite.input.invalid"
-        }
-        Some("structural.rewrite.matchLimit") => "ast.rewrite.match_limit",
-        _ => "ast.rewrite.execution_failed",
+        Some("structural.rewrite.invalid" | "structural.rewrite.json") => "invalidInput",
+        Some("structural.rewrite.matchLimit") => "matchLimit",
+        _ => "executionFailed",
     };
     RewriteError::new(code, ast_rule::untagged(&error))
 }
@@ -704,17 +720,13 @@ fn run_scan(
     cancellation.check().map_err(cancelled)?;
     let config = analyzer.config();
     let max_files = u32::try_from(query.max_files()).map_err(|_| {
-        RewriteError::new(
-            "ast.rewrite.input.invalid",
-            "maxFiles exceeds the native engine limit.",
-        )
+        RewriteError::new("invalidInput", "maxFiles exceeds the native engine limit.")
     })?;
     let files = octocode_engine::structural::rewrite_files(
         octocode_engine::structural::StructuralRewriteFilesOptions {
             path: target.to_string_lossy().into_owned(),
-            rule_config_json: serde_json::to_string(config).map_err(|error| {
-                RewriteError::new("ast.rewrite.input.invalid", error.to_string())
-            })?,
+            rule_config_json: serde_json::to_string(config)
+                .map_err(|error| RewriteError::new("invalidInput", error.to_string()))?,
             include: query.include().clone(),
             exclude: query.exclude().clone(),
             exclude_dir: Some(
@@ -738,6 +750,7 @@ fn run_scan(
         skipped_errored: files.skipped_errored,
     };
 
+    #[cfg(test)]
     note_parses(files.files.len());
     let mut raw = Vec::new();
     let mut source_errors = BTreeMap::new();
@@ -808,7 +821,7 @@ fn prepare(
         run_scan(query, root, context.cancellation, context.analyzer)?;
     if raw_matches.len() > query.max_matches() {
         return Err(RewriteError::new(
-            "ast.rewrite.match_limit",
+            "matchLimit",
             format!(
                 "The rewrite found {} matches, exceeding maxMatches={}. Narrow the scope.",
                 raw_matches.len(),
@@ -821,7 +834,7 @@ fn prepare(
     let grouped = group_targets(raw_matches, root, &source_errors, context)?;
     if grouped.len() > query.max_files() {
         return Err(RewriteError::new(
-            "ast.rewrite.file_limit",
+            "fileLimit",
             format!(
                 "The rewrite affects {} files, exceeding maxFiles={}.",
                 grouped.len(),
@@ -837,7 +850,7 @@ fn prepare(
         total_patch_bytes = total_patch_bytes.saturating_add(file.patch.len());
         if total_patch_bytes > context.options.max_patch_bytes {
             return Err(RewriteError::new(
-                "ast.rewrite.patch_limit",
+                "patchLimit",
                 format!(
                     "Unified patches exceed the {}-byte response limit. Narrow the scope.",
                     context.options.max_patch_bytes
@@ -872,14 +885,14 @@ fn group_targets(
         };
         let metadata = fs::symlink_metadata(&unresolved).map_err(|_| {
             RewriteError::new(
-                "ast.rewrite.target_unavailable",
+                "targetUnavailable",
                 "The native engine returned a target that could not be verified.",
             )
             .detail(json!({"path":matched.file}))
         })?;
         if metadata.file_type().is_symlink() || !metadata.is_file() {
             return Err(RewriteError::new(
-                "ast.rewrite.symlink_target",
+                "symlinkTarget",
                 "The native engine returned a symlink or non-file target; no changes were prepared.",
             )
             .detail(json!({"path":matched.file})));
@@ -887,12 +900,12 @@ fn group_targets(
         let target = context
             .paths
             .validate_read(&unresolved)
-            .map_err(|error| RewriteError::new("ast.rewrite.path_escape", error.message))?;
+            .map_err(|error| RewriteError::new("pathEscape", error.message))?;
         if !target.canonical.starts_with(context.boundary)
             || (root.is_file() && target.canonical != root)
         {
             return Err(RewriteError::new(
-                "ast.rewrite.path_escape",
+                "pathEscape",
                 "The native engine returned a target outside the real requested root.",
             )
             .detail(json!({"path":matched.file})));
@@ -919,10 +932,10 @@ fn prepare_file(
     context
         .security
         .validate_text_bytes(&before, Some(&absolute), MAX_FILE_BYTES)
-        .map_err(|error| RewriteError::new("ast.rewrite.encoding_unsupported", error.message))?;
+        .map_err(|error| RewriteError::new("encodingUnsupported", error.message))?;
     let content = std::str::from_utf8(&before).map_err(|_| {
         RewriteError::new(
-            "ast.rewrite.encoding_unsupported",
+            "encodingUnsupported",
             "Only NUL-free UTF-8 source files can be rewritten.",
         )
     })?;
@@ -932,7 +945,7 @@ fn prepare_file(
     let after = apply_edits(&before, &matches)?;
     let after_text = std::str::from_utf8(&after).map_err(|_| {
         RewriteError::new(
-            "ast.rewrite.source_mismatch",
+            "sourceMismatch",
             "A generated replacement is not valid UTF-8.",
         )
     })?;
@@ -942,9 +955,17 @@ fn prepare_file(
     };
     let after_facts =
         check_syntax_regression(context.analyzer, &relative, before_errors, after_text)?;
-    let patch = create_unified_patch(&relative, content, after_text);
+    let shown = shown_path(context.paths, &absolute);
+    let patch = create_unified_patch(&shown, content, after_text);
+    let mut matches = matches;
+    for matched in &mut matches {
+        // Row paths are absolute; the response stage names them relative to
+        // the workspace root, like every local tool's rows.
+        matched.public["path"] = json!(absolute);
+    }
     Ok(PreparedFile {
         path: relative,
+        shown,
         absolute,
         before_hash,
         after_hash: sha256(&after),
@@ -1020,8 +1041,8 @@ fn prepare_matches(
                 matched.text,
                 matched.replacement
             ]));
-            // Lines are 1-based like astSearch/localFetch; columns are 0-based
-            // UTF-16 code units like astSearch and LSP. `byteRange` names the
+            // Lines and columns are 1-based like every tool (D2); columns
+            // count UTF-16 code units, the end stays exclusive. `byteRange` names the
             // replaced span and is emitted only when it differs from the
             // matched `range.byteOffset`.
             let range = &matched.range;
@@ -1029,8 +1050,8 @@ fn prepare_matches(
                 "id":id,"path":path,
                 "range":{
                     "byteOffset":range.byte_offset,
-                    "start":{"line":range.start.line.saturating_add(1),"column":range.start.column},
-                    "end":{"line":range.end.line.saturating_add(1),"column":range.end.column}
+                    "start":{"line":range.start.line.saturating_add(1),"column":crate::tools::num::one_based_column(range.start.column)},
+                    "end":{"line":range.end.line.saturating_add(1),"column":crate::tools::num::one_based_column(range.end.column)}
                 },
                 "text":matched.text,"replacement":matched.replacement,
                 "captures":captures
@@ -1055,7 +1076,7 @@ fn prepare_matches(
         {
             let nested = pair[1].end <= pair[0].end || pair[1].start == pair[0].start;
             return Err(RewriteError::new(
-                "ast.rewrite.overlap",
+                "editOverlap",
                 if nested {
                     "The rewrite pattern matched a node nested inside another match. Exclude the nesting so each match selects one non-overlapping syntax node, then preview again; no changes were prepared."
                 } else {
@@ -1090,7 +1111,7 @@ fn check_syntax_regression(
     let after_errors = facts.syntax_errors;
     if after_errors > before_errors {
         return Err(RewriteError::new(
-            "ast.rewrite.broken_syntax",
+            "brokenSyntax",
             "The staged rewrite introduces new syntax errors; no files were changed. \
              Fix the rewrite template before retrying.",
         )
@@ -1113,7 +1134,7 @@ fn apply_edits(before: &[u8], matches: &[PreparedMatch]) -> Result<Vec<u8>, Rewr
             || before.get(matched.start..matched.end) != Some(matched.expected.as_slice())
         {
             return Err(RewriteError::new(
-                "ast.rewrite.source_mismatch",
+                "sourceMismatch",
                 "Rewrite match bytes did not agree with the verified source.",
             ));
         }
@@ -1154,7 +1175,7 @@ fn select(
     }
     if !unknown.is_empty() || !ambiguous.is_empty() {
         return Err(RewriteError::new(
-            "ast.rewrite.selection_invalid",
+            "selectionInvalid",
             "selectedMatchIds must each name exactly one match of this snapshot; use more hex digits for an ambiguous prefix.",
         )
         .detail(json!({"unknown":unknown,"ambiguous":ambiguous})));
@@ -1174,21 +1195,19 @@ fn select(
             continue;
         }
         let after = apply_edits(&file.before, &file_matches)?;
-        let before_text = std::str::from_utf8(&file.before).map_err(|_| {
-            RewriteError::new("ast.rewrite.encoding_unsupported", "Invalid UTF-8 source.")
-        })?;
-        let after_text = std::str::from_utf8(&after).map_err(|_| {
-            RewriteError::new("ast.rewrite.source_mismatch", "Invalid UTF-8 replacement.")
-        })?;
+        let before_text = std::str::from_utf8(&file.before)
+            .map_err(|_| RewriteError::new("encodingUnsupported", "Invalid UTF-8 source."))?;
+        let after_text = std::str::from_utf8(&after)
+            .map_err(|_| RewriteError::new("sourceMismatch", "Invalid UTF-8 replacement."))?;
         // A subset of individually-clean edits can still break syntax (e.g.
         // dropping one of a paired open/close rewrite), so re-check here.
         let after_facts =
             check_syntax_regression(analyzer, &file.path, file.before_errors, after_text)?;
-        let patch = create_unified_patch(&file.path, before_text, after_text);
+        let patch = create_unified_patch(&file.shown, before_text, after_text);
         total_patch_bytes = total_patch_bytes.saturating_add(patch.len());
         if total_patch_bytes > max_patch_bytes {
             return Err(RewriteError::new(
-                "ast.rewrite.patch_limit",
+                "patchLimit",
                 "Selected patches exceed the response limit. Narrow the selection.",
             )
             .terminal());
@@ -1205,6 +1224,16 @@ fn select(
     Ok((selected_files, selected_matches))
 }
 
+/// The public spelling of a rewrite target: relative to the workspace root,
+/// or absolute outside it.
+fn shown_path(paths: &PathPolicy, absolute: &Path) -> String {
+    paths
+        .workspace_relative(absolute)
+        .filter(|relative| relative != ".")
+        .unwrap_or_else(|| absolute.to_string_lossy().into_owned())
+        .replace(std::path::MAIN_SEPARATOR, "/")
+}
+
 fn validate_expected_hashes(
     query: &RewriteRequest,
     files: &[PreparedFile],
@@ -1215,28 +1244,24 @@ fn validate_expected_hashes(
     for (path, hash) in query.expected_hashes().as_ref().into_iter().flatten() {
         if hash.len() != 64 || !hash.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             return Err(RewriteError::new(
-                "ast.rewrite.expected_hash_invalid",
+                "expectedHashInvalid",
                 "Expected hash values must be SHA-256 hex digests.",
             )
             .detail(json!({"path":path})));
         }
-        // Preview reports boundary-relative paths; accept them back verbatim
-        // alongside absolute paths.
-        let absolute = if Path::new(path).is_absolute() {
-            PathBuf::from(path)
-        } else {
-            boundary.join(path)
-        };
-        let validated = paths.validate_read(&absolute).map_err(|_| {
+        // Preview keys are workspace-relative (D4); absolute keys work too.
+        // A pre-D4 key relative to the scanned directory names another file,
+        // so it fails closed here or in the set comparison below.
+        let validated = paths.validate_read(path).map_err(|_| {
             RewriteError::new(
-                "ast.rewrite.expected_hash_invalid",
+                "expectedHashInvalid",
                 "An expected hash path could not be resolved.",
             )
             .detail(json!({"path":path}))
         })?;
         if !validated.canonical.starts_with(boundary) {
             return Err(RewriteError::new(
-                "ast.rewrite.expected_hash_invalid",
+                "expectedHashInvalid",
                 "An expected hash path is outside the real requested root.",
             ));
         }
@@ -1249,7 +1274,7 @@ fn validate_expected_hashes(
     let expected_set = expected.keys().cloned().collect::<BTreeSet<_>>();
     if actual != expected_set {
         return Err(RewriteError::new(
-            "ast.rewrite.expected_hash_set_mismatch",
+            "expectedHashSetMismatch",
             "Apply requires exactly the affected file paths returned by the matching preview.",
         )
         .detail(json!({"expectedPaths":expected_set,"actualPaths":actual})));
@@ -1257,13 +1282,13 @@ fn validate_expected_hashes(
     for file in files {
         let Some(hash) = expected.get(&file.absolute) else {
             return Err(RewriteError::new(
-                "ast.rewrite.expected_hash_missing",
+                "expectedHashMissing",
                 "Apply requires the preview beforeHash for every affected absolute path.",
             ));
         };
         if hash != &file.before_hash {
             return Err(RewriteError::new(
-                "ast.rewrite.hash_mismatch",
+                "hashMismatch",
                 "An expected source hash no longer matches; preview again before applying.",
             )
             .detail(json!({"path":file.absolute,"expected":hash,"actual":file.before_hash})));
@@ -1292,7 +1317,7 @@ fn validate_postconditions(
             .and_then(|facts| facts.remaining)
             .ok_or_else(|| {
                 RewriteError::new(
-                    "ast.rewrite.postcondition_execution_failed",
+                    "postconditionExecutionFailed",
                     "The postcondition scan could not be completed; no files were changed.",
                 )
             })?;
@@ -1302,13 +1327,13 @@ fn validate_postconditions(
         // `kind` is the single contract value `remainingMatches`.
         if usize::try_from(postcondition.equals).ok() != Some(remaining) {
             return Err(RewriteError::new(
-                "ast.rewrite.postcondition_failed",
+                "postconditionFailed",
                 "A staged rewrite postcondition failed; no files were changed.",
             )
             .detail(json!({
                 "kind":postcondition.kind,"expected":postcondition.equals,"observed":remaining,
                 "scope":"rewrittenFiles",
-                "scannedFiles":files.iter().map(|file| file.path.as_str()).collect::<Vec<_>>()
+                "scannedFiles":files.iter().map(|file| file.shown.as_str()).collect::<Vec<_>>()
             })));
         }
     }
@@ -1342,7 +1367,7 @@ fn snapshot(
         Value::Object(spec)
     };
     json_sha256(&json!({
-        "contract":1,
+        "contract":4,
         "executable":{
             "path":executable.path,
             "version":executable.version,
@@ -1377,11 +1402,11 @@ fn transaction_id(root: &Path, files: &[PreparedFile]) -> String {
 }
 
 fn cancelled(message: String) -> RewriteError {
-    RewriteError::new("ast.rewrite.cancelled", message)
+    RewriteError::new("cancelled", message)
 }
 
 fn io_error(error: std::io::Error) -> RewriteError {
-    RewriteError::new("ast.rewrite.io", error.to_string())
+    RewriteError::new("fileAccessFailed", error.to_string())
 }
 
 /// Base directory for astRewrite's cross-process lock and journal state.
@@ -1438,7 +1463,7 @@ fn create_private_dir_all(path: &Path) -> Result<(), RewriteError> {
         let current_uid = unsafe { libc::getuid() };
         if metadata.uid() != current_uid {
             return Err(RewriteError::new(
-                "ast.rewrite.io",
+                "fileAccessFailed",
                 format!(
                     "Refusing to use a directory owned by another user: {}",
                     path.display()

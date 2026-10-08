@@ -1,15 +1,5 @@
 {
   "extends": "./tsconfig.json",
-  "include": [
-    "src/**/*",
-    "src/types/**/*.d.ts",
-    "tests/setup.ts",
-    "tests/index.test.ts",
-    "tests/index.shutdown.test.ts",
-    "tests/serverConfig*.test.ts",
-    "tests/tools/providerExecution.test.ts",
-    "tests/utils/bulkOperations.test.ts",
-    "tests/flows/**/*.ts"
-  ],
+  "include": ["src/**/*", "tests/index.test.ts"],
   "exclude": ["node_modules"]
 }

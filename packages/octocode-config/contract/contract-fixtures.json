@@ -1401,7 +1401,7 @@
     "input": {
       "queries": [
         {
-          "type": "npm",
+          "ecosystem": "npm",
           "packageName": "zod"
         }
       ]
@@ -1411,7 +1411,7 @@
       "queries": [
         {
           "debug": false,
-          "type": "npm",
+          "ecosystem": "npm",
           "packageName": "zod"
         }
       ]
@@ -1423,7 +1423,7 @@
     "input": {
       "queries": [
         {
-          "type": "npm",
+          "ecosystem": "npm",
           "keywords": [
             "schema",
             "validation"
@@ -1436,7 +1436,7 @@
       "queries": [
         {
           "debug": false,
-          "type": "npm",
+          "ecosystem": "npm",
           "keywords": [
             "schema",
             "validation"
@@ -1452,7 +1452,7 @@
     "input": {
       "queries": [
         {
-          "type": "pypi",
+          "ecosystem": "pypi",
           "packageName": "requests"
         }
       ]
@@ -1462,7 +1462,7 @@
       "queries": [
         {
           "debug": false,
-          "type": "pypi",
+          "ecosystem": "pypi",
           "packageName": "requests"
         }
       ]
@@ -1474,7 +1474,7 @@
     "input": {
       "queries": [
         {
-          "type": "maven",
+          "ecosystem": "maven",
           "packageName": "com.google.guava:guava"
         }
       ]
@@ -1484,7 +1484,7 @@
       "queries": [
         {
           "debug": false,
-          "type": "maven",
+          "ecosystem": "maven",
           "packageName": "com.google.guava:guava"
         }
       ]
@@ -1496,7 +1496,7 @@
     "input": {
       "queries": [
         {
-          "type": "go",
+          "ecosystem": "go",
           "packageName": "github.com/gin-gonic/gin"
         }
       ]
@@ -1506,7 +1506,7 @@
       "queries": [
         {
           "debug": false,
-          "type": "go",
+          "ecosystem": "go",
           "packageName": "github.com/gin-gonic/gin"
         }
       ]
@@ -2734,37 +2734,6 @@
       "queries": [
         {
           "path": "src/index.ts",
-          "operation": "definition",
-          "position": {
-            "line": 0,
-            "character": 0
-          }
-        }
-      ]
-    },
-    "accepted": true,
-    "normalized": {
-      "queries": [
-        {
-          "debug": false,
-          "path": "src/index.ts",
-          "operation": "definition",
-          "position": {
-            "line": 0,
-            "character": 0
-          },
-          "page": 1
-        }
-      ]
-    }
-  },
-  {
-    "id": "lspSearch.curated-7",
-    "tool": "lspSearch",
-    "input": {
-      "queries": [
-        {
-          "path": "src/index.ts",
           "operation": "documentSymbols"
         }
       ]
@@ -2782,7 +2751,7 @@
     }
   },
   {
-    "id": "lspSearch.curated-8",
+    "id": "lspSearch.curated-7",
     "tool": "lspSearch",
     "input": {
       "queries": [
@@ -2807,7 +2776,7 @@
     }
   },
   {
-    "id": "lspSearch.curated-9",
+    "id": "lspSearch.curated-8",
     "tool": "lspSearch",
     "input": {
       "queries": [
@@ -3212,7 +3181,7 @@
     "input": {
       "queries": [
         {
-          "type": "npm",
+          "ecosystem": "npm",
           "packageName": "  zod "
         }
       ]
@@ -3222,7 +3191,7 @@
       "queries": [
         {
           "debug": false,
-          "type": "npm",
+          "ecosystem": "npm",
           "packageName": "zod"
         }
       ]
@@ -3234,7 +3203,7 @@
     "input": {
       "queries": [
         {
-          "type": "crates",
+          "ecosystem": "crates",
           "keywords": [
             " parser "
           ]
@@ -3246,7 +3215,7 @@
       "queries": [
         {
           "debug": false,
-          "type": "crates",
+          "ecosystem": "crates",
           "keywords": [
             "parser"
           ],
@@ -3261,9 +3230,9 @@
     "input": {
       "queries": [
         {
-          "type": "npm",
+          "ecosystem": "npm",
           "packageName": "x",
-          "registry": "https://registry.example.test/base/"
+          "registryUrl": "https://registry.example.test/base/"
         }
       ]
     },
@@ -3272,8 +3241,8 @@
       "queries": [
         {
           "debug": false,
-          "type": "npm",
-          "registry": "https://registry.example.test/base/",
+          "ecosystem": "npm",
+          "registryUrl": "https://registry.example.test/base/",
           "packageName": "x"
         }
       ]
@@ -3285,7 +3254,7 @@
     "input": {
       "queries": [
         {
-          "type": "npm",
+          "ecosystem": "npm",
           "packageName": "x",
           "keywords": [
             "x"
@@ -3301,7 +3270,7 @@
     "input": {
       "queries": [
         {
-          "type": "npm"
+          "ecosystem": "npm"
         }
       ]
     },
@@ -3313,7 +3282,7 @@
     "input": {
       "queries": [
         {
-          "type": "npm",
+          "ecosystem": "npm",
           "packageName": "x",
           "pageSize": 2
         }
@@ -3327,9 +3296,9 @@
     "input": {
       "queries": [
         {
-          "type": "pypi",
+          "ecosystem": "pypi",
           "packageName": "x",
-          "registry": "https://example.test"
+          "registryUrl": "https://example.test"
         }
       ]
     },
@@ -3341,9 +3310,9 @@
     "input": {
       "queries": [
         {
-          "type": "npm",
+          "ecosystem": "npm",
           "packageName": "x",
-          "registry": "ftp://example.test"
+          "registryUrl": "ftp://example.test"
         }
       ]
     },
@@ -3355,9 +3324,9 @@
     "input": {
       "queries": [
         {
-          "type": "npm",
+          "ecosystem": "npm",
           "packageName": "x",
-          "registry": "https://u:p@example.test"
+          "registryUrl": "https://u:p@example.test"
         }
       ]
     },
@@ -3369,7 +3338,7 @@
     "input": {
       "queries": [
         {
-          "type": "npm",
+          "ecosystem": "npm",
           "packageName": " "
         }
       ]
@@ -3382,7 +3351,7 @@
     "input": {
       "queries": [
         {
-          "type": "npm",
+          "ecosystem": "npm",
           "packageName": "zod",
           "version": "^3"
         }
@@ -3393,7 +3362,7 @@
       "queries": [
         {
           "debug": false,
-          "type": "npm",
+          "ecosystem": "npm",
           "packageName": "zod",
           "version": "^3"
         }
@@ -3406,7 +3375,7 @@
     "input": {
       "queries": [
         {
-          "type": "crates",
+          "ecosystem": "crates",
           "keywords": [
             "x"
           ],
@@ -3943,13 +3912,29 @@
     "accepted": false
   },
   {
+    "id": "lsp.definition-importer-page",
+    "tool": "lspSearch",
+    "input": {
+      "queries": [
+        {
+          "path": "/r/a.ts",
+          "operation": "definition",
+          "symbolName": "x",
+          "lineHint": 1,
+          "importerPage": 2
+        }
+      ]
+    },
+    "accepted": false
+  },
+  {
     "id": "lsp.hierarchy-context",
     "tool": "lspSearch",
     "input": {
       "queries": [
         {
           "path": "/r/a.ts",
-          "operation": "callHierarchy",
+          "operation": "callers",
           "symbolName": "x",
           "lineHint": 1,
           "contextLines": 0

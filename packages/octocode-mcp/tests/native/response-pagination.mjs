@@ -74,8 +74,7 @@ const reference = await connect(referenceServer);
 const native = await connect(nativeServer);
 try {
   const nativeTools = await native.listTools();
-  const nativeToolNames = nativeTools.tools.map(tool => tool.name);
-  assert.equal(native.getInstructions(), buildMcpInstructions(nativeToolNames));
+  assert.equal(native.getInstructions(), buildMcpInstructions());
   const localFetch = nativeTools.tools.find(tool => tool.name === 'localFetch');
   assert.ok(localFetch, 'native catalog must advertise localFetch');
   assert.ok(localFetch.title);

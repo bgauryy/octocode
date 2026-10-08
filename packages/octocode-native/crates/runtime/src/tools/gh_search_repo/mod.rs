@@ -4,8 +4,8 @@ mod provider_tests;
 mod query;
 
 use crate::providers::github::{
-    ConditionalCache, CredentialResolver, GitHubProvider, ProviderError, RepositorySearchPage,
-    RepositorySearchRequest, RequestContext,
+    ConditionalCache, GitHubProvider, ProviderError, RepositorySearchPage, RepositorySearchRequest,
+    RequestContext,
 };
 use crate::tools::gh_shared::{
     GhFailure, SEARCH_RESULT_CAP, add_next, apply_partial, reject_window, search_failure,
@@ -15,13 +15,11 @@ use crate::tools::num::usize_of;
 use crate::tools::result::{Continuation, ToolData, remove_null_fields};
 use serde_json::{Value, json};
 
-pub use crate::contracts::tool_types::{
-    GhSearchRepoQuery, GhSearchRepoQueryMatchItem, GhSearchRepoQuerySort,
-};
+pub use crate::contracts::tool_types::{GhSearchRepoQuery, GhSearchRepoQuerySort};
 
 /// Run one ghSearchRepo row.
-pub async fn run<R: CredentialResolver, C: ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+pub async fn run<C: ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhSearchRepoQuery,
     request: Result<&RequestContext, ProviderError>,
 ) -> Result<ToolData, GhFailure> {
@@ -30,15 +28,30 @@ pub async fn run<R: CredentialResolver, C: ConditionalCache>(
         Err(error) => Err(error),
     };
     result.map_err(|error| {
-        search_failure(
+        // An owner listing's bare 404 is the login itself.
+        let missing_owner = owner_only(query).filter(|_| {
+            error.kind == crate::providers::github::ProviderErrorKind::NotFound
+                && error.reason.is_none()
+        });
+        let failure = search_failure(
             error,
             "Lower page, or narrow with keywords, stars, created, or updated to reach deeper results.",
-        )
+        );
+        match missing_owner {
+            Some(owner) => GhFailure {
+                message: format!(
+                    "Owner \"{owner}\" not found: no GitHub user or organization has this login"
+                ),
+                ..failure
+            }
+            .hint("Check the login's spelling, or find the repository with keywords."),
+            None => failure,
+        }
     })
 }
 
-pub(crate) async fn execute<R: CredentialResolver, C: ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+pub(crate) async fn execute<C: ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhSearchRepoQuery,
     context: &RequestContext,
 ) -> Result<ToolData, ProviderError> {
@@ -82,7 +95,13 @@ pub(crate) async fn execute<R: CredentialResolver, C: ConditionalCache>(
         None => current < pages,
     };
     let provider_incomplete = data.incomplete_results;
-    let provider_capped = listing.is_none() && data.total_count > SEARCH_RESULT_CAP;
+    // An owner listing reports no total (REST pages, no search window).
+    let provider_matched = if listing.is_none() {
+        data.total_count
+    } else {
+        0
+    };
+    let provider_capped = provider_matched > SEARCH_RESULT_CAP;
     let mut leads = top_leads(data.items.first());
     // Archived repositories are excluded unless the caller set `archived`:
     // a search states it once (page 1); a listing, whenever it skipped some.
@@ -116,17 +135,14 @@ pub(crate) async fn execute<R: CredentialResolver, C: ConditionalCache>(
         // cursor and `next.nextPage` follows the real Link header. The
         // listing is ordered by latest push; page counters are verbose
         // (core field class).
-        Some(listing) => json!({"repositories":repositories,"order":"pushed","pagination":{
-            "hasMore":more,
-            "currentPage":current,
-            "providerPagesRead":listing.last_page + 1 - current
-        }}),
-        None => json!({"repositories":repositories,"pagination":{
-            "totalItems":total,
-            "hasMore":more,
-            "currentPage":current,
-            "totalPages":pages
-        }}),
+        Some(listing) => {
+            let mut pagination =
+                crate::response::pages::PageFacts::open(current, Some(per), more).to_value();
+            pagination["providerPagesRead"] = json!(listing.last_page + 1 - current);
+            json!({"repositories":repositories,"order":"pushed","pagination":pagination})
+        }
+        None => json!({"repositories":repositories,"pagination":
+            crate::response::pages::PageFacts::counted(current, per, total).to_value()}),
     };
     let next_from = listing
         .as_ref()
@@ -140,10 +156,10 @@ pub(crate) async fn execute<R: CredentialResolver, C: ConditionalCache>(
         ToolId::GhSearchRepo,
         query,
         provider_incomplete,
-        provider_capped,
+        provider_matched,
         current,
         more,
-        "repositories",
+        "repository",
     );
     if archived_skipped > 0 {
         let warning = json!(format!(
@@ -198,8 +214,8 @@ fn owner_only(query: &GhSearchRepoQuery) -> Option<&str> {
 /// listing API cannot, so it filters them and keeps reading provider pages
 /// until a page of kept rows, the end of the listing (no Link next), or the
 /// page budget.
-async fn owner_listing<R: CredentialResolver, C: ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+async fn owner_listing<C: ConditionalCache>(
+    provider: &GitHubProvider<C>,
     owner: &str,
     current: usize,
     per: usize,

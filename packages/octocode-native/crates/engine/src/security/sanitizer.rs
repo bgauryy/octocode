@@ -17,11 +17,7 @@ pub fn sanitize_content(content: &str, file_path: Option<&str>) -> SanitizationR
         };
     }
 
-    let result = if content.len() > detector::CHUNK_SIZE {
-        detector::detect_chunked(content, file_path)
-    } else {
-        detector::detect_single(content, file_path)
-    };
+    let result = detector::detect(content, file_path);
 
     let warnings = if result.secrets_detected.is_empty() {
         vec![]
@@ -78,10 +74,6 @@ mod tests {
             "export const API_TOKEN = \"[REDACTED-ENVVARSECRETS]\";\n"
         );
         assert_eq!(result.secrets_detected, vec!["envVarSecrets"]);
-        let masked = crate::security::detector::mask_text(
-            "API_TOKEN = 'abcdefghijklmnopqrstuvwx'".to_owned(),
-        );
-        assert_eq!(masked, "API_TOKEN = '************************'");
     }
 
     #[test]

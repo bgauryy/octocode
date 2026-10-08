@@ -7,18 +7,18 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { ParsedArgs } from '../types.js';
-import { EXIT } from '../exit-codes.js';
-import { resolveNativeBin } from '../native-delegate.js';
+import { EXIT, toolErrorJson } from '../exit-codes.js';
+import {
+  devOverrideOptions,
+  nativeCommand,
+  resolveNativeBin,
+} from '../native-delegate.js';
 import { contractDriftAllowed, contractDriftMessage } from '@octocodeai/config';
 import type { GrammarCapability } from '@octocodeai/config/mcp';
 import type { SchemaJsonObject, SchemaView } from '@octocodeai/config/schema';
 import { project } from './schema-projection.js';
 
 const execFileAsync = promisify(execFile);
-
-// Replaced with `true` by the esbuild define in build.mjs; undefined when
-// running from source (vitest, tsx).
-declare const __OCTOCODE_BUNDLED__: boolean | undefined;
 
 interface MachineToolEntry {
   name: string;
@@ -44,19 +44,10 @@ function writeJson(value: unknown): number {
 
 /** Availability + enforcement fingerprint are runtime truth: ask the binary. */
 async function readMachineCatalog(bin: string): Promise<MachineCatalog> {
-  // Match delegateToNative: a `.cjs`/`.js` resolved bin is a Node launcher and
-  // must run through `process.execPath`, not be exec'd directly (which fails).
-  const isLauncher = bin.endsWith('.cjs') || bin.endsWith('.js');
-  const [command, prefixArgs] = isLauncher
-    ? [process.execPath, [bin]]
-    : [bin, [] as string[]];
-  const { stdout } = await execFileAsync(
-    command,
-    [...prefixArgs, 'catalog'],
-    {
-      maxBuffer: 4 * 1024 * 1024,
-    }
-  );
+  const [command, args] = nativeCommand(bin, ['catalog']);
+  const { stdout } = await execFileAsync(command, args, {
+    maxBuffer: 4 * 1024 * 1024,
+  });
   const catalog = JSON.parse(stdout) as {
     fingerprint?: unknown;
     tools?: unknown;
@@ -76,9 +67,7 @@ async function readMachineCatalog(bin: string): Promise<MachineCatalog> {
  */
 function emitError(message: string): void {
   if (process.stdout.isTTY !== true) {
-    console.log(
-      JSON.stringify({ kind: 'octocode.toolError', version: 1, error: message })
-    );
+    console.log(toolErrorJson(message));
   } else {
     console.error(message);
   }
@@ -107,7 +96,8 @@ async function loadPresentation(): Promise<
   const bin = resolveNativeBin();
   if (!bin) {
     emitError(
-      'The native Octocode runtime is unavailable for this platform or installation.');
+      'The native Octocode runtime is unavailable for this platform or installation.'
+    );
     return { ok: false, exitCode: EXIT.TOOL };
   }
 
@@ -116,7 +106,8 @@ async function loadPresentation(): Promise<
     machine = await readMachineCatalog(bin);
   } catch (error) {
     emitError(
-      `Failed to read the native tool catalog: ${error instanceof Error ? error.message : String(error)}`);
+      `Failed to read the native tool catalog: ${error instanceof Error ? error.message : String(error)}`
+    );
     return { ok: false, exitCode: EXIT.TOOL };
   }
 
@@ -137,10 +128,7 @@ async function loadPresentation(): Promise<
       catalog.fingerprint,
       machine.fingerprint
     );
-    const bundled =
-      typeof __OCTOCODE_BUNDLED__ !== 'undefined' &&
-      __OCTOCODE_BUNDLED__ === true;
-    if (contractDriftAllowed(process.env, { bundled })) {
+    if (contractDriftAllowed(process.env, devOverrideOptions)) {
       console.error(`WARNING: ${drift}`);
     } else {
       emitError(drift);
@@ -149,14 +137,6 @@ async function loadPresentation(): Promise<
   }
 
   return { ok: true, machine, catalog, enabled };
-}
-
-function instructionsFor(presentation: ToolPresentation): Promise<string> {
-  return import('@octocodeai/config/mcp').then(({ buildMcpInstructions }) =>
-    buildMcpInstructions(presentation.enabled, {
-      grammarCapabilities: presentation.machine.grammarCapabilities ?? [],
-    })
-  );
 }
 
 export async function runSchema(args: ParsedArgs): Promise<number> {
@@ -202,7 +182,9 @@ export async function runSchema(args: ParsedArgs): Promise<number> {
     typeof args.options.select === 'string' ? args.options.select : undefined;
   const toolName = args.args[0];
   if (toolName === undefined && (viewOption ?? select) !== undefined) {
-    emitError('--view and --select need a tool name: octocode schema <tool> --view query');
+    emitError(
+      '--view and --select need a tool name: octocode schema <tool> --view query'
+    );
     return EXIT.USAGE;
   }
 
@@ -217,6 +199,12 @@ export async function runSchema(args: ParsedArgs): Promise<number> {
     presentation.enabled.includes(String(tool.name))
   );
   if (toolName === undefined) {
+    const { buildCliInstructions, buildGrammarCapabilityInstruction } =
+      await import('@octocodeai/config/mcp');
+    // The same prompt as MCP; the runtime grammar inventory is its own field.
+    const grammars = buildGrammarCapabilityInstruction(
+      machine.grammarCapabilities
+    );
     const tools = listed.map(tool => {
       const name = String(tool.name);
       const runtimeEntry = machineByName.get(name);
@@ -226,21 +214,20 @@ export async function runSchema(args: ParsedArgs): Promise<number> {
         fields: runtimeEntry?.fields ?? '[]',
       };
     });
-    return writeJson(
-      {
-        kind: 'octocode.toolCatalog',
-        version: 1,
-        toolCount: tools.length,
-        commands: {
-          run: "octocode <tool> '<json>' (or --input FILE|-)",
-          query: 'octocode schema <tool> --view query [--select FIELD=VALUE]',
-          variants: 'octocode schema <tool> --view variants',
-          full: 'octocode schema <tool>',
-        },
-        instructions: await instructionsFor(presentation),
-        tools,
-      }
-    );
+    return writeJson({
+      kind: 'octocode.toolCatalog',
+      version: 1,
+      toolCount: tools.length,
+      commands: {
+        run: "octocode <tool> '<json>' (or --input FILE|-)",
+        query: 'octocode schema <tool> --view query [--select FIELD=VALUE]',
+        variants: 'octocode schema <tool> --view variants',
+        full: 'octocode schema <tool>',
+      },
+      instructions: buildCliInstructions(),
+      ...(grammars && { grammars }),
+      tools,
+    });
   }
 
   const tool = (catalog.tools as readonly SchemaJsonObject[]).find(

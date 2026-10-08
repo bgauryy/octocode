@@ -1,10 +1,11 @@
-// FIX-LIST "Acceptance (B1 checks)": pure check functions over one tool
+// Acceptance checks: pure check functions over one tool
 // response (or the published surface). chain-check.mjs runs them live; the
 // fixtures in acceptance.test.mjs prove each one fails a known-bad shape.
 //
 //   C1 chain fit        leads/pages validate against their target's input
-//                       names; no packed string with >=2 coordinates; prose
-//                       hints name only published fields (or ship a lead).
+//                       names; no packed string with >=2 coordinates (a
+//                       symbols outline entry, P1, is the allowed packed form);
+//                       prose hints name only published fields (or ship a lead).
 //   C2 empty/error rows error rows carry errorCode + error + one recovery;
 //                       empty rows carry a recovery; no call-level rejection.
 //   C3 one base         no 0-based coordinate text in the published surface;
@@ -12,10 +13,21 @@
 //   C4 no silent omit   a positive omitted/unlisted/skipped/withheld/dropped/
 //                       hidden count needs a `next` page or terminalLimit:true.
 //   C5 description lint each description names a neighbor tool and one of its
-//                       published fields; surface total <= budget; quotas.
+//                       published fields; keyless surface total <= budget;
+//                       the keyed clasify addition <= its own budget; quotas.
+
+import { parseOutlineEntry } from './mcp-client.mjs';
 
 export const CHECKS = ['C1', 'C2', 'C3', 'C4', 'C5'];
-export const SURFACE_BUDGET = 14_700;
+/** Arrays whose string items are symbols outline entries (P1, docs/TOOL_DATA_CONTRACT.md location rows). */
+const OUTLINE_KEYS = new Set(['symbols', 'members']);
+/** Mirrors core publishedSurfaceBudget.test.ts MAX_DEFAULT_SURFACE_BYTES (one prompt for every surface, 2026-10-07). */
+export const SURFACE_BUDGET = 15_000;
+/**
+ * Bytes clasify adds when a classification key registers it: its tool only (the prompt does not change).
+ * Core MAX_CLASIFY_TOOL_BYTES (2,070 since 2026-10-07: three flows + handoffs) plus 200 B headroom.
+ */
+export const CLASIFY_SURFACE_BUDGET = 2_270;
 
 const SOURCE_TEXT_KEYS = new Set(['value', 'content', 'text', 'body', 'patch', 'diff', 'snippet', 'code', 'source', 'line', 'lines', 'matchString', 'message', 'title', 'description', 'error', 'warnings', 'question', 'answer', 'evidence', 'reason', 'summary', 'readme']);
 const isObject = v => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -65,11 +77,15 @@ export function packedCoordinates(s) {
   return n >= 2 ? n : 0;
 }
 
-/** Strings outside continuations and source-text keys that pack >=2 coordinates. */
+/**
+ * Strings outside continuations and source-text keys that pack >=2
+ * coordinates. A symbols outline entry under `symbols`/`members` is the
+ * contract's labelled packed form and passes.
+ */
 export function packedStrings(sc) {
   const out = [];
   const walk = (n, at, key) => {
-    if (typeof n === 'string') { if (!SOURCE_TEXT_KEYS.has(key) && packedCoordinates(n)) out.push(`${at}=${JSON.stringify(n.slice(0, 80))}`); return; }
+    if (typeof n === 'string') { if (!SOURCE_TEXT_KEYS.has(key) && !(OUTLINE_KEYS.has(key) && parseOutlineEntry(n)) && packedCoordinates(n)) out.push(`${at}=${JSON.stringify(n.slice(0, 80))}`); return; }
     if (!n || typeof n !== 'object') return;
     if (Array.isArray(n)) { n.forEach((c, i) => walk(c, `${at}[${i}]`, key)); return; }
     for (const [k, v] of Object.entries(n)) {
@@ -161,11 +177,24 @@ export function checkRowContract(sc, expect, { schemaErr, isError, text } = {}) 
 
 // ---------- C3 one base ----------
 const ZERO_BASED = /\b(0-based|zero-based|0-indexed|zero-indexed)\b/i;
+/**
+ * 0-based texts kept by decision: they are offsets or
+ * an upstream grammar, not source coordinates.
+ * - `responseOffset`: a character offset into the rendered response (or,
+ *   with responseScope rows, a page index) — an offset, not a line/column.
+ * - astRewrite `transform.substring.startChar/endChar`: ast-grep's own
+ *   `substring` slice semantics (Python-style, 0-based, end exclusive);
+ *   renumbering would silently shift every pasted ast-grep rule.
+ */
+export const ZERO_BASED_ALLOWED = [
+  /(^|\.)responseOffset\.description$/,
+  /^astRewrite\.inputSchema\..*\.substring\.properties\.(startChar|endChar)\.description$/,
+];
 /** Published texts (descriptions at any depth) naming a 0-based coordinate. */
 export function zeroBasedTexts(published) {
   const out = [];
   const walk = (n, at) => {
-    if (typeof n === 'string') { if (ZERO_BASED.test(n)) out.push(`${at}: ${n.match(ZERO_BASED)[0]}`); return; }
+    if (typeof n === 'string') { if (ZERO_BASED.test(n) && !ZERO_BASED_ALLOWED.some(re => re.test(at))) out.push(`${at}: ${n.match(ZERO_BASED)[0]}`); return; }
     if (!n || typeof n !== 'object') return;
     for (const [k, v] of Object.entries(n)) walk(v, at ? `${at}.${k}` : k);
   };

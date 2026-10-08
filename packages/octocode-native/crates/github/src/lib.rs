@@ -12,23 +12,19 @@ mod history;
 mod history_item;
 mod query_syntax;
 mod refs;
+mod request_budget;
 mod retry;
 mod search;
 mod transport;
 mod tree;
 
 pub use budget::{AuthAdmission, ExecutorConfig, GitHubBudget, GitHubResource, LimiterKey};
-pub use commit_dates::{
-    MAX_PATHS_PER_REQUEST, PathDates, path_dates_document, path_dates_variables,
-};
+pub use commit_dates::{MAX_PATHS_PER_REQUEST, PathDates};
 pub use content::{
     CachePartition, CachedContent, ConditionalCache, ContentRequest, ContentResponse,
-    GitHubProvider, NoCache,
+    GitHubProvider, NoCache, is_full_sha,
 };
-pub use credentials::{
-    CredentialRequest, CredentialResolver, CredentialSource, ResolvedCredential,
-    StaticCredentialResolver,
-};
+pub use credentials::{CredentialSource, ResolvedCredential};
 pub use endpoint::{GitHubEndpoint, credential_host};
 pub use error::{ProviderError, ProviderErrorKind, ProviderErrorReason, RateLimit};
 pub use history::{CommitListRequest, HistoryPage, HistoryRequest, PullListRequest};
@@ -37,14 +33,15 @@ pub use query_syntax::{
     validate_search_name,
 };
 pub use refs::{NamedRef, RefKind, RefPage};
-pub use retry::{full_jitter, header_u64, retry_after_delay};
+pub use request_budget::{BudgetStop, RequestBudget};
+pub use retry::{full_jitter, retry_after_delay};
 pub use search::{
     CodeSearchItem, CodeSearchPage, CodeSearchRequest, RepositoryMetadata, RepositorySearchItem,
     RepositorySearchPage, RepositorySearchRequest, TextMatch, TreeEntry, TreeRequest, TreeResponse,
 };
 pub use transport::{
-    GitHubTransport, GraphQlError, GraphQlPage, HttpMethod, RequestContext, RequestSpec,
-    ResponsePage, RetryPolicy,
+    GitHubTransport, GraphQlError, GraphQlPage, HTTP_USER_AGENT, HttpMethod, RequestContext,
+    RequestSpec, ResponsePage, RetryPolicy,
 };
 pub use tree::{ContentsEntry, ContentsListing};
 

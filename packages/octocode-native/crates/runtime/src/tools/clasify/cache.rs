@@ -25,26 +25,118 @@ struct Entry {
     answers: Vec<Value>,
 }
 
-pub(crate) struct JudgmentCache {
+/// `F` is the failure a flight hands to the requests queued behind it.
+pub(crate) struct JudgmentCache<F> {
     entries: Mutex<VecDeque<Entry>>,
-    inflight: Mutex<BTreeMap<[u8; 32], Arc<tokio::sync::Mutex<()>>>>,
+    inflight: Mutex<BTreeMap<[u8; 32], Slot<F>>>,
 }
 
+type Slot<F> = Arc<tokio::sync::Mutex<Option<F>>>;
+
+/// One request's place in the single-flight for a key. Dropping it (on
+/// completion, cancellation, or panic) forgets the key once no request holds
+/// or awaits it, so a failure is shared only within one concurrent wave.
+pub(crate) struct Flight<'a, F> {
+    cache: &'a JudgmentCache<F>,
+    key: [u8; 32],
+    slot: Slot<F>,
+}
+
+impl<F> Flight<'_, F> {
+    /// Waits for this request's turn. The slot holds the failure of an
+    /// earlier turn in this wave (replay it), or `None` (check the cache,
+    /// then ask the provider and record a failure for the waiters).
+    pub(crate) async fn turn(&self) -> tokio::sync::MutexGuard<'_, Option<F>> {
+        self.slot.lock().await
+    }
+}
+
+impl<F> Drop for Flight<'_, F> {
+    fn drop(&mut self) {
+        let mut inflight = self
+            .cache
+            .inflight
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        // Only the map and this flight still hold the slot: nobody waits.
+        if inflight
+            .get(&self.key)
+            .is_some_and(|slot| Arc::strong_count(slot) == 2)
+        {
+            inflight.remove(&self.key);
+        }
+    }
+}
+
+/// The digest of the provider input. The evidence state and the questions
+/// are hashed as canonical JSON written straight into the digest: a hit
+/// copies nothing. Each JSON value delimits itself, so the two need no
+/// length prefix.
 pub(crate) fn key(endpoint: &str, model: &str, state: &Value, questions: &[Value]) -> [u8; 32] {
     let mut digest = Sha256::new();
-    for part in [
-        endpoint.to_owned(),
-        model.to_owned(),
-        crate::canonical_json::canonicalize(state.clone()).to_string(),
-        crate::canonical_json::canonicalize(Value::Array(questions.to_vec())).to_string(),
-    ] {
+    for part in [endpoint, model] {
         digest.update((part.len() as u64).to_le_bytes());
         digest.update(part.as_bytes());
     }
+    let mut writer = DigestWriter(&mut digest);
+    write_canonical(&mut writer, state);
+    write_canonical_items(&mut writer, questions);
     digest.finalize().into()
 }
 
-impl JudgmentCache {
+struct DigestWriter<'a>(&'a mut Sha256);
+
+impl std::io::Write for DigestWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.update(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// The bytes of `canonical_json::canonicalize(value).to_string()`, written
+/// from the borrowed value: keys sorted, null members dropped.
+fn write_canonical(out: &mut impl std::io::Write, value: &Value) {
+    match value {
+        Value::Object(map) => {
+            let mut members = map
+                .iter()
+                .filter(|(_, member)| !member.is_null())
+                .collect::<Vec<_>>();
+            members.sort_unstable_by(|a, b| a.0.cmp(b.0));
+            let _ = out.write_all(b"{");
+            for (index, (name, member)) in members.into_iter().enumerate() {
+                if index > 0 {
+                    let _ = out.write_all(b",");
+                }
+                let _ = serde_json::to_writer(&mut *out, name);
+                let _ = out.write_all(b":");
+                write_canonical(out, member);
+            }
+            let _ = out.write_all(b"}");
+        }
+        Value::Array(items) => write_canonical_items(out, items),
+        scalar => {
+            let _ = serde_json::to_writer(&mut *out, scalar);
+        }
+    }
+}
+
+fn write_canonical_items(out: &mut impl std::io::Write, items: &[Value]) {
+    let _ = out.write_all(b"[");
+    for (index, item) in items.iter().enumerate() {
+        if index > 0 {
+            let _ = out.write_all(b",");
+        }
+        write_canonical(out, item);
+    }
+    let _ = out.write_all(b"]");
+}
+
+impl<F> JudgmentCache<F> {
     pub(crate) const fn new() -> Self {
         Self {
             entries: Mutex::new(VecDeque::new()),
@@ -52,21 +144,15 @@ impl JudgmentCache {
         }
     }
 
-    /// The lock that serializes requests for `key`: the holder asks the
-    /// provider, later holders replay its stored answer. Pair with [`Self::land`].
-    pub(crate) fn flight(&self, key: &[u8; 32]) -> Arc<tokio::sync::Mutex<()>> {
+    /// Joins the flight that serializes requests for `key`: the first turn
+    /// asks the provider, later turns replay its stored answer or its failure.
+    pub(crate) fn flight(&self, key: &[u8; 32]) -> Flight<'_, F> {
         let mut inflight = self.inflight.lock().unwrap_or_else(|p| p.into_inner());
-        Arc::clone(inflight.entry(*key).or_default())
-    }
-
-    /// Forget `key`'s lock once no request holds or awaits it.
-    pub(crate) fn land(&self, key: &[u8; 32]) {
-        let mut inflight = self.inflight.lock().unwrap_or_else(|p| p.into_inner());
-        if inflight
-            .get(key)
-            .is_some_and(|lock| Arc::strong_count(lock) == 1)
-        {
-            inflight.remove(key);
+        let slot = Arc::clone(inflight.entry(*key).or_default());
+        Flight {
+            cache: self,
+            key: *key,
+            slot,
         }
     }
 
@@ -138,9 +224,27 @@ mod tests {
         );
     }
 
+    /// The digest reads the same canonical bytes the shared canonicalizer
+    /// produces, without cloning the value.
+    #[test]
+    fn canonical_writer_matches_the_canonicalizer() {
+        let value = json!({
+            "z": [1, null, {"b": null, "a": "q\"u\u{1F600}\n"}],
+            "a": {"y": 1.5, "x": -0, "w": [], "v": {}},
+            "m": null,
+            "n": [true, false, 12345678901234567890u64, "\u{7}"]
+        });
+        let mut written = Vec::new();
+        write_canonical(&mut written, &value);
+        assert_eq!(
+            String::from_utf8(written).unwrap(),
+            crate::canonical_json::canonicalize(value).to_string()
+        );
+    }
+
     #[test]
     fn hits_replay_answers_until_expiry_and_evict_oldest() {
-        let cache = JudgmentCache::new();
+        let cache = JudgmentCache::<()>::new();
         let start = Instant::now();
         cache.put_at([1; 32], vec![json!({"noul":0.9})], start);
         assert_eq!(
@@ -159,5 +263,48 @@ mod tests {
         }
         assert_eq!(cache.get_at(&id(0), start), None, "oldest evicted");
         assert!(cache.get_at(&id(MAX_ENTRIES), start).is_some());
+    }
+
+    fn inflight_len<F>(cache: &JudgmentCache<F>) -> usize {
+        cache.inflight.lock().unwrap().len()
+    }
+
+    /// L6: a flight whose request never finishes (dropped future, panic)
+    /// still releases its slot: the map cannot grow without bound.
+    #[test]
+    fn a_dropped_flight_releases_its_slot() {
+        let cache = JudgmentCache::<u8>::new();
+        let first = cache.flight(&[7; 32]);
+        let second = cache.flight(&[7; 32]);
+        drop(first);
+        assert_eq!(inflight_len(&cache), 1, "a waiter still holds the slot");
+        drop(second);
+        assert_eq!(inflight_len(&cache), 0);
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _flight = cache.flight(&[8; 32]);
+            panic!("provider page panicked");
+        }));
+        assert!(panicked.is_err());
+        assert_eq!(inflight_len(&cache), 0, "unwinding lands the flight");
+    }
+
+    /// L6: waiters queued behind a failed request share its failure instead
+    /// of each asking the provider again; once the wave lands, a later
+    /// request starts fresh.
+    #[tokio::test]
+    async fn waiters_share_the_failure_of_their_flight() {
+        let cache = JudgmentCache::<&'static str>::new();
+        let first = cache.flight(&[9; 32]);
+        let waiter = cache.flight(&[9; 32]);
+        {
+            let mut turn = first.turn().await;
+            assert!(turn.is_none(), "the first holder asks the provider");
+            *turn = Some("rate limited");
+        }
+        drop(first);
+        assert_eq!(*waiter.turn().await, Some("rate limited"));
+        drop(waiter);
+        let later = cache.flight(&[9; 32]);
+        assert!(later.turn().await.is_none(), "a new wave retries");
     }
 }

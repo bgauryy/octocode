@@ -1,4 +1,8 @@
 //! Runtime fixtures plus Cargo-owned CLI executable discovery.
+#[allow(
+    dead_code,
+    reason = "the CLI tests use a subset of the runtime integration fixtures"
+)]
 #[path = "../../../runtime/tests/support/mod.rs"]
 mod runtime_fixture;
 pub use runtime_fixture::*;
@@ -16,7 +20,6 @@ impl Workspace {
             .env("WORKSPACE_ROOT", &self.workspace)
             .env("ALLOWED_PATHS", &self.workspace)
             .env("OCTOCODE_ENABLE_LOCAL", "true")
-            .env("ENABLE_CLONE", "false")
             .env("NO_COLOR", "1")
             .env("OCTOCODE_ENABLE_STATS", "false");
         command

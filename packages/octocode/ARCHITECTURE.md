@@ -4,7 +4,7 @@
 
 ## Runtime boundary
 
-`src/cli/index.ts` owns catalog presentation, skill materialization, and the bare TTY install picker. Bare invocation and `schema` compose core presentation with native availability. Root `--help`, `-h`, and `help` append canonical agent instructions after native help. `config view` starts the bundled local server with a fixed native JSON transport. Other argv is forwarded verbatim—parsing, subcommand help, version, and validation included—to the native binary. `src/cli/native-delegate.ts` resolves `@octocodeai/octocode-native/bin/octocode.cjs` and delegates with inherited stdio and environment. There is no TypeScript execution registry or fallback for native-owned commands.
+`src/cli/index.ts` owns catalog presentation, skill materialization, and the bare TTY install picker. Bare invocation and `schema` compose core presentation with native availability. `config view` starts the bundled local server with a fixed native JSON transport. Other argv is forwarded verbatim—parsing, subcommand help, version, and validation included—to the native binary. `src/cli/native-delegate.ts` resolves the platform binary through `@octocodeai/octocode-native/bin/resolve-binary.cjs` and runs it with inherited stdio and environment, forwarding signals through the native package's `bin/launch-native.cjs`. The `OCTOCODE_NATIVE_BIN` override is a development aid that, like MCP's `OCTOCODE_NATIVE_BINDING`, is ignored in production. There is no TypeScript execution registry or fallback for native-owned commands.
 
 ```text
 npx octocode → Node launcher → native CLI → Rust ToolRuntime
@@ -24,7 +24,7 @@ TypeScript remains only for:
   core-owned agent instructions scoped to CLI availability (including CLI-only
   `ghCloneRepo`); on a terminal it prints the native command reference;
 - `config view`, which lazily loads `src/cli/config-view/server.ts`; fixed native `config --manage` requests carry the expected contract fingerprint before any mutation;
-- `skill`, backed by the shared skill installer;
+- `skill`, backed by the shared skill installer; its env readiness asks native `config check` for a GitHub token stored outside the environment;
 - the TTY picker for `install` without `--ide`, which discovers client ids from `native install --list --json` and delegates the selected id back to native.
 
 Everything else—`config` (except `view`), `auth`, `lsp-server`, tool invocations (`<toolName> '<json>'`), and non-interactive `install`—is delegated to the native CLI. Interactive installation is a transport adapter, not a second installer. The native `skill` command shells back to this launcher; `OCTOCODE_SKILL_DELEGATED` guards that hop so a native binary on PATH cannot recurse.
@@ -50,4 +50,4 @@ Publish native platform packages, the native root, contract/config prerequisites
 - Do not add Node-side query batching, provider behavior, security policy, response shaping, or tool-specific error recovery.
 - Validate both the direct native CLI and the built Node launcher, including CLI/MCP structured-result parity.
 
-Global `.env` mutation uses the native config module’s shared parser and protection policy. The CLI accepts key/value arguments or a value on stdin, prints only mutation metadata, and delegates locked atomic file replacement to config.
+Global `.env` mutation (`config set KEY VALUE` or `config set KEY --stdin`) is native: it uses the native config module’s shared parser and protection policy, prints only mutation metadata, and replaces the file atomically under a lock.

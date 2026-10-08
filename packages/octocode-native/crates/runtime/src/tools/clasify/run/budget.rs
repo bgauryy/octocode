@@ -6,6 +6,7 @@
 use super::evidence::{file_evidence, is_file_read};
 use super::hydrate::default_search_page_size;
 use super::{CONTROL_FIELDS, CapturedPage};
+use crate::tools::clasify::resource::tool_of;
 use crate::tools::clasify::transport::ClassificationError;
 use crate::tools::id::ToolId;
 use serde_json::{Value, json};
@@ -181,6 +182,94 @@ pub(super) fn resume_search(
         .and_then(Value::as_u64)
         .unwrap_or_else(|| default_search_page_size(source))
         .max(1);
+    start_page_at(query, page, size, position)?;
+    Some(resumed)
+}
+
+/// The list page that starts at row `position` of `source`'s page, so a
+/// replay resumes at the first deferred candidate: a paged list whose
+/// candidates are its rows (repositories, history items, discovered
+/// packages). `rows` is the page's row count, the size a first page without
+/// `pageSize` starts from. `None` when the page's offset is unknown (a later
+/// page without `pageSize`) or the tool groups rows into candidates.
+pub(super) fn resume_list(source: &Value, position: usize, rows: usize) -> Option<Value> {
+    let (page, size) = list_page_of(source, rows)?;
+    let offset = page
+        .saturating_sub(1)
+        .saturating_mul(size)
+        .saturating_add(u64::try_from(position).ok()?);
+    list_page_at(source, offset, size)
+}
+
+/// The page after `source`'s list page when a resume left it off the
+/// original grid (`resumePageSize`): it steps back to that size at the next
+/// aligned row. `None` when the page is on its grid (its own continuation
+/// is exact).
+pub(super) fn after_resumed_list(source: &Value, rows: usize) -> Option<Value> {
+    source.get("resumePageSize")?;
+    let (page, size) = list_page_of(source, rows)?;
+    list_page_at(source, page.saturating_mul(size), size)
+}
+
+/// `(page, pageSize)` of a row-per-candidate paged list read.
+fn list_page_of(source: &Value, rows: usize) -> Option<(u64, u64)> {
+    let read = crate::tools::clasify::resource::ResourceSource::of(source)?;
+    let one_row_each = matches!(
+        tool_of(source)?,
+        ToolId::GhSearchRepo | ToolId::GhSearchHistory | ToolId::ArtifactSearch
+    );
+    if !(one_row_each && read.is_paged_list()) {
+        return None;
+    }
+    let query = source.get("query")?.as_object()?;
+    let page = query.get("page").and_then(Value::as_u64).unwrap_or(1);
+    let size = match query.get("pageSize").and_then(Value::as_u64) {
+        Some(size) => size,
+        // A first page starts at offset 0 under any page size.
+        None if page <= 1 => u64::try_from(rows).ok()?,
+        None => return None,
+    }
+    .max(1);
+    Some((page, size))
+}
+
+/// `source` re-paged to start at row `offset`. The walk's page size is the
+/// original one (`resumePageSize`, else `size`); a page that starts off its
+/// grid takes the largest size that divides the offset and stops at the next
+/// aligned row, where the original size returns (and `resumePageSize` is
+/// dropped), so every row is read once and the walk regains its page.
+fn list_page_at(source: &Value, offset: u64, size: u64) -> Option<Value> {
+    let original = source
+        .get("resumePageSize")
+        .and_then(Value::as_u64)
+        .unwrap_or(size)
+        .max(1);
+    let mut limit = original - offset % original;
+    while !offset.is_multiple_of(limit) {
+        limit -= 1;
+    }
+    let mut resumed = source.clone();
+    let fields = resumed.as_object_mut()?;
+    if limit == original {
+        fields.remove("resumePageSize");
+    } else {
+        fields.insert("resumePageSize".into(), json!(original));
+    }
+    let query = fields.get_mut("query")?.as_object_mut()?;
+    query.insert("pageSize".into(), json!(limit));
+    query.insert("page".into(), json!(offset / limit + 1));
+    Some(resumed)
+}
+
+/// Re-page `query` (now page `page` of `size`) to start at its row
+/// `position`: the largest page size up to `size` that divides the new
+/// offset keeps every later page aligned.
+fn start_page_at(
+    query: &mut serde_json::Map<String, Value>,
+    page: u64,
+    size: u64,
+    position: usize,
+) -> Option<()> {
     let offset = page
         .saturating_sub(1)
         .saturating_mul(size)
@@ -191,7 +280,7 @@ pub(super) fn resume_search(
     }
     query.insert("pageSize".into(), json!(limit));
     query.insert("page".into(), json!(offset / limit + 1));
-    Some(resumed)
+    Some(())
 }
 
 /// Re-reads one oversized file page may take to fit the resource cap.
@@ -273,6 +362,84 @@ pub(super) fn shrunk_page(
         query.entry("snapshot").or_insert(snapshot);
     }
     Some(read)
+}
+
+/// Line spans of a `ranges` file read that a smaller window can split: a
+/// plain source view (no match, block, chunk, or byte selector), clamped to
+/// the file's `totalLines`. `None` for any other read.
+pub(super) fn split_ranges(source: &Value, state: &Value) -> Option<Vec<(u64, u64)>> {
+    if !is_file_read(source) {
+        return None;
+    }
+    let query = source.get("query")?.as_object()?;
+    let source_view = query
+        .get("minify")
+        .is_none_or(|minify| minify.as_str() == Some("none"));
+    let data = state.pointer("/results/0/data")?;
+    if !source_view
+        || data.get("pagination").is_some()
+        || PARTIAL_READ_FIELDS
+            .iter()
+            .any(|field| *field != "ranges" && query.contains_key(*field))
+    {
+        return None;
+    }
+    let total = data.get("totalLines").and_then(Value::as_u64);
+    let spans = query
+        .get("ranges")?
+        .as_array()?
+        .iter()
+        .map(|range| {
+            let (start, end) = range.as_str()?.split_once('-')?;
+            let (start, end) = (start.parse::<u64>().ok()?, end.parse::<u64>().ok()?);
+            Some((start, total.map_or(end, |total| end.min(total))))
+        })
+        .collect::<Option<Vec<_>>>()?
+        .into_iter()
+        .filter(|(start, end)| start <= end)
+        .collect::<Vec<_>>();
+    (!spans.is_empty()).then_some(spans)
+}
+
+/// Lines `spans` cover.
+pub(super) fn span_lines(spans: &[(u64, u64)]) -> u64 {
+    spans.iter().map(|(start, end)| end - start + 1).sum()
+}
+
+/// `source` reading the first `keep` lines of `spans` (`head`) and the
+/// read of every line after them (`None` when nothing is left).
+pub(super) fn ranges_read(
+    source: &Value,
+    spans: &[(u64, u64)],
+    keep: u64,
+) -> (Value, Option<Value>) {
+    let mut head = Vec::new();
+    let mut tail = Vec::new();
+    let mut left = keep;
+    for &(start, end) in spans {
+        let lines = end - start + 1;
+        if left >= lines {
+            head.push((start, end));
+            left -= lines;
+        } else if left > 0 {
+            head.push((start, start + left - 1));
+            tail.push((start + left, end));
+            left = 0;
+        } else {
+            tail.push((start, end));
+        }
+    }
+    let read = |spans: &[(u64, u64)]| {
+        let mut read = source.clone();
+        read["query"]["ranges"] = json!(
+            spans
+                .iter()
+                .map(|(start, end)| format!("{start}-{end}"))
+                .collect::<Vec<_>>()
+        );
+        read
+    };
+    (read(&head), (!tail.is_empty()).then(|| read(&tail)))
 }
 
 /// A continuation of a shrunk page reads its following pages at the size the
@@ -388,6 +555,78 @@ mod tests {
         assert!(resume_search(&source, Some(&inner), 1).is_none());
         let list = json!({"tool":"astSearch","query":{"operation":"match","page":1,"pageSize":3}});
         assert!(resume_search(&list, None, 1).is_none());
+    }
+
+    /// P3: a list whose candidates are its rows resumes at the first
+    /// deferred row; a list that groups rows (AST matches per file) or a
+    /// later page of unknown size does not.
+    #[test]
+    fn deferred_list_candidates_resume_at_their_row() {
+        let repos = json!({"tool":"ghSearchRepo","query":{"keywords":["x"],"page":2,"pageSize":5}});
+        // Row 2 of page 2 is overall row 7: a page size of 1 starts there,
+        // and the walk remembers its 5-row grid.
+        let resumed = resume_list(&repos, 2, 5).expect("resume");
+        assert_eq!(resumed["query"]["pageSize"], 1);
+        assert_eq!(resumed["query"]["page"], 8);
+        assert_eq!(resumed["resumePageSize"], 5);
+        // Off the grid, the next pages step back to it: rows 8-9, then 10-14.
+        let page = |value: &Value| {
+            (
+                value["query"]["page"].clone(),
+                value["query"]["pageSize"].clone(),
+            )
+        };
+        let next = after_resumed_list(&resumed, 1).expect("step");
+        assert_eq!(page(&next), (json!(5), json!(2)));
+        assert_eq!(next["resumePageSize"], 5);
+        let aligned = after_resumed_list(&next, 2).expect("step");
+        assert_eq!(page(&aligned), (json!(3), json!(5)));
+        assert!(aligned.get("resumePageSize").is_none(), "{aligned}");
+        // On its grid, a page's own continuation is exact.
+        assert!(after_resumed_list(&aligned, 5).is_none());
+        let even = resume_list(&repos, 0, 5).expect("resume");
+        assert_eq!(
+            (
+                even["query"]["page"].clone(),
+                even["query"]["pageSize"].clone()
+            ),
+            (json!(2), json!(5))
+        );
+        // A first page without pageSize starts at offset 0 under any size.
+        let first = json!({"tool":"ghSearchHistory","query":{"operation":"pullRequest","owner":"o","repo":"r"}});
+        let resumed = resume_list(&first, 4, 10).expect("resume");
+        assert_eq!(resumed["query"]["pageSize"], 4);
+        assert_eq!(resumed["query"]["page"], 2);
+        assert_eq!(resumed["resumePageSize"], 10);
+        let later = json!({"tool":"ghSearchRepo","query":{"keywords":["x"],"page":3}});
+        assert!(resume_list(&later, 1, 5).is_none());
+        let ast = json!({"tool":"astSearch","query":{"operation":"match","path":"/r","pattern":"f()","page":1,"pageSize":3}});
+        assert!(resume_list(&ast, 1, 3).is_none());
+        let lookup =
+            json!({"tool":"artifactSearch","query":{"ecosystem":"npm","packageName":"ajv"}});
+        assert!(resume_list(&lookup, 1, 3).is_none());
+    }
+
+    /// A `ranges` read splits at a line count into the head it judges now
+    /// and the read of every later line; other selectors never split.
+    #[test]
+    fn a_ranges_read_splits_into_a_head_and_the_rest() {
+        let source =
+            json!({"tool":"localFetch","query":{"path":"/r/a.txt","ranges":["3-10","20-40"]}});
+        let state = json!({"results":[{"data":{"totalLines":30,"content":"x"}}]});
+        let spans = split_ranges(&source, &state).expect("splits");
+        assert_eq!(spans, vec![(3, 10), (20, 30)], "clamped to the file");
+        assert_eq!(span_lines(&spans), 19);
+        let (head, tail) = ranges_read(&source, &spans, 10);
+        assert_eq!(head["query"]["ranges"], json!(["3-10", "20-21"]));
+        assert_eq!(tail.expect("rest")["query"]["ranges"], json!(["22-30"]));
+        let (whole, rest) = ranges_read(&source, &spans, 19);
+        assert_eq!(whole["query"]["ranges"], json!(["3-10", "20-30"]));
+        assert!(rest.is_none());
+        let matched = json!({"tool":"localFetch","query":{"path":"/r/a.txt","ranges":["3-10"],"matchString":"x"}});
+        assert!(split_ranges(&matched, &state).is_none());
+        let paged = json!({"results":[{"data":{"totalLines":30,"pagination":{"unit":"lines"}}}]});
+        assert!(split_ranges(&source, &paged).is_none());
     }
 
     #[test]

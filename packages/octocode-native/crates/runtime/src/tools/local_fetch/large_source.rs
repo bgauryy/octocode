@@ -250,15 +250,17 @@ pub(super) fn fetch_window(
     if q.full_content == Some(true)
         || q.minify_mode() != MinifyMode::None
         || q.unit == Some(WindowUnit::Bytes)
-        || (q.has_ranges() && q.start_line().is_none())
         || q.block()
     {
         return unsupported(
             q,
             len,
-            "fullContent, minify, ranges, block, and byte chunks need the whole file. Read one line range or line windows.",
+            "fullContent, minify, block, and byte chunks need the whole file. Read line ranges or line windows.",
             read_bounded(q, "Read the file in bounded line windows."),
         );
+    }
+    if q.has_ranges() && q.start_line().is_none() {
+        return fetch_ranges(q, path, len, modified, security, cancel, regex);
     }
     let (first, requested_last, chunked) = match (q.start_line(), q.end_line()) {
         (Some(start), end) => (start, end.unwrap_or(start), false),
@@ -330,8 +332,155 @@ pub(super) fn fetch_window(
         q,
         &mut result,
         &streamed,
-        more.then_some((chunked, requested_last)),
+        chunked,
+        more.then_some(requested_last),
     );
+    result
+}
+
+/// Several `ranges`: each (overlaps and neighbours merged, in line order) is
+/// one streamed window read, joined with an omission marker between
+/// non-adjacent spans, as a whole-file read joins them. A span that does not
+/// fit one window page is read on its own, so the rejection names it and
+/// leads to that span's read.
+fn fetch_ranges(
+    q: &LocalFetchQuery,
+    path: &Path,
+    len: u64,
+    modified: Option<String>,
+    security: &impl ContentScan,
+    cancel: &impl CancellationCheck,
+    regex: &impl RegexMatch,
+) -> LocalFetchResult {
+    let mut spans = q
+        .line_ranges()
+        .into_iter()
+        .map(|range| (range.start, range.end))
+        .collect::<Vec<_>>();
+    spans.sort_unstable();
+    let mut merged: Vec<(usize, usize)> = Vec::new();
+    for (start, end) in spans {
+        match merged.last_mut() {
+            Some(last) if start <= last.1 + 1 => last.1 = last.1.max(end),
+            _ => merged.push((start, end)),
+        }
+    }
+    let mut parts = Vec::with_capacity(merged.len());
+    for &(start, end) in &merged {
+        let mut one = q.clone();
+        one.set_line_span(start, end);
+        let part = fetch_window(&one, path, len, modified.clone(), security, cancel, regex);
+        if part.status == "error" {
+            return part;
+        }
+        if part.next.is_some() {
+            return unsupported(
+                q,
+                len,
+                &format!(
+                    "lines {start}-{end} need more than one streamed window page, so these ranges cannot be served in one read. Read that span on its own (its pages continue it), and the other ranges in their own rows."
+                ),
+                NextCalls {
+                    read_bounded_lines: Some(continuation(one, "Read the long span in pages.")),
+                    ..NextCalls::default()
+                },
+            );
+        }
+        parts.push(part);
+    }
+    let digest = parts.first().and_then(|part| part.source_sha256.clone());
+    if parts.iter().any(|part| part.source_sha256 != digest) {
+        return restart_error(
+            q,
+            "staleSnapshot",
+            crate::response::pages::STALE_SNAPSHOT_ERROR.into(),
+            "Restart on the current file version.",
+        );
+    }
+    let mut parts = parts.into_iter();
+    let Some(mut result) = parts.next() else {
+        return unsupported(
+            q,
+            len,
+            "no line range was requested.",
+            read_bounded(q, "Read the file in bounded line windows."),
+        );
+    };
+    let served = |result: &LocalFetchResult| {
+        result
+            .source_line_ranges
+            .first()
+            .map(|range| range.start)
+            .zip(result.source_line_ranges.last().map(|range| range.end))
+            .or(result.start_line.zip(result.end_line))
+    };
+    let mut spans_served = served(&result).into_iter().collect::<Vec<_>>();
+    // Each window says which lines it served; one line says it for all.
+    result
+        .warnings
+        .retain(|warning| !warning.starts_with("Large source ("));
+    for mut part in parts {
+        let span = served(&part);
+        let (Some(content), Some(next_content)) = (result.content.as_mut(), part.content.take())
+        else {
+            continue;
+        };
+        let previous_end = spans_served.last().map_or(0, |span| span.1);
+        if let Some((start, _)) = span
+            && start > previous_end + 1
+        {
+            if !content.ends_with('\n') {
+                content.push('\n');
+            }
+            content.push_str(&super::extraction::omission_marker(
+                previous_end + 1,
+                start - 1,
+            ));
+        }
+        content.push_str(&next_content);
+        spans_served.extend(span);
+        result.source_line_ranges.extend(part.source_line_ranges);
+        for warning in part.warnings {
+            if !warning.starts_with("Large source (") && !result.warnings.contains(&warning) {
+                result.warnings.push(warning);
+            }
+        }
+        for hint in part.hints {
+            if !result.hints.contains(&hint) {
+                result.hints.push(hint);
+            }
+        }
+        result.end_line = part.end_line.or(result.end_line);
+        result.is_partial =
+            (result.is_partial == Some(true) || part.is_partial == Some(true)).then_some(true);
+        let add = |a: Option<usize>, b: Option<usize>| match (a, b) {
+            (Some(a), Some(b)) => Some(a + b),
+            (a, b) => a.or(b),
+        };
+        result.returned_chars = add(result.returned_chars, part.returned_chars);
+        result.returned_bytes = add(result.returned_bytes, part.returned_bytes);
+        result.returned_lines = add(result.returned_lines, part.returned_lines);
+    }
+    let listed = spans_served
+        .iter()
+        .map(|(start, end)| {
+            if start == end {
+                start.to_string()
+            } else {
+                format!("{start}-{end}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    result.warnings.insert(
+        0,
+        format!(
+            "Large source ({}MB): served lines {listed} of {} from streamed windows.",
+            len / (1024 * 1024),
+            result.total_lines.unwrap_or_default()
+        ),
+    );
+    result.pagination = None;
     result
 }
 
@@ -370,15 +519,22 @@ fn match_needs_whole_file(q: &LocalFetchQuery, len: u64) -> LocalFetchResult {
             crate::contracts::tool_types::ReadCaseMode::Insensitive => "insensitive",
         });
     }
+    let mut next = read_bounded(q, "Read the file from the start in bounded line windows.");
+    next.text_search = Some(
+        crate::tools::result::Continuation::new(crate::tools::id::ToolId::LocalSearch, search)
+            .why("Locate the matching lines; localSearch streams the file.")
+            .build(),
+    );
     let mut result = unsupported(
         q,
         len,
         "matchString needs the whole file. Find the line with localSearch (it streams files up to 512MB), then read it with ranges.",
-        read_bounded(q, "Read the file from the start in bounded line windows."),
+        next,
     );
-    result.hints = vec![format!(
-        "Run localSearch {search} to locate matching lines, then localFetch ranges around them."
-    )];
+    result.hints = vec![
+        "Locate the lines with hints.textSearch (localSearch streams the file), then read them with ranges."
+            .to_owned(),
+    ];
     result
 }
 
@@ -446,13 +602,16 @@ fn map_to_file(result: &mut LocalFetchResult, streamed: &Streamed, len: u64) {
 }
 
 /// A page inside the window continues within the same absolute window;
-/// after the window, `more` (chunked, requested last line) continues the
-/// request with the next window.
+/// after the window, `more` (the requested last line) continues the request
+/// with the next window. A `chunked` read (line offset + length, no
+/// `ranges`) continues as a chunk from its first unread line, so paging
+/// inside a chunk never ends the walk at the chunk's last line.
 fn continue_window(
     q: &LocalFetchQuery,
     result: &mut LocalFetchResult,
     streamed: &Streamed,
-    more: Option<(bool, usize)>,
+    chunked: bool,
+    more: Option<usize>,
 ) {
     let held_last = streamed.last.max(streamed.first);
     let snapshot = streamed.digest.parse().ok();
@@ -461,13 +620,21 @@ fn continue_window(
         .as_mut()
         .and_then(|next| next.r#continue.as_mut());
     if let Some(inner) = inner {
+        if chunked {
+            // The page's window offset counts the window lines already served.
+            let served = inner.query.offset().unwrap_or(0);
+            let mut query = line_chunk_query(q, streamed.first - 1 + served);
+            query.snapshot = snapshot;
+            inner.query = query;
+            return;
+        }
         inner.query.path = q.path.clone();
         inner.query.set_line_span(streamed.first, held_last);
         inner.query.unit = Some(WindowUnit::Lines);
         inner.query.snapshot = snapshot;
         return;
     }
-    result.next = more.map(|(chunked, requested_last)| {
+    result.next = more.map(|requested_last| {
         let mut query = if chunked {
             line_chunk_query(q, held_last)
         } else {

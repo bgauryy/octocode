@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Chain sensor (FIX-LIST B1): the six per-tool chain steps (description,
-// schema, input, execute, output, communicate) plus the five FIX-LIST
+// Chain sensor: the six per-tool chain steps (description,
+// schema, input, execute, output, communicate) plus the five
 // Acceptance checks (acceptance.mjs C1-C5), over the live MCP server and CLI.
 // Rebuilt from the recovered tool-chain-check blob 4af87c11.
 //
@@ -9,7 +9,7 @@
 //   node harness/chain-check.mjs --write=baseline   # <out>/chain-check-baseline.{md,json}
 //   flags: --tools=localSearch,astSearch --no-live --no-github --clasify (paid) --pages=12
 //          --out=<dir> (default .octocode/evals/<date>-chain)
-//          --strict=C2,C4 (Acceptance checks that FAIL; the rest REPORT)
+//          --strict=C2,C4 (Acceptance checks that FAIL, default C3,C5; the rest REPORT)
 //
 // run-all lines: PASS/FAIL per strict check and tool; non-strict misses print
 // REPORT (not counted), so the sensor never blocks until a check is flipped.
@@ -27,7 +27,7 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { startServer, cliEntry, ROOT } from './mcp-client.mjs';
 import { schemaErrors, verboseFields, loadVerboseRules, isPageName, hintEntries } from './sensors.mjs';
-import { CHECKS, checkChainFit, checkRowContract, descriptionLint, rowFieldNames, silentOmissions, surfaceBudget, zeroBasedTexts, zeroCoordinates } from './acceptance.mjs';
+import { CHECKS, CLASIFY_SURFACE_BUDGET, checkChainFit, checkRowContract, descriptionLint, rowFieldNames, silentOmissions, surfaceBudget, zeroBasedTexts, zeroCoordinates } from './acceptance.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SRC = path.join(ROOT, 'packages/octocode-native/crates/runtime/src');
@@ -46,7 +46,9 @@ const LOCAL_PAGES = Number(opt('pages') ?? 12);
 const REMOTE_PAGES = 3;
 const LEAD_REPLAYS = 3;
 const T = 'octocode-local-testing/repos';
-const STRICT = new Set((opt('strict') ?? '').split(',').filter(Boolean));
+// C3 (allow-listed offsets) and C5 (surface budget) pass on the live surface,
+// so they FAIL by default; --strict= overrides (empty = report mode).
+const STRICT = new Set((opt('strict') ?? 'C3,C5').split(',').filter(Boolean));
 const OUT = path.resolve(ROOT, opt('out') ?? `.octocode/evals/${new Date().toISOString().slice(0, 10)}-chain`);
 const QUOTAS_FILE = path.join(HERE, 'chain-quotas.json');
 
@@ -128,7 +130,7 @@ const PROBES = {
   ghGetFileContent: { empty: { ...GH, path: 'README.md', matchString: NEVER }, error: { ...GH, path: 'nope/zz-missing.md' } },
   ghSearchHistory: { empty: { ...GH, operation: 'pullRequests', keywords: [NEVER] }, error: { ...NO_REPO, operation: 'commits' } },
   ghGetHistoryItem: { empty: null, error: { ...GH, operation: 'pullRequest', number: 999999 } },
-  artifactSearch: { empty: { type: 'npm', keywords: [NEVER] }, error: { type: 'npm', packageName: NEVER.toLowerCase() } },
+  artifactSearch: { empty: { ecosystem: 'npm', keywords: [NEVER] }, error: { ecosystem: 'npm', packageName: NEVER.toLowerCase() } },
   ghCloneRepo: { empty: null, error: { ...NO_REPO } },
   clasify: { empty: null, error: null },
 };
@@ -283,7 +285,9 @@ function staticChecks(tools, generated) {
     const generatedType = `${variant}Query`;
     for (const f of modFiles) {
       const text = prod[f];
-      for (const m of text.matchAll(/\bpub(?:\(crate\))?\s+(?:async\s+)?fn\s+(execute\w*)/g)) {
+      // A module without an execute* entry (gh_clone_repo) is entered through `pub fn run`.
+      const entryFn = modFiles.some(g => /\bpub(?:\(crate\))?\s+(?:async\s+)?fn\s+execute\w*/.test(prod[g])) ? /\bpub(?:\(crate\))?\s+(?:async\s+)?fn\s+(execute\w*)/g : /\bpub(?:\(crate\))?\s+(?:async\s+)?fn\s+(run)\b/g;
+      for (const m of text.matchAll(entryFn)) {
         if (/_inner$/.test(m[1])) continue;
         const params = fnParams(text, m.index + m[0].lastIndexOf("fn "));
         const q = params.find(p => /^(query|request|q|row|input|state|args)$/.test(p.name)) ?? params.find(p => /Query|Request|Value/.test(p.type));
@@ -311,7 +315,7 @@ function staticChecks(tools, generated) {
         input.entries.push(entry);
       }
     }
-    if (!input.entries.length) { input.ok = false; input.reasons.push(`no \`execute*\` entry found in tools/${mod}`); }
+    if (!input.entries.length) { input.ok = false; input.reasons.push(`no \`execute*\` or \`run\` entry found in tools/${mod}`); }
     const validators = modFiles.flatMap(f => [...prod[f].matchAll(/\bfn\s+(validate\w*)/g)].map(m => `${m[1]} (${rel(f)}:${lineOf(prod[f], m.index)})`));
     input.toolValidators = validators;
     out[tool] = { input };
@@ -336,13 +340,23 @@ function staticChecks(tools, generated) {
 }
 
 // ---------- step 1 (description) and step 2 (schema) ----------
+/**
+ * Output fields a description may name although the open (passthrough)
+ * output schema does not declare them: each is a real row
+ * field agents copy into the next call.
+ * - ghStructure `commitSha`: the listed commit, emitted when the ref is a
+ *   branch or tag; the description routes ghGetFileContent to it.
+ * - ghGetHistoryItem `mergeCommitSha`: a merged PR's merge commit; the
+ *   description routes ghGetFileContent `ref` to it.
+ */
+const DECLARED_OUTPUT_TOKENS = { ghStructure: ['commitSha'], ghGetHistoryItem: ['mergeCommitSha'] };
 function descriptionCheck(tool, pub, contractTool, toolNames, outputNames, leadNames) {
   const desc = pub.description ?? '';
   const res = { ok: true, reasons: [], bytes: Buffer.byteLength(desc) };
   const { names: pubNames, enums } = allNames(pub.inputSchema);
   const contractTop = topProps(contractTool.querySchema);
   const hidden = Object.keys(contractTop).filter(k => !pubNames.has(k));
-  const allowed = new Set([...pubNames, ...enums, ...toolNames, ...outputNames, ...leadNames]);
+  const allowed = new Set([...pubNames, ...enums, ...toolNames, ...outputNames, ...leadNames, ...(DECLARED_OUTPUT_TOKENS[tool] ?? [])]);
   const flagged = new Set();
   // Hidden contract fields named as words in the description.
   for (const h of hidden) if (new RegExp(`(^|[^\\w.])${h}(?![\\w])`).test(desc)) { flagged.add(h); res.reasons.push(`names unpublished field \`${h}\``); }
@@ -609,11 +623,20 @@ const listed = Object.fromEntries(list.tools.map(t => [t.name, t]));
 const toolsListBytes = JSON.stringify(list.tools).length;
 const instructionsBytes = (list.init?.instructions ?? '').length;
 list.close();
-// B8 measures the default surface: beta off, clasify registered only with a key.
-const plain = await startServer({ cwd: ROOT, env: { OCTOCODE_BETA: 'false' } });
-const defaultSurface = Object.fromEntries(plain.tools.map(t => [t.name, JSON.stringify(t).length]));
-const defaultInstructionsBytes = (plain.init?.instructions ?? '').length;
-plain.close();
+// B8 measures the default surface: beta off, no classification key. clasify
+// is opt-in (a key registers it), so its addition has its own budget.
+const surfaceOf = async env => {
+  const server = await startServer({ cwd: ROOT, env: { OCTOCODE_BETA: 'false', ...env } });
+  const perTool = Object.fromEntries(server.tools.map(t => [t.name, JSON.stringify(t).length]));
+  const instructions = (server.init?.instructions ?? '').length;
+  server.close();
+  return { perTool, instructions, total: Object.values(perTool).reduce((a, b) => a + b, 0) + instructions };
+};
+const plain = await surfaceOf({ OCTOCODE_CLASSIFICATION_API: '' });
+const keyed = await surfaceOf({});
+const defaultSurface = plain.perTool;
+const defaultInstructionsBytes = plain.instructions;
+const clasifyAddition = keyed.perTool.clasify ? keyed.total - plain.total : null;
 const pub = {};
 for (const t of ALL_TOOLS) {
   const ct = contract.tools.find(x => x.name === t);
@@ -651,6 +674,7 @@ try { quotas = JSON.parse(fs.readFileSync(QUOTAS_FILE, 'utf8')); } catch {}
 const published = Object.fromEntries(ALL_TOOLS.map(t => [t, { description: pub[t].description, inputSchema: pub[t].inputSchema }]));
 const zeroText = zeroBasedTexts(published);
 const budget = surfaceBudget(defaultSurface, defaultInstructionsBytes, { quotas });
+if (clasifyAddition !== null && clasifyAddition > CLASIFY_SURFACE_BUDGET) budget.reasons.push(`clasify adds ${clasifyAddition} B > ${CLASIFY_SURFACE_BUDGET} B (+${clasifyAddition - CLASIFY_SURFACE_BUDGET})`);
 const acceptance = Object.fromEntries(CHECKS.map(c => [c, { strict: STRICT.has(c), perTool: {} }]));
 for (const t of TOOLS) {
   const lv = live?.perTool[t];
@@ -662,7 +686,7 @@ for (const t of TOOLS) {
   set('C4', liveAcc?.C4 ?? [], !!liveAcc);
   set('C5', descriptionLint(t, pub[t].description, ALL_TOOLS, x => publishedFields[x]));
 }
-acceptance.C5.surface = { tools: Object.keys(defaultSurface).length, toolsList: Object.values(defaultSurface).reduce((a, b) => a + b, 0) + Math.max(0, Object.keys(defaultSurface).length - 1) + 2, instructions: defaultInstructionsBytes, total: budget.total, perTool: defaultSurface, reasons: budget.reasons };
+acceptance.C5.surface = { tools: Object.keys(defaultSurface).length, toolsList: Object.values(defaultSurface).reduce((a, b) => a + b, 0) + Math.max(0, Object.keys(defaultSurface).length - 1) + 2, instructions: defaultInstructionsBytes, total: budget.total, perTool: defaultSurface, clasifyAddition, reasons: budget.reasons };
 
 const STEPS = ['description', 'schema', 'input', 'execute', 'output', 'communicate'];
 const cell = r => (!r ? '·' : r.ok === null ? '—' : r.ok ? '✓' : '✗');
@@ -699,7 +723,7 @@ function markdown(p) {
       L.push(`| ${t} | ${r.samples.map(s => `${s.id} ${s.pages}p${s.exhausted ? '' : '+'}${s.errors.length ? ' err' : ''}`).join(', ')} | ${c.pagesWithNext} / ${c.missingMore.length} | ${c.terminal} / ${c.staleTerminal.length} | ${c.hintsMax} | ${esc(r.output.paginationKeys.join('; '))} | ${esc(c.natural ?? '—')} | ${esc(c.replays.map(x => `${x.name}→${x.tool} ${x.ok === null ? `— ${x.detail}` : x.ok ? '✓' : '✗'}`).join(', ') || '—')} |`);
     }
   }
-  L.push('', '## Acceptance (FIX-LIST B1 checks)', '', `Strict: ${[...STRICT].join(',') || 'none (report mode)'}. Default surface (beta off, ${p.acceptance.C5.surface.tools} tools): tools/list ${p.acceptance.C5.surface.toolsList} B + instructions ${p.acceptance.C5.surface.instructions} B = ${p.acceptance.C5.surface.total} B${p.acceptance.C5.surface.reasons.length ? ` (${p.acceptance.C5.surface.reasons.join('; ')})` : ''}.`, '');
+  L.push('', '## Acceptance checks', '', `Strict: ${[...STRICT].join(',') || 'none (report mode)'}. Default surface (beta off, ${p.acceptance.C5.surface.tools} tools): tools/list ${p.acceptance.C5.surface.toolsList} B + instructions ${p.acceptance.C5.surface.instructions} B = ${p.acceptance.C5.surface.total} B${p.acceptance.C5.surface.reasons.length ? ` (${p.acceptance.C5.surface.reasons.join('; ')})` : ''}.`, '');
   L.push(`| Tool | ${CHECKS.join(' | ')} |`, `|---|${CHECKS.map(() => ':-:').join('|')}|`);
   for (const t of TOOLS) L.push(`| ${t} | ${CHECKS.map(c => { const r = p.acceptance[c].perTool[t]; return r.ok === null ? '—' : r.ok ? '✓' : `✗ ${r.reasons.length}`; }).join(' | ')} |`);
   L.push(`| **fail** | ${CHECKS.map(c => TOOLS.filter(t => p.acceptance[c].perTool[t].ok === false).length).join(' | ')} |`, '');

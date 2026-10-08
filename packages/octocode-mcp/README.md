@@ -24,8 +24,8 @@ npx octocode install
 ```
 
 The server registers the configured subset of GitHub, package, local search,
-AST, rewrite, file-fetch, and LSP tools. GitHub operations require an available
-authentication method. Local and clone capabilities follow the shared Octocode
+AST, file-fetch, and LSP tools. GitHub operations require an available
+authentication method. Local capabilities follow the shared Octocode
 configuration and security policy.
 
 ## Distribution

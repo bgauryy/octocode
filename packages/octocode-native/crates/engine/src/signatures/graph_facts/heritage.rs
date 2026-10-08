@@ -26,13 +26,13 @@
 use tree_sitter::Node;
 
 use super::super::nodes::node_text;
-use super::{GraphAccumulator, LineIndex};
+use super::{GraphAccumulator, NodePositions};
 use crate::graph::GraphFactEdge;
 
 pub(super) fn collect_heritage(
     node: Node<'_>,
     content: &str,
-    line_index: &LineIndex<'_>,
+    line_index: &NodePositions<'_>,
     acc: &mut GraphAccumulator,
     from: &str,
 ) {

@@ -13,7 +13,7 @@ use super::graph::{dirname, join, join_within_root, normalize};
 use crate::{policy::path::PathPolicy, security::ContentSecurity};
 use serde_json::Value;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Component, Path, PathBuf},
     sync::Arc,
 };
@@ -23,8 +23,6 @@ const MAX_CONFIG_BYTES: usize = 1_000_000;
 const MAX_EXTENDS_DEPTH: usize = 8;
 const MAX_CONDITION_DEPTH: usize = 8;
 const MAX_OUTER_CONFIG_LEVELS: usize = 6;
-const MAX_PYTHON_ROOTS: usize = 64;
-const MAX_INCLUDE_DIRS: usize = 64;
 const MAX_COMPILE_COMMANDS_BYTES: usize = 32 * 1024 * 1024;
 
 /// Export/import conditions in preference order: source-first so a workspace
@@ -194,10 +192,7 @@ impl ResolveContext {
         let mut has_c = false;
         for file in known {
             let ext = file.rsplit_once('.').map_or("", |x| x.1);
-            let is_js = matches!(
-                ext,
-                "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "mts" | "cts"
-            );
+            let is_js = octocode_engine::text::JS_TS_EXTENSIONS.contains(&ext);
             let is_py = matches!(ext, "py" | "pyi");
             has_c |= matches!(
                 ext,
@@ -365,13 +360,12 @@ impl ResolveContext {
 
     fn load_python_roots(&mut self, root: &Path, py_dirs: &BTreeSet<String>) {
         let mut roots = vec![".".to_owned()];
+        let mut seen = HashSet::from([".".to_owned()]);
         if root.join("src").is_dir() {
             roots.push("src".to_owned());
+            seen.insert("src".to_owned());
         }
         for dir in py_dirs {
-            if roots.len() >= MAX_PYTHON_ROOTS {
-                break;
-            }
             if dir == "." {
                 continue;
             }
@@ -380,14 +374,15 @@ impl ResolveContext {
                 .iter()
                 .any(|name| directory.join(name).is_file())
             {
-                roots.push(dir.clone());
+                if seen.insert(dir.clone()) {
+                    roots.push(dir.clone());
+                }
                 let src = join(dir, "src");
-                if directory.join("src").is_dir() && !roots.contains(&src) {
+                if directory.join("src").is_dir() && seen.insert(src.clone()) {
                     roots.push(src);
                 }
             }
         }
-        roots.truncate(MAX_PYTHON_ROOTS);
         self.python_roots = roots;
         self.python_package = enclosing_python_package(root);
     }
@@ -399,29 +394,25 @@ impl ResolveContext {
             .map(str::to_owned)
             .collect();
         let mut system = Vec::new();
+        let mut system_seen = HashSet::new();
         for candidate in ["compile_commands.json", "build/compile_commands.json"] {
             let file = root.join(candidate);
             if !file.is_file() {
                 continue;
             }
             for dir in compile_command_include_dirs(root, &file, paths) {
-                if system.len() >= MAX_INCLUDE_DIRS {
-                    break;
-                }
-                if !system.contains(&dir) {
+                if system_seen.insert(dir.clone()) {
                     system.push(dir);
                 }
             }
             break;
         }
-        if root.join("include").is_dir() && !system.iter().any(|dir| dir == "include") {
+        if root.join("include").is_dir() && system_seen.insert("include".to_owned()) {
             system.push("include".to_owned());
         }
+        let mut included = self.include_dirs.iter().cloned().collect::<HashSet<_>>();
         for dir in &system {
-            if self.include_dirs.len() >= MAX_INCLUDE_DIRS {
-                break;
-            }
-            if !self.include_dirs.contains(dir) {
+            if included.insert(dir.clone()) {
                 self.include_dirs.push(dir.clone());
             }
         }
@@ -525,14 +516,21 @@ impl ResolveContext {
         let mut containing = self
             .python_roots
             .iter()
-            .filter(|root| root.as_str() != "." && importer.starts_with(&format!("{root}/")))
+            .filter(|root| {
+                root.as_str() != "."
+                    && importer
+                        .strip_prefix(root.as_str())
+                        .is_some_and(|rest| rest.starts_with('/'))
+            })
             .map(String::as_str)
             .collect::<Vec<_>>();
         containing.sort_by_key(|root| std::cmp::Reverse(root.len()));
         let mut ordered = containing;
+        let mut included = ordered.iter().copied().collect::<HashSet<_>>();
         ordered.push(".");
+        included.insert(".");
         for root in &self.python_roots {
-            if !ordered.contains(&root.as_str()) {
+            if included.insert(root.as_str()) {
                 ordered.push(root);
             }
         }
@@ -1187,6 +1185,7 @@ fn compile_command_include_dirs(root: &Path, file: &Path, paths: &PathPolicy) ->
         return Vec::new();
     };
     let mut dirs = Vec::new();
+    let mut seen = HashSet::new();
     for command in commands {
         let directory = command
             .get("directory")
@@ -1220,11 +1219,8 @@ fn compile_command_include_dirs(root: &Path, file: &Path, paths: &PathPolicy) ->
             let Some(relative) = relative_to_root(root, &lexical(&directory.join(value))) else {
                 continue;
             };
-            if !dirs.contains(&relative) {
+            if seen.insert(relative.clone()) {
                 dirs.push(relative);
-                if dirs.len() >= MAX_INCLUDE_DIRS {
-                    return dirs;
-                }
             }
         }
     }
@@ -1253,6 +1249,34 @@ fn enclosing_python_package(root: &Path) -> Option<String> {
 mod tests {
     use super::*;
     use crate::tools::ast_graph::test_support::{known, write_file};
+
+    #[test]
+    fn indexing_keeps_python_and_include_roots_after_the_sixty_fourth() {
+        let root = tempfile::tempdir().expect("root");
+        let mut files = BTreeSet::new();
+        for i in 0..70 {
+            let dir = format!("project{i:02}");
+            write_file(
+                root.path(),
+                &format!("{dir}/pyproject.toml"),
+                "[project]\nname='x'\n",
+            );
+            write_file(root.path(), &format!("{dir}/main.py"), "x = 1\n");
+            files.insert(format!("{dir}/main.py"));
+        }
+        let commands = (0..70)
+            .map(|i| serde_json::json!({"directory":root.path(),"arguments":["cc",format!("-Iinc{i:02}")]}))
+            .collect::<Vec<_>>();
+        write_file(
+            root.path(),
+            "compile_commands.json",
+            &serde_json::to_string(&commands).unwrap(),
+        );
+        files.insert("main.c".into());
+        let context = load(root.path(), &files);
+        assert!(context.python_roots.contains(&"project69".to_owned()));
+        assert!(context.system_include_dirs.contains(&"inc69".to_owned()));
+    }
 
     fn load(root: &Path, files: &BTreeSet<String>) -> ResolveContext {
         let policy = crate::tools::test_support::workspace_policy(root);

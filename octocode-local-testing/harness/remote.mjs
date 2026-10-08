@@ -1,9 +1,10 @@
 // Remote surfaces: GitHub discovery/read/history, package search, clasify.
 // Each result must answer, and every next.* page and hints.* lead it offers (one level) must execute.
-import { checks, collect, findHint, nextHints, rowData, startServer, writeResults } from './mcp-client.mjs';
+import { checks, clasifyUnavailable, collect, findHint, nextHints, rowData, startServer, writeResults } from './mcp-client.mjs';
 
-const { check, summary } = checks('remote');
+const { check, skip, summary } = checks('remote');
 const client = await startServer();
+const noClasify = clasifyUnavailable(client);
 const { call, raw, follow } = client;
 const OWNER = 'microsoft';
 const REPO = 'TypeScript';
@@ -11,11 +12,14 @@ const REPO = 'TypeScript';
 async function followAll(entry, label) {
   const hints = nextHints(entry.sc).slice(0, 4);
   for (const h of hints) {
+    if (h.tool === 'clasify' && noClasify) { skip(`${label}: ${h.path.replace(/^\.results\.\d+\.data\./, '')} executes`, noClasify); continue; }
     const out = await follow(h);
     if (h.query?.queries?.[0]?.ref && /\.(viewReleaseSource|readManifest)$/.test(h.path) && out.rowErrors) {
       // An unpushed release ref recovers on the default branch: the same lead without ref.
       const unavailable = collect(out.sc, o => o.errorCode === 'notFound').length > 0;
-      check(`${label}: unavailable release lead is an unlabeled registry ref`, unavailable && h.verification === undefined, JSON.stringify(h));
+      // AR2: only the registry's unchecked claim (`registryRef`, stated on the row) may be unpushed; a `provenance`/`tag` ref must open.
+      const row = entry.sc?.results?.[Number(/^\.results\.(\d+)\./.exec(h.path)?.[1] ?? 0)]?.data?.artifacts?.[0];
+      check(`${label}: unavailable release ref is the row's registryRef`, unavailable && row?.verification === 'registryRef', JSON.stringify({ lead: h, verification: row?.verification }));
       const { ref, ...recovery } = h.query.queries[0];
       const recovered = await follow({ tool: h.tool, query: { queries: [recovery] } });
       check(`${label}: unavailable release lead recovers without ref`, !recovered.isError && !recovered.rowErrors && (h.tool !== 'ghStructure' || (rowData(recovered)?.entries ?? []).length > 0), recovered.text.slice(0, 100));
@@ -32,11 +36,11 @@ await followAll(repos, 'ghSearchRepo');
 
 const code = await call('ghSearchCode', { owner: OWNER, repo: REPO, keywords: ['NewChecker'], pageSize: 5 });
 check('ghSearchCode answers with paths', !code.isError && collect(rowData(code), o => typeof o.path === 'string').length > 0, code.text.slice(0, 120));
-const readTop = findHint(code.sc, 'hints.readTopMatch');
-check('ghSearchCode offers hints.readTopMatch', !!readTop);
+const readTop = findHint(code.sc, 'hints.read');
+check('ghSearchCode offers hints.read', !!readTop);
 if (readTop) {
   const top = await follow(readTop);
-  check('hints.readTopMatch reads the matching source', /NewChecker/i.test(top.text), top.text.slice(0, 120));
+  check('hints.read reads the matching source', /NewChecker/i.test(top.text), top.text.slice(0, 120));
 }
 
 const tree = await call('ghStructure', { owner: OWNER, repo: REPO, maxDepth: 1, pageSize: 50 });
@@ -66,21 +70,24 @@ if (sha) {
 const issues = await call('ghSearchHistory', { operation: 'issue', owner: OWNER, repo: REPO, state: 'closed', pageSize: 2 });
 check('ghSearchHistory issue', !issues.isError && collect(rowData(issues), o => typeof o.number === 'number').length > 0, issues.text.slice(0, 100));
 
-const exact = await call('artifactSearch', { type: 'npm', packageName: 'typescript' });
+const exact = await call('artifactSearch', { ecosystem: 'npm', packageName: 'typescript' });
 check('artifactSearch exact npm package', !exact.isError && /typescript/i.test(exact.text), exact.text.slice(0, 100));
 await followAll(exact, 'artifactSearch exact');
-const discover = await call('artifactSearch', { type: 'npm', keywords: ['yaml', 'parser'], pageSize: 5 });
+const discover = await call('artifactSearch', { ecosystem: 'npm', keywords: ['yaml', 'parser'], pageSize: 5 });
 check('artifactSearch keyword discovery', !discover.isError && !discover.rowErrors, discover.text.slice(0, 100));
 
-const judged = await raw('clasify', {
-  queries: [{
-    mainGoal: 'Judge supplied code',
-    reasoning: 'held-state judgment smoke',
-    resources: [{ id: 'r1', value: 'export function add(a, b) { return a + b; }' }],
-    questions: [{ id: 'q1', type: 'yesno', ask: 'Does this code define a function named add?' }],
-  }],
-});
-check('clasify supplied-context judgment answers', !/Input validation error/.test(judged.text) && !judged.isError && !judged.rowErrors, judged.text.slice(0, 160).replace(/\s+/g, ' '));
+if (noClasify) skip('clasify supplied-context judgment answers', noClasify);
+else {
+  const judged = await raw('clasify', {
+    queries: [{
+      mainGoal: 'Judge supplied code',
+      reasoning: 'held-state judgment smoke',
+      resources: [{ id: 'r1', value: 'export function add(a, b) { return a + b; }' }],
+      questions: [{ id: 'q1', type: 'yesno', ask: 'Does this code define a function named add?' }],
+    }],
+  });
+  check('clasify supplied-context judgment answers', !/Input validation error/.test(judged.text) && !judged.isError && !judged.rowErrors, judged.text.slice(0, 160).replace(/\s+/g, ' '));
+}
 
 const result = summary();
 writeResults('remote', { ...result });

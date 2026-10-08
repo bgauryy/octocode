@@ -9,6 +9,7 @@ use crate::policy::prune::DefaultsFlag;
 use crate::tools::id::ToolId;
 use crate::tools::id::query_limits::local_search::{MATCH_PAGE_MAXIMUM, PAGE_MAXIMUM};
 use crate::tools::result::Continuation;
+use crate::tools::result::ToolError;
 use serde_json::{Value, json};
 
 /// The page's continuations, and whether rows remain in its own files.
@@ -19,9 +20,8 @@ pub(super) fn cursor(
     parsed: &octocode_engine::types::RipgrepParseResult,
     layout: &Layout,
     result_identity: &str,
-    reusable: Option<octocode_engine::types::RipgrepParseResult>,
+    reusable: Option<super::manifest::Fresh>,
     policy_key: String,
-    skipped: &crate::policy::discovery::WalkSkips,
 ) -> (Option<Value>, bool) {
     let page = query.page().max(1);
     let match_page = query.match_page().max(1);
@@ -41,12 +41,7 @@ pub(super) fn cursor(
     if snapshot.is_some()
         && let Some(scan) = reusable
     {
-        super::manifest::put(
-            result_identity.to_owned(),
-            policy_key,
-            scan,
-            skipped.clone(),
-        );
+        super::manifest::put(result_identity.to_owned(), policy_key, scan);
     }
     // Leftover rows only count on the files this page shows: another page's
     // files are reached by `nextPage` (which restarts at matchPage 1). List
@@ -72,29 +67,30 @@ pub(super) fn cursor(
 
 /// A continuation whose snapshot no longer describes the source; `next.restart`
 /// reruns page 1 without it.
-pub(super) fn stale_snapshot(query: &LocalSearchQuery) -> LocalSearchError {
+pub(super) fn stale_snapshot(query: &LocalSearchQuery) -> ToolError {
     let mut restart = normalized_query(query, streamed_layout(query));
     if let Some(object) = restart.as_object_mut() {
         object.remove("snapshot");
     }
     restart["page"] = json!(1);
     restart["matchPage"] = json!(1);
-    LocalSearchError {
-        code: "staleSnapshot",
-        message: crate::response::pages::STALE_SNAPSHOT_ERROR.into(),
-        hints: vec![],
+    ToolError {
         next: Some(Box::new(json!({
             "restart": Continuation::new(ToolId::LocalSearch, restart)
                 .why("Start a new search against the current source.")
                 .confidence("exact")
                 .build()
         }))),
+        ..ToolError::new(
+            "staleSnapshot",
+            crate::response::pages::STALE_SNAPSHOT_ERROR,
+        )
     }
 }
 
 /// A stored scan's file no longer hashes to the bytes its values came from:
 /// drop the scan and restart rather than show or check them against new text.
-pub(super) fn changed_since_scan(query: &LocalSearchQuery) -> LocalSearchError {
+pub(super) fn changed_since_scan(query: &LocalSearchQuery) -> ToolError {
     if let Some(snapshot) = query.snapshot() {
         super::manifest::evict(snapshot);
     }
@@ -171,19 +167,17 @@ pub(super) fn build_next(
     (!map.is_empty()).then_some(Value::Object(map))
 }
 
-/// Snapshot identity: the validated root plus every field that changes which
-/// matches are collected or how their values read, with defaults applied,
-/// then the collected result itself. Pagination fields (`page`, `matchPage`,
-/// `pageSize`, `matchPageSize`) only select from that result and stay
-/// out, so a continuation may change them while keeping its snapshot.
+/// Snapshot identity: the [`query_key`] (the validated root plus every
+/// field that changes which matches are collected or how their values read,
+/// with defaults applied), then the collected result itself. Pagination
+/// fields (`page`, `matchPage`, `pageSize`, `matchPageSize`) only select
+/// from that result and stay out, so a continuation may change them while
+/// keeping its snapshot.
 pub(super) fn fingerprint(
-    q: &LocalSearchQuery,
-    root: &std::path::Path,
+    query_key: &str,
     files: &[octocode_engine::types::RipgrepFile],
     stats: &octocode_engine::types::RipgrepStats,
-    page_budget: usize,
 ) -> String {
-    let query_key = query_key(q, root, page_budget);
     let file_values = files
         .iter()
         .map(|f| {
@@ -205,9 +199,12 @@ pub(super) fn fingerprint(
         })
         .collect::<Vec<_>>();
     let canonical = canonicalize(
-        json!([query_key,file_values,{"totalMatches":stats.match_count.unwrap_or(0),"totalMatchedLines":stats.matched_lines.unwrap_or(0),"filesMatched":stats.files_matched.unwrap_or(files.len() as u32),"filesScanned":stats.files_searched.unwrap_or(0),"capped":stats.capped.unwrap_or(false),"capReason":stats.cap_reason,"errorCount":stats.error_count.filter(|n|*n>0),"firstError":stats.first_error} ]),
+        json!([query_key,file_values,{"matchCount":stats.match_count.unwrap_or(0),"matchedLineCount":stats.matched_lines.unwrap_or(0),"fileCount":stats.files_matched.unwrap_or(files.len() as u32),"filesScanned":stats.files_searched.unwrap_or(0),"capped":stats.capped.unwrap_or(false),"capReason":stats.cap_reason,"errorCount":stats.error_count.filter(|n|*n>0),"firstError":stats.first_error} ]),
     );
-    format!("lexical-live-v1:{}", crate::digest::json_sha256(&canonical))
+    // v4 (D1): `matchCount`/`matchedLineCount`/`fileCount`, 1-based
+    // columns, `enclosing` objects and `moreLines` arrays
+    // (an older cursor restarts instead of mixing shapes across pages).
+    format!("lexical-live-v4:{}", crate::digest::json_sha256(&canonical))
 }
 
 /// Digest of the search semantics a snapshot answers: the query fields

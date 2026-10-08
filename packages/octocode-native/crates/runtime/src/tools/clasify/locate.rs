@@ -274,20 +274,16 @@ pub(super) fn collapse_locate_answer(
         .pointer("/answer/probabilities")
         .and_then(Value::as_object)
         .ok_or_else(|| {
-            ClassificationError::new(
-                "invalidClassificationResponse",
+            ClassificationError::invalid_response(
                 "locate choice response omitted passage probabilities.",
-                "Inspect provider compatibility before using the answer.",
             )
         })?;
     let exists_probability = exists
         .pointer("/answer/yesno")
         .and_then(Value::as_f64)
         .ok_or_else(|| {
-            ClassificationError::new(
-                "invalidClassificationResponse",
+            ClassificationError::invalid_response(
                 "locate existence response omitted its probability.",
-                "Inspect provider compatibility before using the answer.",
             )
         })?;
     let mut groups: Vec<Group> = Vec::new();
@@ -595,56 +591,225 @@ fn is_candidate_row(row: &Value) -> bool {
             .is_some_and(|object| object.len() == 5 + usize::from(row.get("path").is_some()))
 }
 
-/// A target that names a code identifier is usually cheaper and exact with
-/// localSearch; locate earns its cost on described behavior.
+/// A target whose answer is one literal (see [`identifier_target`]) is
+/// cheaper and exact with localSearch. Locate earns its cost on described
+/// behavior, so a target that only mentions an identifier gets no hint.
 pub(super) fn literal_target_hint(target: &str) -> Option<String> {
-    let identifier = literal_target(target)?;
+    let identifier = identifier_target(target)?;
     Some(format!(
         "Target names `{identifier}`; if that literal is what you need, localSearch finds it exactly and cheaper than locate."
     ))
 }
 
-/// A target that is nothing but one identifier token: a literal lookup, not
-/// described behavior.
-pub(super) fn bare_identifier(target: &str) -> Option<&str> {
-    let token = target
-        .trim()
-        .trim_matches(['`', '"', '\''])
-        .trim_end_matches("()");
-    (!token.contains(char::is_whitespace) && looks_like_identifier(token)).then_some(token)
-}
-
-pub(super) fn bare_target_hint(identifier: &str) -> String {
+pub(super) fn bare_target_hint(literal: &str) -> String {
     format!(
-        "Target `{identifier}` is a bare identifier: locate was skipped (no read or provider call); run hints.textSearch for its exact matches."
+        "Target `{literal}` is a literal lookup: locate skipped (no read or provider call); run hints.textSearch (localSearch)."
     )
 }
 
-/// Identifier-shaped tokens a target names (`snake_case`, `camelCase`,
-/// `Path::name`), in order.
-fn identifier_tokens(target: &str) -> impl Iterator<Item = &str> {
+/// Words a literal-lookup target may hold besides its one literal: question
+/// and command words, articles, prepositions, locator participles and nouns
+/// (`defined`, `reported`, `definition`, `callers`), and the kind of thing
+/// the literal is (`function`, `diagnostic`). Any other word describes
+/// behavior, so the target runs through locate.
+const LOOKUP_WORDS: &str = "\
+    where which who find locate show search look lookup up get give list grep me us please \
+    is are was were be being been does do did it the a an this its all every each any of \
+    in for to at on from by within inside file files line lines place places location code \
+    source here definition definitions declaration declarations implementation body usage \
+    usages use occurrence occurrences caller callers call site sites function fn method \
+    class struct type enum trait interface constant const variable field property member \
+    macro module symbol identifier name named diagnostic message error string literal key \
+    flag setting defined declared implemented reported raised emitted thrown logged called \
+    invoked used referenced mentioned set assigned initialized printed exported imported";
+
+/// Active locator verbs. `<the subject> reports <literal>` names its literal
+/// after the verb, so a one- or two-word subject before the verb is context.
+const LOCATOR_VERBS: &str = "\
+    reports raises emits throws logs defines declares calls invokes uses references \
+    mentions sets assigns prints exports imports implements";
+
+const ARTICLES: &str = "the a an";
+
+/// One word of a target: a quoted literal, or a bare token with its
+/// surrounding punctuation and any possessive `'s` removed.
+#[derive(Clone, Copy)]
+enum Word<'a> {
+    Quoted(&'a str),
+    Token(&'a str),
+}
+
+fn closing_quote(open: char) -> Option<char> {
+    match open {
+        '`' | '"' => Some(open),
+        '\u{201c}' => Some('\u{201d}'),
+        _ => None,
+    }
+}
+
+/// `token` is one of the space-separated `words`, ignoring ASCII case.
+fn is_one_of(token: &str, words: &str) -> bool {
+    words
+        .split_whitespace()
+        .any(|word| word.eq_ignore_ascii_case(token))
+}
+
+/// The target without a trailing relative clause that describes its literal
+/// (`X, which escapes regex characters`). A clause followed by another comma
+/// may continue the main clause, so it stays.
+fn main_clause(target: &str) -> &str {
+    let mut quoted: Option<char> = None;
+    for (at, c) in target.char_indices() {
+        match quoted {
+            Some(close) => {
+                if c == close {
+                    quoted = None;
+                }
+            }
+            None if c == ',' => {
+                let tail = &target[at + 1..];
+                let clause = tail.trim_start();
+                let relative = ["which ", "that "].iter().any(|word| {
+                    clause
+                        .get(..word.len())
+                        .is_some_and(|head| head.eq_ignore_ascii_case(word))
+                });
+                if relative && !tail.contains(',') {
+                    return &target[..at];
+                }
+            }
+            None => quoted = closing_quote(c),
+        }
+    }
     target
-        .split(|c: char| c.is_whitespace() || matches!(c, ',' | ';' | '"' | '\'' | '`' | '?' | '!'))
-        .map(|token| token.trim_end_matches(['.', ')']).trim_end_matches('('))
-        .filter(|token| looks_like_identifier(token))
 }
 
-pub(super) fn literal_target(target: &str) -> Option<&str> {
-    identifier_tokens(target).next()
+/// The words of `text`; `None` when a quote is left open.
+fn target_words(text: &str) -> Option<Vec<Word<'_>>> {
+    let mut words = Vec::new();
+    let mut rest = text.trim_start();
+    while let Some(first) = rest.chars().next() {
+        if let Some(close) = closing_quote(first) {
+            let body = &rest[first.len_utf8()..];
+            let end = body.find(close)?;
+            let quoted = body[..end].trim();
+            // `name()` quotes the identifier; any other text stays verbatim.
+            let quoted = quoted
+                .strip_suffix("()")
+                .filter(|name| looks_like_identifier(name))
+                .unwrap_or(quoted);
+            words.push(Word::Quoted(quoted));
+            rest = body[end + close.len_utf8()..].trim_start();
+            continue;
+        }
+        let end = rest
+            .find(|c: char| c.is_whitespace() || closing_quote(c).is_some())
+            .unwrap_or(rest.len());
+        let token = rest[..end]
+            .trim_start_matches(['(', '[', '{', '-', '\u{2014}', '\u{2013}'])
+            .trim_end_matches([
+                '.', ',', ';', ':', '?', '!', '(', ')', ']', '}', '-', '\u{2014}', '\u{2013}',
+            ]);
+        let token = token
+            .strip_suffix("'s")
+            .or_else(|| token.strip_suffix("\u{2019}s"))
+            .unwrap_or(token);
+        if !token.is_empty() {
+            words.push(Word::Token(token));
+        }
+        rest = rest[end..].trim_start();
+    }
+    Some(words)
 }
 
-/// `hints.textSearch`: the first identifier a locate target names, searched
-/// literally over the local resources (their one path, or the deepest
-/// directory they share). Remote or path-less resources keep the hint alone.
-/// It is a follow-up of this query, so it inherits the brief.
+/// `the <one or two words> <locator verb>` starting at `index`: the index of
+/// the verb, whose subject is context rather than the literal sought.
+fn subject_verb(words: &[Word<'_>], index: usize) -> Option<usize> {
+    let Word::Token(article) = words[index] else {
+        return None;
+    };
+    if !is_one_of(article, ARTICLES) {
+        return None;
+    }
+    (index + 2..=index + 3).find(|&verb| {
+        matches!(words.get(verb), Some(Word::Token(token)) if is_one_of(token, LOCATOR_VERBS))
+            && words[index + 1..verb]
+                .iter()
+                .all(|word| matches!(word, Word::Token(_)))
+    })
+}
+
+/// The literal a locate target asks for, when that literal is the target
+/// rather than context: the target's only content is one identifier
+/// (`snake_case`, `camelCase`, `PascalCase`, `Path::name`) or one quoted
+/// literal, around lookup words (`where is X reported`, `find X`, `the
+/// definition of X`). A target with any other content word (`where does
+/// QuerySet filter after a slice`) describes behavior and returns `None`.
+/// The short-circuit, the routing hint, and `hints.textSearch` all use this
+/// one classifier.
+pub(super) fn identifier_target(target: &str) -> Option<&str> {
+    let words = target_words(main_clause(target))?;
+    let mut literal: Option<&str> = None;
+    let mut index = 0;
+    while index < words.len() {
+        if let Some(verb) = subject_verb(&words, index) {
+            index = verb + 1;
+            continue;
+        }
+        let found = match words[index] {
+            Word::Quoted(text) if text.chars().count() >= 3 => text,
+            Word::Token(token) if looks_like_identifier(token) => token,
+            Word::Token(token)
+                if is_one_of(token, LOOKUP_WORDS) || is_one_of(token, LOCATOR_VERBS) =>
+            {
+                index += 1;
+                continue;
+            }
+            Word::Quoted(_) | Word::Token(_) => return None,
+        };
+        if literal.is_some_and(|literal| literal != found) {
+            return None;
+        }
+        literal = Some(found);
+        index += 1;
+    }
+    literal
+}
+
+/// `hints.textSearch`: every distinct literal the locate targets ask for
+/// (see [`identifier_target`]), searched over the local resources (their
+/// one path, or the deepest directory they share): one literal search, or
+/// one regex alternation of the escaped literals so no literal goes
+/// unsearched. Remote or path-less resources keep the hint alone.
 pub(super) fn literal_search<'a>(
     targets: impl IntoIterator<Item = &'a str>,
     resources: &[Value],
 ) -> Option<Value> {
-    let literal = targets.into_iter().find_map(literal_target)?;
+    let mut literals = Vec::<&str>::new();
+    for literal in targets.into_iter().filter_map(identifier_target) {
+        if !literals.contains(&literal) {
+            literals.push(literal);
+        }
+    }
     let path = local_scope(resources)?;
-    // The response stage gives this hint the matrix's own brief, if any.
-    literal_file_search(&path, literal)
+    match literals.as_slice() {
+        [] => None,
+        [literal] => literal_file_search(&path, literal),
+        several => {
+            let alternation = several
+                .iter()
+                .map(|literal| regex::escape(literal))
+                .collect::<Vec<_>>()
+                .join("|");
+            Some(
+                crate::tools::result::Continuation::new(
+                    ToolId::LocalSearch,
+                    json!({"path":path,"matchString":alternation,"regex":"rust"}),
+                )
+                .build(),
+            )
+        }
+    }
 }
 
 /// `localSearch` for `literal`, matched literally under `path`.
@@ -868,7 +1033,7 @@ mod tests {
 
     #[test]
     fn ranking_drops_rows_covering_lines_a_better_row_covers() {
-        let row = |start: u64, end: u64, probability: f64| json!({"resourceId":"r","path":"/a.rs","exists":0.9,"lines":[start,end],"probability":probability});
+        let row = |start: u64, end: u64, probability: f64| json!({"resourceId":"r","path":"/a.rs","exists":0.9,"line":start,"endLine":end,"probability":probability});
         let carry = json!({"t":[row(10, 17, 0.8)]});
         let resources = [json!({"id":"r","pages":[{
             "source":{"path":"/a.rs"},
@@ -922,17 +1087,17 @@ mod tests {
         // A window trailing by a small exists gap stays behind despite a higher p.
         assert_eq!(
             order(json!({"t":[
-                {"lines":[5020,5027],"exists":0.89,"probability":0.37},
-                {"lines":[10,17],"exists":0.40,"probability":0.99},
-                {"lines":[4657,4664],"exists":0.85,"probability":0.86}
+                {"line":5020,"endLine":5027,"exists":0.89,"probability":0.37},
+                {"line":10,"endLine":17,"exists":0.40,"probability":0.99},
+                {"line":4657,"endLine":4664,"exists":0.85,"probability":0.86}
             ]})),
             vec![5020, 4657, 10]
         );
         // Equal exists: probability decides.
         assert_eq!(
             order(json!({"t":[
-                {"lines":[1,8],"exists":0.9,"probability":0.2},
-                {"lines":[20,28],"exists":0.9,"probability":0.8}
+                {"line":1,"endLine":8,"exists":0.9,"probability":0.2},
+                {"line":20,"endLine":28,"exists":0.9,"probability":0.8}
             ]})),
             vec![20, 1]
         );
@@ -942,9 +1107,9 @@ mod tests {
     fn compact_carry_rows_join_the_ranking() {
         let single = vec![json!({"id":"f","pages":[]})];
         let carry = json!({"t":[
-            {"lines":[5,12],"exists":0.99,"probability":0.9},
-            {"resourceId":"f","path":"a.c","lines":[40,48],"exists":0.6,"probability":0.2},
-            {"lines":[9],"exists":0.9,"probability":0.9}
+            {"line":5,"endLine":12,"exists":0.99,"probability":0.9},
+            {"resourceId":"f","path":"a.c","line":40,"endLine":48,"exists":0.6,"probability":0.2},
+            {"line":9,"exists":0.9,"probability":0.9}
         ]});
         let ranked = rank_locate(&single, &["t"], Some(&carry)).unwrap();
         assert_eq!(
@@ -960,7 +1125,7 @@ mod tests {
             rank_locate(
                 &several,
                 &["t"],
-                Some(&json!({"t":[{"lines":[5,12],"exists":0.99,"probability":0.9}]}))
+                Some(&json!({"t":[{"line":5,"endLine":12,"exists":0.99,"probability":0.9}]}))
             )
             .is_none()
         );
@@ -993,15 +1158,16 @@ mod tests {
         assert_eq!(readable_best(&lone, false).unwrap(), lone);
         assert_eq!(readable_best(&lone, true).unwrap(), lone);
         // A lone carried row survives the next call with no new windows.
-        let carry = json!({"t":[{"resourceId":"r","exists":0.9,"lines":[1,8],"probability":0.9}]});
+        let carry =
+            json!({"t":[{"resourceId":"r","exists":0.9,"line":1,"endLine":8,"probability":0.9}]});
         let carried = rank_locate(&[], &["t"], Some(&carry)).unwrap();
         assert_eq!(carried["t"][0]["startLine"], 1);
         // A carried row from an earlier call joins the ranking; malformed
         // ones (out-of-range values, an inverted window) are ignored.
         let carry = json!({"t":[
-            {"resourceId":"r","exists":0.99,"lines":[5,12],"probability":0.9},
-            {"resourceId":"r","exists":2.0,"lines":[0,1],"probability":0.9},
-            {"resourceId":"r","exists":0.98,"lines":[40,39],"probability":0.9}
+            {"resourceId":"r","exists":0.99,"line":5,"endLine":12,"probability":0.9},
+            {"resourceId":"r","exists":2.0,"line":0,"endLine":1,"probability":0.9},
+            {"resourceId":"r","exists":0.98,"line":40,"endLine":39,"probability":0.9}
         ]});
         let merged = rank_locate(&single, &["t"], Some(&carry)).unwrap();
         assert_eq!(merged["t"][0]["startLine"], 5);
@@ -1025,7 +1191,7 @@ mod tests {
         assert_eq!(best["t"][1]["path"], "/repo/a.go");
         // A carried row keeps its path through the next call.
         let carry = json!({"t":[
-            {"resourceId":"s","path":"/repo/b.go","exists":0.9,"lines":[40,47],"probability":0.9}
+            {"resourceId":"s","path":"/repo/b.go","exists":0.9,"line":40,"endLine":47,"probability":0.9}
         ]});
         let carried = rank_locate(&[], &["t"], Some(&carry)).unwrap();
         assert_eq!(carried["t"][0]["path"], "/repo/b.go");
@@ -1175,7 +1341,6 @@ mod tests {
         for target in [
             "Where is parse_cbor_internal defined?",
             "The body of Engine::execute.",
-            "What does applyEdits() return?",
         ] {
             assert!(literal_target_hint(target).is_some(), "{target}");
         }
@@ -1183,31 +1348,82 @@ mod tests {
             "The periodic timer function that runs background housekeeping tasks.",
             "The maximum permitted retry count.",
             "The method that resolves a $type name into a CLR type.",
+            // Asks about behavior: the identifier is its subject, not the answer.
+            "What does applyEdits() return?",
         ] {
             assert!(literal_target_hint(target).is_none(), "{target}");
         }
     }
 
+    /// The clasify evaluation's described targets (A1–A7, plus the fix's
+    /// `QuerySet` example and B1, whose identifier sits in a because-clause)
+    /// name behavior: they run locate and get no literal hint. Its literal
+    /// targets (B2–B4, and identifier sentences) are literal lookups: one
+    /// classifier returns the literal for the short-circuit, the hint, and
+    /// `hints.textSearch`.
     #[test]
-    fn only_a_lone_identifier_token_is_a_bare_target() {
-        for target in [
-            "MAX_EXPANDED_CELLS",
-            " `parse_cbor_internal` ",
-            "Engine::execute",
-            "applyEdits()",
-        ] {
-            assert!(bare_identifier(target).is_some(), "{target}");
-        }
-        for target in [
-            "Where is MAX_EXPANDED_CELLS defined?",
-            "retry",
+    fn only_a_target_whose_content_is_one_literal_is_a_literal_lookup() {
+        for described in [
+            "Where the QuerySet refuses to apply a filter once results have already been sliced",
+            "Where saving a model instance falls back to inserting a new row when no existing row was updated",
+            "Where objects being bulk-inserted are split into batches sized by the database limit",
+            "Where an idle blocking-pool thread gives up and exits after waiting too long without new work",
+            "Where type relation checking stops comparing because the nesting of compared types got too deep, as a backstop against infinite recursion",
+            "Where the text model decides to turn off syntax highlighting for a document because the document is too big",
+            "Where the checker reports that a local variable is read before any value was assigned to it, based on control flow",
+            "where does QuerySet filter after a slice",
+            "Where creating a semaphore panics because the permit count exceeds MAX_PERMITS",
+            "Where the QuerySet uploads query results to an S3 bucket",
+            "Where QuerySet, which is lazy, evaluates",
+            "Where is foo_bar or baz_qux defined?",
             "The retry loop.",
+            "retry",
             "a.b",
+            "find \"x\"",
+            "find `unclosed_quote",
             "",
         ] {
-            assert!(bare_identifier(target).is_none(), "{target}");
+            assert_eq!(identifier_target(described), None, "{described}");
+            assert!(literal_target_hint(described).is_none(), "{described}");
         }
-        assert!(bare_target_hint("MAX_EXPANDED_CELLS").contains("skipped"));
+        for (literal_ask, literal) in [
+            (
+                "Where the QuerySet raises \"Negative indexing is not supported.\"",
+                "Negative indexing is not supported.",
+            ),
+            (
+                "Where the checker reports the diagnostic Type_instantiation_is_excessively_deep_and_possibly_infinite",
+                "Type_instantiation_is_excessively_deep_and_possibly_infinite",
+            ),
+            (
+                "where is Type_instantiation_is_excessively_deep_and_possibly_infinite reported",
+                "Type_instantiation_is_excessively_deep_and_possibly_infinite",
+            ),
+            (
+                "The definition of escapeRegExpCharacters, which escapes regular-expression special characters",
+                "escapeRegExpCharacters",
+            ),
+            ("find escapeRegExpCharacters", "escapeRegExpCharacters"),
+            ("Where's `newElementWith()` defined?", "newElementWith"),
+            ("Who calls Engine::execute?", "Engine::execute"),
+            (
+                "Find all callers of _filter_or_exclude",
+                "_filter_or_exclude",
+            ),
+            ("MAX_EXPANDED_CELLS", "MAX_EXPANDED_CELLS"),
+            (" `parse_cbor_internal` ", "parse_cbor_internal"),
+            ("applyEdits()", "applyEdits"),
+        ] {
+            assert_eq!(
+                identifier_target(literal_ask),
+                Some(literal),
+                "{literal_ask}"
+            );
+            assert!(
+                literal_target_hint(literal_ask).is_some_and(|hint| hint.contains(literal)),
+                "{literal_ask}"
+            );
+        }
     }
 
     fn local(tool: &str, path: &str) -> Value {
@@ -1257,5 +1473,37 @@ mod tests {
         ];
         assert!(literal_search(targets, &remote).is_none());
         assert!(literal_search(["The retry loop."], &one).is_none());
+    }
+
+    /// Several distinct literals are all searched: one regex alternation of
+    /// the escaped literals (a repeated literal counts once). Described
+    /// targets add none.
+    #[test]
+    fn several_literal_targets_share_one_search_that_reaches_every_literal() {
+        let one = [local("localFetch", "/repo/src/cbor.rs")];
+        let targets = [
+            "Where is parse_cbor_internal defined?",
+            "The retry loop.",
+            "find \"a.b (c)|d\"",
+            "parse_cbor_internal",
+            "Who calls Engine::execute?",
+        ];
+        let next = literal_search(targets, &one).unwrap();
+        let query = &next["query"]["queries"][0];
+        assert_eq!(query["regex"], "rust", "{next}");
+        assert_eq!(
+            query["matchString"], r"parse_cbor_internal|a\.b \(c\)\|d|Engine::execute",
+            "{next}"
+        );
+        let pattern = regex::Regex::new(query["matchString"].as_str().unwrap()).unwrap();
+        for line in [
+            "fn parse_cbor_internal()",
+            "x = \"a.b (c)|d\"",
+            "Engine::execute()",
+        ] {
+            assert!(pattern.is_match(line), "{line}");
+        }
+        assert!(!pattern.is_match("a-b (c)"), "escaped, not a pattern");
+        crate::contracts::validate_query("localSearch", query.clone()).unwrap();
     }
 }

@@ -121,6 +121,29 @@ async fn local_fetch_pages_and_unions_through_the_runtime() {
     runtime.close().await;
 }
 
+/// P6: a byte page states its view's total (`pagination.totalBytes`), as a
+/// line page's total rides `totalLines`: `sourceBytes` is debug-only, so
+/// without it the page would name no total at all.
+#[tokio::test]
+async fn local_fetch_byte_pages_state_their_total() {
+    let workspace = Workspace::new();
+    let text = "one\ntwo 😀\nthree\n";
+    let path = workspace.write("bytes.txt", text);
+    let runtime = workspace.runtime(&[]);
+    let page = call(
+        &runtime,
+        "localFetch",
+        query_path(&path, json!({"unit":"bytes","length":5,"debug":false})),
+    )
+    .await
+    .expect("byte page");
+    let data = row_data(&page);
+    assert!(data.get("sourceBytes").is_none(), "{data}");
+    assert_eq!(data["pagination"]["totalBytes"], text.len(), "{data}");
+    assert_eq!(data["pagination"]["hasMore"], true, "{data}");
+    runtime.close().await;
+}
+
 #[tokio::test]
 async fn mcp_local_fetch_snapshots_stale_only_the_mutated_batch_row() {
     let workspace = Workspace::new();
@@ -726,7 +749,7 @@ async fn ast_topology_dead_code_verify_references_is_a_valid_lsp_query() {
         "deadCode row must not be withheld: {}",
         outcome.structured_content
     );
-    let verify = &row_data(&outcome)["hints"]["verifyReferences"];
+    let verify = &row_data(&outcome)["hints"]["references"];
     assert_eq!(
         verify["tool"], "lspSearch",
         "{}",
@@ -741,7 +764,7 @@ async fn ast_topology_dead_code_verify_references_is_a_valid_lsp_query() {
     );
     query["reasoning"] = json!("Verify the dead-code candidate.");
     octocode_native::contracts::validate_query("lspSearch", query)
-        .expect("verifyReferences must validate against the lspSearch input contract");
+        .expect("the references lead must validate against the lspSearch input contract");
     runtime.close().await;
 }
 
@@ -988,7 +1011,7 @@ async fn local_walks_share_one_default_prune_and_exclude_adds() {
     .await
     .expect("structureSearch tree");
     // Listed entries only: the withheld notice names `secrets/` by policy.
-    let rendered = serde_json::to_string(&row_data(&tree)["entries"]).expect("json");
+    let rendered = serde_json::to_string(&row_data(&tree)["files"]).expect("json");
     for dir in pruned {
         assert!(
             !rendered.contains(&format!("{dir}/")),
@@ -1302,4 +1325,50 @@ async fn topology_path_echo_matches_caller_form_on_paged_cycles() {
     assert_eq!(data["path"], "packages/app", "{data}");
     assert_eq!(data["results"].as_array().map(Vec::len), Some(1), "{data}");
     runtime.close().await;
+}
+
+/// A regex read past the match limit names the lead that pages every
+/// match, and that lead reaches the agent where the warning says, on both
+/// surfaces, also on the first page of a read that continues. Leads ride
+/// `hints` (pages ride `next`), so the warning must name `hints.textSearch`.
+#[tokio::test]
+async fn regex_match_limit_warning_names_the_lead_it_delivers() {
+    let workspace = Workspace::new();
+    let body: String = (1..=100_005).map(|n| format!("hit {n}\n")).collect();
+    let path = workspace.write("hits.txt", body);
+    let runtime = workspace.runtime(&[]);
+    let query =
+        json!({"queries":[{"path":path.to_string_lossy(),"matchString":"hit","regex":"rust"}]});
+    for mcp in [false, true] {
+        let envelope = if mcp {
+            runtime
+                .execute_mcp("limit-mcp".into(), "localFetch".into(), query.clone())
+                .await
+                .expect("mcp call")["structuredContent"]
+                .clone()
+        } else {
+            runtime
+                .execute("limit-cli".into(), "localFetch".into(), query.clone())
+                .await
+                .expect("cli call")
+                .structured_content
+        };
+        let data = &envelope["results"][0]["data"];
+        let warning = data["warnings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .find(|w| w.contains("match limit"))
+            .unwrap_or_else(|| panic!("mcp={mcp}: no match-limit warning: {data}"));
+        assert!(
+            data["next"]["continue"].is_object(),
+            "mcp={mcp}: the read pages"
+        );
+        assert!(warning.contains("hints.textSearch"), "mcp={mcp}: {warning}");
+        assert_eq!(
+            data["hints"]["textSearch"]["tool"], "localSearch",
+            "mcp={mcp}: {data}"
+        );
+    }
 }

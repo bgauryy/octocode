@@ -6,6 +6,7 @@ use crate::tools::ast_rule::{
 use crate::tools::id::ToolId;
 use crate::tools::id::query_limits::ast_search::r#match as limits;
 use crate::tools::num::u32_of;
+use crate::tools::result::ToolError;
 use crate::{
     policy::{path::PathPolicy, prune::PruneMode},
     security::ContentSecurity,
@@ -92,6 +93,10 @@ impl MatchQuery<'_> {
     pub fn max_files(self) -> u32 {
         either_form!(self, max_files => u32_of(*max_files))
     }
+    /// Leading candidates (walk order) an earlier window evaluated.
+    pub fn scan_offset(self) -> u32 {
+        either_form!(self, scan_offset => scan_offset.map_or(0, |offset| u32::try_from(offset.get()).unwrap_or(u32::MAX)))
+    }
     pub fn match_page_size(self) -> u32 {
         either_form!(self, match_page_size => u32_of(*match_page_size))
     }
@@ -176,10 +181,10 @@ fn retry_omitted_parts(
         .or_else(|| q.language());
     let extensions = match language.as_deref() {
         Some(language) => language_extensions(language).unwrap_or_default(),
-        None => std::path::Path::new(&q.path())
-            .extension()
-            .map(|ext| std::iter::once(ext.to_string_lossy().to_ascii_lowercase()).collect())
-            .unwrap_or_default(),
+        None => Some(octocode_engine::text::extension_of(&q.path(), true, ""))
+            .filter(|extension| !extension.is_empty())
+            .into_iter()
+            .collect(),
     };
     let variants = omitted_part_variants(&pattern, &extensions);
     if variants.is_empty() {
@@ -202,8 +207,8 @@ fn retry_omitted_parts(
     else {
         return out;
     };
-    let written = out["stats"]["totalMatches"].as_u64().unwrap_or(0);
-    if retried["stats"]["totalMatches"].as_u64().unwrap_or(0) <= written {
+    let written = out["stats"]["matchCount"].as_u64().unwrap_or(0);
+    if retried["stats"]["matchCount"].as_u64().unwrap_or(0) <= written {
         return out;
     }
     let note = json!({
@@ -284,7 +289,7 @@ fn return_slot(pattern: &str, keyword: &str, slot: &str, body: char) -> Option<S
     None
 }
 
-const RULE_COMPILE_HINT: &str = "Fix the YAML rule at the position the error names: `rule:` takes keys such as kind, pattern, regex, has, inside, follows, precedes, all, any, not, matches (list values are YAML sequences). Check a nested pattern alone as a pattern query first.";
+const RULE_COMPILE_HINT: &str = "Fix the YAML rule where the error points (keys: kind pattern regex has inside all any not stopBy); test patterns alone.";
 
 /// Rust item keywords a visibility modifier (`pub`, `pub(crate)`) can precede.
 const RUST_VISIBLE_ITEMS: &[&str] = &[
@@ -321,6 +326,59 @@ struct Scan {
     /// Unsupported, unreadable and over-large files skipped.
     skips: (u32, u32, u32),
     skipped_by_prefilter: u32,
+    /// Every file the scan evaluated (absolute), for the memo's stamps.
+    sources: Vec<std::path::PathBuf>,
+    /// Candidate entries the security path policy withheld from the walk.
+    withheld: crate::policy::discovery::Withheld,
+}
+
+/// Scans kept for the continuation pages of a multi-page result.
+static SCANS: super::memo::ScanMemo<Scan> = super::memo::ScanMemo::new();
+
+/// The scan inputs a `match` snapshot does not digest; a stored scan is
+/// served only to a page with the same ones.
+fn scan_key(q: MatchQuery<'_>, paths: &PathPolicy) -> String {
+    crate::digest::json_sha256(&json!([
+        paths.identity(),
+        q.default_excludes(),
+        super::MAX_PARSE_SOURCE_BYTES
+    ]))
+}
+
+/// Rough heap bytes of a stored scan, its memo weight.
+fn scan_bytes(scan: &Scan) -> usize {
+    let diagnostic =
+        |d: &StructuralDiagnostic| 64 + d.message.len() + d.path.as_ref().map_or(0, String::len);
+    scan.files
+        .iter()
+        .map(|(path, matches, diagnostics, _)| {
+            96 + path.len()
+                + matches
+                    .iter()
+                    .map(|m| {
+                        128 + m.text.len()
+                            + m.header.as_ref().map_or(0, String::len)
+                            + m.metavars
+                                .values()
+                                .flatten()
+                                .map(|value| 24 + value.len())
+                                .sum::<usize>()
+                            + m.metavar_ranges
+                                .values()
+                                .flatten()
+                                .map(|range| 48 + range.text.len())
+                                .sum::<usize>()
+                    })
+                    .sum::<usize>()
+                + diagnostics.iter().map(diagnostic).sum::<usize>()
+        })
+        .sum::<usize>()
+        + scan.diagnostics.iter().map(diagnostic).sum::<usize>()
+        + scan
+            .sources
+            .iter()
+            .map(|path| 64 + path.as_os_str().len())
+            .sum::<usize>()
 }
 
 /// One file's row on the result page, with what its match page withheld.
@@ -345,7 +403,7 @@ struct Grouped {
     diagnostics: Vec<Value>,
     total_matches: u64,
     parsed_files: u32,
-    compile_error: Option<super::AstError>,
+    compile_error: Option<ToolError>,
     compile_failed_files: u32,
     unevaluated_files: u32,
 }
@@ -356,25 +414,51 @@ fn execute_match_inner(
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
 ) -> super::AstResult {
-    cancel.check().map_err(super::cancelled)?;
+    cancel.check().map_err(ToolError::cancelled)?;
     let scope = resolve_scope(q, paths, cancel)?;
-    let mut scan = if scope.is_file {
-        scan_file(q, &scope, security)?
-    } else {
-        scan_directory(q, &scope, paths, security, cancel)?
+    let continues = q.page() > 1 || q.match_page() > 1;
+    let key = scan_key(q, paths);
+    // A continuation page reuses the scan its first page stored when nothing
+    // it read changed; the snapshot below still decides whether it serves.
+    let stored = q
+        .snapshot()
+        .filter(|_| continues)
+        .and_then(|snapshot| SCANS.get(&snapshot, &key));
+    let fresh = stored.is_none();
+    let started = std::time::SystemTime::now();
+    let scan = match stored {
+        Some(scan) => scan,
+        None => {
+            let mut scan = if scope.is_file {
+                scan_file(q, &scope, security)?
+            } else {
+                scan_directory(q, &scope, paths, security, cancel)?
+            };
+            cancel.check().map_err(ToolError::cancelled)?;
+            sort_files(q, &mut scan.files);
+            std::sync::Arc::new(scan)
+        }
     };
-    cancel.check().map_err(super::cancelled)?;
-    sort_files(q, &mut scan.files);
     let snapshot = match_snapshot(q, &scope, &scan.files);
-    if (q.page() > 1 || q.match_page() > 1) && q.snapshot().as_deref() != Some(&snapshot) {
+    if continues && q.snapshot().as_deref() != Some(&snapshot) {
+        if !fresh {
+            // A stored scan is only a candidate: a page whose query no longer
+            // matches it is answered by a fresh scan, exactly as without one.
+            if let Some(stale) = q.snapshot() {
+                SCANS.evict(&stale);
+            }
+            return execute_match_inner(q, paths, security, cancel);
+        }
+        if let Some(error) = interrupted_rescan(q, &scan) {
+            return Err(error);
+        }
         return Ok(crate::tools::result::stale_snapshot(continuation_with(
             q,
             json!({"page":1,"matchPage":1,"snapshot":null}),
             &snapshot,
         )));
     }
-    let files = std::mem::take(&mut scan.files);
-    let grouped = group_files(q, files);
+    let grouped = group_files(q, &scan.files);
     if grouped.total_matches == 0
         && grouped.parsed_files == 0
         && grouped.compile_failed_files > 0
@@ -384,7 +468,22 @@ fn execute_match_inner(
         // as proof of absence, so surface the compile failure instead.
         return Err(error);
     }
-    Ok(render_match_page(q, &scope, scan, grouped, &snapshot))
+    let out = render_match_page(q, &scope, &scan, grouped, &snapshot);
+    if fresh
+        && out["next"]
+            .as_object()
+            .is_some_and(|next| next.contains_key("nextPage") || next.contains_key("nextMatchPage"))
+    {
+        SCANS.put(
+            (snapshot, key),
+            &scope.canonical,
+            &scan.sources,
+            started,
+            std::sync::Arc::clone(&scan),
+            scan_bytes(&scan),
+        );
+    }
+    Ok(out)
 }
 
 /// Validates the path and picks the grammar: `language`, else for a
@@ -394,22 +493,20 @@ fn resolve_scope(
     q: MatchQuery<'_>,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
-) -> Result<Scope, super::AstError> {
+) -> Result<Scope, ToolError> {
     let requested = q
         .language()
         .as_deref()
         .map(|language| {
             language_extensions(language).ok_or_else(|| {
-                super::AstError::new(
-                    "ast.language.unsupported",
-                    format!(
-                        "language \"{language}\" is not a supported structural grammar. Use a language name, id, or extension such as \"typescript\", \"rust\", or \"py\"."
-                    ),
+                ToolError::new(
+                    "languageUnsupported",
+                    crate::tools::ast_rule::unsupported_language_message(language),
                 )
             })
         })
         .transpose()?;
-    let p = paths.validate(q.path()).map_err(super::AstError::from)?;
+    let p = paths.validate(q.path()).map_err(super::policy_error)?;
     let meta =
         std::fs::metadata(&p.canonical).map_err(|error| super::io_error(&q.path(), error))?;
     let inferred = if meta.is_dir() && q.language().is_none() {
@@ -429,7 +526,7 @@ fn resolve_scope(
         && let Some(extensions) = &extensions
     {
         compile_check(extensions, q.pattern().as_deref(), q.rule().as_deref())
-            .map_err(|error| super::AstError::new(error.code, error.message))?;
+            .map_err(|error| ToolError::new(error.code, error.message))?;
     }
     Ok(Scope {
         canonical: p.canonical,
@@ -444,12 +541,12 @@ fn scan_file(
     q: MatchQuery<'_>,
     scope: &Scope,
     security: &ContentSecurity,
-) -> Result<Scan, super::AstError> {
+) -> Result<Scan, ToolError> {
     let canonical = &scope.canonical;
     super::validate_file_language(canonical, scope.language.as_deref())?;
     let Some(bytes) = super::read_parse_source(canonical)? else {
-        return Err(super::AstError::new(
-            "ast.source.limit",
+        return Err(ToolError::new(
+            "fileTooLarge",
             "Source exceeds the native parser byte limit.",
         ));
     };
@@ -457,7 +554,7 @@ fn scan_file(
     // redacted by the response stage.
     let source = security
         .decode_source_bytes(&bytes, super::MAX_PARSE_SOURCE_BYTES)
-        .map_err(super::AstError::from)?;
+        .map_err(super::policy_error)?;
     let source_path = canonical.to_string_lossy();
     let r = if super::cpp_header_override(canonical, scope.language.as_deref()) {
         octocode_engine::portable::structural_search_detailed_with_extension(
@@ -486,6 +583,7 @@ fn scan_file(
             r.diagnostics,
             r.status,
         )],
+        sources: vec![canonical.clone()],
         ..Scan::default()
     })
 }
@@ -496,8 +594,9 @@ fn scan_directory(
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
-) -> Result<Scan, super::AstError> {
+) -> Result<Scan, ToolError> {
     let extensions = scope.extensions.as_ref();
+    let withheld = std::sync::Mutex::new(crate::policy::discovery::Withheld::default());
     let r = octocode_engine::portable::structural_search_files_detailed_filtered_with_extension(
         StructuralSearchFilesOptions {
             path: scope.canonical.to_string_lossy().into_owned(),
@@ -508,17 +607,33 @@ fn scan_directory(
                     .map(|extensions| extensions.iter().map(|ext| format!("*.{ext}")).collect())
             }),
             exclude: q.exclude(),
-            exclude_dir: Some(PruneMode::SyntaxVisible.directories(q.default_excludes())),
+            exclude_dir: Some(
+                PruneMode::SyntaxVisible.directories_before_policy(q.default_excludes()),
+            ),
             hidden: q.hidden(),
             no_ignore: q.no_ignore(),
             max_depth: q.max_depth(),
             max_files: Some(q.max_files()),
+            skip_files: Some(q.scan_offset()),
             max_file_bytes: u32::try_from(super::MAX_PARSE_SOURCE_BYTES).ok(),
         },
         &|path| {
+            let allowed = super::allow_discovery(path, paths, cancel)?;
+            // Only a directory or a file of the scanned grammar could have
+            // matched, so only those leave absence unproven.
+            let is_dir = path.is_dir();
+            if !allowed
+                && (is_dir
+                    || extensions.is_none_or(|extensions| has_extension_in(path, extensions)))
+            {
+                withheld
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .record(path, is_dir);
+            }
             // Explicit include globs are intersected with language: files
             // outside the selected grammar are never candidates.
-            Ok(super::allow_discovery(path, paths, cancel)?
+            Ok(allowed
                 && (q.include().is_none()
                     || extensions.is_none_or(|extensions| {
                         !path.is_file() || has_extension_in(path, extensions)
@@ -528,10 +643,7 @@ fn scan_directory(
             if super::cpp_header_override(path, scope.language.as_deref()) {
                 "cpp".to_owned()
             } else {
-                path.extension()
-                    .and_then(|extension| extension.to_str())
-                    .unwrap_or_default()
-                    .to_ascii_lowercase()
+                octocode_engine::text::extension_of(&path.to_string_lossy(), true, "")
             }
         },
     )
@@ -539,8 +651,14 @@ fn scan_directory(
     if let Some(error) = diagnostic_error(&r.diagnostics) {
         return Err(error);
     }
+    let sources = r
+        .files
+        .iter()
+        .map(|f| std::path::PathBuf::from(&f.path))
+        .collect();
     // Preserve the scan-level coverage signals the group projection drops.
     Ok(Scan {
+        sources,
         files: r
             .files
             .into_iter()
@@ -559,6 +677,9 @@ fn scan_directory(
         diagnostics: r.diagnostics,
         skips: (r.skipped_unsupported, r.skipped_unreadable, r.skipped_large),
         skipped_by_prefilter: r.skipped_by_pre_filter,
+        withheld: withheld
+            .into_inner()
+            .unwrap_or_else(|error| error.into_inner()),
     })
 }
 
@@ -577,6 +698,38 @@ fn sort_files(q: MatchQuery<'_>, files: &mut [ScannedFile]) {
     });
 }
 
+/// A continuation page whose fresh rescan stopped at a parse or match
+/// deadline differs from its first page because the scan was cut, not
+/// because the source changed: a retryable `timeout` with the same page as
+/// `next.retry`, never a `staleSnapshot` that discards the pages read.
+fn interrupted_rescan(q: MatchQuery<'_>, scan: &Scan) -> Option<ToolError> {
+    let interrupted = scan.files.iter().any(|(_, _, diagnostics, _)| {
+        diagnostics.iter().any(|diagnostic| {
+            matches!(
+                diagnostic.code.as_str(),
+                "structural.match.deadline" | "structural.parse.interrupted"
+            )
+        })
+    });
+    if !interrupted {
+        return None;
+    }
+    let mut error = ToolError::new(
+        "timeout",
+        "The rescan for this page stopped at the structural match deadline, so it cannot be checked against the earlier pages; the source is unchanged. Retry the same page.",
+    );
+    error.hints = vec!["Retry next.retry; a narrower path or pattern parses less per page.".into()];
+    error.next = Some(Box::new(json!({
+        "retry": crate::tools::result::Continuation::new(ToolId::AstSearch, q.to_value())
+            .confidence("exact")
+            .build()
+    })));
+    Some(error)
+}
+
+/// The match-row shape a snapshot was cut under; bumped by every row rename.
+const MATCH_ROWS_VERSION: u32 = 4;
+
 /// Fingerprint over the query shape plus the ordered result set (each file
 /// and its match count). Continuation cursors (page>1 or matchPage>1) that
 /// carry a stale snapshot are rejected with `staleSnapshot`. Fields the
@@ -588,6 +741,9 @@ fn match_snapshot(q: MatchQuery<'_>, scope: &Scope, files: &[ScannedFile]) -> St
         .map(|f| (f.0.clone(), f.1.len()))
         .collect::<Vec<_>>();
     crate::digest::json_sha256(&json!([
+        // Row shape version (D1 v4: `stats.matchCount`, object rows, 1-based columns); an older cursor
+        // restarts instead of mixing shapes across pages.
+        MATCH_ROWS_VERSION,
         scope.canonical.to_string_lossy(),
         q.pattern(),
         q.rule(),
@@ -602,6 +758,7 @@ fn match_snapshot(q: MatchQuery<'_>, scope: &Scope, files: &[ScannedFile]) -> St
         q.sort().as_deref().unwrap_or_default(),
         q.result_view().as_deref().unwrap_or_default(),
         q.max_files(),
+        q.scan_offset(),
         ordered
     ]))
 }
@@ -613,7 +770,7 @@ fn match_window(q: MatchQuery<'_>) -> (usize, usize, usize) {
     (per_page, page, (page - 1).saturating_mul(per_page))
 }
 
-fn group_files(q: MatchQuery<'_>, files: Vec<ScannedFile>) -> Grouped {
+fn group_files(q: MatchQuery<'_>, files: &[ScannedFile]) -> Grouped {
     let mut grouped = Grouped::default();
     let file_list = matches!(q.result_view().as_deref(), Some("files" | "countMatches"));
     let content_length = q
@@ -636,7 +793,7 @@ fn group_files(q: MatchQuery<'_>, files: Vec<ScannedFile>) -> Grouped {
                 {
                     grouped.compile_failed_files += 1;
                     grouped.compile_error.get_or_insert_with(|| {
-                        super::AstError::new(
+                        ToolError::new(
                             crate::tools::ast_rule::INVALID_PATTERN,
                             crate::tools::ast_rule::untagged(&diagnostic.message),
                         )
@@ -647,7 +804,7 @@ fn group_files(q: MatchQuery<'_>, files: Vec<ScannedFile>) -> Grouped {
             }
         }
         let rows = matches
-            .into_iter()
+            .iter()
             .map(|value| match_value(value, q.capture_text().unwrap_or(false), content_length))
             .collect::<Vec<_>>();
         if !rows.is_empty() {
@@ -664,7 +821,7 @@ fn group_files(q: MatchQuery<'_>, files: Vec<ScannedFile>) -> Grouped {
             // every skipped path.
             grouped.diagnostics.extend(
                 diagnostics
-                    .into_iter()
+                    .iter()
                     .filter(|diagnostic| diagnostic.code != "structural.prefilter.skipped")
                     .map(diag),
             );
@@ -717,20 +874,12 @@ fn match_group(q: MatchQuery<'_>, path: String, rows: Vec<MatchRow>) -> Group {
         row["returnedMatchRows"] = json!(returned);
     }
     if total > per_page || out_of_range {
-        let total_pages = total.div_ceil(per_page).max(1);
-        let more = match_page < total_pages;
-        row["pagination"] = json!({
-            "currentPage":match_page,
-            "totalPages":total_pages,
-            "pageSize":per_page,
-            "totalItems":total,
-            "hasMore":more
-        });
+        let facts = crate::response::pages::PageFacts::counted(match_page, per_page, total)
+            .out_of_range(out_of_range);
+        let more = match_page < total.div_ceil(per_page).max(1);
+        row["pagination"] = facts.to_value();
         if more && match_page < limits::MATCH_PAGE_MAXIMUM {
             row["pagination"]["nextMatchPage"] = json!(match_page + 1);
-        }
-        if out_of_range {
-            row["pagination"]["outOfRange"] = json!(true);
         }
     }
     Group {
@@ -743,7 +892,7 @@ fn match_group(q: MatchQuery<'_>, path: String, rows: Vec<MatchRow>) -> Group {
 }
 
 /// Scan-level coverage diagnostics the per-file groups do not carry.
-fn scan_diagnostics(q: MatchQuery<'_>, scope: &Scope, scan: Scan) -> Vec<Value> {
+fn scan_diagnostics(q: MatchQuery<'_>, scope: &Scope, scan: &Scan) -> Vec<Value> {
     let mut diagnostics = vec![];
     if scan.skipped_by_prefilter > 0 {
         diagnostics.push(json!({
@@ -754,7 +903,7 @@ fn scan_diagnostics(q: MatchQuery<'_>, scope: &Scope, scan: Scan) -> Vec<Value> 
             "recovery":"Use a YAML rule with no safe literal anchor only when every supported candidate must be parsed."
         }));
     }
-    diagnostics.extend(scan.diagnostics.into_iter().map(diag));
+    diagnostics.extend(scan.diagnostics.iter().map(diag));
     if scan.truncated {
         let limit = q.max_files();
         diagnostics.push(json!({
@@ -762,7 +911,7 @@ fn scan_diagnostics(q: MatchQuery<'_>, scope: &Scope, scan: Scan) -> Vec<Value> 
             "severity":"warning",
             "stage":"scan",
             "message":format!("Candidate scan hit the maxFiles limit ({limit}); files beyond it were not evaluated. Results are a bounded subset, not the full corpus."),
-            "path":super::display_name(&scope.canonical),
+            "path":scope.canonical.to_string_lossy(),
             "recovery":"Follow next.expandScan, or narrow the scope with include or exclude globs."
         }));
     }
@@ -772,7 +921,7 @@ fn scan_diagnostics(q: MatchQuery<'_>, scope: &Scope, scan: Scan) -> Vec<Value> 
 fn render_match_page(
     q: MatchQuery<'_>,
     scope: &Scope,
-    scan: Scan,
+    scan: &Scan,
     grouped: Grouped,
     snapshot: &str,
 ) -> Value {
@@ -788,16 +937,22 @@ fn render_match_page(
         .get(start..(start + size).min(groups.len()))
         .unwrap_or(&[]);
     let more = start + size < groups.len();
-    let mut out = json!({"searchEngine":"structural","snapshot":snapshot,"stats":{"totalMatches":grouped.total_matches}});
+    let mut out = json!({"searchEngine":"structural","snapshot":snapshot,"stats":{"matchCount":grouped.total_matches}});
     if let Some(inferred) = &scope.inferred {
         out["inferredLanguage"] = json!(inferred);
     }
     if !groups.is_empty() {
         out["files"] = Value::Array(page_groups.iter().map(|group| group.row.clone()).collect());
-        out["pagination"] = json!({"currentPage":page,"totalPages":groups.len().div_ceil(size).max(1),"pageSize":size,"totalItems":groups.len(),"hasMore":more});
+        out["pagination"] =
+            crate::response::pages::PageFacts::counted(page, size, groups.len()).to_value();
     }
     if !diagnostics.is_empty() {
         out["diagnostics"] = json!(diagnostics)
+    }
+    // Withheld entries are disclosed once, like localSearch's walk.
+    let withheld = scan.withheld.notice();
+    if let Some(notice) = &withheld {
+        out["warnings"] = json!([notice]);
     }
     if groups.is_empty() && q.pattern().is_some() && diagnostics.is_empty() {
         out["diagnostics"] = json!([{
@@ -805,7 +960,7 @@ fn render_match_page(
             "severity":"info",
             "stage":"match",
             "message":format!("0 structural matches for the requested pattern in {parsed} parsed file{}. Patterns must be complete parseable nodes with their relevant bodies (`$$$BODY`), return types, or decorators; trailing punctuation the pattern omits is not required. Confirm the node shape with operation:\"syntaxTree\" (next.viewTree); use an explicit YAML rule for partial or relational constraints.", if parsed == 1 { "" } else { "s" }),
-            "path":super::display_name(&scope.canonical)
+            "path":scope.canonical.to_string_lossy()
         }]);
     }
     let skipped = skips.0 + skips.1 + skips.2 > 0;
@@ -828,6 +983,16 @@ fn render_match_page(
     let empty = groups.is_empty() && !more && !incomplete;
     if empty {
         out["status"] = json!("empty");
+    }
+    // Every file and match is listed and the scan saw its whole scope: the
+    // row's expansions and reads are drill-downs, not unread rest.
+    if !groups.is_empty()
+        && !more
+        && !incomplete
+        && withheld.is_none()
+        && !page_groups.iter().any(|group| group.more_matches)
+    {
+        out["complete"] = json!(true);
     }
     attach_match_continuations(q, scope, &mut out, page_groups, truncated, more, snapshot);
     // An empty match leads to the syntax tree of a parsed file, where the
@@ -875,7 +1040,9 @@ fn attach_match_continuations(
         })
         .clamp(1, limits::MATCH_CONTENT_LENGTH_MAXIMUM);
     // A `maxFiles` cut below the schema maximum is raisable: expandScan
-    // re-runs the scan with a doubled bound, so only the maximum is terminal.
+    // scans on with a doubled bound, so only the maximum is terminal. It
+    // resumes after the files this window evaluated (`scanOffset`), so it is
+    // offered once the window's last file page is reached.
     let max_files = q.max_files() as usize;
     let expand_scan = (truncated && max_files < limits::MAX_FILES_MAXIMUM)
         .then(|| max_files.saturating_mul(2).min(limits::MAX_FILES_MAXIMUM));
@@ -904,9 +1071,10 @@ fn attach_match_continuations(
         out["next"]["nextMatchPage"] =
             with(json!({"matchPageSize":per_page,"matchPage":match_page+1}));
     }
-    if let Some(bound) = expand_scan {
-        out["next"]["expandScan"] =
-            with(json!({"maxFiles":bound,"page":1,"matchPage":1,"snapshot":null}));
+    if let Some(bound) = expand_scan.filter(|_| !more) {
+        out["next"]["expandScan"] = with(json!({
+            "maxFiles":bound,"scanOffset":max_files,"page":1,"matchPage":1,"snapshot":null
+        }));
     }
     // A clipped value is display clipping of a listed match, not a coverage
     // gap: expandCaptures re-runs with captures and the whole length when
@@ -994,17 +1162,7 @@ fn read_top_hits(scope: &Scope, row: &Value) -> Option<Value> {
     // function) is already shown by its row and expandCaptures.
     let mut hits = vec![];
     for hit in row["matches"].as_array()? {
-        hits.push(match hit {
-            Value::String(text) => {
-                let lines = text.split_once('\t')?.0;
-                lines
-                    .split_once('-')
-                    .map_or(lines, |(start, _)| start)
-                    .parse()
-                    .ok()?
-            }
-            object => object["line"].as_u64()?,
-        });
+        hits.push(hit["line"].as_u64()?);
     }
     let windows = crate::tools::line_spans::merge_spans(hits.into_iter().map(|line: u64| {
         (
@@ -1030,10 +1188,9 @@ fn read_top_hits(scope: &Scope, row: &Value) -> Option<Value> {
     )
 }
 
-/// One match row. By default a lean string `"<line>[-<endLine>]\t<value>"`
-/// (1-based lines, whitespace-normalized text). With `captureText` an object:
-/// `line`, `column` (0-based) and `value`, `endLine` and `endColumn` for a
-/// multi-line span, and each capture once in `metavarRanges` (text plus
+/// One match row, an object: `line`, `column` (1-based), `endLine` for a
+/// multi-line match, and `value` (whitespace-normalized text). With
+/// `captureText` the row also carries `endColumn` for a multi-line span, and each capture once in `metavarRanges` (text plus
 /// 1-based position; the engine `metavars` map is a fallback for a capture
 /// without a range).
 struct MatchRow {
@@ -1051,7 +1208,7 @@ struct MatchRow {
     cut: Option<usize>,
 }
 
-fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: usize) -> MatchRow {
+fn match_value(m: &StructuralDetailedMatch, capture_text: bool, content_length: usize) -> MatchRow {
     let lines = (u64::from(m.start_line), u64::from(m.end_line));
     let whole_chars = normalized_chars(&m.text);
     let cut = (whole_chars > content_length).then_some(whole_chars);
@@ -1064,11 +1221,6 @@ fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: u
         None => compact_match(&m.text, content_length),
     };
     if !capture_text {
-        let shown_lines = if m.end_line == m.start_line {
-            m.start_line.to_string()
-        } else {
-            format!("{}-{}", m.start_line, m.end_line)
-        };
         let hidden = |capture: &str| {
             let capture = capture.split_whitespace().collect::<Vec<_>>().join(" ");
             !capture.is_empty() && !text.contains(&capture)
@@ -1079,32 +1231,44 @@ fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: u
                 .flatten()
                 .any(|range| hidden(&range.text))
             || m.metavars.values().flatten().any(|value| hidden(value));
+        // X1: a row is an object named like the inputs that take it; a
+        // multi-line match states its last line.
+        let mut value = json!({
+            "line": m.start_line,
+            "column": crate::tools::num::one_based_column(m.start_col),
+        });
+        if m.end_line != m.start_line {
+            value["endLine"] = json!(m.end_line);
+        }
+        value["value"] = json!(text);
         return MatchRow {
-            value: json!(format!("{shown_lines}\t{text}")),
+            value,
             withheld,
             shown_cut,
             lines,
             cut,
         };
     }
-    let mut value = json!({"line":m.start_line,"value":text,"column":m.start_col});
+    use crate::tools::num::one_based_column;
+    let mut value =
+        json!({"line":m.start_line,"value":text,"column":one_based_column(m.start_col)});
     if shown_cut {
         value["truncated"] = json!(true);
     }
     if m.end_line != m.start_line {
         value["endLine"] = json!(m.end_line);
-        value["endColumn"] = json!(m.end_col);
+        value["endColumn"] = json!(one_based_column(m.end_col));
     }
     let mut ranges = serde_json::Map::new();
-    for (name, values) in m.metavar_ranges {
+    for (name, values) in &m.metavar_ranges {
         let rows = values
-            .into_iter()
+            .iter()
             .map(|range| {
                 let mut row = json!({
                     "text":range.text,
                     "line":range.line,
-                    "column":range.column,
-                    "endColumn":range.end_column
+                    "column":one_based_column(range.column),
+                    "endColumn":one_based_column(range.end_column)
                 });
                 if range.end_line != range.line {
                     row["endLine"] = json!(range.end_line);
@@ -1113,16 +1277,16 @@ fn match_value(m: StructuralDetailedMatch, capture_text: bool, content_length: u
             })
             .collect::<Vec<_>>();
         if !rows.is_empty() {
-            ranges.insert(name, Value::Array(rows));
+            ranges.insert(name.clone(), Value::Array(rows));
         }
     }
     // Capture maps are unordered; emit names sorted so output is deterministic.
-    let mut captures: Vec<_> = m.metavars.into_iter().collect();
-    captures.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut captures: Vec<_> = m.metavars.iter().collect();
+    captures.sort_by(|a, b| a.0.cmp(b.0));
     let mut metavars = serde_json::Map::new();
     for (name, values) in captures {
-        if !ranges.contains_key(&name) && !values.is_empty() {
-            metavars.insert(name, json!(values));
+        if !ranges.contains_key(name) && !values.is_empty() {
+            metavars.insert(name.clone(), json!(values));
         }
     }
     if !metavars.is_empty() {
@@ -1219,7 +1383,7 @@ fn infer_directory_language(
     root: &std::path::Path,
     paths: &PathPolicy,
     cancel: &dyn CancellationCheck,
-) -> Result<String, super::AstError> {
+) -> Result<String, ToolError> {
     let prune = PruneMode::SyntaxVisible.directories(q.default_excludes());
     let present = present_grammars(
         root,
@@ -1236,14 +1400,14 @@ fn infer_directory_language(
     });
     match choice {
         GrammarChoice::One(language) => Ok(language),
-        GrammarChoice::Invalid(error) => Err(super::AstError::new(error.code, error.message)),
-        GrammarChoice::Absent => Err(super::AstError::new(
-            "ast.language.required",
+        GrammarChoice::Invalid(error) => Err(ToolError::new(error.code, error.message)),
+        GrammarChoice::Absent => Err(ToolError::new(
+            "languageRequired",
             "No source file of a supported structural grammar was found under path; set language.",
         )),
         GrammarChoice::Several(several) => {
-            let mut error = super::AstError::new(
-                "ast.language.required",
+            let mut error = ToolError::new(
+                "languageRequired",
                 format!(
                     "Several grammars in this directory parse the query ({}); set language to one of them.",
                     several.join(", ")
@@ -1278,11 +1442,11 @@ fn infer_directory_language(
     }
 }
 
-fn diag(d: StructuralDiagnostic) -> Value {
+fn diag(d: &StructuralDiagnostic) -> Value {
     json!({"code":d.code,"severity":d.severity,"stage":d.stage,"message":d.message,"path":d.path,"recovery":d.recovery})
 }
 
-fn diagnostic_error(diagnostics: &[StructuralDiagnostic]) -> Option<super::AstError> {
+fn diagnostic_error(diagnostics: &[StructuralDiagnostic]) -> Option<ToolError> {
     diagnostics
         .iter()
         .find(|diagnostic| diagnostic.severity == "error")
@@ -1291,7 +1455,7 @@ fn diagnostic_error(diagnostics: &[StructuralDiagnostic]) -> Option<super::AstEr
                 "structural.query.compileFailed" | "structural.query.invalid" => "invalidPattern",
                 other => other,
             };
-            super::AstError::new(code, crate::tools::ast_rule::untagged(&diagnostic.message))
+            ToolError::new(code, crate::tools::ast_rule::untagged(&diagnostic.message))
         })
 }
 
@@ -1308,9 +1472,11 @@ mod language_glob_tests {
 
     #[test]
     fn directory_language_globs_derive_from_the_canonical_grammar_registry() {
-        let cuda_enabled = octocode_engine::portable::supported_structural_extensions()
+        let cuda_enabled = octocode_engine::portable::grammar_capabilities()
             .iter()
-            .any(|extension| extension == "cu");
+            .any(|capability| {
+                capability.structural_search && capability.extensions.iter().any(|ext| ext == "cu")
+            });
         assert_eq!(
             language_include_globs("cuda"),
             cuda_enabled.then(|| vec!["*.cu".to_owned(), "*.cuh".to_owned()])
@@ -1359,5 +1525,114 @@ mod normalize_tests {
             normalize_match(rust).chars().count()
         );
         assert_eq!(compact_match(rust, 12).0.chars().count(), 12);
+    }
+}
+
+#[cfg(test)]
+mod memo_tests {
+    use super::*;
+    use crate::tools::cancel::NeverCancel;
+    use crate::tools::test_support::{Fixture, simple_policy};
+
+    fn run(query: &Value, paths: &PathPolicy, security: &ContentSecurity) -> Value {
+        let query: super::super::AstSearchQuery =
+            serde_json::from_value(query.clone()).expect("typed astSearch row");
+        super::super::execute_ast(&query, paths, security, &NeverCancel).expect("astSearch")
+    }
+
+    fn next_query(out: &Value, name: &str) -> Value {
+        out["next"][name]["query"]["queries"][0].clone()
+    }
+
+    /// A continuation page served from the first page's stored scan is
+    /// byte-identical to the page a fresh scan gives; an edit drops the
+    /// stored scan and the page restarts as before.
+    #[test]
+    fn continuation_pages_reuse_the_settled_scan_with_identical_output() {
+        let root = Fixture::new();
+        for (name, calls) in [("a.ts", 3), ("b.ts", 1), ("c.ts", 2)] {
+            let body = (0..calls)
+                .map(|i| format!("console.log({i});\n"))
+                .collect::<String>();
+            std::fs::write(root.0.join(name), body).expect("file");
+        }
+        std::fs::write(root.0.join("d.ts"), "other();\n").expect("prefilter skip");
+        let (paths, security) = simple_policy(&root.0);
+        std::thread::sleep(
+            octocode_engine::graph::SourceStamp::SETTLE + std::time::Duration::from_millis(200),
+        );
+        let first = run(
+            &json!({"operation":"match","path":root.0,"pattern":"console.log($A)","language":"typescript","pageSize":1,"matchPageSize":2}),
+            &paths,
+            &security,
+        );
+        let snapshot = first["snapshot"].as_str().expect("snapshot").to_owned();
+        assert!(
+            SCANS.holds(&snapshot),
+            "a multi-page scan is stored: {first}"
+        );
+        for name in ["nextPage", "nextMatchPage"] {
+            let query = next_query(&first, name);
+            assert!(query.is_object(), "{name}: {first}");
+            let stored = run(&query, &paths, &security);
+            SCANS.evict(&snapshot);
+            let fresh = run(&query, &paths, &security);
+            assert_eq!(
+                serde_json::to_string(&stored).expect("json"),
+                serde_json::to_string(&fresh).expect("json"),
+                "{name}"
+            );
+            // The rescan stores the scan again for the pages after it.
+            assert!(SCANS.holds(&snapshot));
+        }
+        // An edit drops the stored scan: the page restarts from page 1.
+        std::fs::write(root.0.join("c.ts"), "console.log(9);\n").expect("edit");
+        let page = run(&next_query(&first, "nextPage"), &paths, &security);
+        assert_eq!(page["errorCode"], "staleSnapshot", "{page}");
+        assert!(!SCANS.holds(&snapshot));
+    }
+}
+
+#[cfg(test)]
+mod interrupted_rescan_tests {
+    use super::*;
+
+    /// A rescan cut by the match deadline (zero matches, status truncated)
+    /// is a retryable timeout for the same page, not a stale snapshot; a
+    /// complete rescan that differs stays stale.
+    #[test]
+    fn a_deadline_cut_rescan_is_a_retryable_timeout() {
+        let query: AstSearchQueryMatchPattern = serde_json::from_value(json!({
+            "operation":"match","path":"/repo/a.min.js","pattern":"f($A)",
+            "matchPage":9,"snapshot":"earlier"
+        }))
+        .expect("typed row");
+        let q = MatchQuery::Pattern(&query);
+        let cut = Scan {
+            files: vec![(
+                "a.min.js".to_owned(),
+                vec![],
+                vec![StructuralDiagnostic {
+                    code: "structural.match.deadline".to_owned(),
+                    severity: "warning".to_owned(),
+                    stage: "match".to_owned(),
+                    message: "Structural matching exceeded its execution deadline".to_owned(),
+                    path: None,
+                    recovery: None,
+                }],
+                "truncated".to_owned(),
+            )],
+            ..Scan::default()
+        };
+        let error = interrupted_rescan(q, &cut).expect("a deadline cut is a timeout");
+        assert_eq!(error.code, "timeout");
+        let retry = &error.next.expect("retry")["retry"]["query"]["queries"][0];
+        assert_eq!(retry["matchPage"], 9);
+        assert_eq!(retry["snapshot"], "earlier");
+        let changed = Scan {
+            files: vec![("a.min.js".to_owned(), vec![], vec![], "ok".to_owned())],
+            ..Scan::default()
+        };
+        assert!(interrupted_rescan(q, &changed).is_none());
     }
 }

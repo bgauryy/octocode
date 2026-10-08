@@ -36,6 +36,19 @@ use std::{
 pub use query::{OPS, QueryOptions, query};
 
 pub(crate) const GRAPH_FILE: &str = "graph.bin";
+/// Published snapshots beyond this size require a narrower ingest scope.
+/// Refuse them before decode can multiply allocations from untrusted lengths.
+const MAX_GRAPH_BYTES: usize = 512 * 1024 * 1024;
+
+fn read_graph_file(path: &Path) -> Result<Vec<u8>, String> {
+    crate::tools::source::read_bounded(path, MAX_GRAPH_BYTES).map_err(|error| {
+        format!(
+            "cannot read {} within the {}-byte snapshot limit: {error:?}; narrow the graph ingest scope",
+            path.display(),
+            MAX_GRAPH_BYTES
+        )
+    })
+}
 pub(crate) const MANIFEST_FILE: &str = "manifest.json";
 const LATEST_FILE: &str = "latest";
 const MANIFEST_KIND: &str = "octocode.graph";
@@ -46,10 +59,8 @@ const DEFAULT_KEEP: usize = 3;
 /// scanned).
 const INGEST_EXCLUDES: &[&str] = &[
     "venv",
-    "__pycache__",
     "site-packages",
     "Pods",
-    "DerivedData",
     "storybook-static",
     "bower_components",
     "jspm_packages",
@@ -149,13 +160,8 @@ fn utc_now() -> (String, String) {
     let secs = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
-    let (year, month, day) = crate::civil_date::civil_from_days(secs.div_euclid(86_400));
-    let rem = secs.rem_euclid(86_400);
-    let (h, m, s) = (rem / 3600, rem % 3600 / 60, rem % 60);
-    (
-        format!("{year:04}{month:02}{day:02}T{h:02}{m:02}{s:02}Z"),
-        format!("{year:04}-{month:02}-{day:02}T{h:02}:{m:02}:{s:02}Z"),
-    )
+    let iso = crate::civil_date::iso8601_secs(secs);
+    (iso.replace(['-', ':'], ""), iso)
 }
 
 /// Whether `dir` is a published snapshot (has a manifest of our kind).
@@ -267,6 +273,15 @@ pub fn ingest(
     });
     let projection = tables::project(&built, &project);
     let (bytes, digest) = format::encode(&projection.tables);
+    if bytes.len() > MAX_GRAPH_BYTES {
+        return GraphOutput::error(
+            5,
+            "graph.limit",
+            format!(
+                "encoded graph exceeds the {MAX_GRAPH_BYTES}-byte snapshot limit; ingest a narrower scope"
+            ),
+        );
+    }
 
     let slug = scope_slug(&built.root, &workspace);
     let (stamp, created_at) = utc_now();
@@ -394,11 +409,45 @@ fn publish(
     Ok(target)
 }
 
+/// Whether the file at `path` still holds the bytes `digest` names, `None`
+/// when it cannot be read. A stamp recorded at ingest that still equals the
+/// file's size and change times proves it without a read (the stamp was
+/// taken only for a settled file, see [`octocode_engine::graph::SourceStamp`]);
+/// any difference, or no stamp, falls back to hashing the content.
+pub(crate) fn source_matches(
+    path: &Path,
+    digest: &str,
+    stamp: Option<&octocode_engine::graph::SourceStamp>,
+) -> Option<bool> {
+    // Ingest never reads a source beyond this bound. A different size cannot
+    // have the recorded digest, and a file grown past the parser bound must
+    // invalidate reuse without allocating it in full.
+    const MAX_INGEST_SOURCE_BYTES: usize = 1_000_000;
+    let current_size = std::fs::metadata(path).ok()?.len();
+    if current_size > MAX_INGEST_SOURCE_BYTES as u64
+        || stamp.is_some_and(|recorded| recorded.size != current_size)
+    {
+        return Some(false);
+    }
+    if let Some(stamp) = stamp
+        && std::fs::metadata(path)
+            .ok()
+            .and_then(|meta| octocode_engine::graph::SourceStamp::of(&meta))
+            .as_ref()
+            == Some(stamp)
+    {
+        return Some(true);
+    }
+    let content = crate::tools::source::read_bounded(path, MAX_INGEST_SOURCE_BYTES).ok()?;
+    Some(octocode_engine::digest::sha256(&content) == digest)
+}
+
 /// The latest snapshot of `root` when nothing it covers changed: same scan
 /// options, same octocode and format version, the same file set (with the
 /// ingest's exclusions and `.gitignore`), and identical content digests.
-/// Hashing is far cheaper than parsing, so an unchanged tree returns in a
-/// fraction of the ingest time.
+/// A file whose recorded stamp still holds skips the hash; the rest are
+/// hashed, which is far cheaper than parsing, so an unchanged tree returns in
+/// a fraction of the ingest time.
 fn reuse_current(
     home: &Path,
     root: &Path,
@@ -419,8 +468,8 @@ fn reuse_current(
         return None;
     }
     let dir = home.join(&id);
-    let bytes = std::fs::read(dir.join(GRAPH_FILE)).ok()?;
-    let (tables, digest) = format::decode(&bytes).ok()?;
+    let bytes = read_graph_file(&dir.join(GRAPH_FILE)).ok()?;
+    let (tables, digest) = format::decode_files(&bytes).ok()?;
     if manifest["graph"]["sha256"].as_str() != Some(digest.as_str()) {
         return None;
     }
@@ -431,21 +480,9 @@ fn reuse_current(
         .map(|node| tables.str(node.key))
         .collect::<std::collections::BTreeSet<_>>();
     let extensions = octocode_engine::signatures::graph_facts::graph_fact_extensions();
-    let excluded = crate::policy::prune::PruneMode::SyntaxVisible
-        .directories(true)
-        .into_iter()
-        .chain(INGEST_EXCLUDES.iter().map(|name| (*name).to_owned()))
-        .chain(options.exclude_dir.iter().cloned())
-        .collect::<std::collections::BTreeSet<_>>();
-    let walker = ignore::WalkBuilder::new(root)
-        .hidden(true)
-        .git_ignore(true)
-        .parents(true)
-        .filter_entry(move |entry| {
-            !entry.file_type().is_some_and(|kind| kind.is_dir())
-                || !excluded.contains(entry.file_name().to_string_lossy().as_ref())
-        })
-        .build();
+    let mut excluded = crate::tools::syntax_prune(INGEST_EXCLUDES);
+    excluded.extend(options.exclude_dir.iter().cloned());
+    let walker = crate::tools::pruned_walk(root, excluded).build();
     let mut current = std::collections::BTreeSet::new();
     for entry in walker.flatten() {
         if !entry.file_type().is_some_and(|kind| kind.is_file()) {
@@ -468,10 +505,11 @@ fn reuse_current(
     {
         return None;
     }
+    let stamps = tables.stamps_by_node();
     for (node, digest) in &tables.digests {
         let file = tables.str(tables.nodes[*node as usize].key);
-        let content = std::fs::read(root.join(file)).ok()?;
-        if octocode_engine::digest::sha256(&content) != tables.str(*digest) {
+        let same = source_matches(&root.join(file), tables.str(*digest), stamps.get(node))?;
+        if !same {
             return None;
         }
     }
@@ -534,7 +572,7 @@ fn manifest(input: &ManifestInput) -> Value {
         "scan": {
             "filesScanned": input.built.facts.len(),
             "filesSkipped": input.built.files_skipped,
-            "truncated": input.built.truncated,
+            "truncated": input.built.truncated || input.built.edges_capped,
             "maxFiles": input.max_files,
             "excludeDir": input.exclude_dir,
         },

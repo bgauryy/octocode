@@ -7,6 +7,7 @@ use crate::policy::prune::PruneMode;
 use crate::security::ContentSecurity;
 use crate::tools::cancel::CancellationCheck;
 use crate::tools::id::query_limits::local_search::{MATCH_PAGE_MAXIMUM, PAGE_MAXIMUM};
+use crate::tools::result::ToolError;
 use octocode_engine::{portable::search_ripgrep_cancellable, types::RipgrepSearchOptions};
 use serde_json::json;
 use std::sync::Arc;
@@ -52,14 +53,16 @@ pub fn execute_local_search(
     cancel: &impl CancellationCheck,
     walk_threads: Option<u32>,
     response_window: Option<usize>,
-) -> Result<LocalSearchResult, LocalSearchError> {
-    cancel.check().map_err(cancelled)?;
+) -> Result<LocalSearchResult, ToolError> {
+    cancel.check().map_err(ToolError::cancelled)?;
     let Scanned {
         validated,
         mut parsed,
         digests,
         page_budget,
         identity: result_identity,
+        query_key,
+        stored_redaction,
         reusable,
         probe_options,
         policy_key,
@@ -79,7 +82,9 @@ pub fn execute_local_search(
     let Shaped {
         layout,
         redacted,
+        redaction,
         unverified,
+        outlines,
     } = shape_page(
         query,
         paths,
@@ -87,11 +92,18 @@ pub fn execute_local_search(
         output_root,
         page_budget,
         &expected_digest,
+        stored_redaction.as_ref(),
         security,
         cancel,
     )?;
     let total_files = parsed.files.len() as u32;
     let empty = total_files == 0;
+    let reusable = reusable.map(|value| super::manifest::Fresh {
+        value,
+        query_key,
+        redaction,
+        skipped: skipped.clone(),
+    });
     let (mut next, leftover_matches) = cursor(
         query,
         &parsed,
@@ -99,7 +111,6 @@ pub fn execute_local_search(
         &result_identity,
         reusable,
         policy_key,
-        &skipped,
     );
     let octocode_engine::types::RipgrepParseResult {
         files: scanned,
@@ -115,6 +126,7 @@ pub fn execute_local_search(
         output_root,
         page_budget,
         &|source| expected_digest(source),
+        outlines,
         security,
     );
     let coverage = Coverage::of(query, &stats, &scanned_stats, root, output_root, &skipped);
@@ -151,7 +163,7 @@ pub fn execute_local_search(
     if coverage.scope_miss
         && let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut()
     {
-        map.insert("viewStructure".into(), scope_listing(query));
+        map.insert("viewTree".into(), scope_listing(query));
     }
     Ok(LocalSearchResult {
         status,
@@ -206,11 +218,21 @@ pub(super) fn file_paging(
 pub(super) struct Shaped {
     pub(super) layout: Layout,
     pub(super) redacted: Redacted,
+    /// What redacting the scan changed, for a stored scan's later pages.
+    pub(super) redaction: Redaction,
     /// Some values were redacted because their source could not be re-read.
     pub(super) unverified: bool,
+    /// Outlines parsed from the verified reads (see [`verify_shown`]).
+    pub(super) outlines: Outlines,
 }
 
 /// Redact the scan, order it, cut the page, and verify what it shows.
+///
+/// Every file the page reads or shows passes the read policy first: the
+/// key-block reads inside [`redact_scan`] and each shown file here. A file
+/// the page neither reads nor shows is checked on the page that shows it,
+/// so a path swapped for a symlink after the walk never has its bytes read
+/// or its rows shown.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn shape_page(
     query: &LocalSearchQuery,
@@ -219,19 +241,26 @@ pub(super) fn shape_page(
     output_root: &std::path::Path,
     page_budget: usize,
     expected_digest: &ExpectedDigest<'_>,
+    stored_redaction: Option<&Redaction>,
     security: &ContentSecurity,
     cancel: &impl CancellationCheck,
-) -> Result<Shaped, LocalSearchError> {
-    let mut redacted = redact_scan(
+) -> Result<Shaped, ToolError> {
+    let (mut redacted, redaction) = redact_scan(
         query,
         parsed,
         output_root,
         expected_digest,
+        paths,
         security,
         cancel,
+        stored_redaction,
     )?;
     order_files(query, &mut parsed.files);
     let layout = Layout::cut(query, paths, output_root, parsed, page_budget);
+    for (index, _) in &layout.shown {
+        validate_matched(paths, &output_root.join(&parsed.files[*index].path))?;
+    }
+    let mut outlines = Outlines::new();
     let unverified = verify_shown(
         query,
         parsed,
@@ -239,13 +268,16 @@ pub(super) fn shape_page(
         output_root,
         expected_digest,
         &mut redacted,
+        &mut outlines,
         security,
         cancel,
     )?;
     Ok(Shaped {
         layout,
         redacted,
+        redaction,
         unverified,
+        outlines,
     })
 }
 
@@ -283,6 +315,10 @@ pub(super) struct Scanned {
     pub(super) page_budget: usize,
     /// The result's snapshot identity.
     pub(super) identity: String,
+    /// The query key `identity` was derived from.
+    pub(super) query_key: String,
+    /// A stored scan's redaction to replay (see [`redact_scan`]).
+    pub(super) stored_redaction: Option<Redaction>,
     /// A fresh scan small enough to store for this snapshot's later pages.
     pub(super) reusable: Option<octocode_engine::types::RipgrepParseResult>,
     /// The walk an empty result re-runs over what the defaults leave out.
@@ -300,7 +336,7 @@ pub(super) fn scan_query(
     cancel: &impl CancellationCheck,
     walk_threads: Option<u32>,
     response_window: Option<usize>,
-) -> Result<Scanned, LocalSearchError> {
+) -> Result<Scanned, ToolError> {
     let validated = search_root(query, paths)?;
     let options = search_options(query, &validated.canonical, walk_threads);
     check_pattern(query)?;
@@ -312,7 +348,12 @@ pub(super) fn scan_query(
         || query.default_excludes.defaults())
     .then(|| options.clone());
     let policy_key = paths.identity();
-    let (parsed, digests, skipped) = scan(query, paths, options, &policy_key, cancel)?;
+    let ScanOutput {
+        parsed,
+        digests,
+        skipped,
+        stored,
+    } = scan(query, paths, options, &policy_key, cancel)?;
     // Pages are cut from serialized sizes so a default-layout page, with
     // the row around it, fits one response window. Sized by the canonical
     // root, not its spelling: a continuation names the same root relative
@@ -323,16 +364,19 @@ pub(super) fn scan_query(
         response_window,
         crate::tools::stream_page::reserve_chars(&sized, ROW_QUERY_COPIES),
     );
-    let identity = fingerprint(
-        query,
-        &validated.canonical,
-        &parsed.files,
-        &parsed.stats,
-        page_budget,
-    );
-    // A cached scan is checked too: its identity is recomputed from the
-    // submitted query, so a cursor reused with different search semantics
-    // never serves the old query's matches.
+    // A stored scan was stored under the snapshot derived from its query
+    // key and its unchanged collected result: a query with the same key
+    // derives that snapshot again, so only another key needs the digest.
+    let query_key = query_key(query, &validated.canonical, page_budget);
+    let (identity, stored_redaction) = match (stored, query.snapshot()) {
+        (Some(stored), Some(snapshot)) if stored.query_key == query_key => {
+            (snapshot.to_owned(), stored.redaction)
+        }
+        _ => (fingerprint(&query_key, &parsed.files, &parsed.stats), None),
+    };
+    // A cached scan is checked too: its identity comes from the submitted
+    // query's key, so a cursor reused with different search semantics never
+    // serves the old query's matches.
     if query
         .snapshot()
         .is_some_and(|expected| expected != identity)
@@ -347,6 +391,8 @@ pub(super) fn scan_query(
         digests,
         page_budget,
         identity,
+        query_key,
+        stored_redaction,
         reusable,
         probe_options,
         policy_key,
@@ -360,29 +406,9 @@ pub(super) fn scan_query(
 pub(super) fn search_root(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
-) -> Result<crate::policy::path::ValidatedPath, LocalSearchError> {
+) -> Result<crate::policy::path::ValidatedPath, ToolError> {
     paths.validate(query.path.as_str()).map_err(|error| {
-        let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
-        let next = missing
-            .then(|| paths.nearest_existing_dir(query.path.as_str()))
-            .flatten()
-            .map(|parent| {
-                Box::new(json!({"viewTree": crate::tools::result::Continuation::new(
-                    crate::tools::id::ToolId::StructureSearch,
-                    json!({"operation": "tree", "path": parent}),
-                )
-                .build()}))
-            });
-        LocalSearchError {
-            code: if missing {
-                "pathNotFound"
-            } else {
-                error.local_error_code("fileAccessFailed")
-            },
-            message: error.message,
-            hints: vec![],
-            next,
-        }
+        ToolError::root_policy(error, query.path.as_str(), paths, "fileAccessFailed")
     })
 }
 
@@ -480,6 +506,9 @@ pub(super) fn search_options(
         // The batch's share of the cores (see `BatchBudget`); `None` walks
         // on every core.
         walk_threads,
+        // A scan small enough to store for later pages keeps the digest of
+        // each matched file from the read that searched it (see `manifest`).
+        digest_max_bytes: Some(super::manifest::MAX_SOURCE_BYTES),
     }
 }
 
@@ -489,27 +518,45 @@ pub(super) type ScanDigests =
 
 /// A walk's matches, the stored digests a reused scan must still hash to,
 /// and what the walk left out.
-pub(super) type ScanOutput = (
-    octocode_engine::types::RipgrepParseResult,
-    ScanDigests,
-    crate::policy::discovery::WalkSkips,
-);
+pub(super) struct ScanOutput {
+    pub(super) parsed: octocode_engine::types::RipgrepParseResult,
+    pub(super) digests: ScanDigests,
+    pub(super) skipped: crate::policy::discovery::WalkSkips,
+    /// What was stored with a reused scan: its query key and redaction.
+    pub(super) stored: Option<StoredDerived>,
+}
+
+/// What a stored scan's fresh page derived from it.
+pub(super) struct StoredDerived {
+    pub(super) query_key: String,
+    pub(super) redaction: Option<Redaction>,
+}
 
 /// The matches: a continuation reuses its page-1 scan instead of walking
 /// the tree again. A stored scan is reused only under the path policy that
 /// produced it; the snapshot comparison then proves it answers this query.
-/// Every matched path must still pass the read policy.
+/// The walk admitted each matched path under the read policy; a page checks
+/// again each file it reads or shows (see [`shape_page`]).
 pub(super) fn scan(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
     options: RipgrepSearchOptions,
     policy_key: &str,
     cancel: &impl CancellationCheck,
-) -> Result<ScanOutput, LocalSearchError> {
-    let (parsed, digests, withheld) = if let Some(snapshot) = query.snapshot()
+) -> Result<ScanOutput, ToolError> {
+    let (parsed, digests, withheld, derived) = if let Some(snapshot) = query.snapshot()
         && let Some(stored) = super::manifest::get(snapshot, policy_key)
     {
-        (stored.value, Some(stored.digests), stored.skipped)
+        let derived = StoredDerived {
+            query_key: stored.query_key,
+            redaction: stored.redaction,
+        };
+        (
+            stored.value,
+            Some(stored.digests),
+            stored.skipped,
+            Some(derived),
+        )
     } else {
         let walk = Arc::new(crate::policy::discovery::SearchWalk::new(
             paths.clone(),
@@ -522,37 +569,30 @@ pub(super) fn scan(
                 // Glob and file-type failures carry no typed kind from the engine yet.
                 let bad_filter =
                     message.contains("glob") || message.contains("unrecognized file type");
-                LocalSearchError {
-                    code: if bad_filter {
-                        "invalidQuery"
+                ToolError::new(
+                    if bad_filter {
+                        "invalidInput"
                     } else {
-                        "toolExecutionFailed"
+                        "executionFailed"
                     },
                     message,
-                    hints: vec![],
-                    next: None,
-                }
+                )
             })?;
-        (parsed, None, walk.skipped())
+        (parsed, None, walk.skipped(), None)
     };
-    cancel.check().map_err(cancelled)?;
+    cancel.check().map_err(ToolError::cancelled)?;
     if parsed.files.is_empty()
         && parsed.stats.files_searched.unwrap_or(0) == 0
         && parsed.stats.error_count.unwrap_or(0) > 0
     {
         return Err(unreadable_scope(&parsed.stats));
     }
-    for file in &parsed.files {
-        paths
-            .validate_read(&file.path)
-            .map_err(|error| LocalSearchError {
-                code: error.local_error_code("fileAccessFailed"),
-                message: "Search encountered a path denied by the active path policy".into(),
-                hints: vec![],
-                next: None,
-            })?;
-    }
-    Ok((parsed, digests, withheld))
+    Ok(ScanOutput {
+        parsed,
+        digests,
+        skipped: withheld,
+        stored: derived,
+    })
 }
 
 /// The runtime's own orders (path, matchCount), then `reverse`. Engine-side
@@ -680,25 +720,17 @@ pub(super) fn project_files(
 
 /// Every candidate failed before it could be searched: there is no evidence,
 /// so this is an execution failure, not an empty result.
-pub(super) fn unreadable_scope(stats: &octocode_engine::types::RipgrepStats) -> LocalSearchError {
+pub(super) fn unreadable_scope(stats: &octocode_engine::types::RipgrepStats) -> ToolError {
     let count = stats.error_count.unwrap_or(0);
     let first = stats.first_error.as_deref().unwrap_or("unknown error");
-    LocalSearchError {
-        code: "fileAccessFailed",
-        message: format!(
-            "No file under the search path could be read ({count} failure(s); first: {first})."
-        ),
+    ToolError {
         hints: vec![unreadable_hint(count)],
-        next: None,
-    }
-}
-
-pub(super) fn cancelled(message: String) -> LocalSearchError {
-    LocalSearchError {
-        code: "cancelled",
-        message,
-        hints: vec![],
-        next: None,
+        ..ToolError::new(
+            "fileAccessFailed",
+            format!(
+                "No file under the search path could be read ({count} failure(s); first: {first})."
+            ),
+        )
     }
 }
 

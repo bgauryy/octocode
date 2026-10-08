@@ -3,9 +3,9 @@
 //! lock with the caller's expected hashes, so a stale page fails closed there.
 
 use super::{PreparedFile, RewriteCoverage};
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use crate::tools::page_memo::PageMemo;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Prepared previews kept, newest last.
 const MAX_ENTRIES: usize = 4;
@@ -18,11 +18,11 @@ pub(super) struct Prepared {
     pub snapshot: String,
     pub files: Arc<Vec<PreparedFile>>,
     pub coverage: RewriteCoverage,
-    bytes: usize,
-    stored_at: Instant,
 }
 
-static MEMO: Mutex<VecDeque<(String, Arc<Prepared>)>> = Mutex::new(VecDeque::new());
+/// Prepared previews by scope key, pinned by their preview snapshot and
+/// weighed by the bytes they hold.
+static MEMO: PageMemo<Arc<Prepared>> = PageMemo::new(TTL, MAX_ENTRIES, MAX_BYTES);
 
 /// Remember `files` prepared for `key` under `snapshot`.
 pub(super) fn store(
@@ -42,17 +42,8 @@ pub(super) fn store(
         snapshot: snapshot.to_owned(),
         files,
         coverage,
-        bytes,
-        stored_at: Instant::now(),
     });
-    let mut memo = MEMO.lock().unwrap_or_else(|error| error.into_inner());
-    memo.retain(|(held, _)| *held != key);
-    memo.push_back((key, entry));
-    while memo.len() > MAX_ENTRIES
-        || memo.iter().map(|(_, entry)| entry.bytes).sum::<usize>() > MAX_BYTES
-    {
-        memo.pop_front();
-    }
+    MEMO.put(key, snapshot.to_owned(), bytes, entry);
 }
 
 /// The prepared preview for `key` when it was pinned by `snapshot`, is
@@ -63,18 +54,11 @@ pub(super) fn reuse(
     snapshot: &str,
     permitted: impl Fn(&std::path::Path) -> bool,
 ) -> Option<Arc<Prepared>> {
-    let entry = {
-        let mut memo = MEMO.lock().unwrap_or_else(|error| error.into_inner());
-        memo.retain(|(_, entry)| entry.stored_at.elapsed() < TTL);
-        memo.iter()
-            .find(|(held, _)| held == key)
-            .map(|(_, entry)| Arc::clone(entry))?
-    };
-    let unchanged = entry.snapshot == snapshot
-        && entry.files.iter().all(|file| {
-            permitted(&file.absolute)
-                && std::fs::read(&file.absolute)
-                    .is_ok_and(|bytes| crate::digest::sha256(&bytes) == file.before_hash)
-        });
+    let entry = MEMO.get(key, snapshot, Arc::clone)?;
+    let unchanged = entry.files.iter().all(|file| {
+        permitted(&file.absolute)
+            && std::fs::read(&file.absolute)
+                .is_ok_and(|bytes| crate::digest::sha256(&bytes) == file.before_hash)
+    });
     unchanged.then_some(entry)
 }

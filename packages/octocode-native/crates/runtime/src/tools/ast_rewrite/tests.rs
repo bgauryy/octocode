@@ -45,7 +45,7 @@ fn overlap_error_identifies_ranges_and_how_to_narrow_the_preview() {
     let error = prepare_matches("a.ts", "before", vec![matched(0, 12), matched(5, 14)])
         .expect_err("overlap must reject preview");
     let value = error.value();
-    assert_eq!(value["errorCode"], "ast.rewrite.overlap");
+    assert_eq!(value["errorCode"], "editOverlap");
     assert!(
         value["error"].as_str().is_some_and(|message| {
             message.contains("Narrow the pattern") && message.contains("preview again")
@@ -219,7 +219,7 @@ fn syntax_breaking_template_is_rejected_before_any_commit() {
         &NeverCancel,
         &Default::default(),
     );
-    assert_eq!(result["errorCode"], "ast.rewrite.broken_syntax", "{result}");
+    assert_eq!(result["errorCode"], "brokenSyntax", "{result}");
     // The fix is the template, never a broader pattern.
     let hint = result["hints"][0].as_str().unwrap_or_default();
     assert!(
@@ -255,6 +255,33 @@ fn an_unparseable_pattern_is_an_invalid_pattern_in_every_form() {
 /// Each matched file is parsed once by the scan and once staged; the
 /// syntax check and the postcondition reuse those trees, and the rule is
 /// validated by compiling it rather than parsing an empty probe.
+/// `include` reads like astSearch's: a bare word or a plain path scopes to
+/// the files under the directory it names, so a search and its rewrite see
+/// the same files.
+#[test]
+fn include_scopes_to_the_files_under_a_named_directory() {
+    let (root, policy, security) = fixture();
+    fs::create_dir_all(root.join("src/api")).expect("api dir");
+    fs::write(root.join("src/api/handler.ts"), "oldCall(3);\n").expect("api file");
+    for include in ["api", "src/api"] {
+        let mut preview = query(&root);
+        preview["pageSize"] = json!(10);
+        preview["include"] = json!([include]);
+        let row = rewrite_row(
+            preview,
+            &policy,
+            &security,
+            &NeverCancel,
+            &Default::default(),
+        );
+        assert_eq!(row["matchCount"], 1, "include {include}: {row}");
+        assert!(
+            row.to_string().contains("handler.ts"),
+            "include {include}: {row}"
+        );
+    }
+}
+
 #[test]
 fn preview_and_apply_parse_each_file_twice() {
     let (root, policy, security) = fixture();
@@ -269,7 +296,7 @@ fn preview_and_apply_parse_each_file_twice() {
         &NeverCancel,
         &Default::default(),
     );
-    assert_eq!(first["totalMatches"], 3, "{first}");
+    assert_eq!(first["matchCount"], 3, "{first}");
     assert_eq!(staged::take_parses(), 4, "2 files × (scan + staged)");
     // The lead that writes says so, and carries no preview paging.
     let lead = &first["next"]["apply"];
@@ -458,7 +485,7 @@ fn preview_continuation_is_lossless_and_apply_is_hash_guarded() {
         &Default::default(),
     );
     assert_eq!(first["mode"], "preview");
-    assert_eq!(first["totalMatches"], 2);
+    assert_eq!(first["matchCount"], 2);
     assert_eq!(first["matches"].as_array().map(Vec::len), Some(1));
     let second = rewrite_row(
         first["next"]["nextPage"]["query"]["queries"][0].clone(),
@@ -475,8 +502,8 @@ fn preview_continuation_is_lossless_and_apply_is_hash_guarded() {
     let mut apply = query(&root);
     apply["apply"] = json!(true);
     apply["snapshot"] = first["snapshot"].clone();
-    // Preview reports boundary-relative `path` values; apply must accept
-    // them back verbatim (absolute keys work too).
+    // Rows carry absolute paths at the tool; apply accepts absolute keys as
+    // well as the workspace-relative keys of hints.apply.
     apply["expectedHashes"] = json!({
         first["files"][0]["path"].as_str().expect("path"):
             first["files"][0]["beforeHash"].clone()
@@ -522,7 +549,7 @@ fn stale_source_postcondition_and_cancellation_never_mutate() {
             &Cancelled,
             &Default::default()
         )["errorCode"],
-        "ast.rewrite.cancelled"
+        "cancelled"
     );
     assert!(
         fs::read_to_string(root.join("a.ts"))
@@ -541,17 +568,17 @@ fn selection_and_failed_postcondition_preserve_unselected_bytes() {
     apply["snapshot"] = preview["snapshot"].clone();
     // Preview rows carry a 16-hex id prefix; apply accepts it.
     apply["selectedMatchIds"] = json!([preview["matches"][0]["id"]]);
-    let path = preview["files"][0]["path"].as_str().expect("path");
-    let absolute = root.join(path);
-    // A complete preview states each file hash once, in hints.apply.
+    let absolute = preview["files"][0]["path"].as_str().expect("path");
+    // A complete preview states each file hash once, in hints.apply, keyed
+    // by the workspace-relative path (here the workspace is the root).
     assert!(preview["files"][0].get("beforeHash").is_none(), "{preview}");
     apply["expectedHashes"] = json!({
-        absolute.to_string_lossy():
-            preview["next"]["apply"]["query"]["queries"][0]["expectedHashes"][path].clone()
+        absolute:
+            preview["next"]["apply"]["query"]["queries"][0]["expectedHashes"]["a.ts"].clone()
     });
     apply["postconditions"] = json!([{"kind":"remainingMatches","equals":0}]);
     let failed = rewrite_row(apply, &policy, &security, &NeverCancel, &apply_options());
-    assert_eq!(failed["errorCode"], "ast.rewrite.postcondition_failed");
+    assert_eq!(failed["errorCode"], "postconditionFailed");
     assert_eq!(failed["details"]["scope"], "rewrittenFiles", "{failed}");
     assert_eq!(
         failed["details"]["scannedFiles"],
@@ -587,7 +614,16 @@ fn preview_pages_carry_only_their_files_with_one_based_lines() {
     assert_eq!(first["affectedFiles"], 2, "{first}");
     let first_files = first["files"].as_array().expect("files");
     assert_eq!(first_files.len(), 1, "page 1 touches only a.ts: {first}");
-    assert_eq!(first_files[0]["path"], "a.ts");
+    // Rows carry the absolute path; the response stage names it relative
+    // to the workspace root (D4).
+    assert_eq!(
+        first_files[0]["path"],
+        json!(
+            fs::canonicalize(&root)
+                .expect("canonical root")
+                .join("a.ts")
+        )
+    );
     // Match rows locate a hunk: a 16-hex id prefix, path and line; the
     // patch already shows the text and its replacement.
     let matched = &first["matches"][0];
@@ -613,7 +649,14 @@ fn preview_pages_carry_only_their_files_with_one_based_lines() {
     );
     let second_files = second["files"].as_array().expect("files");
     assert_eq!(second_files.len(), 1, "{second}");
-    assert_eq!(second_files[0]["path"], "b.ts");
+    assert_eq!(
+        second_files[0]["path"],
+        json!(
+            fs::canonicalize(&root)
+                .expect("canonical root")
+                .join("b.ts")
+        )
+    );
     // The final page's guarded apply still covers every affected file.
     let apply = second["next"]["apply"]["query"]["queries"][0].clone();
     let hashes = apply["expectedHashes"].as_object().expect("hashes");
@@ -623,10 +666,7 @@ fn preview_pages_carry_only_their_files_with_one_based_lines() {
     let mut wrong = apply.clone();
     wrong["expectedHashes"]["a.ts"] = json!("0".repeat(64));
     let mismatch = rewrite_row(wrong, &policy, &security, &NeverCancel, &options);
-    assert_eq!(
-        mismatch["errorCode"], "ast.rewrite.hash_mismatch",
-        "{mismatch}"
-    );
+    assert_eq!(mismatch["errorCode"], "hashMismatch", "{mismatch}");
     assert!(
         mismatch["next"]["restart"]["query"]["queries"][0].is_object(),
         "{mismatch}"
@@ -673,7 +713,15 @@ fn preview_pages_carry_only_the_patch_hunks_of_their_own_matches() {
         &Default::default(),
     );
     let first_file = &first["files"][0];
-    assert_eq!(first_file["path"], "a.ts", "{first}");
+    assert_eq!(
+        first_file["path"],
+        json!(
+            fs::canonicalize(&root)
+                .expect("canonical root")
+                .join("a.ts")
+        ),
+        "{first}"
+    );
     let first_patch = first_file["patch"].as_str().expect("page-1 patch");
     assert!(
         first_patch.contains("+const first = newCall(1);"),
@@ -692,7 +740,15 @@ fn preview_pages_carry_only_the_patch_hunks_of_their_own_matches() {
         &Default::default(),
     );
     let second_file = &second["files"][0];
-    assert_eq!(second_file["path"], "a.ts", "{second}");
+    assert_eq!(
+        second_file["path"],
+        json!(
+            fs::canonicalize(&root)
+                .expect("canonical root")
+                .join("a.ts")
+        ),
+        "{second}"
+    );
     let second_patch = second_file["patch"].as_str().expect("page-2 patch");
     assert!(
         second_patch.contains("+const second = newCall(2);"),
@@ -740,9 +796,20 @@ fn debug_preview_keeps_full_match_and_file_rows() {
     assert_eq!(matched["text"], "oldCall(1)", "{matched}");
     assert_eq!(matched["replacement"], "newCall(1)", "{matched}");
     let file = &preview["files"][0];
-    for kept in ["afterHash", "patchBytes", "absolutePath"] {
+    for kept in ["afterHash", "patchBytes"] {
         assert!(file.get(kept).is_some(), "{kept}: {preview}");
     }
+    // `path` is absolute at the tool; the response stage relativizes it.
+    assert!(file.get("absolutePath").is_none(), "{preview}");
+    assert_eq!(
+        file["path"],
+        json!(
+            fs::canonicalize(&root)
+                .expect("canonical root")
+                .join("a.ts")
+        ),
+        "{preview}"
+    );
     fs::remove_dir_all(root).expect("cleanup");
 }
 
@@ -755,10 +822,7 @@ fn selected_match_id_prefixes_must_name_exactly_one_match() {
     let short = preview["matches"][1]["id"].as_str().expect("id")[..12].to_owned();
     apply["selectedMatchIds"] = json!(["f".repeat(16)]);
     let unknown = rewrite_row(apply.clone(), &policy, &security, &NeverCancel, &options);
-    assert_eq!(
-        unknown["errorCode"], "ast.rewrite.selection_invalid",
-        "{unknown}"
-    );
+    assert_eq!(unknown["errorCode"], "selectionInvalid", "{unknown}");
     apply["selectedMatchIds"] = json!([short]);
     let applied = rewrite_row(apply, &policy, &security, &NeverCancel, &options);
     assert_eq!(applied["transaction"]["committed"], true, "{applied}");
@@ -824,6 +888,44 @@ fn yaml_rule_and_inferred_language_preview_like_the_explicit_object_rule() {
     fs::remove_dir_all(root).expect("cleanup");
 }
 
+/// AS5: a rule-config object `{rule, constraints?, utils?, transform?}` in
+/// `rule`, the same YAML rule file, and the split fields preview alike; a
+/// section given twice is an error, never a silent pick.
+#[test]
+fn rule_config_object_matches_like_yaml_rule_file() {
+    let (root, policy, security) = fixture();
+    let preview = |extra: Value| {
+        let mut row =
+            json!({"path":root,"language":"typescript","fix":"newCall($B)","pageSize":10});
+        for (key, value) in extra.as_object().expect("fields") {
+            row[key] = value.clone();
+        }
+        rewrite_row(row, &policy, &security, &NeverCancel, &Default::default())
+    };
+    let constraints = json!({"A":{"regex":"^1$"}});
+    let transform = json!({"B":{"substring":{"source":"$A"}}});
+    let split = preview(
+        json!({"rule":{"pattern":"oldCall($A)"},"constraints":constraints,"transform":transform}),
+    );
+    assert_eq!(split["matchCount"], 1, "{split}");
+    let object = preview(
+        json!({"rule":{"rule":{"pattern":"oldCall($A)"},"constraints":constraints,"transform":transform}}),
+    );
+    let yaml = preview(
+        json!({"rule":"id: x\nrule:\n  pattern: oldCall($A)\nconstraints:\n  A:\n    regex: ^1$\ntransform:\n  B:\n    substring:\n      source: $A\n"}),
+    );
+    for shape in [&object, &yaml] {
+        assert_eq!(shape["files"], split["files"], "{shape}");
+        assert_eq!(shape["snapshot"], split["snapshot"], "{shape}");
+    }
+    let twice = serde_json::from_value::<RewriteRequest>(json!({"path":root,
+        "rule":{"rule":{"pattern":"oldCall($A)"},"constraints":constraints},
+        "constraints":constraints,"fix":"newCall($A)"}))
+    .expect_err("a section given twice");
+    assert!(twice.to_string().contains("`constraints`"), "{twice}");
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
 #[test]
 fn directory_with_several_grammars_requires_language() {
     let (root, policy, security) = fixture();
@@ -835,11 +937,29 @@ fn directory_with_several_grammars_requires_language() {
         &NeverCancel,
         &Default::default(),
     );
-    assert_eq!(
-        mixed["errorCode"], "ast.rewrite.language_required",
-        "{mixed}"
-    );
+    assert_eq!(mixed["errorCode"], "languageRequired", "{mixed}");
     assert!(mixed.to_string().contains("typescript"), "{mixed}");
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// An unknown `language` fails as astSearch's does: `languageUnsupported`
+/// (not a generic invalidInput), naming the accepted selector forms.
+#[test]
+fn unsupported_language_is_language_unsupported_like_ast_search() {
+    let (root, policy, security) = fixture();
+    let row = rewrite_row(
+        json!({"path":root,"language":"cobol","pattern":"oldCall($A)","rewrite":"newCall($A)"}),
+        &policy,
+        &security,
+        &NeverCancel,
+        &Default::default(),
+    );
+    assert_eq!(row["errorCode"], "languageUnsupported", "{row}");
+    assert!(
+        row.to_string()
+            .contains("is not a supported structural grammar"),
+        "{row}"
+    );
     fs::remove_dir_all(root).expect("cleanup");
 }
 
@@ -902,6 +1022,134 @@ fn interrupted_multi_file_transaction_is_rolled_back_from_journal() {
     fs::remove_dir_all(root).expect("cleanup");
 }
 
+/// A one-file journal on `root/a.ts` in `phase`/`state`, with the stage
+/// written; the caller arranges the target and backup.
+fn single_file_journal(
+    root: &Path,
+    id: &str,
+    phase: JournalPhase,
+    state: FileState,
+) -> (PathBuf, JournalFile) {
+    let target = root.join("a.ts");
+    let file = JournalFile {
+        target: target.clone(),
+        stage: target.with_file_name(format!(".octocode-{id}.stage-0")),
+        backup: target.with_file_name(format!(".octocode-{id}.backup-0")),
+        before_hash: sha256(b"old\n"),
+        after_hash: sha256(b"new\n"),
+        state,
+    };
+    let returned = JournalFile {
+        target: file.target.clone(),
+        stage: file.stage.clone(),
+        backup: file.backup.clone(),
+        before_hash: file.before_hash.clone(),
+        after_hash: file.after_hash.clone(),
+        state,
+    };
+    let journal_dir = journal_directory(root);
+    fs::create_dir_all(&journal_dir).expect("journal directory");
+    let journal_path = journal_dir.join(format!("{JOURNAL_PREFIX}{id}.json"));
+    let journal = Journal {
+        version: 1,
+        id: id.to_owned(),
+        root: root.to_path_buf(),
+        phase,
+        files: vec![file],
+    };
+    persist_journal(&journal_path, &journal).expect("journal");
+    (journal_path, returned)
+}
+
+/// A staged target that was edited by someone else before its backup was
+/// taken was never moved by the transaction: recovery drops the stage, keeps
+/// the external bytes, and retires the journal so later applies still run.
+#[test]
+fn recovery_keeps_an_external_edit_to_a_target_that_was_never_backed_up() {
+    let root = make_temp_dir("octocode-rewrite-external-staged-").expect("fixture");
+    let (journal_path, file) = single_file_journal(
+        &root,
+        "external-staged",
+        JournalPhase::Prepared,
+        FileState::Staged,
+    );
+    fs::write(&file.stage, b"new\n").expect("stage");
+    fs::write(&file.target, b"edited elsewhere\n").expect("external edit");
+
+    let warnings = recover_transactions(&root, &NeverCancel).expect("recovery settles");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(
+        fs::read(&file.target).expect("target"),
+        b"edited elsewhere\n"
+    );
+    assert!(!file.stage.exists());
+    assert!(!journal_path.exists());
+    recover_transactions(&root, &NeverCancel).expect("later applies are not blocked");
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// A target edited after its transaction committed (the process died before
+/// cleanup) keeps the edit; cleanup still removes the artifacts and retires
+/// the journal instead of blocking every later apply.
+#[test]
+fn recovery_retires_a_committed_journal_whose_target_was_edited_after_commit() {
+    let root = make_temp_dir("octocode-rewrite-external-committed-").expect("fixture");
+    let (journal_path, file) = single_file_journal(
+        &root,
+        "external-committed",
+        JournalPhase::Committed,
+        FileState::Promoted,
+    );
+    fs::write(&file.backup, b"old\n").expect("backup");
+    fs::write(&file.target, b"edited after commit\n").expect("external edit");
+
+    let warnings = recover_transactions(&root, &NeverCancel).expect("recovery settles");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(
+        fs::read(&file.target).expect("target"),
+        b"edited after commit\n"
+    );
+    assert!(!file.backup.exists());
+    assert!(!journal_path.exists());
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// The live path: a target edited between prepare and verify fails the
+/// apply as `transactionFailed`, and recovery leaves no journal behind.
+#[test]
+fn an_edit_between_prepare_and_verify_fails_once_and_leaves_no_journal() {
+    let root = make_temp_dir("octocode-rewrite-external-live-").expect("fixture");
+    let target = root.join("a.ts");
+    fs::write(&target, b"edited elsewhere\n").expect("external edit");
+    let prepared = PreparedFile {
+        path: "a.ts".to_owned(),
+        shown: "a.ts".to_owned(),
+        absolute: target.clone(),
+        before_hash: sha256(b"old\n"),
+        after_hash: sha256(b"new\n"),
+        before: b"old\n".to_vec(),
+        after: b"new\n".to_vec(),
+        patch: String::new(),
+        matches: Vec::new(),
+        permissions: fs::metadata(&target).expect("metadata").permissions(),
+        before_errors: 0,
+        after_facts: None,
+    };
+    let error = super::journal::commit_transaction(&root, &[prepared], &NeverCancel)
+        .expect_err("verify fails");
+    assert_eq!(error.code, "transactionFailed");
+    let rollback = &error.details.as_ref().expect("details")["rollback"];
+    assert_eq!(rollback["restored"], true, "{rollback}");
+    assert_eq!(
+        rollback["warnings"].as_array().map(Vec::len),
+        Some(1),
+        "{rollback}"
+    );
+    assert_eq!(fs::read(&target).expect("target"), b"edited elsewhere\n");
+    recover_transactions(&root, &NeverCancel).expect("no journal blocks the next apply");
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
 #[test]
 fn invalid_recovery_journal_cannot_touch_an_outside_file() {
     let root = make_temp_dir("octocode-rewrite-journal-test-").expect("fixture");
@@ -933,7 +1181,7 @@ fn invalid_recovery_journal_cannot_touch_an_outside_file() {
     let path = journal_dir.join(format!("{JOURNAL_PREFIX}{id}.json"));
     persist_journal(&path, &journal).expect("journal");
     let error = recover_transactions(&root, &NeverCancel).expect_err("reject journal");
-    assert_eq!(error.code, "ast.rewrite.recovery_failed");
+    assert_eq!(error.code, "recoveryFailed");
     assert_eq!(fs::read(&outside).expect("outside preserved"), b"keep\n");
     fs::remove_file(outside).expect("outside cleanup");
     fs::remove_dir_all(root).expect("cleanup");
@@ -957,7 +1205,7 @@ fn embedded_engine_supports_inline_rules_without_an_executable() {
         &NeverCancel,
         &Default::default(),
     );
-    assert_eq!(result["totalMatches"], 2);
+    assert_eq!(result["matchCount"], 2);
     assert_eq!(result["isolation"]["workingDirectory"], "ephemeral");
     assert_eq!(result["executable"]["path"], "native");
     assert_eq!(result["executable"]["version"], "embedded");
@@ -1036,5 +1284,87 @@ fn apply_always_reprepares() {
     let applied = rewrite_row(apply, &policy, &security, &NeverCancel, &options);
     assert_eq!(prepares(), before + 1, "{applied}");
     assert_eq!(applied["mode"], "apply", "{applied}");
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// L3: an overlapping root lock that is released within the wait window is
+/// waited for, not failed at once under a `lockTimeout` label.
+#[test]
+fn overlapping_root_lock_is_waited_for_until_released() {
+    let root = std::env::temp_dir().join(format!(
+        "octocode-rewrite-lock-wait-{}-{}",
+        std::process::id(),
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    ));
+    let nested = root.join("nested");
+    fs::create_dir_all(&nested).expect("roots");
+    let held = super::lock::RootLock::acquire(&root).expect("first lock");
+    let waiter = {
+        let nested = nested.clone();
+        std::thread::spawn(move || super::lock::RootLock::acquire(&nested).map(drop))
+    };
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    drop(held);
+    waiter
+        .join()
+        .expect("waiter thread")
+        .expect("the overlapping lock is acquired once released");
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// L4: an interrupted transaction on a nested root (`/ws/sub`) is recovered
+/// by a later apply on the enclosing root (`/ws`): the lock on `/ws` covers it.
+#[test]
+fn recovery_on_a_root_settles_journals_of_nested_roots() {
+    let root = make_temp_dir("octocode-rewrite-nested-journal-").expect("fixture");
+    let nested = root.join("sub");
+    fs::create_dir_all(&nested).expect("nested");
+    let (journal_path, file) = single_file_journal(
+        &nested,
+        "nested-backed-up",
+        JournalPhase::Committing,
+        FileState::BackedUp,
+    );
+    fs::write(&file.backup, b"old\n").expect("backup");
+    fs::write(&file.stage, b"new\n").expect("stage");
+    // The crash left the target moved to its backup: it is missing now.
+    let warnings = recover_transactions(&root, &NeverCancel).expect("recovery settles");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(fs::read(&file.target).expect("restored"), b"old\n");
+    assert!(!journal_path.exists(), "nested journal retired");
+    fs::remove_dir_all(root).expect("cleanup");
+}
+
+/// L4: a pending journal of an enclosing root is not this lock's to touch,
+/// but the apply says so instead of staying silent.
+#[test]
+fn recovery_names_a_pending_journal_of_an_enclosing_root() {
+    let root = make_temp_dir("octocode-rewrite-outer-journal-").expect("fixture");
+    let nested = root.join("sub");
+    fs::create_dir_all(&nested).expect("nested");
+    let (journal_path, file) = single_file_journal(
+        &root,
+        "outer-backed-up",
+        JournalPhase::Committing,
+        FileState::BackedUp,
+    );
+    fs::write(&file.backup, b"old\n").expect("backup");
+    let warnings = recover_transactions(&nested, &NeverCancel).expect("not blocked");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].contains(&root.display().to_string()),
+        "{warnings:?}"
+    );
+    assert!(
+        journal_path.exists(),
+        "the enclosing root keeps its journal"
+    );
+    assert!(
+        !file.target.exists(),
+        "outer files are left to the outer root"
+    );
     fs::remove_dir_all(root).expect("cleanup");
 }

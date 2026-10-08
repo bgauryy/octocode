@@ -1,6 +1,6 @@
 use super::{ExecutionContext, ExecutionError, RequestRuntime, RuntimeLimits};
 use crate::config::{self, ConfigInput, ConfigOutput, RuntimeSurface};
-use crate::contracts::{self, PrepareOptions};
+use crate::contracts;
 use crate::policy::path::{PathPolicy, PathPolicyConfig};
 use crate::regex::{IsolatedRegexEngine, IsolatedRegexLimits};
 use crate::response::pager::{ResponsePageOptions, TextContent};
@@ -19,6 +19,10 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
+
+/// The tool whose availability depends on the classification provider
+/// answering ([`ToolRuntime::probe_classification`]).
+const CLASSIFICATION_TOOL: ToolId = ToolId::Clasify;
 
 const LOCAL_DISABLED: &str =
     "Local tools are disabled (OCTOCODE_ENABLE_LOCAL=false); graph commands read local files.";
@@ -90,6 +94,8 @@ pub struct ToolRuntime {
     /// Set when the startup probe found the classification provider unusable.
     classification_unreachable: std::sync::atomic::AtomicBool,
     lsp_execution_config: Arc<crate::tools::lsp_search::LspExecutionConfig>,
+    /// The sandbox workspace root (configured workspaceRoot, else host cwd).
+    workspace_root: PathBuf,
 }
 
 /// One paged response's envelope before paging, replayed only for a request
@@ -154,20 +160,27 @@ impl PageReplayMemo {
 }
 
 /// Identity of an executed batch: the validated (defaulted, sanitized) rows
-/// and rejected rows in canonical key order, so a compacted `next.query`
-/// replay maps to its origin however the caller ordered its fields.
+/// in canonical key order and their original input indices, so a compacted
+/// `next.query` replay (which carries only the admitted rows) maps to its
+/// origin however the caller ordered its fields.
 fn page_replay_key(
     tool: &str,
     mcp: bool,
     queries: &[Value],
-    rejected: &[(usize, Value)],
+    indices: &[usize],
+    credential: Option<&crate::providers::github::ResolvedCredential>,
 ) -> [u8; 32] {
     use sha2::{Digest, Sha256};
+    // A request-supplied token partitions replays: one caller's page never
+    // answers another caller's continuation.
+    let credential = credential
+        .map(|credential| hex::encode(Sha256::digest(credential.expose_secret().as_bytes())));
     let identity = json!({
         "tool": tool,
         "mcp": mcp,
         "queries": queries,
-        "rejected": rejected,
+        "indices": indices,
+        "credential": credential,
     });
     Sha256::digest(
         crate::canonical_json::canonicalize(identity)
@@ -211,10 +224,12 @@ fn invalid_input_error(
     error: contracts::ContractValidationError,
     mcp: bool,
 ) -> RuntimeError {
+    let mut payload = contracts::format_input_error(tool, &error, mcp);
+    payload["errorCode"] = json!("invalidInput");
     RuntimeError {
         code: "invalidInput".into(),
         message: error.to_string(),
-        payload: Some(Box::new(contracts::format_input_error(tool, &error, mcp))),
+        payload: Some(Box::new(payload)),
         validation_issues: Some(error.issues),
     }
 }
@@ -399,6 +414,16 @@ fn execute_ordinary_queries(
 
 impl ToolRuntime {
     pub fn from_host(options: HostOptions) -> Result<Self, RuntimeError> {
+        // Reject a bad timeout before config acquisition or maintenance run.
+        if let Some(secs) = options.timeout_secs {
+            let max = super::lifecycle::MAX_TIMEOUT.as_secs();
+            if !(1..=max).contains(&secs) {
+                return Err(RuntimeError::new(
+                    "invalidInput",
+                    format!("timeoutSecs must be between 1 and {max}; got {secs}"),
+                ));
+            }
+        }
         let cwd = options
             .cwd
             .or_else(|| std::env::current_dir().ok())
@@ -476,7 +501,7 @@ impl ToolRuntime {
             .map(PathBuf::from)
             .unwrap_or_else(|| input.cwd.clone());
         let paths = PathPolicy::new(PathPolicyConfig {
-            workspace_root: Some(workspace_root),
+            workspace_root: Some(workspace_root.clone()),
             additional_roots,
             include_home: false,
             home_dir: Some(input.os_home.clone()),
@@ -513,6 +538,8 @@ impl ToolRuntime {
                 )
                 .collect(),
             octocode_home: Some(octocode_home),
+            lead_cache: std::sync::Arc::default(),
+            prewarm_state: std::sync::Arc::default(),
         });
         let mut runtime = Self {
             requests,
@@ -530,6 +557,7 @@ impl ToolRuntime {
             available_tools: std::sync::RwLock::default(),
             classification_unreachable: std::sync::atomic::AtomicBool::new(false),
             lsp_execution_config,
+            workspace_root,
         };
         runtime.available_tools = std::sync::RwLock::new(
             ToolId::ALL
@@ -671,7 +699,7 @@ impl ToolRuntime {
     /// runtime, so hosts never offer it and no `next.clasify` lead names it.
     /// A rate limit proves the key and endpoint work, so clasify stays.
     pub async fn probe_classification(&self) -> Value {
-        let clasify = ToolId::Clasify.as_str();
+        let clasify = CLASSIFICATION_TOOL.as_str();
         if !self.is_available(clasify) {
             return json!({ "probed": false, "available": false });
         }
@@ -729,6 +757,12 @@ impl ToolRuntime {
         &self.lsp_execution_config
     }
 
+    /// The root `lspServers` resolve from: the runtime's workspace (host cwd
+    /// or configured workspaceRoot), never the process cwd.
+    fn lsp_root(&self) -> &std::path::Path {
+        &self.workspace_root
+    }
+
     fn lsp_server_languages(&self) -> Vec<&'static str> {
         let config_path = self
             .lsp_execution_config
@@ -736,11 +770,8 @@ impl ToolRuntime {
             .as_deref()
             .and_then(|path| self.paths.validate_read(path).ok())
             .map(|validated| validated.canonical);
-        let root = std::env::current_dir()
-            .map(|dir| dir.to_string_lossy().into_owned())
-            .unwrap_or_else(|_| ".".to_owned());
         octocode_engine::lsp::config::available_server_languages(
-            &root,
+            &self.lsp_root().to_string_lossy(),
             &self.lsp_execution_config.discovery(config_path),
         )
     }
@@ -768,7 +799,7 @@ impl ToolRuntime {
                     && ToolId::from_name(name).is_some_and(ToolId::is_cli_only)
                 {
                     entry["unavailableReason"] = json!("cliOnly");
-                } else if name == ToolId::Clasify.as_str()
+                } else if name == CLASSIFICATION_TOOL.as_str()
                     && self
                         .classification_unreachable
                         .load(std::sync::atomic::Ordering::Relaxed)
@@ -806,6 +837,44 @@ impl ToolRuntime {
             .map_err(runtime_execution_error)
     }
 
+    /// [`Self::admit`] with the host's per-request options
+    /// (`{githubToken?}`). A supplied token is the request's only GitHub
+    /// credential; a request without one resolves credentials as before.
+    pub fn admit_with(
+        &self,
+        request_id: String,
+        options: Option<Value>,
+    ) -> Result<super::RequestAdmission, RuntimeError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase", deny_unknown_fields)]
+        struct RequestOptions {
+            github_token: Option<String>,
+        }
+        let token = match options {
+            None | Some(Value::Null) => None,
+            // Never echo the options: they carry a secret.
+            Some(value) => serde_json::from_value::<RequestOptions>(value)
+                .map_err(|_| RuntimeError::new("invalidInput", "Invalid request options"))?
+                .github_token
+                .map(|token| {
+                    if token.trim().is_empty() {
+                        Err(RuntimeError::new(
+                            "invalidInput",
+                            "Request option githubToken is empty",
+                        ))
+                    } else {
+                        Ok(SecretString::from(token))
+                    }
+                })
+                .transpose()?,
+        };
+        let admission = self.admit(request_id)?;
+        Ok(match token {
+            Some(token) => admission.with_github_token(token),
+            None => admission,
+        })
+    }
+
     pub async fn execute_admitted(
         &self,
         admission: super::RequestAdmission,
@@ -831,6 +900,9 @@ impl ToolRuntime {
             .await
     }
 
+    /// [`Self::admit`] then [`Self::execute_mcp_admitted`] in one call. The
+    /// napi addon admits separately so it can reject before spawning; the
+    /// integration tests use this form.
     pub async fn execute_mcp(
         &self,
         request_id: String,
@@ -882,7 +954,29 @@ impl ToolRuntime {
         } else {
             json!({"queries":queries})
         };
-        let replay_key = page_replay_key(&tool, mcp, &queries, &rejected_rows);
+        // Each admitted row's original input index: from the snapshot mark of
+        // a continuation (which carries only admitted rows), else every input
+        // position not rejected.
+        let rejected_at: Vec<usize> = rejected_rows.iter().map(|(index, _)| *index).collect();
+        let marked = options
+            .response_snapshot
+            .as_deref()
+            .filter(|_| rejected_rows.is_empty())
+            .and_then(|snapshot| super::row_indices::split_snapshot(snapshot, queries.len()));
+        let row_indices = match marked {
+            Some((snapshot, indices)) => {
+                options.response_snapshot = Some(snapshot);
+                indices
+            }
+            None => super::row_indices::admitted_indices(queries.len(), &rejected_at),
+        };
+        let replay_key = page_replay_key(
+            &tool,
+            mcp,
+            &queries,
+            &row_indices,
+            admission.github_credential(),
+        );
         let replayed = options
             .response_snapshot
             .as_deref()
@@ -894,6 +988,7 @@ impl ToolRuntime {
             options,
             queries,
             rejected_rows,
+            row_indices,
             response_query,
             clasify,
             dispatcher: self.dispatcher(),
@@ -1068,10 +1163,10 @@ fn prepare_queries(
     ),
     RuntimeError,
 > {
-    match contracts::prepare_many_and_validate(tool, input.clone(), PrepareOptions::default()) {
+    match contracts::prepare_many_and_validate(tool, input.clone()) {
         Ok(prepared) => Ok((prepared.into_iter().enumerate().collect(), Vec::new())),
         Err(error) => {
-            let Some(rows) = contracts::prepare_rows(tool, input, PrepareOptions::default()) else {
+            let Some(rows) = contracts::prepare_rows(tool, input) else {
                 return Err(invalid_input_error(tool, error, mcp));
             };
             let mut prepared = Vec::with_capacity(rows.len());
@@ -1106,6 +1201,8 @@ struct ChannelRun {
     options: ResponsePageOptions,
     queries: Vec<Value>,
     rejected_rows: Vec<(usize, Value)>,
+    /// Original input index of each admitted row (`row_indices` module).
+    row_indices: Vec<usize>,
     response_query: Value,
     clasify: Option<crate::tools::clasify::ClasifySettings>,
     dispatcher: super::domain_dispatch::DomainDispatcher,
@@ -1115,7 +1212,16 @@ struct ChannelRun {
 }
 
 impl ChannelRun {
-    fn run(mut self, context: &ExecutionContext) -> StageResult {
+    fn run(self, context: &ExecutionContext) -> StageResult {
+        let mark = super::row_indices::mark(&self.row_indices);
+        let mut finished = self.run_unmarked(context)?;
+        if let (Ok(outcome), Some(mark)) = (&mut finished, mark) {
+            super::row_indices::mark_snapshots(outcome, &mark);
+        }
+        Ok(finished)
+    }
+
+    fn run_unmarked(mut self, context: &ExecutionContext) -> StageResult {
         if let Some(replay) = self.replayed.take()
             && super::source_identity::unchanged_since(
                 self.id,
@@ -1228,7 +1334,11 @@ impl ChannelRun {
             source_digest,
         } = self.evaluate_rows(context)?;
         let rejected_at: Vec<usize> = rejected.iter().map(|(index, _)| *index).collect();
-        merge_rejected_rows(&mut rows, rejected);
+        for (row, index) in rows.iter_mut().zip(&self.row_indices) {
+            row["index"] = json!(index);
+        }
+        rows.extend(rejected.into_iter().map(|(_, row)| row));
+        rows.sort_by_key(|row| row["index"].as_u64());
         let tool = self.id.as_str();
         let by_row = crate::tools::clasify::handoff::row_queries(&self.queries, &rejected_at);
         let mut structured = rows::envelope_in(rows, self.id, &by_row, &self.dispatcher.paths);
@@ -1261,7 +1371,7 @@ impl ChannelRun {
         // window, or one near the automatic page size.
         let pageable = self.options.explicit()
             || crate::tools::stream_page::json_chars(&structured) * 2 > self.output.auto_page_chars;
-        let seed = pageable.then(|| PageReplay {
+        let seed_of = |structured: &Value| PageReplay {
             key: self.replays.1,
             snapshot: String::new(),
             started,
@@ -1271,16 +1381,63 @@ impl ChannelRun {
             response_query: self.response_query.clone(),
             failure,
             source_digest: source_digest.clone(),
-        });
+        };
+        // A paged batch with rejected rows pages only its admitted rows (the
+        // body a continuation reproduces); the rejected rows ride page 1.
+        let body = (pageable && !rejected_at.is_empty())
+            .then(|| super::row_indices::admitted_body(&structured, &rejected_at));
+        let rejected_rows: Vec<Value> = body
+            .as_ref()
+            .and_then(|_| structured["results"].as_array())
+            .map(|rows| {
+                rows.iter()
+                    .filter(|row| {
+                        row["index"]
+                            .as_u64()
+                            .and_then(|index| usize::try_from(index).ok())
+                            .is_some_and(|index| rejected_at.contains(&index))
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default();
+        let seed = pageable.then(|| seed_of(&structured));
         let stage = self.stage(structured, self.response_query.clone(), true);
         let finished = stage::finish(
             stage::StageInput {
                 failure,
-                source_digest,
+                source_digest: source_digest.clone(),
                 ..stage
             },
             context,
         )?;
+        if let (Ok(outcome), Some(body)) = (&finished, body)
+            && super::row_indices::is_paged(outcome)
+        {
+            let seed = seed_of(&body);
+            let stage = self.stage(body, self.response_query.clone(), true);
+            let mut finished = stage::finish(
+                stage::StageInput {
+                    failure,
+                    source_digest,
+                    ..stage
+                },
+                context,
+            )?;
+            if let Ok(outcome) = &mut finished {
+                remember_page(&self.replays.0, outcome, seed);
+                if self.options.response_offset.unwrap_or(0) == 0 {
+                    super::row_indices::attach_rejected(
+                        outcome,
+                        rejected_rows,
+                        self.id,
+                        &self.response_query,
+                        self.output.text_format,
+                    );
+                }
+            }
+            return Ok(finished);
+        }
         if let (Ok(outcome), Some(seed)) = (&finished, seed) {
             remember_page(&self.replays.0, outcome, seed);
         }
@@ -1572,6 +1729,19 @@ mod construction_tests {
             runtime_surface: RuntimeSurface::Mcp,
         })
         .expect("runtime")
+    }
+
+    /// L18: catalog `lspServers` resolve against the runtime's workspace
+    /// (host cwd or configured workspaceRoot), not the process cwd.
+    #[test]
+    fn lsp_server_root_is_the_runtime_workspace_not_the_process_cwd() {
+        let home = tempfile::tempdir().expect("home");
+        let runtime = runtime(home.path(), &[]);
+        assert_eq!(runtime.lsp_root(), home.path());
+        assert_ne!(
+            Some(runtime.lsp_root().to_path_buf()),
+            std::env::current_dir().ok()
+        );
     }
 
     #[test]

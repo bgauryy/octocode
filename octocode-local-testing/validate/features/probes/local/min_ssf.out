@@ -1,5 +1,0 @@
-# cmd: octocode structureSearch {"goal": "g", "reasoning": "r", "operation": "files", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src", "names": ["*.ts"]}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"path":"src","files":[{"path":"src/index.ts","sizeFormatted":"75B"},{"path":"src/b.ts","sizeFormatted":"117B"},{"path":"src/a.ts","sizeFormatted":"210B"}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx"}

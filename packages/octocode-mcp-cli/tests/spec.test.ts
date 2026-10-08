@@ -226,7 +226,7 @@ describe('commands', () => {
       'issues search --query <string> --limit <integer> --state <open|closed> --labels <string> [--force]',
     );
     expect(flagToken(command.flags[0] as Flag)).toBe('--query <string>');
-    expect(commandJsonSchema(command)).toEqual(z.toJSONSchema(zodSchema));
+    expect(commandJsonSchema(command)).toEqual(z.toJSONSchema(zodSchema, { io: 'input' }));
     const imported = defineCommand({
       name: 'search',
       description: 'Search',
@@ -302,5 +302,25 @@ describe('package isolation', () => {
       const deps = { ...manifest.dependencies, ...manifest.devDependencies, ...manifest.peerDependencies };
       expect(deps['octocode-mcp-cli']).toBeUndefined();
     }
+  });
+});
+
+
+describe('authored input JSON Schema', () => {
+  it('keeps defaulted fields optional while preserving input constraints and required fields', () => {
+    const schema = z.object({
+      query: z.string().min(2).refine(value => value !== 'blocked'),
+      args: z.array(z.string()).default([]),
+      count: z.string(),
+    });
+    const command = defineCommand({ name: 'input', description: 'Input', schema, run: input => input });
+    const json = commandJsonSchema(command);
+    expect(json.required).toEqual(['query', 'count']);
+    expect(json.properties).toMatchObject({ query: { type: 'string', minLength: 2 }, args: { type: 'array', default: [] }, count: { type: 'string' } });
+    expect(parseCommandInput(command, { query: 'ok', count: 'three' })).toMatchObject({ args: [], count: 'three' });
+    expect(() => parseCommandInput(command, { query: 'blocked', count: 'x' })).toThrow();
+    const transformed = defineCommand({ name: 'transform', description: 'Transform', schema: z.object({ length: z.string().transform(value => value.length) }), run: input => input });
+    expect(commandJsonSchema(transformed).properties).toMatchObject({ length: { type: 'string' } });
+    expect(parseCommandInput(transformed, { length: 'three' })).toEqual({ length: 5 });
   });
 });

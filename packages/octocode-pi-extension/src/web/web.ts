@@ -34,7 +34,7 @@ export function registerWebTool(pi: ExtensionAPI): void {
       'Search the public web with query, or read one http(s) URL with url; supply exactly one. Fetches extract static page text and metadata or format JSON; they do not run JavaScript. Cross-host redirects name the next URL instead of following it. Successful fetches are cached for 15 minutes. Large results name a saved file. Use browser, when available, for rendered pages, interaction or login.',
     promptSnippet: 'Fetch a URL as text or search the web',
     promptGuidelines: [
-      'Use web for public sources; prefer active GitHub or npm research tools for their repositories and packages. Read the source behind a search snippet before relying on its claim.',
+      'Use web for public sources; prefer active GitHub or package registry research tools for their repositories and packages. Read the source behind a search snippet before relying on its claim.',
       'Cite source URLs. When static text cannot answer the question, inspect the rendered page with browser when it is available; read saved output by relevant ranges rather than fetching it again.',
     ],
     parameters: Type.Object({

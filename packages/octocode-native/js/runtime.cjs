@@ -4,6 +4,13 @@ const { existsSync } = require('fs');
 const { join } = require('path');
 const { getPlatformSuffix } = require('../bin/platform.cjs');
 
+// The addon ABI this JS expects; `NativeRuntime.abiVersion` must match. The
+// one JS copy (runtime.js re-exports it); mirrors NATIVE_ABI_VERSION in
+// crates/runtime/src/lib.rs, which tests/distribution.test.ts checks. It
+// guards a stale install or a candidate addon loaded through octocode-mcp's
+// dev-only OCTOCODE_NATIVE_BINDING override (this loader never reads it).
+const NATIVE_ABI_VERSION = 5;
+
 const suffix = getPlatformSuffix();
 if (!suffix) {
   throw new Error(
@@ -20,21 +27,20 @@ const loadErrors = [];
 // Avoid a top-level `return`: it is legal in CommonJS but trips tools that
 // parse this file as a plain script/ESM (e.g. Vite/Rolldown SSR transforms
 // during tests), so break out of the loop on the first successful load.
-let loaded = false;
+let addon;
 for (const candidate of candidates) {
   if (!existsSync(candidate)) continue;
   try {
-    module.exports = require(candidate);
-    loaded = true;
+    addon = require(candidate);
     break;
   } catch (error) {
     loadErrors.push(`${candidate}: ${error?.message ?? error}`);
   }
 }
 
-if (!loaded) {
+if (!addon) {
   try {
-    module.exports = require(`@octocodeai/octocode-native-${suffix}/runtime`);
+    addon = require(`@octocodeai/octocode-native-${suffix}/runtime`);
   } catch (error) {
     loadErrors.push(
       `@octocodeai/octocode-native-${suffix}/runtime: ${error?.message ?? error}`
@@ -47,3 +53,5 @@ if (!loaded) {
     throw failure;
   }
 }
+
+module.exports = { NativeRuntime: addon.NativeRuntime, NATIVE_ABI_VERSION };

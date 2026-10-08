@@ -41,8 +41,8 @@ const measured = {};
 
 // T1: pattern rewrite, language inferred.
 const t1 = rewrite({ path: SCOPE, pattern: '$X.unwrap()', rewrite: '$X.expect("checked")' });
-measured.t1 = { bytes: t1.bytes, ms: t1.ms, matches: t1.data.totalMatches };
-check('T1 preview infers language and finds matches', t1.data.mode === 'preview' && t1.data.totalMatches > 0, t1.text.slice(0, 200));
+measured.t1 = { bytes: t1.bytes, ms: t1.ms, matches: t1.data.matchCount };
+check('T1 preview infers language and finds matches', t1.data.mode === 'preview' && t1.data.matchCount > 0, t1.text.slice(0, 200));
 const rows = t1.data.matches ?? [];
 check('T1 match rows are lean (16-hex id, path, line)', rows.length > 0 && rows.every(row => /^[a-f0-9]{16}$/.test(row.id) && row.path && Number.isInteger(row.line) && !('text' in row) && !('range' in row)), JSON.stringify(rows[0] ?? {}));
 const files = t1.data.files ?? [];
@@ -54,7 +54,9 @@ const apply = t1.data.hints?.apply?.query?.queries?.[0];
 check('T1 hints.apply pins language, snapshot and every file hash', apply?.apply === true && apply.language === 'rust' && /^[a-f0-9]{64}$/.test(apply.snapshot ?? '') && Object.keys(apply.expectedHashes ?? {}).length === t1.data.affectedFiles, JSON.stringify(apply ?? {}).slice(0, 200));
 // Regression guard: baseline 6,581 B; plan A5's 4,000 B would need a
 // 2-line patch context (kept at 3, see astRewrite PLAN Results).
-check(`T1 preview ≤ 4,400 B (${t1.bytes} B)`, t1.bytes <= 4400, `${t1.bytes} B`);
+// D4 (2026-10-07): file/match paths, patch headers and expectedHashes keys are
+// workspace-relative, so each repeats the scope prefix (+~150 B on these previews).
+check(`T1 preview ≤ 4,600 B (${t1.bytes} B)`, t1.bytes <= 4600, `${t1.bytes} B`);
 
 // The explicit shape previews identically.
 const explicit = rewrite({ path: SCOPE, language: 'rust', pattern: '$X.unwrap()', rewrite: '$X.expect("checked")' });
@@ -65,9 +67,9 @@ const yamlRule = 'pattern: $X.unwrap()\ninside:\n  kind: let_declaration\n  stop
 const objectRule = { pattern: '$X.unwrap()', inside: { kind: 'let_declaration', stopBy: 'end' } };
 const t2yaml = rewrite({ path: SCOPE, rule: yamlRule, fix: '$X.expect("checked")' });
 const t2obj = rewrite({ path: SCOPE, language: 'rust', rule: objectRule, fix: '$X.expect("checked")' });
-measured.t2 = { bytes: t2obj.bytes, ms: t2obj.ms, matches: t2obj.data.totalMatches };
-check('T2 YAML-string and object rules preview identically', t2yaml.data.totalMatches > 0 && JSON.stringify(t2yaml.data.files) === JSON.stringify(t2obj.data.files) && t2yaml.data.hints?.apply?.query?.queries?.[0]?.snapshot === t2obj.data.hints?.apply?.query?.queries?.[0]?.snapshot, `${t2yaml.data.totalMatches} vs ${t2obj.data.totalMatches}`);
-check(`T2 preview ≤ 4,600 B (${t2obj.bytes} B)`, t2obj.bytes <= 4600, `${t2obj.bytes} B`);
+measured.t2 = { bytes: t2obj.bytes, ms: t2obj.ms, matches: t2obj.data.matchCount };
+check('T2 YAML-string and object rules preview identically', t2yaml.data.matchCount > 0 && JSON.stringify(t2yaml.data.files) === JSON.stringify(t2obj.data.files) && t2yaml.data.hints?.apply?.query?.queries?.[0]?.snapshot === t2obj.data.hints?.apply?.query?.queries?.[0]?.snapshot, `${t2yaml.data.matchCount} vs ${t2obj.data.matchCount}`);
+check(`T2 preview ≤ 4,700 B (${t2obj.bytes} B)`, t2obj.bytes <= 4700, `${t2obj.bytes} B`);
 
 check('previews leave the corpus untouched (git status unchanged)', gitStatus() === before, gitStatus().slice(0, 200));
 
@@ -78,7 +80,7 @@ fs.cpSync(SCOPE, temp, { recursive: true });
 try {
   const preview = rewrite({ path: temp, pattern: '$X.unwrap()', rewrite: '$X.expect("checked")' });
   const guarded = preview.data.hints?.apply?.query?.queries?.[0];
-  check('temp copy previews the same matches as the corpus', preview.data.totalMatches === t1.data.totalMatches && !!guarded, '');
+  check('temp copy previews the same matches as the corpus', preview.data.matchCount === t1.data.matchCount && !!guarded, '');
   const applied = rewrite(guarded ?? {});
   check('hints.apply commits on the temp copy', applied.data.transaction?.committed === true, applied.text.slice(0, 200));
   const rewritten = fs.readdirSync(temp, { recursive: true }).filter(name => name.endsWith('.rs')).map(name => fs.readFileSync(path.join(temp, name), 'utf8')).join('\n');
@@ -86,7 +88,7 @@ try {
   const replay = rewrite(guarded ?? {});
   check('replaying the apply is rejected (snapshot changed)', replay.data.errorCode === 'staleSnapshot', replay.data.errorCode ?? '');
   const after = rewrite({ path: temp, pattern: '$X.unwrap()', rewrite: '$X.expect("checked")' });
-  check('a fresh preview finds nothing left to rewrite', after.data.totalMatches === 0, String(after.data.totalMatches));
+  check('a fresh preview finds nothing left to rewrite', after.data.matchCount === 0, String(after.data.matchCount));
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });
 }

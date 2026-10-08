@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use oxc_ast::{AstKind, ast::*};
 use oxc_semantic::SemanticBuilder;
 
-use super::js_oxc_shared::{LineIndex, module_export_name};
+use super::js_oxc_shared::{SpanPositions, module_export_name};
 use crate::graph::GraphFactCommonJs;
 
 /// Skip scope construction only when OXC's tokens rule out every supported
@@ -37,7 +37,10 @@ pub(super) fn may_contain_loader(tokens: &[oxc_parser::Token], source: &str) -> 
     })
 }
 
-pub(super) fn collect_common_js_loads(program: &Program, li: &LineIndex) -> Vec<GraphFactCommonJs> {
+pub(super) fn collect_common_js_loads(
+    program: &Program,
+    li: &SpanPositions,
+) -> Vec<GraphFactCommonJs> {
     let semantic = SemanticBuilder::new()
         .with_build_nodes(true)
         .build(program)

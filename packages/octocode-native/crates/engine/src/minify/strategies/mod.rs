@@ -205,7 +205,7 @@ mod tests {
     // ── code core ─────────────────────────────────────────────────────────────
     #[test]
     fn code_core_collapses_blank_runs_to_one() {
-        // Mirrors the TS contract exactly: "a\n\n\n\nb" → "a\n\nb"
+        // A blank run keeps one blank line: "a\n\n\n\nb" → "a\n\nb".
         assert_eq!(minify_code_core("a\n\n\n\nb"), "a\n\nb");
     }
 

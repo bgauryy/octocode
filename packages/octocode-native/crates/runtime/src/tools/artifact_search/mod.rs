@@ -75,13 +75,13 @@ fn npm_registry(
     if query.artifact_type() != ArtifactType::Npm {
         return Ok(None);
     }
-    let (raw, cache_identity) = match query.registry() {
+    let (raw, cache_identity) = match query.registry_url() {
         Some(raw) => (raw, None),
         None => ("https://registry.npmjs.org/", Some("npmjs")),
     };
     let base = url::Url::parse(raw).map_err(|_| {
         ArtifactError::new(
-            "invalid_query",
+            "invalidInput",
             "Invalid npm registry URL: use HTTP(S) without credentials, query or fragment.",
         )
     })?;
@@ -147,7 +147,7 @@ fn respond(
         .unwrap_or_default();
     let mut data = json!({
         "artifacts": serde_json::to_value(&artifacts)
-            .map_err(|_| ArtifactError::new("provider_error", "Failed to encode artifacts."))?,
+            .map_err(|_| ArtifactError::new("providerError", "Failed to encode artifacts."))?,
     });
     if query.package_name().is_none() {
         let current = query.page();
@@ -166,6 +166,24 @@ fn respond(
     }
     for (name, lead) in leads {
         data["next"][name] = lead;
+    }
+    let missing = artifacts
+        .iter()
+        .filter_map(|artifact| {
+            let reference = artifact.missing_ref.as_deref()?;
+            let repository = artifact.repository.as_deref().unwrap_or("its repository");
+            let repository = repository
+                .strip_prefix("https://github.com/")
+                .unwrap_or(repository);
+            Some(format!(
+                "{} {}: the registry's release commit {reference} is not in {repository} on GitHub (unpushed or rewritten); the source lead reads the default branch, not this release.",
+                artifact.name,
+                artifact.version.as_deref().unwrap_or("")
+            ))
+        })
+        .collect::<Vec<_>>();
+    if !missing.is_empty() {
+        data["warnings"] = json!(missing);
     }
     if let Some(limit) = terminal_limit {
         data["isPartial"] = json!(true);
@@ -281,7 +299,7 @@ mod page_tests {
         let dead = Instant::now() - Duration::from_secs(1);
         let run = |page: u64| {
             let query = json!({
-                "type": "npm",
+                "ecosystem": "npm",
                 "keywords": ["http"],
                 "page": page,
                 "mainGoal": "test", "reasoning": "test",
@@ -292,8 +310,8 @@ mod page_tests {
                     .expect_err("dead budget or rejection")
             }
         };
-        assert_eq!(run(5_000).await.code, "invalid_query");
-        assert_ne!(run(2).await.code, "invalid_query");
+        assert_eq!(run(5_000).await.code, "invalidInput");
+        assert_ne!(run(2).await.code, "invalidInput");
     }
 }
 
@@ -332,9 +350,9 @@ mod npm_auth_tests {
 
     async fn lookup(port: u16, npmrc: &std::path::Path) {
         let query = json!({
-            "type": "npm",
+            "ecosystem": "npm",
             "packageName": "audit-package",
-            "registry": format!("http://127.0.0.1:{port}"),
+            "registryUrl": format!("http://127.0.0.1:{port}"),
             "mainGoal": "test", "reasoning": "test",
         });
         // Generous: building the system HTTP client (native root certs) can
@@ -365,9 +383,9 @@ mod npm_auth_tests {
             .mount(&server)
             .await;
         let query = json!({
-            "type": "npm",
+            "ecosystem": "npm",
             "packageName": "no-such-package-zz",
-            "registry": format!("http://127.0.0.1:{}", server.address().port()),
+            "registryUrl": format!("http://127.0.0.1:{}", server.address().port()),
             "mainGoal": "test", "reasoning": "test",
         });
         let deadline = Instant::now() + std::time::Duration::from_secs(300);
@@ -394,9 +412,9 @@ mod npm_auth_tests {
             .mount(&server)
             .await;
         let query = json!({
-            "type": "npm",
+            "ecosystem": "npm",
             "packageName": "audit-package",
-            "registry": format!("http://127.0.0.1:{}", server.address().port()),
+            "registryUrl": format!("http://127.0.0.1:{}", server.address().port()),
         });
         let deadline = Instant::now() + std::time::Duration::from_secs(300);
         for version in [None, Some("1.31.0")] {
@@ -429,13 +447,10 @@ mod npm_auth_tests {
                 "{data}"
             );
             // AR2: an unchecked registry ref is labeled as the registry's
-            // claim, on the row (the one source) and on every lead.
+            // claim on the row (the one source); leads do not repeat it.
             assert!(release.get("source").is_none(), "{data}");
-            assert_eq!(release["verification"], "registryRef", "{data}");
-            assert_eq!(
-                next["readManifest"]["verification"], "registryRef",
-                "{data}"
-            );
+            assert!(release.get("verification").is_none(), "{data}");
+            assert!(next["readManifest"].get("verification").is_none(), "{data}");
             let why = release["why"].as_str().expect("why");
             assert!(why.contains("omit ref"), "{data}");
             let row = data["artifacts"][0].as_object().expect("row");
@@ -447,6 +462,80 @@ mod npm_auth_tests {
                 Some("name"),
                 "{data}"
             );
+        }
+    }
+
+    /// GitHub answers every ref check with `exists`.
+    struct Refs {
+        exists: Option<bool>,
+    }
+
+    impl crate::providers::artifact::ReleaseTags for Refs {
+        fn exists<'a>(
+            &'a self,
+            _owner: &'a str,
+            _repo: &'a str,
+            _reference: &'a str,
+        ) -> crate::providers::artifact::TagFuture<'a> {
+            let exists = self.exists;
+            Box::pin(async move { exists })
+        }
+    }
+
+    /// P7: an npm `gitHead` GitHub does not have (an unpushed or rewritten
+    /// commit) is no release source: the row offers the default branch
+    /// (`viewRepo`, `verification:"defaultBranch"`) and its warning names the
+    /// registry's dead ref, instead of a `viewReleaseSource` that fails. A
+    /// ref GitHub has, or a check that could not run, keeps the registry's
+    /// claim (`registryRef`).
+    #[tokio::test]
+    async fn an_npm_git_head_missing_upstream_is_no_release_lead() {
+        let sha = "2bd066d87f5bafd315be9f40889d0a60b9e58e0b";
+        let server = wiremock::MockServer::start().await;
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "name": "typescript", "version": "7.0.2", "gitHead": sha,
+                "repository": {"url": "git+https://github.com/microsoft/TypeScript.git"}
+            })))
+            .mount(&server)
+            .await;
+        let query = typed(&json!({
+            "ecosystem": "npm",
+            "packageName": "typescript",
+            "registryUrl": format!("http://127.0.0.1:{}", server.address().port()),
+        }));
+        let deadline = Instant::now() + std::time::Duration::from_secs(300);
+        let missing = Refs {
+            exists: Some(false),
+        };
+        let checked = ArtifactCall {
+            tags: Some(&missing),
+            ..call(deadline, true)
+        };
+        let data = execute(query.clone(), checked).await.expect("lookup");
+        let next = data["next"].as_object().expect("next");
+        assert_eq!(next.keys().collect::<Vec<_>>(), vec!["viewRepo"], "{data}");
+        let row = &data["artifacts"][0];
+        assert!(row.get("sourceRef").is_none(), "{data}");
+        assert_eq!(row["verification"], "defaultBranch", "{data}");
+        let warnings = data["warnings"].to_string();
+        assert!(warnings.contains(sha), "{data}");
+        assert!(warnings.contains("microsoft/TypeScript"), "{data}");
+
+        for exists in [Some(true), None] {
+            let refs = Refs { exists };
+            let checked = ArtifactCall {
+                tags: Some(&refs),
+                ..call(deadline, true)
+            };
+            let data = execute(query.clone(), checked).await.expect("lookup");
+            assert_eq!(data["artifacts"][0]["sourceRef"], sha, "{data}");
+            assert_eq!(
+                data["artifacts"][0]["verification"], "registryRef",
+                "{data}"
+            );
+            assert!(data["next"]["viewReleaseSource"].is_object(), "{data}");
+            assert!(data.get("warnings").is_none(), "{data}");
         }
     }
 
@@ -464,10 +553,10 @@ mod npm_auth_tests {
             .mount(&server)
             .await;
         let query = json!({
-            "type": "npm",
+            "ecosystem": "npm",
             "keywords": ["x"],
             "pageSize": 2,
-            "registry": format!("http://127.0.0.1:{}", server.address().port()),
+            "registryUrl": format!("http://127.0.0.1:{}", server.address().port()),
         });
         let deadline = Instant::now() + std::time::Duration::from_secs(300);
         let data = execute(typed(&query), call(deadline, true))

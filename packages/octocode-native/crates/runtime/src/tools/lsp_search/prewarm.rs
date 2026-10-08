@@ -8,26 +8,34 @@
 //! no-proc-macros defaults), and the file is opened so a project load starts
 //! too. The later `lspSearch` then acquires the warm pooled client.
 //!
-//! Bounded: at most [`MAX_PREWARM_KEYS`] distinct servers per process, one
-//! in-flight start per server, and nothing is ever awaited by the caller.
+//! Bounded: at most [`MAX_PREWARM_KEYS`] simultaneous starts per runtime,
+//! one in-flight start per server, and nothing is awaited by the caller.
 
 use super::LspExecutionConfig;
 use crate::policy::path::PathPolicy;
 use octocode_engine::lsp::config::default_server_for_file;
 use octocode_engine::lsp::pool::{LspClientPool, canonical_lsp_key};
+use octocode_engine::lsp::read_regular_bounded;
+use octocode_engine::lsp::types::JsLanguageServerConfig;
 use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use serde_json::Value;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
-/// Distinct servers one process may prewarm.
+/// Simultaneous starts and recently completed servers per runtime.
 const MAX_PREWARM_KEYS: usize = 3;
+/// A pooled server may have exited or been evicted; retry its prewarm after
+/// this interval instead of treating a former success as permanent.
+const PREWARM_COOLDOWN: Duration = Duration::from_secs(30);
 /// Bound on the background open's project-load wait.
 const PREWARM_READY_TIMEOUT_MS: u32 = 20_000;
 const PREWARM_SETTLE_MS: u32 = 400;
 /// Largest file the prewarm opens (the anchor read applies the real bound).
 const MAX_PREWARM_OPEN_BYTES: u64 = 2 * 1024 * 1024;
+/// Readiness string of a wait that ended with the server still indexing.
+const TIMEOUT: &str = "timeout";
 
 /// The source file a local tool row points at: the top search hit, else the
 /// row's or query's own `path` when it is a file. Relative paths are not guessed.
@@ -73,10 +81,35 @@ pub fn lead_file(data: &Value) -> Option<PathBuf> {
     find(data, 0)
 }
 
-/// Keys started (or starting) by this process.
-fn started() -> &'static Mutex<HashSet<String>> {
-    static STARTED: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    STARTED.get_or_init(|| Mutex::new(HashSet::new()))
+#[derive(Debug, Default)]
+pub(crate) struct WarmState {
+    in_flight: HashSet<String>,
+    recent: VecDeque<(String, Instant)>,
+}
+
+impl WarmState {
+    fn begin(&mut self, key: &str) -> bool {
+        self.recent
+            .retain(|(_, warmed)| warmed.elapsed() < PREWARM_COOLDOWN);
+        if self.in_flight.len() >= MAX_PREWARM_KEYS
+            || self.in_flight.contains(key)
+            || self.recent.iter().any(|(recent, _)| recent == key)
+        {
+            return false;
+        }
+        self.in_flight.insert(key.to_owned());
+        true
+    }
+
+    fn finish(&mut self, key: &str, success: bool) {
+        self.in_flight.remove(key);
+        if success {
+            self.recent.push_back((key.to_owned(), Instant::now()));
+            if self.recent.len() > MAX_PREWARM_KEYS {
+                self.recent.pop_front();
+            }
+        }
+    }
 }
 
 /// Start `file`'s language server in the background when it is authorized,
@@ -116,49 +149,89 @@ pub fn schedule(
         return false;
     };
     {
-        let Ok(mut keys) = started().lock() else {
+        let Ok(mut state) = execution.prewarm_state.lock() else {
             return false;
         };
-        if keys.contains(&key) || keys.len() >= MAX_PREWARM_KEYS {
+        if !state.begin(&key) {
             return false;
         }
-        keys.insert(key.clone());
     }
     let pool = pool.clone();
+    let state = execution.prewarm_state.clone();
     handle.spawn(async move {
-        let warmed = async {
-            let client = pool.acquire(config).await.ok().flatten()?;
-            let size = tokio::fs::metadata(&file).await.ok()?.len();
-            if size > MAX_PREWARM_OPEN_BYTES {
-                return Some(());
-            }
-            let content = tokio::fs::read_to_string(&file).await.ok()?;
-            client
-                .open_document_and_wait(
-                    file,
-                    content,
-                    Some(PREWARM_SETTLE_MS),
-                    Some(PREWARM_READY_TIMEOUT_MS),
-                )
-                .await
-                .ok()
-                .map(|_| ())
-        }
-        .await;
-        // A failed start may be retried by a later local call.
-        if warmed.is_none()
-            && let Ok(mut keys) = started().lock()
-        {
-            keys.remove(&key);
+        let success = warm(&pool, config, file).await;
+        if let Ok(mut state) = state.lock() {
+            state.finish(&key, success);
         }
     });
     true
 }
 
+/// Start (or reuse) `config`'s pooled server and open `file` so its project
+/// load starts too. `true` only when the server is ready and the file was
+/// opened without a readiness timeout.
+pub(super) async fn warm(
+    pool: &LspClientPool,
+    config: JsLanguageServerConfig,
+    file: String,
+) -> bool {
+    let warmed = async {
+        let client = pool.acquire(config).await.ok().flatten()?;
+        // Still indexing at its readiness budget: not warm yet. The pooled
+        // server keeps indexing, and its next acquire waits again.
+        if client.readiness().as_deref() == Some(TIMEOUT) {
+            return None;
+        }
+        // One bounded read of a regular file. A file over the open cap (or
+        // unreadable) warmed only the server.
+        let path = PathBuf::from(&file);
+        let bytes = tokio::task::spawn_blocking(move || {
+            read_regular_bounded(&path, MAX_PREWARM_OPEN_BYTES).ok()
+        })
+        .await
+        .ok()??;
+        let content = String::from_utf8(bytes).ok()?;
+        let readiness = client
+            .open_document_and_wait(
+                file,
+                &content,
+                Some(PREWARM_SETTLE_MS),
+                Some(PREWARM_READY_TIMEOUT_MS),
+            )
+            .await
+            .ok()?;
+        (readiness.as_deref() != Some(TIMEOUT)).then_some(())
+    };
+    warmed.await.is_some()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{anchor_file, lead_file};
+    use super::{WarmState, anchor_file, lead_file};
     use serde_json::json;
+
+    #[test]
+    fn completed_prewarms_do_not_exhaust_future_workspaces() {
+        let mut state = WarmState::default();
+        for i in 0..3 {
+            let key = format!("workspace-{i}");
+            assert!(state.begin(&key));
+            state.finish(&key, true);
+        }
+        assert!(state.begin("workspace-3"));
+        assert!(!state.begin("workspace-3"));
+    }
+
+    #[test]
+    fn a_previously_warm_server_can_be_warmed_again_after_cooldown() {
+        let mut state = WarmState::default();
+        assert!(state.begin("workspace"));
+        state.finish("workspace", true);
+        assert!(!state.begin("workspace"));
+        state.recent.front_mut().unwrap().1 =
+            std::time::Instant::now() - super::PREWARM_COOLDOWN - std::time::Duration::from_secs(1);
+        assert!(state.begin("workspace"));
+    }
 
     #[test]
     fn anchor_prefers_the_top_hit_then_a_file_query_path() {
@@ -192,7 +265,7 @@ mod tests {
         let file = dir.join("a.ts");
         std::fs::write(&file, "export const a = 1;\n").expect("file");
         let uri = format!("file://{}", file.display());
-        let data = json!({"results":[{"file":"a.ts"}],"next":{"verifyReferences":{"tool":"lspSearch","query":{"queries":[{"path":uri,"symbolName":"a","lineHint":1}]}}}});
+        let data = json!({"results":[{"file":"a.ts"}],"next":{"references":{"tool":"lspSearch","query":{"queries":[{"path":uri,"symbolName":"a","lineHint":1}]}}}});
         assert_eq!(lead_file(&data), Some(file.clone()));
         let other =
             json!({"next":{"read":{"tool":"localFetch","query":{"queries":[{"path":file}]}}}});

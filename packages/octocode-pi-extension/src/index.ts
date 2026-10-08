@@ -1,7 +1,7 @@
 import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from '@earendil-works/pi-coding-agent';
 import { registerApi } from './api/register.js';
 import { registerAskUser } from './ask/tool.js';
-import { registerCompaction } from './compaction/register.js';
+import { elisionGate, registerCompaction } from './compaction/register.js';
 import { bashSafetyGate, catastrophicCommand } from './files/bash-guard.js';
 import { registerBashTool } from './files/bash.js';
 import { Checkpoints } from './files/checkpoint.js';
@@ -129,7 +129,7 @@ export default function octocode(pi: ExtensionAPI): void {
   // The tool-call pipeline, cheapest and most certain first; the first block wins. User hooks run last: they spawn
   // processes, so only for calls the built-in gates let through. Pi runs no call of a batch before every call's checks
   // ended, so their time is shown: live on the working line, then in the row (`timed` reads `recordCheck`).
-  const gates = [collab.reservationGate, bashSafetyGate, hooks.preToolUse];
+  const gates = [elisionGate, collab.reservationGate, bashSafetyGate, hooks.preToolUse];
   pi.on('tool_call', async (event, ctx) => {
     const started = Date.now();
     activity.checking(event.toolCallId, true);

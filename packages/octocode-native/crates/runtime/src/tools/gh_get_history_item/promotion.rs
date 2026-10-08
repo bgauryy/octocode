@@ -184,7 +184,22 @@ pub(super) fn promote_issue_continuations(out: &mut Value, q: &HistoryItemReques
     else {
         return;
     };
-    let comments = || json!({"comments":q.content_value().and_then(|v|v.get("comments").cloned()).unwrap_or(json!({"discussion":true}))});
+    let content_value = q.content_value();
+    let comments = || json!({"comments":content_value.as_ref().and_then(|v|v.get("comments").cloned()).unwrap_or(json!({"discussion":true}))});
+    // A comment-body hop keeps the body section its first window read: the
+    // hop does not show the body again, but sizes its page like that window.
+    let comment_bodies = || {
+        let mut content = comments();
+        if content_value
+            .as_ref()
+            .and_then(|v| v.get("body"))
+            .and_then(Value::as_bool)
+            == Some(true)
+        {
+            content["body"] = json!(true);
+        }
+        content
+    };
     let mut next = Map::new();
     for (axis, entry) in pages {
         if entry.get("hasMore").and_then(Value::as_bool) != Some(true) {
@@ -192,7 +207,12 @@ pub(super) fn promote_issue_continuations(out: &mut Value, q: &HistoryItemReques
         }
         let (name, key, field, content) = match axis.as_str() {
             "body" => ("continueBody", "offset", "nextOffset", json!({"body":true})),
-            "commentBody" => ("continueCommentBody", "offset", "nextOffset", comments()),
+            "commentBody" => (
+                "continueCommentBody",
+                "offset",
+                "nextOffset",
+                comment_bodies(),
+            ),
             "comments" => ("nextCommentPage", "commentPage", "nextPage", comments()),
             _ => continue,
         };
@@ -262,12 +282,14 @@ mod tests {
         assert_eq!(next["length"], 10);
     }
 
-    /// HI9b: the hop that leaves a walk's first patch window asks for twice
-    /// the call's page (capped at the contract maximum); later hops keep the
-    /// page they ran with; a caller's explicit `length` keeps its page.
+    /// HI9b: every patch-walk hop asks for twice the configured page
+    /// (`output.pagination.defaultCharLength`, capped at the contract
+    /// maximum), whatever page the hop itself ran with, so no hop needs an
+    /// `offset` marker to avoid doubling again; a caller's explicit `length`
+    /// keeps the call's page.
     #[test]
     fn history_b_continue_patch_hops_double_the_first_page_only() {
-        let lead = |fields: Value, page: Option<usize>| {
+        let lead_with = |fields: Value, page: Option<usize>, configured: Option<usize>| {
             let mut row = json!({
                 "operation":"pullRequest","mainGoal":"test","reasoning":"test",
                 "owner":"a","repo":"b","number":1,"sections":["patches"]
@@ -277,29 +299,39 @@ mod tests {
             }
             let mut query = HistoryItemRequest::from_row(row).expect("query");
             query.auto_page_chars = page;
+            query.configured_page_chars = configured;
             let mut out = json!({"pullRequests":[{"contentPagination":{
                 "patches":{"hasMore":true,"nextOffset":900}
             }}]});
             promote_pr_continuations(&mut out, &query);
             out["next"]["continuePatch"]["query"].clone()
         };
+        let lead = |fields: Value, page: Option<usize>| lead_with(fields, page, Some(20_000));
         assert_eq!(lead(json!({}), Some(20_000))["responseLength"], 40_000);
-        assert_eq!(lead(json!({}), Some(40_000))["responseLength"], 50_000);
+        // A hop pages its response by whole rows: an overflow splits the row
+        // into structured parts instead of text windows that hide the rows.
+        assert_eq!(lead(json!({}), Some(20_000))["responseScope"], "rows");
+        // A hop ran at the doubled page; its next hop asks for the same page.
+        assert_eq!(lead(json!({}), Some(40_000))["responseLength"], 40_000);
         assert_eq!(
             lead(json!({"offset":5}), Some(40_000))["responseLength"],
             40_000
         );
-        // A file page a walk opens names offset 0: it keeps the page.
         assert_eq!(
-            lead(json!({"offset":0}), Some(40_000))["responseLength"],
-            40_000
+            lead_with(json!({}), Some(40_000), Some(40_000))["responseLength"],
+            50_000,
+            "capped at the contract maximum"
         );
         assert_eq!(
             lead(json!({"length":900}), Some(20_000))["responseLength"],
             20_000
         );
-        assert!(lead(json!({}), None).get("responseLength").is_none());
-        let hop = lead(json!({}), Some(5_000));
+        assert!(
+            lead_with(json!({}), None, None)
+                .get("responseLength")
+                .is_none()
+        );
+        let hop = lead_with(json!({}), Some(5_000), Some(5_000));
         assert_eq!(hop["responseLength"], 10_000);
         assert!(hop["queries"][0].get("length").is_none(), "{hop}");
         crate::contracts::validate("ghGetHistoryItem", hop).expect("a valid hop");
@@ -310,6 +342,7 @@ mod tests {
         }))
         .expect("commit query");
         commit.auto_page_chars = Some(20_000);
+        commit.configured_page_chars = Some(20_000);
         let mut out =
             json!({"filePagination":{"currentPage":1,"hasMore":false,"nextPatchOffset":10}});
         let cursors = DiffCursors::of_file_page(&out["filePagination"], true);
@@ -325,9 +358,14 @@ mod tests {
             out["next"]["continuePatch"]["query"]["responseLength"], 40_000,
             "{out}"
         );
+        assert_eq!(
+            out["next"]["continuePatch"]["query"]["responseScope"], "rows",
+            "{out}"
+        );
 
-        // The next file page of a patch walk opens at offset 0 and keeps
-        // the walk's page; an inventory's next file page asks for neither.
+        // The next file page of a patch walk asks for the walk's page and
+        // needs no offset marker; an inventory's next file page asks for
+        // neither.
         let file_page = |sections: Value, offset: Option<u64>| {
             let mut row = json!({
                 "operation":"pullRequest","mainGoal":"test","reasoning":"test",
@@ -338,6 +376,7 @@ mod tests {
             }
             let mut query = HistoryItemRequest::from_row(row).expect("query");
             query.auto_page_chars = Some(40_000);
+            query.configured_page_chars = Some(20_000);
             let mut out = json!({"pullRequests":[{"contentPagination":{
                 "files":{"hasMore":true,"nextPage":2}
             }}]});
@@ -346,11 +385,13 @@ mod tests {
         };
         let walk = file_page(json!(["patches"]), Some(31_000));
         assert_eq!(walk["responseLength"], 40_000, "{walk}");
-        assert_eq!(walk["queries"][0]["offset"], 0, "{walk}");
+        assert_eq!(walk["responseScope"], "rows", "{walk}");
+        assert!(walk["queries"][0].get("offset").is_none(), "{walk}");
         assert_eq!(walk["queries"][0]["filePage"], 2, "{walk}");
         crate::contracts::validate("ghGetHistoryItem", walk).expect("a valid hop");
         let inventory = file_page(json!(["files"]), None);
         assert!(inventory.get("responseLength").is_none(), "{inventory}");
+        assert!(inventory.get("responseScope").is_none(), "{inventory}");
         assert!(
             inventory["queries"][0].get("offset").is_none(),
             "{inventory}"
@@ -979,9 +1020,9 @@ mod tests {
         assert_eq!(names, Some(vec!["nextFilePage".to_owned()]), "{last}");
         let page = &last["next"]["nextFilePage"]["query"]["queries"][0];
         assert_eq!(page["filePage"], 2, "{page}");
-        // The walk's next file page opens at the stream start (HI9b: an
-        // explicit 0 keeps the walk's page), never at the old cursor.
-        assert_eq!(page["offset"], 0, "{page}");
+        // The walk's next file page opens at the stream start, never at the
+        // old cursor (HI9b: no offset marker keeps the walk's page).
+        assert!(page.get("offset").is_none(), "{page}");
     }
 
     /// Compare: each page has one canonical query. The commit page drops
@@ -1045,7 +1086,7 @@ mod tests {
         assert_eq!(names, Some(vec!["nextFilePage".to_owned()]), "{last}");
         let files = &last["next"]["nextFilePage"]["query"]["queries"][0];
         assert_eq!(files["filePage"], 2, "{files}");
-        assert_eq!(files["offset"], 0, "{files}");
+        assert!(files.get("offset").is_none(), "{files}");
     }
 
     #[test]

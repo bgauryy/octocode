@@ -47,6 +47,7 @@ grep-searcher = "0.1.17"
 globset = { workspace = true }
 hex = { workspace = true }
 ignore = { workspace = true }
+moka = { version = "0.12", default-features = false, features = ["sync"] }
 oxc_allocator = "=0.150.0"
 oxc_ast = "=0.150.0"
 oxc_ast_visit = "=0.150.0"
@@ -60,7 +61,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml_ng = { workspace = true }
 sha2 = { workspace = true }
-moka = { workspace = true }
 tokio = { workspace = true, features = ["fs", "io-util", "macros", "process", "rt-multi-thread", "sync", "time"] }
 tree-sitter = "0.27"
 tree-sitter-asm = { version = "0.24", optional = true }
@@ -113,6 +113,7 @@ tree-sitter-cuda = ["dep:tree-sitter-cuda"]
 # GPU-kernel language. `.cu`/`.cuh` still route to `clangd` for LSP navigation
 # (see crates/engine/src/lsp/config.rs), so semantic nav survives; only native
 # signatures/structural parsing is gated off. Re-enable by adding
-# "tree-sitter-cuda" here (the optional dep + feature below are retained).
+# "tree-sitter-cuda" to `portable-default` above (the optional dependency and
+# the `tree-sitter-cuda` feature are kept).
 tree-sitter-large-grammars = ["tree-sitter-cpp", "tree-sitter-c-sharp"]
 tree-sitter-scala = ["dep:tree-sitter-scala"]

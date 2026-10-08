@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use super::{
-    MatchRange, REGEX_WORKER_PROTOCOL_VERSION, RegexError, RegexErrorCode, WorkerOperation,
+    FoundRanges, REGEX_WORKER_PROTOCOL_VERSION, RegexError, RegexErrorCode, WorkerOperation,
     WorkerRequest, WorkerResponse, error,
 };
 
@@ -45,20 +45,6 @@ pub struct IsolatedRegexEngine {
     shutdown: Arc<AtomicBool>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum MemoryConfinement {
-    HardAddressSpace,
-    SampledRss,
-    WindowsJob,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct ExecutionMetadata {
-    pub memory_confinement: MemoryConfinement,
-    pub peak_rss_bytes: Option<u64>,
-    pub poll_interval: Duration,
-}
-
 impl IsolatedRegexEngine {
     pub fn new(worker_path: impl Into<PathBuf>, limits: IsolatedRegexLimits) -> Self {
         Self {
@@ -72,33 +58,21 @@ impl IsolatedRegexEngine {
         self.shutdown.store(true, Ordering::Release);
     }
 
-    pub fn worker_path(&self) -> &Path {
-        &self.worker_path
-    }
-
     pub fn find_ranges(
         &self,
         source: &str,
         flags: &str,
         input: &str,
-    ) -> Result<Vec<MatchRange>, RegexError> {
-        self.find_ranges_with_metadata(source, flags, input)
-            .map(|(value, _)| value)
-    }
-
-    pub fn find_ranges_with_metadata(
-        &self,
-        source: &str,
-        flags: &str,
-        input: &str,
-    ) -> Result<(Vec<MatchRange>, ExecutionMetadata), RegexError> {
-        let (response, metadata) = self.execute(WorkerRequest {
+    ) -> Result<FoundRanges, RegexError> {
+        // One probe past the limit tells a capped prefix from the whole set.
+        let limit = self.limits.max_matches;
+        let response = self.execute(WorkerRequest {
             version: REGEX_WORKER_PROTOCOL_VERSION,
             source: source.to_owned(),
             flags: flags.to_owned(),
             input: input.to_owned(),
             operation: WorkerOperation::Find {
-                max_matches: self.limits.max_matches,
+                max_matches: limit.saturating_add(1),
             },
         })?;
         let ranges = response.ranges.ok_or_else(|| {
@@ -109,39 +83,10 @@ impl IsolatedRegexEngine {
                     .unwrap_or_else(|| "Regex worker omitted match ranges".into()),
             )
         })?;
-        Ok((ranges, metadata))
+        Ok(FoundRanges::bounded(ranges, limit))
     }
 
-    pub fn replace_literal(
-        &self,
-        source: &str,
-        flags: &str,
-        input: &str,
-        replacement: &str,
-    ) -> Result<String, RegexError> {
-        let (response, _) = self.execute(WorkerRequest {
-            version: REGEX_WORKER_PROTOCOL_VERSION,
-            source: source.to_owned(),
-            flags: flags.to_owned(),
-            input: input.to_owned(),
-            operation: WorkerOperation::ReplaceLiteral {
-                replacement: replacement.to_owned(),
-            },
-        })?;
-        response.replaced.ok_or_else(|| {
-            error(
-                RegexErrorCode::InvalidPattern,
-                response
-                    .error
-                    .unwrap_or_else(|| "Regex worker omitted replacement".into()),
-            )
-        })
-    }
-
-    fn execute(
-        &self,
-        request: WorkerRequest,
-    ) -> Result<(WorkerResponse, ExecutionMetadata), RegexError> {
+    fn execute(&self, request: WorkerRequest) -> Result<WorkerResponse, RegexError> {
         if self.shutdown.load(Ordering::Acquire) {
             return Err(error(
                 RegexErrorCode::RequiresIsolatedEngine,
@@ -179,7 +124,7 @@ impl IsolatedRegexEngine {
                 .read_to_end(&mut bytes)
                 .map(|_| bytes)
         });
-        let peak_rss_bytes = self.supervise(&mut child, started)?;
+        self.supervise(&mut child, started)?;
         input_writer
             .join()
             .map_err(|_| {
@@ -214,20 +159,12 @@ impl IsolatedRegexEngine {
                 "Regex worker response exceeds its byte limit",
             ));
         }
-        let response = serde_json::from_slice(&output).map_err(|failure| {
+        serde_json::from_slice(&output).map_err(|failure| {
             error(
                 RegexErrorCode::InvalidPattern,
                 format!("Invalid regex worker response: {failure}"),
             )
-        })?;
-        Ok((
-            response,
-            ExecutionMetadata {
-                memory_confinement: platform_memory_confinement(),
-                peak_rss_bytes,
-                poll_interval: Duration::from_millis(1),
-            },
-        ))
+        })
     }
 
     /// Start the worker with a cleared environment and piped stdio.
@@ -259,13 +196,8 @@ impl IsolatedRegexEngine {
     }
 
     /// Poll the worker until it exits, stopping it on shutdown, on its
-    /// deadline, or (macOS) past the RSS limit. Returns the sampled peak RSS.
-    fn supervise(&self, child: &mut Child, started: Instant) -> Result<Option<u64>, RegexError> {
-        // Sampled only where the worker's RSS is readable (macOS).
-        #[cfg(target_os = "macos")]
-        let mut peak_rss_bytes = None;
-        #[cfg(not(target_os = "macos"))]
-        let peak_rss_bytes: Option<u64> = None;
+    /// deadline, or (macOS) past the sampled RSS limit.
+    fn supervise(&self, child: &mut Child, started: Instant) -> Result<(), RegexError> {
         loop {
             if self.shutdown.load(Ordering::Acquire) {
                 stop(child);
@@ -280,7 +212,6 @@ impl IsolatedRegexEngine {
                     stop(child);
                     error(RegexErrorCode::RequiresIsolatedEngine, failure)
                 })?;
-                peak_rss_bytes = Some(peak_rss_bytes.map_or(rss, |peak: u64| peak.max(rss)));
                 if rss > self.limits.max_memory_bytes as u64 {
                     stop(child);
                     return Err(error(
@@ -290,7 +221,7 @@ impl IsolatedRegexEngine {
                 }
             }
             match child.try_wait() {
-                Ok(Some(_)) => return Ok(peak_rss_bytes),
+                Ok(Some(_)) => return Ok(()),
                 Ok(None) if started.elapsed() < self.limits.deadline => {
                     thread::sleep(Duration::from_millis(1))
                 }
@@ -316,21 +247,6 @@ impl IsolatedRegexEngine {
 fn stop(child: &mut Child) {
     let _ = child.kill();
     let _ = child.wait();
-}
-
-const fn platform_memory_confinement() -> MemoryConfinement {
-    #[cfg(target_os = "macos")]
-    {
-        MemoryConfinement::SampledRss
-    }
-    #[cfg(windows)]
-    {
-        MemoryConfinement::WindowsJob
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        MemoryConfinement::HardAddressSpace
-    }
 }
 
 #[cfg(target_os = "macos")]

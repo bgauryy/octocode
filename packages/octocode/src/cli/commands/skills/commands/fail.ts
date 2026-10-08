@@ -1,4 +1,5 @@
 import { c } from '../../../../utils/colors.js';
+import { EXIT, toolErrorJson } from '../../../exit-codes.js';
 
 /**
  * Report a skill command failure in the caller's output mode: the CLI-wide
@@ -9,10 +10,7 @@ export function reportFailure(
   json: boolean,
   { human = `\n  ${c('red', '✗')} ${message}\n` }: { human?: string } = {}
 ): void {
-  if (json)
-    console.log(
-      JSON.stringify({ kind: 'octocode.toolError', version: 1, error: message })
-    );
+  if (json) console.log(toolErrorJson(message));
   else console.error(human);
-  process.exitCode = 1;
+  process.exitCode = EXIT.GENERAL;
 }

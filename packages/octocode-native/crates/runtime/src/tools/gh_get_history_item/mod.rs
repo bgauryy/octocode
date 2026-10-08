@@ -12,14 +12,16 @@
 //! `patch` own changed files and patch windows, `window` provider-batch paging, `pr_menu`,
 //! `patch_hop` and `promotion` every `next.*`, and `graphql` the PR fast path.
 use crate::providers::github::{
-    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason,
-    RequestContext,
+    GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
 };
-use crate::security::scan::ContentScan;
+use crate::security::scan::{ContentScan, sanitize_provider_text};
 use crate::tools::num::usize_of;
 use crate::tools::result::remove_nulls;
 use serde_json::Value;
 use std::path::Path;
+
+/// The path the content scanner sees for history-item provider text.
+const SCAN_PATH: &str = "github-history-item";
 
 mod commit_compare;
 mod filter;
@@ -77,6 +79,9 @@ pub struct HistoryItemRequest {
     /// (`responseLength`) or the configured automatic page, shared by the
     /// rows of one call.
     pub auto_page_chars: Option<usize>,
+    /// The configured automatic page (`output.pagination.defaultCharLength`):
+    /// every patch-walk hop asks for twice it ([`patch_hop::hop_response_length`]).
+    pub configured_page_chars: Option<usize>,
     /// Commit/compare `include` scope (paths or globs); pull requests
     /// filter their changed files by `include` ([`filter::InventoryFilter`]).
     pub(super) file_scope: Vec<String>,
@@ -94,16 +99,17 @@ impl HistoryItemRequest {
             content,
             include_diff,
             auto_page_chars: None,
+            configured_page_chars: None,
             file_scope,
             head_sources: None,
         })
     }
     /// The `content` selector as JSON, for the shaping code's key lookups.
-    pub fn content_value(&self) -> Option<Value> {
+    pub(crate) fn content_value(&self) -> Option<Value> {
         self.content.clone()
     }
     /// Commit/compare rows that read patch text.
-    pub fn include_diff(&self) -> bool {
+    pub(crate) fn include_diff(&self) -> bool {
         self.include_diff
     }
 }
@@ -254,7 +260,7 @@ impl std::ops::Deref for HistoryItemRequest {
 /// Operation-independent views over the generated wire query, in the
 /// engine's `usize` units.
 impl GhGetHistoryItemQuery {
-    pub fn operation(&self) -> ItemOperation {
+    pub(crate) fn operation(&self) -> ItemOperation {
         match self {
             Self::PullRequest { .. } => ItemOperation::PullRequest,
             Self::Issue { .. } => ItemOperation::Issue,
@@ -262,7 +268,7 @@ impl GhGetHistoryItemQuery {
             Self::Compare { .. } => ItemOperation::Compare,
         }
     }
-    pub fn owner(&self) -> &str {
+    pub(crate) fn owner(&self) -> &str {
         match self {
             Self::PullRequest { owner, .. }
             | Self::Issue { owner, .. }
@@ -270,7 +276,7 @@ impl GhGetHistoryItemQuery {
             | Self::Compare { owner, .. } => owner.as_str(),
         }
     }
-    pub fn repo(&self) -> &str {
+    pub(crate) fn repo(&self) -> &str {
         match self {
             Self::PullRequest { repo, .. }
             | Self::Issue { repo, .. }
@@ -278,37 +284,37 @@ impl GhGetHistoryItemQuery {
             | Self::Compare { repo, .. } => repo.as_str(),
         }
     }
-    pub fn number(&self) -> Option<u64> {
+    pub(crate) fn number(&self) -> Option<u64> {
         match self {
             Self::PullRequest { number, .. } | Self::Issue { number, .. } => Some(number.0.get()),
             _ => None,
         }
     }
-    pub fn reference(&self) -> Option<&str> {
+    pub(crate) fn reference(&self) -> Option<&str> {
         match self {
             Self::Commit { ref_, .. } => Some(ref_.as_str()),
             _ => None,
         }
     }
-    pub fn base(&self) -> Option<&str> {
+    pub(crate) fn base(&self) -> Option<&str> {
         match self {
             Self::Compare { base, .. } => Some(base),
             _ => None,
         }
     }
-    pub fn head(&self) -> Option<&str> {
+    pub(crate) fn head(&self) -> Option<&str> {
         match self {
             Self::Compare { head, .. } => Some(head),
             _ => None,
         }
     }
-    pub fn page(&self) -> Option<usize> {
+    pub(crate) fn page(&self) -> Option<usize> {
         match self {
             Self::Compare { page, .. } => Some(usize_of(page.get())),
             _ => None,
         }
     }
-    pub fn page_size(&self) -> Option<usize> {
+    pub(crate) fn page_size(&self) -> Option<usize> {
         match self {
             Self::PullRequest { page_size, .. } => page_size.map(|size| usize_of(size.get())),
             Self::Issue { page_size, .. }
@@ -320,7 +326,7 @@ impl GhGetHistoryItemQuery {
     }
     /// Items per page of a provider collection (comments, reviews, commits,
     /// patch file pages): `pageSize` capped at one provider batch.
-    pub fn collection_page_size(&self) -> usize {
+    pub(crate) fn collection_page_size(&self) -> usize {
         self.page_size()
             .unwrap_or(DEFAULT_PAGE_SIZE)
             .clamp(1, MAX_COLLECTION_PAGE)
@@ -328,20 +334,20 @@ impl GhGetHistoryItemQuery {
     /// Whether a pull request narrows its changed files (`include`,
     /// `status`, `minChanges`).
     /// Pull-request `patchRanges` (selected patch lines per file).
-    pub fn patch_ranges(&self) -> &[crate::contracts::tool_types::HiPatchRange] {
+    pub(crate) fn patch_ranges(&self) -> &[crate::contracts::tool_types::HiPatchRange] {
         match self {
             Self::PullRequest { patch_ranges, .. } => patch_ranges,
             _ => &[],
         }
     }
-    pub fn has_file_filter(&self) -> bool {
+    pub(crate) fn has_file_filter(&self) -> bool {
         matches!(
             self,
             Self::PullRequest { include, status, min_changes, .. }
                 if include.is_some() || status.is_some() || min_changes.is_some()
         )
     }
-    pub fn file_page(&self) -> Option<usize> {
+    pub(crate) fn file_page(&self) -> Option<usize> {
         match self {
             Self::PullRequest { file_page, .. } => file_page.map(|page| usize_of(page.get())),
             Self::Commit { file_page, .. } | Self::Compare { file_page, .. } => {
@@ -350,7 +356,7 @@ impl GhGetHistoryItemQuery {
             Self::Issue { .. } => None,
         }
     }
-    pub fn comment_page(&self) -> Option<usize> {
+    pub(crate) fn comment_page(&self) -> Option<usize> {
         match self {
             Self::PullRequest { comment_page, .. } | Self::Issue { comment_page, .. } => {
                 comment_page.as_ref().map(|page| usize_of(page.0.get()))
@@ -358,20 +364,20 @@ impl GhGetHistoryItemQuery {
             _ => None,
         }
     }
-    pub fn commit_page(&self) -> Option<usize> {
+    pub(crate) fn commit_page(&self) -> Option<usize> {
         match self {
             Self::PullRequest { commit_page, .. } => commit_page.map(|page| usize_of(page.get())),
             _ => None,
         }
     }
-    pub fn review_page(&self) -> Option<usize> {
+    pub(crate) fn review_page(&self) -> Option<usize> {
         match self {
             Self::PullRequest { review_page, .. } => review_page.map(|page| usize_of(page.get())),
             _ => None,
         }
     }
 
-    pub fn path(&self) -> Option<&str> {
+    pub(crate) fn path(&self) -> Option<&str> {
         match self {
             Self::Commit { path, .. } | Self::Compare { path, .. } => {
                 path.as_ref().map(|path| path.as_str())
@@ -380,7 +386,7 @@ impl GhGetHistoryItemQuery {
         }
     }
     /// The text window offset (`offset`, characters).
-    pub fn char_offset(&self) -> Option<usize> {
+    pub(crate) fn char_offset(&self) -> Option<usize> {
         match self {
             Self::PullRequest { offset, .. } | Self::Issue { offset, .. } => offset.map(usize_of),
             Self::Commit { offset, .. } | Self::Compare { offset, .. } => {
@@ -389,7 +395,7 @@ impl GhGetHistoryItemQuery {
         }
     }
     /// The text window length (`length`, characters).
-    pub fn char_length(&self) -> Option<usize> {
+    pub(crate) fn char_length(&self) -> Option<usize> {
         match self {
             Self::PullRequest { length, .. } | Self::Issue { length, .. } => {
                 length.map(|length| usize_of(length.get()))
@@ -399,14 +405,14 @@ impl GhGetHistoryItemQuery {
             }
         }
     }
-    pub fn match_string(&self) -> Option<&str> {
+    pub(crate) fn match_string(&self) -> Option<&str> {
         match self {
             Self::PullRequest { match_string, .. } => match_string.as_deref(),
             _ => None,
         }
     }
     /// Lines kept around each `matchString` hit in a patch (`contextLines`).
-    pub fn match_context(&self) -> Option<usize> {
+    pub(crate) fn match_context(&self) -> Option<usize> {
         match self {
             Self::PullRequest { context_lines, .. } => {
                 context_lines.and_then(|lines| usize::try_from(lines).ok())
@@ -418,7 +424,7 @@ impl GhGetHistoryItemQuery {
     /// review or comment page after the first, or a text window that names
     /// its offset): the caller already holds the item header and menu from
     /// page one.
-    pub fn later_page(&self) -> bool {
+    pub(crate) fn later_page(&self) -> bool {
         let after_first = |page: Option<usize>| page.is_some_and(|page| page > 1);
         matches!(self, Self::PullRequest { .. })
             && (after_first(self.file_page())
@@ -428,14 +434,14 @@ impl GhGetHistoryItemQuery {
                 || self.char_offset().is_some())
     }
     /// `debug: true` keeps diagnostic fields a default response omits.
-    pub fn debug(&self) -> bool {
+    pub(crate) fn debug(&self) -> bool {
         match self {
             Self::PullRequest { debug, .. } => *debug,
             _ => false,
         }
     }
     /// The pull-request text view (`"standard"` or `"none"`).
-    pub fn minify(&self) -> Option<String> {
+    pub(crate) fn minify(&self) -> Option<String> {
         match self {
             Self::PullRequest { minify, .. } => Some(minify.to_string()),
             _ => None,
@@ -443,8 +449,8 @@ impl GhGetHistoryItemQuery {
     }
 }
 
-pub async fn execute<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+pub async fn execute(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
     security: &impl ContentScan,
@@ -475,17 +481,14 @@ pub async fn execute<R: CredentialResolver>(
                                 | ProviderErrorReason::RefNotFound
                         )
                     ) => {}
+                // GitHub answers a missing item, ref, or repository with a
+                // bare 404: name what was asked for.
                 ProviderErrorKind::NotFound => {
-                    let canonical = "Repository, resource, or path not found";
-                    error.message = if matches!(query.operation(), ItemOperation::PullRequest) {
-                        format!(
-                            "Failed to fetch pull request #{}: {canonical}",
-                            query.number().unwrap_or_default()
-                        )
-                        .into_boxed_str()
-                    } else {
-                        canonical.into()
-                    };
+                    error.message = not_found_message(query, error.reason).into_boxed_str();
+                    if matches!(query.operation(), ItemOperation::Compare) && error.reason.is_none()
+                    {
+                        error.reason = Some(ProviderErrorReason::RefNotFound);
+                    }
                 }
                 ProviderErrorKind::RateLimited => {
                     if let Some(rate_limit) = error.rate_limit.as_mut()
@@ -496,14 +499,46 @@ pub async fn execute<R: CredentialResolver>(
                 }
                 _ => {}
             }
-            error.message = sanitize_text(error.message.as_ref(), security)?.into_boxed_str();
+            error.message = sanitize_provider_text(security, &error.message, Path::new(SCAN_PATH))?
+                .into_boxed_str();
             return Err(error);
         }
     };
     sanitize_all_strings(&mut value, security)?;
     remove_nulls(&mut value);
-    enforce_response_limit(&value, context.max_body_bytes)?;
+    enforce_response_limit(&value, context.budget.max_body_bytes)?;
     Ok(value)
+}
+
+/// The message of a not-found item read: the repository, number, or refs
+/// the query named (a bare GitHub 404 cannot tell which part is missing).
+fn not_found_message(query: &HistoryItemRequest, reason: Option<ProviderErrorReason>) -> String {
+    let (owner, repo) = (query.owner(), query.repo());
+    if reason == Some(ProviderErrorReason::RepositoryNotFound) {
+        return format!(
+            "Repository {owner}/{repo} not found, or private and not accessible to this token"
+        );
+    }
+    let or_repository = "or the repository is missing or private to this token";
+    match query.operation() {
+        ItemOperation::PullRequest => format!(
+            "Pull request #{} not found in {owner}/{repo}, {or_repository}",
+            query.number().unwrap_or_default()
+        ),
+        ItemOperation::Issue => format!(
+            "Issue #{} not found in {owner}/{repo}, {or_repository}",
+            query.number().unwrap_or_default()
+        ),
+        ItemOperation::Commit => format!(
+            "Commit \"{}\" not found in {owner}/{repo}, {or_repository}",
+            query.reference().unwrap_or_default()
+        ),
+        ItemOperation::Compare => format!(
+            "Cannot compare {}...{} in {owner}/{repo}: a ref was not found, {or_repository}",
+            query.base().unwrap_or_default(),
+            query.head().unwrap_or_default()
+        ),
+    }
 }
 
 fn enforce_response_limit(value: &Value, max_body_bytes: usize) -> Result<(), ProviderError> {
@@ -519,13 +554,13 @@ fn enforce_response_limit(value: &Value, max_body_bytes: usize) -> Result<(), Pr
     Ok(())
 }
 
-async fn execute_inner<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn execute_inner(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<Value, ProviderError> {
     validate(query)?;
-    check_context(context)?;
+    context.check()?;
     match query.operation() {
         ItemOperation::PullRequest => {
             match pull_request::pull_request(transport, query, context).await {
@@ -565,44 +600,24 @@ fn validation(message: &str) -> ProviderError {
     ProviderError::new(ProviderErrorKind::Validation, message)
 }
 
-fn check_context(context: &RequestContext) -> Result<(), ProviderError> {
-    if context.cancellation.is_cancelled() {
-        Err(ProviderError::new(
-            ProviderErrorKind::Cancelled,
-            "request cancelled",
-        ))
-    } else if std::time::Instant::now() >= context.deadline {
-        Err(ProviderError::new(
-            ProviderErrorKind::Timeout,
-            "request timed out",
-        ))
-    } else {
-        Ok(())
-    }
-}
-
-async fn fetch<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn fetch(
+    transport: &GitHubTransport,
     segments: &[&str],
     query: &[(&str, String)],
     context: &RequestContext,
 ) -> Result<(Value, bool), ProviderError> {
-    check_context(context)?;
+    context.check()?;
     let response = transport.history_item(segments, query, context).await?;
     Ok((response.value, response.has_more))
 }
 
-fn sanitize_text(value: &str, security: &impl ContentScan) -> Result<String, ProviderError> {
-    security
-        .sanitize(value, Path::new("github-history-item"))
-        .map(|v| v.0)
-        .map_err(|(m, _)| ProviderError::new(ProviderErrorKind::Validation, m))
-}
 fn sanitize_all_strings(
     value: &mut Value,
     security: &impl ContentScan,
 ) -> Result<(), ProviderError> {
-    crate::security::sanitize_json(value, &mut |text| sanitize_text(text, security))
+    crate::security::sanitize_json(value, &mut |text| {
+        sanitize_provider_text(security, text, Path::new(SCAN_PATH))
+    })
 }
 
 #[cfg(test)]
@@ -735,11 +750,11 @@ mod tests {
     #[test]
     fn cancellation_is_observed_before_provider_work() {
         let context = RequestContext::with_timeout(std::time::Duration::from_secs(1), 1024);
-        context.cancellation.cancel();
-        let error =
-            check_context(&context).expect_err("GitHub history operation should fail in this test");
+        context.budget.cancellation.cancel();
+        let error = context
+            .check()
+            .expect_err("GitHub history operation should fail in this test");
         assert_eq!(error.kind, ProviderErrorKind::Cancelled);
-        assert_eq!(error.message.as_ref(), "request cancelled");
     }
 
     #[test]

@@ -19,8 +19,8 @@ pub use crate::contracts::tool_types::{
     GhSearchHistoryQuery, GhSearchHistoryQueryOwner, GhSearchHistoryQueryRepo,
 };
 use crate::providers::github::{
-    CommitListRequest, CredentialResolver, GitHubTransport, HistoryPage, HistoryRequest,
-    ProviderError, ProviderErrorKind, ProviderErrorReason, PullListRequest, RequestContext,
+    CommitListRequest, GitHubTransport, HistoryPage, HistoryRequest, ProviderError,
+    ProviderErrorKind, ProviderErrorReason, PullListRequest, RequestContext,
 };
 use crate::security::scan::ContentScan;
 use crate::tools::num::usize_of;
@@ -38,20 +38,20 @@ pub enum HistoryOperation {
 
 /// Operation-independent views over the generated wire query.
 impl GhSearchHistoryQuery {
-    pub fn operation(&self) -> HistoryOperation {
+    pub(crate) fn operation(&self) -> HistoryOperation {
         match self {
             Self::PullRequest { .. } => HistoryOperation::PullRequest,
             Self::Issue { .. } => HistoryOperation::Issue,
             Self::Commit { .. } => HistoryOperation::Commit,
         }
     }
-    pub fn owner(&self) -> Option<&str> {
+    pub(crate) fn owner(&self) -> Option<&str> {
         match self {
             Self::PullRequest { owner, .. } => owner.as_deref().map(String::as_str),
             Self::Issue { owner, .. } | Self::Commit { owner, .. } => Some(owner.as_str()),
         }
     }
-    pub fn repo(&self) -> Option<&str> {
+    pub(crate) fn repo(&self) -> Option<&str> {
         match self {
             Self::PullRequest { repo, .. } => repo.as_deref().map(String::as_str),
             Self::Issue { repo, .. } | Self::Commit { repo, .. } => Some(repo.as_str()),
@@ -59,7 +59,7 @@ impl GhSearchHistoryQuery {
     }
     /// Points the query at a repository's canonical (post-rename) name.
     /// Names the contract would reject leave the query unchanged.
-    pub fn set_scope(&mut self, new_owner: &str, new_repo: &str) {
+    pub(crate) fn set_scope(&mut self, new_owner: &str, new_repo: &str) {
         let (Ok(new_owner), Ok(new_repo)) = (
             new_owner.parse::<GhSearchHistoryQueryOwner>(),
             new_repo.parse::<GhSearchHistoryQueryRepo>(),
@@ -77,7 +77,7 @@ impl GhSearchHistoryQuery {
             }
         }
     }
-    pub fn keywords(&self) -> Vec<&str> {
+    pub(crate) fn keywords(&self) -> Vec<&str> {
         match self {
             Self::PullRequest { keywords, .. } | Self::Issue { keywords, .. } => {
                 keywords.iter().map(String::as_str).collect()
@@ -85,66 +85,59 @@ impl GhSearchHistoryQuery {
             Self::Commit { keywords, .. } => keywords.iter().map(|k| k.as_str()).collect(),
         }
     }
-    pub fn qualifiers(&self) -> Option<&str> {
+    pub(crate) fn qualifiers(&self) -> Option<&str> {
         match self {
-            Self::PullRequest { qualifiers, .. } | Self::Issue { qualifiers, .. } => {
-                qualifiers.as_deref().map(String::as_str)
-            }
-            Self::Commit { .. } => None,
+            Self::PullRequest { qualifiers, .. } => qualifiers.as_deref().map(String::as_str),
+            Self::Issue { qualifiers, .. } => qualifiers.as_deref().map(String::as_str),
+            Self::Commit { qualifiers, .. } => qualifiers.as_deref().map(String::as_str),
         }
     }
-    pub fn concise(&self) -> Option<bool> {
+    pub(crate) fn concise(&self) -> Option<bool> {
         match self {
             Self::PullRequest { concise, .. } | Self::Issue { concise, .. } => *concise,
             Self::Commit { .. } => None,
         }
     }
-    pub fn page(&self) -> Option<usize> {
+    pub(crate) fn page(&self) -> Option<usize> {
         match self {
             Self::PullRequest { page, .. }
             | Self::Issue { page, .. }
             | Self::Commit { page, .. } => Some(usize_of(*page)),
         }
     }
-    pub fn page_size(&self) -> Option<usize> {
+    pub(crate) fn page_size(&self) -> Option<usize> {
         match self {
             Self::PullRequest { page_size, .. }
             | Self::Issue { page_size, .. }
             | Self::Commit { page_size, .. } => page_size.as_ref().map(|size| usize_of(size.0)),
         }
     }
-    pub fn path(&self) -> Option<&str> {
+    pub(crate) fn path(&self) -> Option<&str> {
         match self {
             Self::Commit { path, .. } => path.as_ref().map(|value| value.as_str()),
             _ => None,
         }
     }
-    pub fn since(&self) -> Option<&str> {
+    pub(crate) fn since(&self) -> Option<&str> {
         match self {
             Self::Commit { since, .. } => since.as_deref(),
             _ => None,
         }
     }
-    pub fn until(&self) -> Option<&str> {
+    pub(crate) fn until(&self) -> Option<&str> {
         match self {
             Self::Commit { until, .. } => until.as_deref(),
             _ => None,
         }
     }
     /// The ref a commit listing walks.
-    pub fn reference(&self) -> Option<&str> {
+    pub(crate) fn reference(&self) -> Option<&str> {
         match self {
             Self::Commit { ref_, .. } => ref_.as_deref(),
             _ => None,
         }
     }
-    pub fn committer(&self) -> Option<&str> {
-        match self {
-            Self::Commit { committer, .. } => committer.as_deref(),
-            _ => None,
-        }
-    }
-    pub fn sort(&self) -> Option<String> {
+    pub(crate) fn sort(&self) -> Option<String> {
         match self {
             Self::PullRequest { sort, .. } | Self::Issue { sort, .. } => {
                 sort.as_ref().map(ToString::to_string)
@@ -152,7 +145,7 @@ impl GhSearchHistoryQuery {
             Self::Commit { .. } => None,
         }
     }
-    pub fn order(&self) -> Option<String> {
+    pub(crate) fn order(&self) -> Option<String> {
         match self {
             Self::PullRequest { order, .. } | Self::Issue { order, .. } => {
                 order.as_ref().map(ToString::to_string)
@@ -187,21 +180,22 @@ impl HistorySearch {
     fn filters(&self) -> &Filters {
         &self.filters
     }
-    pub fn author(&self) -> Option<&str> {
-        match &self.query {
-            GhSearchHistoryQuery::Commit { author, .. } => author.as_deref(),
-            _ => self.filters.author.as_deref(),
-        }
+    pub(crate) fn author(&self) -> Option<&str> {
+        self.filters.author.as_deref()
+    }
+    /// The commit committer filter (`committer:`).
+    pub(crate) fn committer(&self) -> Option<&str> {
+        self.filters.committer.as_deref()
     }
     /// The PR source branch filter (`head:`).
-    pub fn head(&self) -> Option<&str> {
+    pub(crate) fn head(&self) -> Option<&str> {
         self.filters.head.as_deref()
     }
     /// The PR target branch filter (`base:`).
-    pub fn base(&self) -> Option<&str> {
+    pub(crate) fn base(&self) -> Option<&str> {
         self.filters.base.as_deref()
     }
-    pub fn state(&self) -> Option<String> {
+    pub(crate) fn state(&self) -> Option<String> {
         match &self.query {
             GhSearchHistoryQuery::PullRequest { state, .. }
             | GhSearchHistoryQuery::Issue { state, .. } => state.as_ref().map(ToString::to_string),
@@ -210,15 +204,15 @@ impl HistorySearch {
         .or_else(|| self.filters.state.clone())
     }
     /// Labels set by `label:` qualifiers; all must match.
-    pub fn label(&self) -> &[String] {
+    pub(crate) fn label(&self) -> &[String] {
         &self.filters.label
     }
 }
 
 /// Runs one history search: GitHub search for keywords and search-only
 /// filters, else the REST list endpoint.
-pub async fn execute<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+pub async fn execute(
+    transport: &GitHubTransport,
     query: GhSearchHistoryQuery,
     context: &RequestContext,
     security: &impl ContentScan,
@@ -245,7 +239,9 @@ pub async fn execute<R: CredentialResolver>(
         mut result,
         terms,
         warnings,
-    } = fetched.map_err(unsearchable_repository)?;
+    } = fetched
+        .map_err(unsearchable_repository)
+        .map_err(|error| name_missing_scope(error, &query))?;
     result.warnings.splice(0..0, rename_warnings);
     result.warnings.extend(warnings);
     rows::sanitize_items(&mut result.items, security)?;
@@ -270,8 +266,8 @@ struct Fetched {
     warnings: Vec<String>,
 }
 
-async fn fetch<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn fetch(
+    transport: &GitHubTransport,
     query: &HistorySearch,
     page: usize,
     per: usize,
@@ -317,8 +313,8 @@ async fn fetch<R: CredentialResolver>(
     })
 }
 
-async fn list_commits<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn list_commits(
+    transport: &GitHubTransport,
     query: &HistorySearch,
     page: usize,
     per: usize,
@@ -352,8 +348,8 @@ async fn list_commits<R: CredentialResolver>(
     Ok(listed)
 }
 
-async fn list_pull_requests<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn list_pull_requests(
+    transport: &GitHubTransport,
     query: &HistorySearch,
     page: usize,
     per: usize,
@@ -390,8 +386,8 @@ fn may_be_renamed(fetched: &Result<Fetched, ProviderError>) -> bool {
 /// Points the query at the repository's canonical name when it was renamed,
 /// returning the rename warnings; `None` when the name stands. A failed
 /// lookup keeps the original answer.
-async fn follow_rename<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn follow_rename(
+    transport: &GitHubTransport,
     query: &mut HistorySearch,
     context: &RequestContext,
 ) -> Result<Option<Vec<String>>, ProviderError> {
@@ -429,6 +425,28 @@ fn unsearchable_repository(error: ProviderError) -> ProviderError {
     } else {
         error
     }
+}
+
+/// A bare GitHub 404 of a listing (a missing repository, private to this
+/// token, or a commit listing's missing ref): name the scope it listed.
+fn name_missing_scope(mut error: ProviderError, query: &HistorySearch) -> ProviderError {
+    if error.kind != ProviderErrorKind::NotFound || error.reason.is_some() {
+        return error;
+    }
+    let (Some(owner), Some(repo)) = (query.owner(), query.repo()) else {
+        error.message = crate::tools::gh_shared::provider_message(&error).into_boxed_str();
+        return error;
+    };
+    error.message = match query.reference() {
+        Some(reference) => format!(
+            "Ref \"{reference}\" or repository {owner}/{repo} not found, or the repository is private to this token"
+        ),
+        None => format!(
+            "Repository {owner}/{repo} not found, or private and not accessible to this token"
+        ),
+    }
+    .into_boxed_str();
+    error
 }
 
 /// Output facts the shared response stages ask about.

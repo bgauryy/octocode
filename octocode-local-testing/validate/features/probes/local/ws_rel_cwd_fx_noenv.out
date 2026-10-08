@@ -1,4 +1,0 @@
-# env {} cwd /Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx
-# q {'path': 'src/a.ts', 'startLine': 1, 'endLine': 1}
-# exit 0
-{"results":[{"index":0,"data":{"path":"src/a.ts","content":"import { helper } from './b';\n","totalLines":13,"sourceLineRanges":[{"start":1,"end":1}]}}]}

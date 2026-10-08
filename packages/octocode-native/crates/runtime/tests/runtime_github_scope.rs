@@ -50,7 +50,7 @@ fn reviews_query(debug: bool) -> Value {
 /// stable identities and skips the REST collections it replaces.
 #[tokio::test]
 async fn pull_request_graphql_fallback_is_observable_and_equivalent() {
-    let rejected = MockServer::start().await;
+    let rejected = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"errors": [{
@@ -94,7 +94,7 @@ async fn pull_request_graphql_fallback_is_observable_and_equivalent() {
     );
     runtime.close().await;
 
-    let served = MockServer::start().await;
+    let served = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
@@ -140,7 +140,7 @@ async fn pull_request_graphql_fallback_is_observable_and_equivalent() {
 /// bounded and the fix it names is a candidate.
 #[tokio::test]
 async fn issue_closing_references_past_the_read_limit_are_disclosed() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/42"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -191,9 +191,7 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
         "{data}"
     );
     assert!(
-        data["hints"]["readFixPullRequest"]
-            .get("confidence")
-            .is_none(),
+        data["hints"]["readPullRequest"].get("confidence").is_none(),
         "leads carry no confidence: {data}"
     );
     runtime.close().await;
@@ -203,7 +201,7 @@ async fn issue_closing_references_past_the_read_limit_are_disclosed() {
 /// or without keywords; the pulls list would silently ignore it.
 #[tokio::test]
 async fn archived_pull_request_listing_enforces_the_filter() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
         .respond_with(
@@ -255,7 +253,7 @@ async fn archived_pull_request_listing_enforces_the_filter() {
 /// coverage in default (non-debug) output.
 #[tokio::test]
 async fn incomplete_code_search_page_is_partial_without_debug() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
         .and(query_param("page", "1"))
@@ -313,7 +311,7 @@ impl Respond for SlowCommitDetail {
 /// the page order.
 #[tokio::test]
 async fn pull_request_commit_details_load_concurrently_in_order() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pull_request(&server).await;
     let shas = ["c1", "c2", "c3", "c4"].map(|s| s.repeat(20));
     Mock::given(method("GET"))

@@ -12,14 +12,14 @@ Load for a remote repository, package, upstream change, docs or web evidence, or
 | known history item | `ghGetHistoryItem` directly |
 
 ## Code and packages
-- `ghSearchCode` searches code on the indexed default branch only (`owner` required); GitHub caps at 1,000 results and may be incomplete, so zero hits never prove absence. Hits carry numbered `lines` that often already state the answer; `hints.readTopMatch` reads around the top hit, so pick the deciding line yourself when it differs. `ref` sets the ref those reads use, not the index.
+- `ghSearchCode` searches code on the indexed default branch only (`owner` required); GitHub caps at 1,000 results and may be incomplete, so zero hits never prove absence. Hits carry numbered `lines` that often already state the answer; `hints.read` reads around the top hit, so pick the deciding line yourself when it differs. `ref` sets the ref those reads use, not the index.
 - `ghGetFileContent` honors an explicit `ref` (omitted = default branch). A 404 means an unreadable path/ref or missing access (`hints.viewTree` lists the nearest directory); an unknown ref is rejected. Pin a commit for citations.
 - Resolve dependencies with `artifactSearch` before guessing a repository. For the installed version, `hints.viewReleaseSource` pins the release commit; its `source.verification` says `provenance` or `unverified`. `hints.viewRepo` is default-branch code, not release evidence.
 
 ## History
 - `ghSearchHistory` discovers `pullRequest`/`issue`/`commit`; commit keywords search default-branch messages, so omit `keywords` to walk by path, ref, or date. Extra filters go in `qualifiers`; PR negation supports only `-is:draft`. `hints.readPullRequest` prefers merged candidates; a search for a bare issue number offers `hints.readIssueLinks`.
 - Exact reads: `pullRequest`/`issue` by `number`; `commit` by `ref`; `compare` by `base` + `head` (or `commit` with `base`).
-- Issue → fix: read the issue; `closedBy` lists the PRs (with merge state) and `hints.readFixPullRequest` reads the fix.
+- Issue → fix: read the issue; `closedBy` lists the PRs (with merge state) and `hints.readPullRequest` reads the fix.
 - PR: `matchString` + `include` for hit lines; else `sections:["files"]` → `hints.readSelectedPatches`. `unsearchedFiles` (too large to patch) close via `next.searchUnpatchedFile`. Every PR row carries `mergedAt`; open PRs read at `sourceSha`, merged behavior at `mergeCommitSha`.
 - Patch windows share one budget across rows. Finish `responsePagination` pages before a row's `next.continuePatch` (every unfinished patch file; narrow its `include`) or `next.nextFilePage` (the next changed-file page), and keep `length` as given. Commit and compare diffs: `sections:["patches"]` (+`include`).
 - Issues report observations and PRs state intent; code + tests at the version establish behavior.

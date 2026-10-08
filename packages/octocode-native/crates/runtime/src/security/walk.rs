@@ -24,6 +24,7 @@ pub fn sanitize_json<E>(
             Ok(())
         }
         Value::Object(map) => {
+            sanitize_keys(map, sanitize)?;
             for (key, child) in map.iter_mut() {
                 match key.as_str() {
                     // `location` is scanned like any other subtree — its string
@@ -36,6 +37,42 @@ pub fn sanitize_json<E>(
         }
         _ => Ok(()),
     }
+}
+
+/// Redact secrets in object keys (content-derived keys such as paths or ids
+/// can carry one). The map is rebuilt in order only when a key changes; a
+/// redacted key that collides with another gets a ` #n` suffix so no entry
+/// is dropped.
+fn sanitize_keys<E>(
+    map: &mut Map<String, Value>,
+    sanitize: &mut impl FnMut(&str) -> Result<String, E>,
+) -> Result<(), E> {
+    let mut renamed = Vec::new();
+    for (index, key) in map.keys().enumerate() {
+        let clean = sanitize(key)?;
+        if clean != *key {
+            renamed.push((index, clean));
+        }
+    }
+    if renamed.is_empty() {
+        return Ok(());
+    }
+    let mut renamed = renamed.into_iter().peekable();
+    let entries = std::mem::take(map);
+    for (index, (key, value)) in entries.into_iter().enumerate() {
+        let key = match renamed.next_if(|(at, _)| *at == index) {
+            Some((_, clean)) => clean,
+            None => key,
+        };
+        let mut unique = key.clone();
+        let mut n = 2;
+        while map.contains_key(&unique) {
+            unique = format!("{key} #{n}");
+            n += 1;
+        }
+        map.insert(unique, value);
+    }
+    Ok(())
 }
 
 fn sanitize_next_map<E>(
@@ -119,6 +156,33 @@ mod tests {
         assert_eq!(value["next"]["tool"], "secret-tool");
         // …while the query leaf is scanned for secrets.
         assert_eq!(value["next"]["query"]["path"], "[MASKED].rs");
+    }
+
+    /// L17: an object key can be content (a path, an id); a secret in one
+    /// is redacted like a leaf, in place, and every value survives even
+    /// when two keys redact to the same text.
+    #[test]
+    fn redacts_secret_object_keys_and_keeps_every_entry() {
+        let mut value = json!({
+            "a": 1,
+            "secret-one": {"secret-two": "x"},
+            "[MASKED]-one": 3,
+            "z": 4
+        });
+        sanitize_json(&mut value, &mut mask).expect("sanitize");
+        let keys: Vec<_> = value.as_object().expect("object").keys().cloned().collect();
+        assert_eq!(keys.len(), 4, "{value}");
+        assert!(keys.iter().all(|key| !key.contains("secret")), "{value}");
+        assert_eq!(keys[0], "a");
+        assert_eq!(keys[3], "z");
+        assert_eq!(value["[MASKED]-one"]["[MASKED]-two"], "x", "{value}");
+        let values: Vec<_> = value
+            .as_object()
+            .expect("object")
+            .values()
+            .cloned()
+            .collect();
+        assert!(values.contains(&json!(3)), "{value}");
     }
 
     #[test]

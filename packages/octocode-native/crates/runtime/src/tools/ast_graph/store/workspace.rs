@@ -5,6 +5,7 @@
 //! trees (`node_modules`, build output) are never walked. Everything here is
 //! best effort: an unreadable or malformed manifest contributes nothing and
 //! never fails ingest.
+use octocode_engine::text::JS_TS_EXTENSIONS;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -129,7 +130,6 @@ const NODE_BUILTINS: &[&str] = &[
     "zlib",
 ];
 const RUST_BUILTINS: &[&str] = &["std", "core", "alloc", "proc_macro", "test"];
-const JS_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 
 fn read_json(read: &dyn Fn(&Path) -> Option<String>, path: &Path) -> Option<Value> {
     serde_json::from_str(&read(path)?).ok()
@@ -589,7 +589,7 @@ impl Workspace {
             }
         }
         for candidate in &stems {
-            for ext in JS_EXTENSIONS {
+            for ext in JS_TS_EXTENSIONS {
                 let path = format!("{candidate}.{ext}");
                 if files.contains(&path.as_str()) {
                     self.entries.entry(path).or_insert(rule);
@@ -628,7 +628,7 @@ impl Workspace {
                 let token = token.trim_matches(['"', '\'']);
                 if token
                     .rsplit_once('.')
-                    .is_some_and(|(_, ext)| JS_EXTENSIONS.contains(&ext))
+                    .is_some_and(|(_, ext)| JS_TS_EXTENSIONS.contains(&ext))
                     && root.join(dir).join(token).is_file()
                 {
                     self.add_entry(&join(dir, token), "package.json scripts", files);
@@ -637,7 +637,7 @@ impl Workspace {
         }
         for name in ["index", "main", "cli", "server", "app"] {
             for base in ["", "src/"] {
-                for ext in JS_EXTENSIONS {
+                for ext in JS_TS_EXTENSIONS {
                     let candidate = join(dir, &format!("{base}{name}.{ext}"));
                     if files.contains(&candidate.as_str()) {
                         self.entries
@@ -710,7 +710,7 @@ fn convention_rule(root: &Path, file: &str, mains: &BTreeSet<&str>) -> Option<&'
     let segments = file.split('/').collect::<Vec<_>>();
     let name = segments.last().copied().unwrap_or_default();
     let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
-    if JS_EXTENSIONS.contains(&ext)
+    if JS_TS_EXTENSIONS.contains(&ext)
         && let Some(rule) = framework_rule(&segments, stem)
     {
         return Some(rule);

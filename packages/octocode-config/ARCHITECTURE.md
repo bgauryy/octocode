@@ -10,40 +10,39 @@ process environment
       └── workspace .octocode/.env
                  │
                  ▼
-      parse → trust policy → resolved config
+      parse → trust policy → environment (TypeScript: `.env` only)
                  │
-                 ├── CLI / MCP runtime surfaces
-                 ├── communication skill
+                 ├── CLI launcher / MCP server (native runtime resolves settings)
+                 ├── communication skill (python/octocode_config.py: home only)
                  └── injected standalone skill helper
 ```
 
 ## Declarative contract
 
 Cross-language field policy has one source: `config-contract.json`, validated
-against `config-contract.schema.json`. The TypeScript generator emits public
-input/resolved types, defaults, environment policy, generic-interpreter
-metadata, and user documentation. Native `build.rs` validates the same contract
-without Node, then emits Rust structs, defaults, environment policy, and the
-same interpreter metadata. Generated files are never edited by hand.
+against `config-contract.schema.json`. The TypeScript generator emits field
+metadata, defaults, environment policy, and user documentation. Native
+`build.rs` validates the same contract without Node, then emits Rust structs,
+defaults, environment policy, and the generic resolver metadata the runtime
+resolves settings with. Generated files are never edited by hand.
 
 ```text
 config-contract.json + config-contract.schema.json
-      ├── Ajv build validation → contract.generated.ts → generic TS config
+      ├── Ajv build validation → contract.generated.ts → field metadata, defaults, .env policy
       ├── documentation generation → docs/generated/CONFIG_SETTINGS.md
-      └── Rust build validation → OUT_DIR/config_contract.rs → generic native config
+      └── Rust build validation → OUT_DIR/config_contract.rs → native resolver
 ```
 
-Resolver and validator source files own language mechanics only. They must not
-contain per-setting paths, defaults, environment names, bounds, enum sets, or
+Hand-written source owns language mechanics only. It must not contain
+per-setting paths, defaults, environment names, bounds, enum sets, or
 known-key lists.
 
 ## Ownership
 
-- `home` owns `OCTOCODE_HOME` and platform-default resolution.
-- `env` owns parsing, precedence, propagation, and diagnostics.
-- `config` owns structured `.octocoderc` loading.
-- `policy` owns protected keys and project-level override restrictions.
-- The root export exposes generated `CONFIG_FIELDS` for configuration editors.
+- `src/home.ts` owns `OCTOCODE_HOME`, the platform default, and the `.octocoderc` paths.
+- `src/dotenv.ts` owns `.env` parsing, precedence, propagation, protected keys, and workspace override restrictions.
+- `.octocoderc` parsing and setting resolution are native (`octocode config` shows the result).
+- The root export exposes generated `CONFIG_FIELDS` and `DEFAULT_CONFIG` for configuration editors.
 - Native management uses the same metadata to validate edits and redact secret values.
 - The CLI transports management requests without adding a second configuration model.
 - `@octocodeai/octocode-core` authors every tool contract, Zod schema,

@@ -7,7 +7,7 @@
 
 /// Upper bound on the rows one streamed page carries, whatever the window:
 /// a larger window means fewer hops, not ever-larger pages.
-pub const MAX_PAGE_CHARS: usize = 24_000;
+pub(crate) const MAX_PAGE_CHARS: usize = 24_000;
 
 /// Room for everything a response row holds besides its listed entries:
 /// the envelope, stats, pagination, warnings, and the fixed text of row
@@ -120,7 +120,7 @@ mod tests {
     fn reserve_ignores_free_text_and_cursor_fields() {
         let first = json!({"mainGoal": "g", "reasoning": "r", "path": "src", "matchString": "x"});
         let later = json!({"mainGoal": "a much longer goal", "reasoning": "reworded",
-            "path": "src", "matchString": "x", "page": 7, "snapshot": "lexical-live-v1:abc"});
+            "path": "src", "matchString": "x", "page": 7, "snapshot": "lexical-live-v2:abc"});
         assert_eq!(reserve_chars(&first, 2), reserve_chars(&later, 2));
         let wider = json!({"path": "src", "matchString": "a longer search"});
         assert!(reserve_chars(&wider, 2) > reserve_chars(&first, 2));

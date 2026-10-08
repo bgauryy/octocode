@@ -9,22 +9,29 @@ use crate::tools::clasify::{self, transport::ClassificationError};
 use futures_util::{StreamExt, stream};
 use serde_json::{Value, json};
 
-/// Judgments already made in this process for the exact same provider input.
-static JUDGMENTS: clasify::cache::JudgmentCache = clasify::cache::JudgmentCache::new();
+/// A page's answers and the usage of the request that produced them.
+type PageOutcome = (Vec<Result<Value, ClassificationError>>, Option<Value>);
+
+/// Judgments already made in this process for the exact same provider input;
+/// a failed flight hands its answers to the identical pages queued behind it.
+static JUDGMENTS: clasify::cache::JudgmentCache<Vec<Result<Value, ClassificationError>>> =
+    clasify::cache::JudgmentCache::new();
 
 /// One provider page, answered from [`JUDGMENTS`] when this exact state and
 /// question set was judged before (a resumed `next.clasify`, a repeated
 /// matrix, or an identical page judged concurrently in the same call). A
 /// replay reports no usage because no request was made. Only a fully
-/// successful answer set is stored. The key covers what the provider sees;
-/// correlation IDs are never sent, so they do not split it.
+/// successful answer set is stored; a failed one is shared only with the
+/// identical pages already waiting, so a 429 is not re-sent once per page.
+/// The key covers what the provider sees; correlation IDs are never sent, so
+/// they do not split it.
 async fn assess_provider_page(
     state: &Value,
     questions: &[Value],
     config: &ProviderConfig<'_>,
     budget: &crate::providers::RequestBudget,
     gate: &GateLease,
-) -> (Vec<Result<Value, ClassificationError>>, Option<Value>) {
+) -> PageOutcome {
     let endpoint = format!("{}/{}", config.base_url, config.endpoint_path);
     let provider_questions = questions
         .iter()
@@ -32,16 +39,18 @@ async fn assess_provider_page(
         .collect::<Vec<_>>();
     let key = clasify::cache::key(&endpoint, config.model, state, &provider_questions);
     let flight = JUDGMENTS.flight(&key);
-    let assessed = {
-        let _turn = flight.lock().await;
-        match JUDGMENTS.get(&key) {
-            Some(answers) => (answers.into_iter().map(Ok).collect(), None),
-            None => request_and_store(state, questions, config, budget, gate, key).await,
-        }
-    };
-    drop(flight);
-    JUDGMENTS.land(&key);
-    assessed
+    let mut turn = flight.turn().await;
+    if let Some(failed) = turn.as_ref() {
+        return (failed.clone(), None);
+    }
+    if let Some(answers) = JUDGMENTS.get(&key) {
+        return (answers.into_iter().map(Ok).collect(), None);
+    }
+    let (answers, usage) = request_and_store(state, questions, config, budget, gate, key).await;
+    if !answers.iter().all(Result::is_ok) {
+        *turn = Some(answers.clone());
+    }
+    (answers, usage)
 }
 
 async fn request_and_store(
@@ -51,7 +60,7 @@ async fn request_and_store(
     budget: &crate::providers::RequestBudget,
     gate: &GateLease,
     key: [u8; 32],
-) -> (Vec<Result<Value, ClassificationError>>, Option<Value>) {
+) -> PageOutcome {
     let (answers, usage) = request_provider_page(state, questions, config, budget, gate).await;
     if answers.iter().all(Result::is_ok) {
         let stored = answers
@@ -81,9 +90,12 @@ async fn request_provider_page(
         .enumerate()
         .map(|(index, question)| (index, &question["question"]))
         .collect::<Vec<_>>();
-    if indexed.len() > 1 && clasify::batch::fits(state, &indexed, config.model, config.provider) {
+    if indexed.len() > 1
+        && let Some(prepared) =
+            clasify::batch::prepare(state, &indexed, config.model, config.provider)
+    {
         let result = clasify::batch::judge(
-            state,
+            prepared,
             &indexed,
             config.key,
             config.base_url,
@@ -245,10 +257,8 @@ pub(super) async fn assess_page(
         .into_iter()
         .map(|plan| match plan {
             PublicAnswerPlan::Direct(index) => answers.get(index).cloned().unwrap_or_else(|| {
-                Err(ClassificationError::new(
-                    "invalidClassificationResponse",
+                Err(ClassificationError::invalid_response(
                     "Provider answer count did not match the requested questions.",
-                    "Inspect provider compatibility before using the answer.",
                 ))
             }),
             PublicAnswerPlan::Locate {
@@ -257,10 +267,8 @@ pub(super) async fn assess_page(
                 page,
             } => match (answers.get(choice), answers.get(exists)) {
                 (Some(choice), Some(exists)) => collapse_locate_answer(choice, exists, &page),
-                _ => Err(ClassificationError::new(
-                    "invalidClassificationResponse",
+                _ => Err(ClassificationError::invalid_response(
                     "Provider answer count did not match the locate questions.",
-                    "Inspect provider compatibility before using the answer.",
                 )),
             },
             PublicAnswerPlan::Failed(error) => Err(error),

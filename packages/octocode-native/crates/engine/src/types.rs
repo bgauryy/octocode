@@ -49,6 +49,20 @@ pub struct RipgrepFile {
     pub path: String,
     pub match_count: u32,
     pub matches: Vec<RipgrepMatch>,
+    /// The bytes this file's values came from, when the search was asked to
+    /// prove them ([`RipgrepSearchOptions::digest_max_bytes`]).
+    pub source: Option<SearchedSource>,
+}
+
+/// A searched file's identity, taken from the one read the search made.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchedSource {
+    /// Length of the opened file, equal to the bytes hashed.
+    pub size: u64,
+    /// Modification time of the opened file.
+    pub modified: Option<std::time::SystemTime>,
+    /// SHA-256 of every byte of the file, as the search read it.
+    pub digest: [u8; 32],
 }
 
 #[derive(Debug, Clone, Default)]
@@ -192,6 +206,10 @@ pub struct RipgrepSearchOptions {
     /// several walks at once passes its share of the cores. Ignored when
     /// `sort` is `traversal`, which always walks on one thread.
     pub walk_threads: Option<u32>,
+    /// Hash each kept file of at most this many bytes while it is searched
+    /// and report it as [`RipgrepFile::source`], so a caller can prove the
+    /// values later without reading the file again. `None` hashes nothing.
+    pub digest_max_bytes: Option<u64>,
 }
 
 // ── filesystem query types ───────────────────────────────────────────────────
@@ -266,6 +284,8 @@ pub struct FileSystemEntry {
     pub entry_type: String,
     pub size: Option<i64>,
     pub modified_ms: Option<f64>,
+    /// The exact modification time `modified_ms` rounds, for change checks.
+    pub modified_time: Option<std::time::SystemTime>,
     pub accessed_ms: Option<f64>,
     pub permissions: Option<String>,
     pub extension: Option<String>,
@@ -295,6 +315,9 @@ pub struct GraphFactsScanOptions {
     /// The caller's path globs to skip (see [`FileSystemQueryOptions::exclude`]).
     pub exclude: Option<Vec<String>>,
     pub max_files: Option<u32>,
+    /// Leading files (walk order) left unscanned: an earlier scan of the
+    /// same scope already read them. They still count toward `max_files`.
+    pub skip_files: Option<u32>,
     pub max_file_bytes: Option<u32>,
     pub language_globs: Option<Vec<GraphLanguageGlob>>,
 }

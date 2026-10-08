@@ -9,10 +9,7 @@ mod types;
 mod util;
 mod versions;
 
-pub use http::{
-    ArtifactCache, ArtifactHttp, ArtifactHttpFuture, ArtifactHttpRequest, ArtifactHttpResponse,
-    SystemArtifactHttp,
-};
+pub use http::{ArtifactCache, ArtifactHttp, SystemArtifactHttp};
 pub(crate) use npmrc::npm_authorization;
 pub use release_ref::{ReleaseTags, TagFuture};
 pub use types::{
@@ -49,21 +46,12 @@ pub async fn execute_artifact(
     };
     let state = page_state(query);
     validate_cursor_state(&state)?;
-    if query.version().is_some()
-        && !matches!(
-            query.artifact_type(),
-            ArtifactType::Npm
-                | ArtifactType::Pypi
-                | ArtifactType::Crates
-                | ArtifactType::Go
-                | ArtifactType::Nuget
-                | ArtifactType::Maven
-        )
-    {
+    if query.version().is_some() && version_support(query.artifact_type().as_str()) == "none" {
         return Err(ArtifactError::new(
-            "unsupported_capability",
+            "capabilityUnavailable",
             format!(
-                "version is supported for npm, pypi, crates, go, nuget, and maven; {} lookups return the latest release.",
+                "{}; {} lookups return the latest release.",
+                version_support_summary(),
                 query.artifact_type().as_str()
             ),
         )
@@ -73,7 +61,7 @@ pub async fn execute_artifact(
         ArtifactType::Npm => {
             let default_registry = ResolvedNpmRegistry {
                 base: Url::parse("https://registry.npmjs.org/").map_err(|_| {
-                    ArtifactError::new("invalid_query", "Invalid default npm registry URL.")
+                    ArtifactError::new("invalidInput", "Invalid default npm registry URL.")
                 })?,
                 authorization: None,
                 cache_identity: "npmjs".into(),
@@ -135,11 +123,67 @@ fn validate_cursor_state(state: &ArtifactProviderState) -> Result<(), ArtifactEr
             .is_some_and(|token| token.len() > MAX_CURSOR_TOKEN_BYTES);
     if out_of_range {
         return Err(ArtifactError::new(
-            "invalid_query",
+            "invalidInput",
             "page is outside the supported paging range; narrow the keywords.",
         ));
     }
     Ok(())
+}
+
+/// The contract's `version` capability table (`x-versionSupport` on the
+/// artifactSearch `version` field, AR4): ecosystem → `range`, `exact`, or
+/// `none`, in the contract's order.
+fn version_table() -> &'static [(String, String)] {
+    static TABLE: std::sync::OnceLock<Vec<(String, String)>> = std::sync::OnceLock::new();
+    TABLE.get_or_init(|| {
+        fn find(value: &serde_json::Value) -> Option<&serde_json::Map<String, serde_json::Value>> {
+            match value {
+                serde_json::Value::Object(map) => map
+                    .get("x-versionSupport")
+                    .and_then(serde_json::Value::as_object)
+                    .or_else(|| map.values().find_map(find)),
+                serde_json::Value::Array(items) => items.iter().find_map(find),
+                _ => None,
+            }
+        }
+        crate::contracts::tool_contract(crate::tools::id::ToolId::ArtifactSearch)
+            .ok()
+            .and_then(|tool| find(&tool["inputSchema"]))
+            .map(|table| {
+                table
+                    .iter()
+                    .filter_map(|(ecosystem, level)| {
+                        Some((ecosystem.clone(), level.as_str()?.to_owned()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    })
+}
+
+/// `range`, `exact`, or `none` (also for an ecosystem the table omits).
+fn version_support(ecosystem: &str) -> &'static str {
+    version_table()
+        .iter()
+        .find(|(name, _)| name == ecosystem)
+        .map_or("none", |(_, level)| level.as_str())
+}
+
+/// "version takes ranges for npm, pypi, crates and exact versions for …".
+fn version_support_summary() -> String {
+    let list = |level: &str| {
+        version_table()
+            .iter()
+            .filter(|(_, support)| support == level)
+            .map(|(name, _)| name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    format!(
+        "version takes ranges for {} and exact versions for {}",
+        list("range"),
+        list("exact")
+    )
 }
 
 #[cfg(test)]
@@ -167,7 +211,7 @@ mod cursor_state_tests {
             },
         ] {
             let error = validate_cursor_state(&state).expect_err("out of range");
-            assert_eq!(error.code, "invalid_query");
+            assert_eq!(error.code, "invalidInput");
         }
         for state in [
             ArtifactProviderState::default(),
@@ -179,5 +223,25 @@ mod cursor_state_tests {
         ] {
             assert!(validate_cursor_state(&state).is_ok());
         }
+    }
+
+    /// AR4: the gate reads the contract's capability table, so a new
+    /// ecosystem level changes one core table, not a native `matches!`.
+    #[test]
+    fn version_gate_reads_the_contract_capability_table() {
+        assert_eq!(version_support("npm"), "range");
+        assert_eq!(version_support("maven"), "exact");
+        assert_eq!(version_support("go"), "exact");
+        assert_eq!(version_support("packagist"), "none");
+        assert_eq!(version_support("unknown"), "none");
+        let summary = version_support_summary();
+        assert!(
+            summary.contains("ranges for crates, npm, pypi"),
+            "{summary}"
+        );
+        assert!(
+            summary.contains("exact versions for go, maven, nuget"),
+            "{summary}"
+        );
     }
 }

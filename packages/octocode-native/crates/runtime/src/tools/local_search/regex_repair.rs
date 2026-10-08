@@ -3,11 +3,12 @@
 use super::types::*;
 use crate::tools::id::ToolId;
 use crate::tools::result::Continuation;
+use crate::tools::result::ToolError;
 use serde_json::json;
 
 /// An invalid pattern, classified from the engine's typed validation
 /// result (not from search error text) before walking the tree.
-pub(super) fn check_pattern(query: &LocalSearchQuery) -> Result<(), LocalSearchError> {
+pub(super) fn check_pattern(query: &LocalSearchQuery) -> Result<(), ToolError> {
     if query.regex_mode() == LocalSearchQueryRegex::Literal {
         return Ok(());
     }
@@ -44,7 +45,7 @@ pub(super) fn regex_error_message(match_string: &str, raw: Option<&str>) -> Stri
 }
 
 /// `invalidPattern` with a literal-search repair continuation.
-pub(super) fn invalid_regex(query: &LocalSearchQuery, message: String) -> LocalSearchError {
+pub(super) fn invalid_regex(query: &LocalSearchQuery, message: String) -> ToolError {
     // The caller's own fields, not the runtime-normalized ones: a fresh
     // page-1 search re-derives the same view defaults (contextLines,
     // matchContentLength, pageSize), so spelling them out only adds bytes.
@@ -77,13 +78,12 @@ pub(super) fn invalid_regex(query: &LocalSearchQuery, message: String) -> LocalS
         repaired["regex"] = json!("literal");
         "Search matchString as literal text."
     };
-    LocalSearchError {
-        code: "invalidPattern",
-        message,
+    ToolError {
         hints,
         next: Some(Box::new(json!({
             "repair": Continuation::new(ToolId::LocalSearch, repaired).why(why).build()
         }))),
+        ..ToolError::new("invalidPattern", message)
     }
 }
 

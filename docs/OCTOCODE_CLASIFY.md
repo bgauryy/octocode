@@ -2,137 +2,79 @@
 
 `clasify` is Octocode's only semantic tool. One concept has three names, each in one layer: `clasify` is the tool, `classification` is its provider configuration and native provider module (`OCTOCODE_CLASSIFICATION_*`, `providers/classification`), and Jev is the vendor behind that provider.
 
-Clasify has two modes:
+A resource is either a read (`tool`+`query`: clasify runs it, judges the result, and returns typed judgments plus source receipts, never bodies) or held state (`value`: no read). Four flows use them:
 
-- **Scout** executes an unread read-tool request, sanitizes the result, and returns typed judgments plus source receipts without returning source bodies.
-- **Judge** classifies caller-supplied state in a resource's `value`; it performs no retrieval.
+| Flow | Resource | Ask | Then |
+|---|---|---|---|
+| **LOCATE** a described, not named, target | a known large file or fetch | `locate` | run `hints.read`; if it lacks the answer, run `next.clasify` |
+| **GATE** a large fetch | that `localFetch` / `ghGetFileContent` / `ghGetHistoryItem` query | `sufficient` | run the page's bounded `hints.read`, not the whole fetch |
+| **SCOUT** an unread list | a search, history, package, AST, or LSP list query | `relevant` + `sufficient` (a path list: `choice`) | run each kept page's `hints.read` |
+| **JUDGE** held state | `value` | `yesno` / `choice` / `score` | use the label; only when the label is the deliverable |
 
 Clasify routes work. It does not prove source facts, global absence, symbol identity, reachability, or edit safety. Read the deciding source after a judgment.
 
-## What Clasify does, and why
-
-Every step below exists for one reason: move a *semantic routing decision* out of the host transcript, then hand the host a small, exact read that proves (or disproves) it.
-
-| # | Step | What happens | Why | Code |
-|---|---|---|---|---|
-| 1 | Availability gate | Without a provider key MCP does not register `clasify`; with a key, MCP startup sends one minimal judgment and drops `clasify` when the provider fails (a rate limit does not count); either way every cross-tool `hints.clasify` lead is dropped; CLI fails with `missingConfiguration` (exit 5) | Agents never see a route they cannot run | `response/continuations.rs` (`filter_unavailable_cross_tool_next`), `runtime/engine.rs` (`probe_classification`), `octocode-mcp/src/native` |
-| 2 | Preflight | Optional `mainGoal`/`reasoning` (≤500 chars; a blank one is dropped), 1–25 resources × questions (≤25 cells), optional object `carry` | Reject bad matrices before any read or provider token is spent | `tools/clasify/mod.rs` `preflight` |
-| 3 | Question expansion | Each `type`+`ask` question expands to its provider prompt form; research presets (`relevant`, `supports`, `adds`, `sufficient`) expand from contract templates into yes/no questions; `locate` accepts only its `ask`; `yesno`/`choice`/`score` pass with their `labels` | One authored wording (core) instead of ad-hoc prompts per agent | `tools/clasify/transport.rs` `provider_question` |
-| 4 | ID normalization | Omitted IDs get stable IDs; a pasted lead query (`{queries:[row]}`) reads its row | Deterministic output rows and cache keys | `tools/clasify/mod.rs` `normalize` |
-| 5 | Context form | Each resource is **Judge** (`value`, no retrieval) or **Scout** (`tool`+`query`, delegated read) | Judge reuses evidence already held; Scout judges source the host never reads | `tools/clasify/context.rs` `prepare` |
-| 6 | Secured delegated read | The read query passes the input security policy, runs through the normal dispatcher, and its output is sanitized/redacted like any direct call; 4 concurrent reads per call, 16 per process | Clasify can never read more, or leak more, than the host could with the same tool | `context.rs`, `run/mod.rs` `secured_read`, `ReadLimiter` |
-| 7 | Candidate evidence | Search results split into per-file candidates: snippets (`search`) or bounded hydrated reads (`fileChunks`, ≤5 candidates) at hit-cluster windows, merged when near; a window larger than its byte share is re-read narrower around its hit | Judge each file on real surrounding code, not a 1-line snippet, inside a fixed budget; every capture path counts evidence one way against `maxChars` | `run/mod.rs` `hydrate_candidates`, `hit_cluster_windows`, `merge_near_windows`; budget rules in `run/budget.rs` |
-| 8 | Locate tagging | One contiguous original-source page is split into passage IDs grouped by innermost declaration (doc comment included); `prefilter` literals narrow the windows | A choice over exclusive passages = P(answer is in that declaration), so the reply is a line range, not prose | `tools/clasify/locate.rs`; `prefilter_windows` in `run/mod.rs` |
-| 9 | Page coalescing | Adjacent ready pages merge up to 24 KiB of state; failed pages split runs | Fewer provider calls without hiding failures | `run/mod.rs` `coalesce_pages` |
-| 10 | Judgment cache | SHA-256 key of endpoint + model + state + questions; 256 entries / 8 MiB / 30 min TTL; stores only successful complete answer sets; single-flight per key; process-local | Identical re-asks inside one MCP process are free and never double-billed | `tools/clasify/cache.rs`, `assess_provider_page` |
-| 11 | Provider gate + batching | Process-wide concurrency gate per endpoint (default 10, 1–64): a throttle halves the limit and 4 successes restore one permit; 5 consecutive failures open the circuit for 10 s. Multi-question pages go as one batch when they fit (72 KiB per question, 120 KiB per group), else singles | Shared state is sent once (measured −62% provider input for 5×3) | `providers/classification/gate.rs`, `tools/clasify/batch.rs` |
-| 12 | Transport | HTTPS (HTTP only for `localhost`, `127.0.0.0/8`, `[::1]`), 4 MiB body cap, deadline + cancellation, `Retry-After` honoured, jittered backoff 0.5–8 s | Bounded latency; no hot loops or unbounded provider responses | `tools/clasify/transport.rs` |
-| 13 | Locate projection | Distribution → declaration-aligned verification window (±2 lines; a doc-comment hit shows 3 lines above to 4 below the declaration name); runner-up window when it reaches 50% of the winner and `exists ≥ 0.5`; overlapping windows merge into one | Host reads 1–2 small windows; a near-tie is shown instead of guessed | `locate.rs` (`RUNNER_UP_SHARE`) |
-| 14 | Output shaping | Collapse shared failures, merge receipts/scopes, hoist limitations, literal-target hint (plus `hints.textSearch` over local resources); continuations are compacted to non-default fields | Short, typed rows: IDs + probabilities + source ranges, no source bodies | `tools/clasify/output.rs`; literal hint from `run/mod.rs` via `locate.rs` |
-| 15 | Continuations | `hints.read` (`localFetch` / `ghGetFileContent` at the returned range; a delegated file page not judged a confident "no" reads exactly its judged lines, or its byte page for a byte-chunked read), `next.clasify` (the walk's next page) with `carry`, `hints.textSearch` for an identifier target, source tool follow-ups | Every judgment ends in an executable verification step | `run/mod.rs`, `continuations.rs` |
-| 16 | Search handoff | A semantic `localSearch`/`ghSearchCode` page with ≥8 files proposes (as `hints.clasify`) `relevant` + `sufficient` over the search resource (unified input shape); `localSearch` screens hydrated `fileChunks`, `ghSearchCode` screens snippets | Screen every reachable candidate before deciding which source to read | `tools/clasify/handoff.rs` |
-| 17 | Usage telemetry | Provider calls and billed tokens aggregate into opt-in `<home>/stats.json` | Provider cost is tracked separately from host context | `tools/clasify/stats.rs` |
-
-With `OCTOCODE_ENABLE_STATS=true` and persistent storage, `stats.clasify` records
-successful provider request groups once: `calls`, `input_tokens`, `output_tokens`,
-`known_usage_calls`, and `unknown_usage_calls`. Cached judgments add no provider
-usage. Reported zero tokens count as known; missing or invalid token fields and
-historical calls without completeness counters remain unknown. Token totals
-retain reported values and may be partial when unknown calls exist. Current Jev
-responses require both token fields; missing usage is a provider error. Failed
-attempts have no billed-token receipt, so successful counters alone cannot prove
-complete cost after a failure. Prices and provider request IDs are not exposed
-by this accounting surface. For an isolated benchmark session, use a unique
-`OCTOCODE_HOME` and collect its stats after the calls complete; keep provider
-usage separate from host-model tokens and costs.
-
-### When to call it
+## When to call it
 
 ```mermaid
 flowchart TD
     Q([Agent has a question]) --> L{Literal, identifier,<br/>symbol or PR filter?}
     L -- yes --> S[localSearch / lspSearch / astSearch<br/>ghSearchCode / ghSearchHistory]
     L -- no --> H{Evidence already<br/>in hand?}
-    H -- yes --> J["clasify Judge<br/>value"]
-    H -- no --> K{Known file,<br/>too long to read whole?}
-    K -- no --> R[One bounded read<br/>localFetch / ghGetFileContent]
-    K -- yes --> SC["clasify Scout locate<br/>tool + query"]
-    SC --> V[hints.read: verify 1-2 windows]
+    H -- yes --> J["JUDGE<br/>value"]
+    H -- no --> K{Unread list<br/>or large read?}
+    K -- "list" --> SC["SCOUT<br/>relevant + sufficient"]
+    K -- "large known file" --> LO["LOCATE / GATE<br/>locate or sufficient"]
+    K -- "small read" --> R[One bounded read<br/>localFetch / ghGetFileContent]
+    SC --> V[hints.read: verify the window]
+    LO --> V
     J --> D([Decide next action])
     V --> D
     S --> D
     R --> D
     classDef semantic fill:#fde68a,stroke:#b45309;
-    class J,SC semantic
+    class J,SC,LO semantic
 ```
 
-Why: literal routes are 3–10× cheaper and ~5× faster than a provider round-trip, so Clasify is reserved for questions no literal can answer.
+Literal routes are 3–10× cheaper and about 5× faster than a provider round-trip, so reserve Clasify for questions no literal can answer: an explicit classification request, a supplied-state judgment, or unread-resource screening whose answer changes which items to read. Use `relevant` plus `sufficient` to find relevant candidates still missing deciding facts. Use `locate` over unread known files when the target is semantic and no useful literal is known, or `prefilter` literals to focus a large file. Direct search and bounded reads stay the default for literals, symbols, and known anchors.
 
-### Known gaps
+Measured on the current build (2026-10-07, fixed ground truth, host tokens = what the agent reads):
 
-- The judgment cache is process-local: separate CLI invocations never share it; only a long-lived MCP process benefits.
-- `hints.textSearch` for identifier targets is emitted only for local resources and only for the first identifier target; GitHub resources keep the string hint because `ghSearchCode` covers only the default branch.
-- A `locate` matrix whose every question targets a single bare identifier token over local resources is short-circuited: no read or provider call runs, and the result carries a `hints.text` tip plus `hints.textSearch` with exit 0.
-- The `ghSearchCode` handoff still screens snippets: hydration showed no measured gain, would spend GitHub API budget, and recall (which files the search returns) is the limit there.
+| Use | Without clasify | With clasify | Verdict |
+|---|---|---|---|
+| LOCATE a described target in a large file (11 tasks) | scripted search-then-read; missed 2 of 7 | 0.50× tokens (6 wins, 1 tie, 0 losses), about 28× slower | use |
+| Guessable literal or identifier | one `localSearch` | 1.2–9× tokens; a one-identifier ask now short-circuits to that search | avoid |
+| SCOUT a list (15 lists) | tool order: right item first 8/15 | first 13/15 (MRR 0.71 → 0.93); local `fileChunks` also 0.61× tokens; snippets and remote lists are not cheaper | local `fileChunks` only |
+| `prefilter` on a huge file with a repeated literal | 17 calls, 7,970 tokens | 1 call, 373 tokens | use |
+| JUDGE state already held | decide in text | +300 ms; resends the evidence | only when the label is the deliverable |
 
-## Admission
+Two rules come from this run. **sufficient** stops screening only when its read shows the deciding line (2 of 8 candidate sets with no answer had a non-answer at sufficient ≥ 0.71). **low** defers a candidate, never discards it (2 of 38 true candidates scored low because the judged window missed the answer). On an open walk the first `best` was a near-miss in 4 of 7 multi-page targets, so follow `next.clasify` when its read lacks the answer. Scores never calibrate a universal threshold and never prove absence.
 
-Use Clasify for an explicit classification request, a supplied-state judgment, or unread-resource screening when the answer changes which items to read. Use `relevant` plus `sufficient` to identify relevant candidates still missing deciding facts; verify consequential facts in source. Use `type:"locate"` over unread known files when the target is semantic and no useful literal is known, or use `prefilter` literals to focus a large file. Direct search and bounded reads remain the default for literals, symbols, and already-known anchors.
+The budget is host-model context. Provider tokens are cheaper and tracked separately; they may rise when private assessment keeps larger source bodies out of the host transcript. Do not trade more host reads or weaker routing for fewer provider tokens. Judge a route by the host tokens of the whole workflow (results, repairs, reads, answer), with provider tokens and latency reported separately; method: `skills/octocode-eval-benchmark`.
 
-In the bounded A/B runs on 2026-09-30, explicit list classification, prefilter locate, and absence screening were useful routes. To locate behavior, guess one literal and search it first; Clasify cost 2.6× the bytes when a literal was guessable and 22× for a literal target in those cases. Skip it for exact identifiers, literals, and PR filters (`include`, `matchString`). These measurements do not calibrate a universal score threshold. Verify deciding source regardless of score; an absence judgment does not prove absence without complete relevant coverage.
+Skip Clasify when an exact lookup, held evidence, direct reasoning, or one cheap read decides the next action. File count, file size, ambiguity, one search miss, or a shorter response alone are not reasons to call it. Every call adds provider tokens, latency, and verification work.
 
-The target budget is host-model context. Provider tokens are cheaper and tracked
-separately; they may increase when private assessment prevents larger source
-bodies from entering the host transcript. Do not optimize provider usage at the
-cost of more host reads or weaker routing.
+| Intent | Use Clasify when | Use direct evidence when |
+|---|---|---|
+| Map several properties | Up to 25 independent source-local questions apply to the same unread pages (one matrix) | Each property needs different terms, files, ranges, or later evidence |
+| Triage history | Several unread PRs, issues, commits, or diffs need the same relevance check before an exact read | The number or ref is known, or one diff answers |
+| Detect new evidence | `adds` separates a new fact, exception, or contradiction from `known` evidence | Duplicate identity or location is mechanically decidable |
+| Choose a hypothesis or test | A closed `choice`, with `insufficient`, picks a discriminating test | Open-ended causal reasoning or a new hypothesis |
+| Rank one dimension | An explicit `score` rubric and a threshold drive routing | No calibrated rubric or action policy |
+| Prove identity, reachability, absence, or edit safety | Never | LSP, AST, exact reads, tests, and coverage |
 
-Skip Clasify when an exact lookup, existing evidence, direct reasoning, or one cheap read decides the next action. File count, file size, ambiguity, one search miss, or a shorter response alone are not admission reasons. Every call adds provider tokens, latency, and verification work.
+Place it as **retrieve → classify the bounded ambiguous set → verify the deciding source**. Before retrieval there is no state to judge; after the host read every body, nothing is saved. Extra questions help only when the same captured state answers them independently.
 
-Generic hydrated Scout remains experimental. Five held-out bug-fix tasks improved top-three routing recall but used 2.17× the complete-task host tokens and did not improve aggregate patch quality. Locate fixes the specific double-work defect: Jev now identifies an original-source range, so the host verifies that range without running a second search.
+## How it works
 
-The external-doc locate run used four unread files × two independent semantic targets. It returned both deciding ranges correctly, then exact verification used 4,708 host-visible response bytes versus 5,915 for the search-first route, a 20.4% reduction. Provider work rose to 16,514 input and 3,172 output tokens, and final-run wall time rose from 461 ms to 3,597 ms. An earlier run took 1,486 ms, confirming network-sensitive latency while remaining slower than search. This proves transport leverage for this bounded workflow, not a broad agent-token or latency win; keep the route narrow and retain the five-bug A/B as the broader gate.
+Each call moves a semantic routing decision out of the host transcript and returns a small, exact read that proves or disproves it. Core owns the schema, descriptions, limits, and instructions; the native runtime validates, reads, sanitizes, judges, and shapes continuations; CLI and MCP expose the same contract.
 
-Once a call is admitted, shared-state batching is proven useful. A real local
-5-candidate × 3-question run used 6,415 provider input tokens in one matrix,
-versus 16,715 for three one-question matrices (61.62% less), with no threshold
-decision disagreements across 15 cells and three repeats. This optimizes an
-admitted Clasify call; it does not establish an end-to-end research win.
-
-## Architecture
-
-### Pipeline
-
-```mermaid
-flowchart TD
-    IN(["MCP / CLI call<br/>thin interface, no logic"]) --> PF["Preflight<br/>brief, ids, ≤25 cells"]
-    PF --> QX["Map type+ask, expand presets<br/>validate locate"]
-    QX --> CF{Context form}
-    CF -- "value (Judge)" --> SEC1[Input security policy]
-    CF -- "tool + query (Scout)" --> RD["Secured delegated read<br/>same dispatcher as direct call<br/>4/call, 16/process"]
-    RD --> SAN[Output sanitize + redact]
-    SAN --> CAND{Search result?}
-    CAND -- "search" --> SNIP[Per-file snippet candidates]
-    CAND -- "fileChunks" --> HYD["Hydrate ≤5 candidates<br/>hit-cluster windows"]
-    CAND -- "file read" --> PAGE[Original-source page]
-    PAGE --> LOC["locate: passage IDs<br/>grouped by declaration<br/>+ prefilter"]
-    HYD --> LOC
-    SNIP --> CO[Coalesce pages]
-    LOC --> CO
-    SEC1 --> CO
-    CO --> CACHE{"Judgment cache<br/>sha256 key, 30 min"}
-    CACHE -- hit --> OUT
-    CACHE -- miss --> GATE["Provider gate<br/>concurrency 1–64"]
-    GATE --> BAT{Questions fit<br/>one batch?}
-    BAT -- yes --> P1[One batched request]
-    BAT -- no --> P2[Single requests]
-    P1 --> TR["Transport: HTTPS, deadline,<br/>Retry-After, backoff"]
-    P2 --> TR
-    TR --> OUT["Shape output<br/>probabilities + ranges + receipts"]
-    OUT --> NX["hints.read / next.clasify + carry"]
-    OUT -. usage .-> ST[(opt-in stats.json)]
-```
-
-### One locate call
+1. **Preflight:** bad matrices fail before any read or provider token. Omitted IDs get stable IDs; a pasted lead query (`{queries:[row]}`) reads its row. Each `type`+`ask` expands to one core-authored provider prompt; presets (`relevant`, `supports`, `adds`, `sufficient`) become yes/no questions.
+2. **Secured read:** a Scout resource (`tool`+`query`) runs through the normal dispatcher after the input security policy, and its output is sanitized like a direct call, so Clasify never reads or leaks more than the host could. At most 4 concurrent reads per call and 16 per process; output order stays deterministic. A Judge resource (`value`) has no read.
+3. **Evidence pages:** search results split into per-file candidates; a locate page splits into declaration-grouped passages. Adjacent ready pages merge up to 24 KiB of state; failed pages split runs. Within a call a resource's capture serves all its questions, duplicate paths in one search page collapse, and identical resources listed twice are read twice.
+4. **Judgment cache:** process-local, keyed by SHA-256 of endpoint, model, evidence state, and questions; 256 entries, 8 MiB, 30-minute TTL. It stores only complete successful answer sets, so any change to evidence, brief, or question misses; concurrent identical requests share one provider call. Each CLI invocation starts empty; only a long-lived MCP process benefits. GitHub reads share the direct-call cache.
+5. **Provider gate and batching:** one process-wide gate per endpoint (default 10, 1–64), separate from reads. A throttle halves the limit and 4 successes restore one permit; 5 consecutive failures open the circuit for 10 s. Multi-question pages go as one batch when they fit (72 KiB per question, 120 KiB per group), else singly; shared state is sent once (5 candidates × 3 questions: 61.62% less provider input than three one-question matrices, not an end-to-end win).
+6. **Transport:** HTTPS (HTTP only for `localhost`, `127.0.0.0/8`, `[::1]`), 4 MiB body cap, deadline and cancellation, `Retry-After` honored, jittered backoff 0.5–8 s.
+7. **Output:** shared failures collapse, receipts and scopes merge, limitations hoist, and continuations keep only non-default fields. Every judgment ends in an executable step: `hints.read`, `next.clasify` with `carry`, `hints.textSearch`, or a source-tool follow-up. A repeating continuation stops as a loop.
 
 ```mermaid
 sequenceDiagram
@@ -153,7 +95,82 @@ sequenceDiagram
     Note over A,C: Source bodies never enter the transcript until the verify read
 ```
 
-### Search handoff and availability
+## Availability
+
+Clasify needs `OCTOCODE_CLASSIFICATION_API`. Key setup, the optional API host, source order, and the blank-value kill switch are in [AUTHENTICATION.md](AUTHENTICATION.md#classification-key-clasify); CLI behavior without a key (`missingConfiguration`, exit 5) is there too.
+
+- Without a key, MCP does not register `clasify` and drops every cross-tool `hints.clasify` lead. The catalog is fixed at startup: restart MCP after changing the key.
+- With a key, MCP startup sends one minimal `yesno` judgment (5 s cap, one retry) before it lists tools, so each start makes one small billed request. If the provider fails (rejected key, HTTP 402 quota, unreachable host, invalid response), `clasify` is left out as without a key: the native catalog marks it `unavailableReason:"providerUnreachable"`, and stderr shows `[octocode-mcp] clasify disabled: provider check failed (<errorCode>): <message>`. A rate limit (`classificationRateLimited`) proves the key works, so `clasify` stays. Fix the provider, then restart. The CLI does not probe; a failing provider surfaces on the call.
+- HTTP 402 is `classificationQuotaExhausted`. For the next 60 s, calls to that endpoint and key send no provider request; their bounded reads still run, so an input error (for example `locate` over a minified view) still exits 2, and each resource states the quota error once. The first call after that probes again. A refused page keeps its read (`hints.read`, the page's own window for a file resource), and the resource states how many candidates were not captured.
+- Concurrency: `OCTOCODE_CLASSIFICATION_CONCURRENCY` / `classification.maxConcurrency`. The resolved model and usage stay internal telemetry.
+
+```bash
+npx octocode config check OCTOCODE_CLASSIFICATION_API
+npx octocode schema clasify --view query
+```
+
+## Input
+
+Every call is `{"queries":[matrix, ...]}`. One matrix contains:
+
+| Field | Meaning |
+|---|---|
+| `id` | Stable query correlation ID |
+| `mainGoal` | Optional, ≤500 chars. The research question, sent with every question and in each page's evidence state. Say what a useful file must contain |
+| `reasoning` | Optional, ≤500 chars. Sent in each page's evidence state. Say what the next read depends on. A blank `mainGoal` or `reasoning` is dropped |
+| `resources[]` | Held state or unread read requests |
+| `questions[]` | Questions applied to every resource page |
+
+- Put every independent question about the same evidence in one matrix and every candidate in `resources`. Each resource is captured once, and fitting questions are batched per page.
+- Jev does not see your transcript. Without `mainGoal` or `reasoning`, each `ask` must carry the whole intent.
+- Use separate root `queries[]` for independent matrices whose resource cross-product would be wrong. Make a later call only when an earlier answer changes the evidence or options.
+- Resource and question IDs must be unique within their query.
+
+```json
+{"id":"held","value":{"claim":"...","evidence":["..."]}}
+{"id":"unread","tool":"localFetch","query":{"path":"/abs/repo/src/file.ts","ranges":["40-100"]}}
+```
+
+A read query follows its tool's live schema and inherits the matrix `mainGoal`/`reasoning`. A file read without a range, match, or view reads the whole file. A `localSearch`/`ghSearchCode` resource in a matrix with a `locate` question hydrates file chunks (`candidateEvidence:"fileChunks"`, also settable explicitly).
+
+### Questions
+
+Each question is `{id?, type, ask}`:
+
+| `type` | Answer |
+|---|---|
+| `yesno` | P(yes) for one proposition (optional `labels:{true,false}`) |
+| `choice` | One label from `labels:{label: meaning}`, with the probability map when uncertain |
+| `score` | Expected zero-based level on `labels:[low … high]` |
+| `relevant`, `supports`, `sufficient`, `adds` (needs `known`) | Research presets, answered as P(yes) |
+| `locate` | `{exists, matches}` line ranges; see [Locate](#locate) |
+
+Choice and score confidence measures probability concentration, not correctness. Add an `insufficient` label when no substantive label may fit. No universal score or confidence threshold discards candidates. `sufficient` asks whether the captured page already states the answer, so you can stop screening; the evidence reached the provider, not you, so unless it was a supplied `value` or a snippet in context, run the page's `hints.read` to read and cite the deciding lines.
+
+Each question must describe one source-local fact. Split lists, conjunctions, and facts in distant sections into separate questions over the same capture. Add questions only when each answer changes a route, threshold, read, test, or edit; cheap questions still cost cells, tokens, and output, and cannot fix an irrelevant candidate set.
+
+### Locate
+
+`locate` accepts only `ask` and needs a contiguous original-source `localFetch` or `ghGetFileContent` page (unminified: `minify` omitted or `"none"`), or a `localSearch`/`ghSearchCode` resource, whose file chunks are hydrated. Hydrated chunks can still have gaps; those pages stay unsupported. A matrix that combines `locate` with an incompatible resource is rejected before any read or provider call; split it. Plain snippets, repository and tree listings, AST/LSP results, history, and package metadata support the other types. Supplied values and captured pages still pass source-line validation.
+
+- The runtime tags small passages, asks Jev a Choice question to rank them and a Noul question for whether an answer exists, then maps the answer to a declaration-aligned window in original line numbers (±2 lines; a doc-comment hit shows 3 lines above to 4 below the declaration name; overlapping windows merge). Where the engine outlines the language, passages group by innermost declaration (leading doc comment included).
+- A page answer is `{exists, matches:[{lines:[start,end], probability}]}`: one match, or two when the page answers (`exists` ≥ 0.5) and the runner-up holds at least half the winner's probability.
+- The query's `best[questionId]` lists at most three answering windows (`exists` ≥ 0.5) across pages as `{line, endLine, exists, probability}`, ranked by `exists`, then `probability`. `resourceId`/`path` appear only with several resources or when the window's file differs from the resource path. A finished walk with no answering window lists its single closest passage; a finished ranking always has a winner, and low `exists` means the range is only the closest passage.
+- The query's `hints.read` is an exact `localFetch` or `ghGetFileContent` call for the top row through the page that assessed it (snapshot included; GitHub reads name `owner`, `repo`, `path`, and the requested `ref` or returned commit). Run it unchanged; read other rows by `line`–`endLine`, batched into one call (up to five queries).
+- `carry` always holds the full top three in the same row form; copy it unchanged.
+- While a continuation remains and no window answers, `best` is omitted and the ranking travels only in `carry`: follow `next.clasify`, do not read the closest non-answer. While a continuation remains and a window answers, `best` lists every answering row and `hints.text` warns that it ranks only the pages judged so far: if its read lacks the answer, run `next.clasify`. The last call ranks the whole file.
+- Windows are verification spans, not complete declarations. Expand or follow the source when the deciding statement is absent; even a high score needs a source read.
+
+**`prefilter`:** a `localFetch`/`ghGetFileContent` resource may add `prefilter:[terms]` (at most 8 rare literals); any other resource with `prefilter` is rejected. The runtime probes the file with a case-insensitive literal match (up to 20 match pages) and judges up to three 600-line windows around the hits: the densest when every hit fits, otherwise the first three in file order, with `next.clasify` resuming after the last. No hits falls back to the original read. When terms occur throughout the file, a distinctive search is cheaper.
+
+**Literal targets.** A `locate` ask is literal when its only content is one identifier (`snake_case`, `camelCase`, `PascalCase`, `Type::name`) or one quoted literal around lookup words: `escapeRegExpCharacters`, `find escapeRegExpCharacters`, `where is Type_instantiation_is_excessively_deep reported`, `the definition of X, which …`. Any other content word makes it described (`where does QuerySet filter after a slice`) and it runs as a normal locate. One rule decides all of the following:
+
+- A literal target adds a `hints` entry pointing to `localSearch`.
+- When every resource is a local `localFetch`/`localSearch`/`structureSearch`/`astSearch` read, the query also gets `hints.textSearch`: one search for every distinct literal (`regex:"literal"` for one, an escaped `regex:"rust"` alternation `a|b` for several), scoped to the resource path or the deepest directory the resources share. GitHub resources get the hint only, because `ghSearchCode` covers only the default branch.
+- A `locate` matrix whose every question is a literal target over local resources is short-circuited: no read or provider call, a `hints.text` tip plus `hints.textSearch`, exit 0.
+- The large-read handoff gives a literal `mainGoal` a text-search lead instead of clasify ([handoff](#search--clasify--read-handoff)).
+
+## Search → clasify → read handoff
 
 ```mermaid
 flowchart LR
@@ -172,152 +189,39 @@ flowchart LR
     R --> V
 ```
 
-The core package owns the schema, descriptions, limits, and instructions. The native runtime validates the generated contract, executes delegated reads, sanitizes evidence, enforces capture/provider limits, and shapes continuations. CLI and MCP expose the same contract.
+**Large reads.** A paged `localFetch` or `ghGetFileContent` read of a file of at least 2,000 lines, with `mainGoal` set and no `matchString`, `ranges`, or view, can carry a `hints.clasify` lead: one whole-file resource with a `locate` question whose `ask` is the `mainGoal`. An unanchored first read returns only the file head, so the lead arrives before you pay for a full page. A literal `mainGoal` (`MAX_CALL_CAPTURES`, `find bulk_update`, ``where is `newElementWith()` defined``) gets no clasify lead: a local read gets a `textSearch` lead (`localSearch`, `regex:"literal"`), a GitHub read gets none. A described `mainGoal` that only mentions an identifier (`Where bulk_update refuses pk changes`) gets the locate lead.
 
-Delegated reads share a limit of four concurrent reads per call and sixteen per process. Search candidates hydrate concurrently inside those bounds. Provider judgments run independently through the provider's configured concurrency gate. Candidate order in the output remains deterministic.
+**Searches.** A semantic `localSearch` or `ghSearchCode` page with at least eight files carries `hints.clasify`: one unread search resource (`tool`/`query`) with `relevant` and `sufficient` questions whose `ask` is the search `mainGoal`, or the searched phrase when none was sent. The lead stays under the two-lead cap, after a skipped-binary listing.
 
-## Availability
-
-Clasify needs a classification provider key: `OCTOCODE_CLASSIFICATION_API`, with an optional `OCTOCODE_CLASSIFICATION_API_HOST` API root (default `https://api.typesafe.ai`; HTTPS except loopback; home-trusted, never from a workspace). Key setup, source order, and the blank-value kill switch are in [AUTHENTICATION.md](AUTHENTICATION.md#classification-key-clasify); every setting is in [CONFIGURATION.md](CONFIGURATION.md).
-
-- Without a key, MCP does not register `clasify`, and every cross-tool `hints.clasify` lead is dropped. Restart MCP after changing the key; the catalog is fixed at startup.
-- With a key, MCP startup sends one minimal `yesno` judgment (5 s cap, one retry) before it lists tools. If the provider fails (rejected key, HTTP 402 quota, unreachable host, invalid response), `clasify` is left out exactly as without a key: the native catalog marks it `unavailableReason:"providerUnreachable"`, and stderr shows `[octocode-mcp] clasify disabled: provider check failed (<errorCode>): <message>`. A rate limit (`classificationRateLimited`) proves the key and endpoint work, so `clasify` stays. Each MCP start with a key therefore makes one small billed provider request. Fix the provider, then restart MCP. The CLI does not probe; a failing provider surfaces on the call.
-- CLI root help and `octocode schema` list only enabled tools, so neither offers it; `octocode schema clasify` shows `availability.enabled:false` and the env hint, and a direct call fails with `missingConfiguration` (exit `5`).
-- HTTP 402 from the provider is `classificationQuotaExhausted` (billing or quota). For the next 60 s, calls to that endpoint and key send no provider request; their bounded context reads still run, so an input error (for example `locate` over a minified view) still exits 2, and each resource states the quota error once. The first call after that probes again, since credit can be added. A page the provider refused keeps its read (`hints.read`, the page's own window for a file resource), and the resource states how many candidates were not captured.
-- Provider concurrency: `OCTOCODE_CLASSIFICATION_CONCURRENCY` / `classification.maxConcurrency` (default 10, 1–64). The resolved model and usage stay internal telemetry.
-
-```bash
-npx octocode config check OCTOCODE_CLASSIFICATION_API
-npx octocode schema clasify --view query
-```
-
-## Input
-
-Every call wraps its matrices in `queries`: `{"queries":[matrix, ...]}`. One semantic matrix contains:
-
-| Field | Meaning |
-|---|---|
-| `id` | Stable query correlation ID |
-| `reasoning` | Optional, at most 500 characters. Sent in each page's evidence state when set. Say what the next read depends on |
-| `mainGoal` | Optional, at most 500 characters. The research question; sent with every question and in each page's evidence state when set. Say what a useful file must contain |
-| `resources[]` | Independently captured state or unread read requests |
-| `questions[]` | Caller-authored questions applied to every resource page |
-
-Put all independent questions that use the same evidence in one matrix, and put
-every candidate in `resources`. Each resource is captured once, and the runtime
-batches all fitting questions for its page. Jev does not see the caller
-transcript: a `mainGoal` travels with every question and in each page's evidence state, and a `reasoning` travels in that same state. Without them, each question's `ask` must carry the whole intent. Use root `queries[]` for independent matrices whose resource cross-product
-would be wrong. Use a later call only when an earlier answer changes the evidence
-or available options. Resource and question IDs must be unique inside their
-query.
-
-A resource is either held state or one unread read:
-
-```json
-{"id":"held","value":{"claim":"...","evidence":["..."]}}
-```
-
-```json
-{"id":"unread","tool":"localFetch","query":{"path":"/abs/repo/src/file.ts","ranges":["40-100"]}}
-```
-
-The read query follows that read tool's own schema and inherits the matrix `mainGoal`/`reasoning` when the matrix sets them. A file read without a range, match, or view reads the whole file; a `localSearch`/`ghSearchCode` resource in a matrix with a `locate` question hydrates file chunks (`candidateEvidence:"fileChunks"`, which may also be set explicitly). Use the live schema for each read tool rather than copying old examples.
-
-### Questions
-
-Each question is `{id?, type, ask}` and uses one primitive:
-
-| `type` | Meaning |
-|---|---|
-| `yesno` | Probability of “yes” for one proposition (optional `labels:{true,false}`) |
-| `choice` | One caller-defined label from `labels:{label: meaning}`, with the probability map when uncertain |
-| `score` | Expected zero-based level on `labels:[low … high]` |
-
-Choice and Score confidence measures probability concentration, not correctness. Add an explicit `insufficient` label when substantive labels may not fit. There is no universal score or confidence threshold for discarding candidates.
-
-Research types are `locate`, `relevant`, `sufficient`, `adds` (requires `known`), and `supports`. `sufficient` asks whether the captured page already states the answer, so the host can stop screening. The judged evidence reached the provider, not the host: unless it was a supplied `value` or a snippet already in context, run the page's `hints.read` to obtain and cite the deciding lines.
-
-`locate` accepts only its `ask` and applies to a contiguous original-source `localFetch` or `ghGetFileContent` page. The runtime tags small source passages, asks Jev a Choice question to rank them and a Noul question to estimate whether an answer exists, then projects the answer back to original line numbers. Where the engine outlines the language, passages are grouped by their innermost declaration (leading doc comment included) and a doc-comment hit shows the declaration line. The answer is `{exists,matches:[{lines:[start,end],probability}]}` with one match, or two when the page answers (`exists` ≥ 0.5) and the runner-up holds at least half the winner's probability. Each query's `best[questionId]` lists only answering windows (`exists` ≥ 0.5) across pages, at most three, as `{lines:[start,end], exists, probability}` (`resourceId`/`path` only when the matrix has several resources or the window's file differs from the resource path); a finished walk with none lists its single closest passage instead. Rows are ranked by `exists`, and `probability` orders rows with equal `exists`. The query's `hints.read` is an exact `localFetch` or `ghGetFileContent` call for the top row through the page that assessed it (its snapshot included; GitHub reads name `owner`, `repo`, `path`, and the requested `ref` or returned commit), so run it unchanged; read other rows by their `lines`. `carry` always keeps the full top three in the same row form, copied unchanged. While a continuation remains and no window answers, `best` is omitted and the ranking travels only in `carry`, so follow the continuation instead of reading the closest non-answer. The last call ranks the whole file. Identifier-like targets add a `hints` entry pointing to localSearch; when every resource is a local `localFetch`/`localSearch`/`structureSearch`/`astSearch` read, the query also gains `hints.textSearch`, an executable literal search (`regex:"literal"`) for the first identifier, scoped to that resource path or the deepest directory the resources share. GitHub resources get the hint alone. A `localFetch`/`ghGetFileContent` resource may add `prefilter:[terms]` (at most 8 rare literals); any other resource with `prefilter` is rejected. The runtime probes the file with a case-insensitive literal match (up to 20 match pages) and judges up to three 600-line windows around the hits: the densest when every hit fits, otherwise the first three in file order, with `next.clasify` resuming after the last. No hits falls back to the original read. When terms occur throughout the file, a distinctive search is cheaper. A finished ranking always has a winner; low `exists` means the returned range is merely the closest passage.
-
-For `locate`, request unminified file reads (`minify` omitted or `"none"`), or use a `localSearch`/`ghSearchCode` resource (file chunks are hydrated for locate). Hydrated chunks can still have gaps; those pages remain unsupported. Plain search snippets, repository/tree listings, AST/LSP results, history, and package metadata support the other question types. A matrix combining `locate` with an incompatible tool resource is rejected before retrieval or provider calls; split it into separate matrices. Supplied values and captured pages still undergo source-line validation.
-
-`best` rows (and, with `debug:true`, each page's `matches`) provide source coordinates once. These are verification windows around ranked passages, not guaranteed complete declarations or answers. Batch the windows into one read call (up to five queries); expand or follow the source if the deciding statement is absent. Even a high score needs source verification. Results contain hints, never captured bodies. MCP returns the structured payload and mirrors it as JSON in the text content.
-
-Each question must describe one source-local fact. Split lists, conjunctions, and
-facts expected in distant sections into separate questions over the same capture.
-Add several questions when every answer changes a route, threshold, read, test,
-or edit. Cheap questions still consume cells, question tokens, and host-visible
-output; they cannot repair an irrelevant candidate set.
-
-## Research flows and intent boundaries
-
-| Intent | Use Clasify when | Keep direct Octocode evidence when |
-|---|---|---|
-| Locate an answer inside unread known files | The target is semantic, several candidate files or questions share the same capture, and the result routes exact line reads | A literal, regex, symbol, AST shape, or line anchor expresses the target directly |
-| Route search candidates | Scope and lexical repair already produced a bounded ambiguous shortlist, and the result selects an exact read | Paths, snippets, AST, or LSP already identify the deciding file |
-| Map several properties over candidates | Up to 25 independent source-local questions all apply to the same unread pages; put them in one matrix | Each property needs different search terms, files, ranges, or later evidence |
-| Triage history | Several unread PR, issue, commit, or diff candidates need the same relevance/support check before an exact history read | The number/ref is known or one diff answers the question |
-| Check held evidence | A small supplied evidence set needs a typed supported/contradicted/conflicting/insufficient disposition that changes the next action | The source already states the answer or the agent merely wants a summary |
-| Detect incremental evidence | `adds` can distinguish a new fact, exception, or contradiction from current `known` evidence | Exact duplicate identity or location is mechanically decidable |
-| Choose a hypothesis/test | A closed Choice, including `insufficient`, selects a discriminating next test | The task needs open-ended causal reasoning or a new hypothesis |
-| Rank one ordered dimension | A Score rubric is explicit and a threshold drives routing | “Correctness,” relevance, or severity has no calibrated rubric or action policy |
-| Prove identity, reachability, absence, or edit safety | Never | Use LSP, AST/topology, exact reads, tests, and coverage appropriate to the claim |
-
-The useful research placement is **retrieve → classify the bounded ambiguous
-set → verify the deciding source**. Classification before retrieval has no state
-to judge. Classification after the host has already read every body cannot save
-host context. Adding questions after retrieval helps only when the same captured
-state can answer them independently.
-
-Measure the complete conversion:
-
-```text
-host leverage = direct-workflow host tokens
-              - Clasify-workflow host tokens
-
-Clasify-workflow host tokens include tool results, repair calls, selected reads,
-uncertainty reads, and final answer generation. Provider input/output tokens and
-latency are reported separately.
-```
-
-For a quick diagnostic before a full agent A/B, replace host tokens with
-host-visible response bytes and divide the bytes avoided by provider input
-tokens. This is a transport proxy, not proof of model-context savings.
-
-## Search → clasify → read handoff
-
-A paged `localFetch` or `ghGetFileContent` read of a file of at least 2,000 lines without `matchString`, a line range (`ranges`), or a view can carry a `hints.clasify` lead when the read set `mainGoal`: one whole-file resource with a `locate` question whose `ask` is the read's `mainGoal` (`tools/clasify/handoff.rs` `large_read_handoff`). An unanchored first read of such a file returns only its head, so the handoff arrives before a full page is paid for; identifiers `mainGoal` names (`snake_case`, `camelCase`, `Type::name`, at most three) become the resource's `prefilter`. A `mainGoal` that is a bare identifier (`MAX_CALL_CAPTURES`, `newElementWith()`) gets no offer: clasify would route it straight to a literal `localSearch`, so search it directly. A semantic `localSearch` or `ghSearchCode` page with at least eight files carries `hints.clasify` in the unified input shape: one unread flat search resource (`tool`/`query`) with `relevant` and `sufficient` questions whose `ask` is the search `mainGoal`, or the searched phrase when the query sent none. The contract's lead priority keeps it under the two-lead cap, after a skipped-binary listing. A `localSearch` handoff sets the resource's `candidateEvidence:"fileChunks"`, so each candidate is judged on hydrated code around its hit clusters (a window edge that cuts a nearby declaration grows to that declaration's boundary when the grown window fits one page, and its `hints.read` covers the same span) (at most five candidates per call, the rest through `next.clasify`); a one-line hit of the searched phrase carries only that phrase, so snippet scores stay flat (measured 0.16–0.38). A `ghSearchCode` handoff stays on snippets: hydration showed no measured gain, would spend GitHub API budget, and recall is the limit. The handoff preserves the search `mainGoal` and `reasoning` (only when sent), filters, view, and starting candidate. Clasify uses a smaller aligned page when the original page size exceeds its cell budget. Clasify bounds the candidate page to its cell budget and returns remaining candidates through `next.clasify`; it does not select only the first three files or fetch their whole bodies. Run the handoff unchanged, compare each candidate's relevance and sufficiency, and read relevant candidates through `hints.read`; a sufficient one ends screening but is still read to verify. The handoff's question target is the search `mainGoal`, so a vague `mainGoal` gives flat scores: on `modelcontextprotocol/typescript-sdk` (10 candidates), "Find how invalid tool arguments are rejected" scored every file 0.82–0.95 relevant and an example client 0.71 sufficient, while naming the artifact ("the SDK server code that rejects…") ranked the implementation first at 0.94 (next 0.72), with sufficiency above 0.12 only for it. Name the artifact kind in the search `mainGoal`; without one, the phrase alone is the target. Follow `next.clasify` when the remaining candidates can change the decision.
-
-Narrow pages, identifiers, single-token anchors, quoted literals, paths, regexes, `wholeWord` searches, and non-hit views (`filesWithout`, `countLines`, `countMatches`, `matchOnly`, `invertMatch`) carry no automatic handoff. File count alone never triggers classification. The availability filter drops the handoff when Clasify is disabled. Metadata-only search views use a routing `yesno` question for relevance rather than asking bare paths to support a content claim. Compact GitHub `owner/repo:path` rows retain per-file identities and reads. Manual Scout and Locate remain available when an unresolved semantic decision justifies them.
-
-Provider judgments use a process-local cache keyed by a SHA-256 of endpoint, model, evidence state, and questions (256 entries, 8 MiB, 30-minute TTL). Only complete successful answer sets are stored, so any change to evidence, brief, or question misses. Identical requests in flight at once share one provider call. The cache lives in the MCP process; each CLI invocation starts empty. Within a call a resource's capture is reused for all its questions, a continuation that repeats is stopped as a loop, and duplicate paths in one search page collapse; identical resources listed twice are read twice. GitHub reads use the same cache as direct calls.
+- It keeps the search `mainGoal` and `reasoning` (only when sent), filters, view, and starting candidate. Clasify uses a smaller aligned page when the original page exceeds its cell budget and returns the remaining candidates through `next.clasify`; it never picks only the first files or fetches whole bodies.
+- A `localSearch` lead sets `candidateEvidence:"fileChunks"`, so each candidate is judged on hydrated code around its hit clusters (at most five per call). A window edge that cuts a nearby declaration grows to that declaration's boundary when the grown window fits one page, and its `hints.read` covers the same span. One-line snippets of the searched phrase score flat (measured 0.16–0.38).
+- A `ghSearchCode` lead stays on snippets: hydration showed no measured gain, would spend GitHub API budget, and recall (which files the search returns) is the limit.
+- Run the lead unchanged, compare relevance and sufficiency, and read relevant candidates through `hints.read`; a sufficient one ends screening but is still read to verify. Follow `next.clasify` when the remaining candidates can change the decision.
+- The lead's target is the search `mainGoal`, so name the artifact kind in it. On `modelcontextprotocol/typescript-sdk` (10 candidates), "Find how invalid tool arguments are rejected" scored every file 0.82–0.95 relevant, while "the SDK server code that rejects…" ranked the implementation first at 0.94 (next 0.72).
+- No lead for narrow pages, identifiers, single-token anchors, quoted literals, paths, regexes, `wholeWord` searches, or non-hit views (`filesWithout`, `countLines`, `countMatches`, `matchOnly`, `invertMatch`). File count alone never triggers one. Metadata-only search views ask a routing `yesno` for relevance. Compact GitHub `owner/repo:path` rows keep per-file identities and reads. Manual Scout and Locate stay available.
 
 ## Scout over list candidates
 
-One unread list resource fans its returned candidates into independent pages. Each page carries its identity and `hints.read`, the executable fetch for that one candidate:
+One unread list resource fans its candidates into independent pages, each with its identity and `hints.read`:
 
 | Resource | One page per | `source` | `hints.read` |
 |---|---|---|---|
-| `localSearch`, `ghSearchCode` | file | `path` | `localFetch` window around the densest match cluster / `ghGetFileContent` anchored on the match |
+| `localSearch`, `ghSearchCode` | file | `path` | `localFetch` windows around every judged match cluster / `ghGetFileContent` anchored on the match |
 | `astSearch` `match` / `symbols` | file (a directory outline is already grouped per file) | `path` | `localFetch` window around the matched lines |
-| `lspSearch` locations (references, definitions, implementations, …) | file (locations grouped) | `path` | `localFetch` window around the locations |
+| `lspSearch` locations | file (locations grouped) | `path` | `localFetch` window around the locations |
 | `ghSearchRepo` | repository | `item` `owner/repo` | `ghStructure` |
 | `ghSearchHistory` | pull request / issue / commit | `item` `owner/repo#n` or `owner/repo@sha` | `ghGetHistoryItem` |
 | `artifactSearch` keyword discovery | package | `item` `type:name` | `artifactSearch` exact lookup |
 
-Bare path lists (`structureSearch` `files`/`tree`, `ghStructure`) and `astTopology` results (a context tool only on the CLI with beta enabled) stay one page: a name alone is judged better comparatively, so ask a `choice` over the listed paths (measured: judged one by one, every file scored 0.16–0.20 on content questions). Cells are pages × questions (≤25), so for paged lists (`localSearch`, `ghSearchCode`, `astSearch` `match`, `ghSearchRepo`, `ghSearchHistory`, `artifactSearch` keywords) clasify lowers `pageSize` to fit; later pages continue through `next.clasify`.
+Bare path lists (`structureSearch` `files`/`tree`, `ghStructure`) and `astTopology` results (CLI with beta only) stay one page: a name alone is judged better comparatively, so ask a `choice` over the paths (judged one by one, every file scored 0.16–0.20). For paged lists (`localSearch`, `ghSearchCode`, `astSearch` `match`, `ghSearchRepo`, `ghSearchHistory`, `artifactSearch` keywords), clasify lowers `pageSize` to fit 25 cells; later pages continue through `next.clasify`.
 
-### Sufficiency first: read only what is missing
+Match the question to what a page carries. Content (snippets, symbols, references, PR or commit text, package descriptions) suits `relevant` + `sufficient`. Bare metadata (repository names, titles) suits a routing `yesno` such as "this repository likely implements X", compared across pages: `relevant` over repository metadata scored the official MCP SDK 0.17, like unrelated repositories. Ask relevance and sufficiency in one matrix, then act per page:
 
-Match the question to what a page carries. Content (snippets, symbols, references, PR or commit text, package descriptions) suits `relevant` + `sufficient`. Bare metadata (repository names, titles) suits a routing `yesno` such as "this repository likely implements X", compared across pages. Measured on the MCP TypeScript SDK search: `relevant` over repository metadata scored the official SDK 0.17, the same as unrelated repositories. Over package descriptions, it put `ajv` first at 0.78.
+- `sufficient` high: run `hints.read`. Stop screening only when that read shows the deciding line; otherwise treat the page as relevant and keep screening.
+- Relevance high, `sufficient` low: run `hints.read` unchanged and keep screening.
+- Relevance low (below 0.36): defer the candidate, do not discard it; a score judges only the captured window. Read deferred candidates before concluding absence or when no read answered.
 
-Ask relevance and sufficiency in one matrix, then act per page:
-
-- `sufficient` high: the judged evidence states the answer. That evidence reached the provider, not the host: unless it was a supplied `value` or a snippet already in your context, run the page's `hints.read` (bounded to the judged lines or candidate anchor) to obtain the deciding fact before answering, and stop screening further candidates.
-- relevant (`relevant`/custom `yesno`) high and `sufficient` low: run `hints.read` unchanged and keep screening.
-- relevance low: skip the candidate. A low score is not absence; widen the search before concluding.
-
-The same check works before a large fetch: send the `localFetch`, `ghGetFileContent`, or `ghGetHistoryItem` request as the resource with `sufficient` plus the deciding question. Clasify reads it and returns the verdict (and locate windows when asked). Every judged file page whose verdicts are not all a confident "no" (P(yes) below 0.36) carries `hints.read` for exactly its judged lines (its byte page when the read is byte-chunked), so a `sufficient` page is one bounded read from the deciding fact instead of the whole fetch.
+GATE uses the same check before a large fetch: every judged file page not scored a confident "no" (P(yes) below 0.36) carries `hints.read` for exactly its judged lines (its byte page for a byte-chunked read), so a `sufficient` page costs one bounded read instead of the whole fetch.
 
 ```json
 {"mainGoal":"Find how the SDK rejects invalid tool arguments.","reasoning":"Pick which PRs to read.",
@@ -328,107 +232,38 @@ The same check works before a large fetch: send the `localFetch`, `ghGetFileCont
 
 ### Search file chunks
 
-For `localSearch` and `ghSearchCode`, file entries can also be hydrated into bounded chunks.
+`localSearch` and `ghSearchCode` candidates are judged either on returned paths, snippets, and metadata (`candidateEvidence:"search"`) or on hydrated chunks (`"fileChunks"`, set by a `locate` question, by the `localSearch` lead, or explicitly on the resource: `{"id":"hits","tool":"localSearch","candidateEvidence":"fileChunks","query":{…}}`). File-chunk mode hydrates at most five candidates per search page, at most 12,000 sanitized characters each. Each candidate is judged alone, and the output holds no source body. Each usable page has a verification `hints.read`; a malformed or failed candidate may not. `next.clasify` continues the underlying search; copy it unchanged.
 
-- Screening questions judge only returned paths, snippets, and metadata (`candidateEvidence:"search"`).
-- A `locate` question, or `candidateEvidence:"fileChunks"`, hydrates file chunks when snippets cannot route the next read; the `localSearch` handoff sets it automatically.
-- File-chunk mode hydrates at most five candidates on the current search page.
-- Each candidate contributes at most 12,000 sanitized characters.
-- Candidate chunks are judged independently; one candidate is never visible to another.
-- The output contains no source body.
+- Every hit line of a local `fileChunks` candidate reaches a window. When the page lists only some hit lines (`pagination.moreLinesUnlisted` counts the rest), clasify lists them first with the same matcher over that file (`matchPageSize` = the file's hit count). If that search fails, the candidate gets a `classificationBudgetSpent` page that names the count and carries that search as `hints.read`. Each window is judged and listed once.
+- Hit windows the page or byte budget leaves unjudged share one `classificationBudgetSpent` page per file; its `hints.read` names each window once (overlapping or touching windows merge; more than ten ranges become rows of one `localFetch` call).
+- A snippet page reads the rows it judged: the densest hit window when it holds every shown row, else one window per cluster.
+- Hydrated windows sit at hit clusters and merge when near; a window larger than its byte share is re-read narrower around its hit. Local hydration reads around the densest match cluster. Without a stable anchor, the page records that only the opening chunk was assessed; a bounded chunk does not cover the rest of the file.
 
-```json
-{
-  "id":"candidate-screen",
-  "mainGoal":"Find where handler registration is implemented.",
-  "reasoning":"Test whether bounded hydration improves the next-read decision.",
-  "resources":[{
-    "id":"hits",
-    "tool":"localSearch",
-    "candidateEvidence":"fileChunks",
-    "query":{
-      "path":"/abs/repo",
-      "matchString":"registerHandler",
-      "include":["src/**"],
-      "pageSize":5
-    }
-  }],
-  "questions":[{
-    "id":"relevant",
-    "type":"relevant",
-    "ask":"Where is handler registration implemented?"
-  }]
-}
-```
-
-Each usable hydrated page includes `hints.read`, an exact `localFetch` or `ghGetFileContent` request for verification. A malformed or failed candidate may not have one. `next.clasify` continues the underlying search; copy it unchanged.
-
-### Large local repositories
-
-Constrain the search before classification:
-
-1. Use an absolute root and the narrowest useful `include`, `exclude`, language, and lexical anchor.
-2. Keep `pageSize` at five or below for file-chunk mode.
-3. Use direct `localSearch`, AST, or LSP evidence when syntax or symbol identity already decides the file.
-4. Follow `next.clasify` only when later search pages remain relevant to the stated decision.
-5. Execute `hints.read` for the candidate that changes the action; a bounded chunk does not cover the rest of the file.
-
-Local hydration reads a bounded region around the densest cluster of matches. If no stable anchor exists, the page records that only the opening chunk was assessed.
-
-### Large GitHub repositories
-
-GitHub code search is index-limited and cannot establish global absence. Narrow by owner/repository, filename, extension, language, and useful keywords before classification.
-
-File-chunk mode performs bounded candidate fetches concurrently. Each exact-read continuation is pinned to the observed commit SHA when the provider returned one, so verification reads the assessed revision rather than a mutable branch. Continue search coverage with `next.clasify`; do not infer repository-wide absence from one page or one score.
+**Large repositories.** Narrow first: an absolute root (local) or owner/repository (GitHub), the tightest `include`/`exclude`, filename, extension, language, and a lexical anchor; keep `pageSize` ≤5 in file-chunk mode. Use direct search, AST, or LSP when syntax or symbol identity already decides the file. Follow `next.clasify` only while later pages stay relevant, and run `hints.read` for the candidate that changes the action. GitHub code search is index-limited and cannot prove global absence from one page or score. GitHub chunk fetches run concurrently, and each read is pinned to the observed commit SHA when GitHub returned one, so verification reads the assessed revision.
 
 ## Judge supplied state
 
-Judge is appropriate when the caller already holds a small, sufficient evidence set and needs an explicit classification whose result changes the next read, test, or edit.
+Use Judge when you already hold a small, sufficient evidence set and need a classification that changes the next read, test, or edit. Do not copy unread bodies into `value`; use an unread read request so the host does not pay to read that source first.
 
 ```json
-{
-  "id":"claim-review",
-  "mainGoal":"Decide whether the abort claim holds.",
-  "reasoning":"Classify how the held evidence bears on the exact claim.",
-  "resources":[{
-    "id":"evidence",
-    "value":{
-      "claim":"Aborting a queued task guarantees it never starts.",
-      "observations":[
-        "Waiting tasks may be removed by an abort signal.",
-        "Tasks already started continue after abort."
-      ]
-    }
-  }],
-  "questions":[{
-    "id":"support",
-    "type":"choice",
-    "ask":"Classify support for the exact claim.",
-    "labels":{
-      "supported":"Evidence covers the complete claim.",
-      "contradicted":"Evidence conflicts with the claim.",
-      "conflicting":"Evidence supports and conflicts with the claim.",
-      "insufficient":"A deciding condition is missing."
-    }
-  }]
-}
+{"id":"claim-review","mainGoal":"Decide whether the abort claim holds.",
+ "resources":[{"id":"evidence","value":{"claim":"Aborting a queued task guarantees it never starts.",
+   "observations":["Waiting tasks may be removed by an abort signal.","Tasks already started continue after abort."]}}],
+ "questions":[{"id":"support","type":"choice","ask":"Classify support for the exact claim.",
+   "labels":{"supported":"Evidence covers the complete claim.","contradicted":"Evidence conflicts with the claim.",
+             "conflicting":"Evidence supports and conflicts with the claim.","insufficient":"A deciding condition is missing."}}]}
 ```
-
-Do not copy unread bodies into `value`; use an unread read request so the host does not first pay to consume that source.
 
 ## Limits
 
 | Limit | Value |
 |---|---:|
 | Queries per call | 5 |
-| Resources per query | 25 |
-| Questions per query | 25 |
-| Expanded cells per query | 25 |
+| Resources / questions / expanded cells per query | 25 / 25 / 25 |
 | Total caller cells per call | 50 |
-| Default `maxChars` per resource | 80,000 |
+| `maxChars` per resource (default and maximum) | 80,000 |
 | Hydrated candidates per search page | 5 |
 | Sanitized characters per hydrated candidate | 12,000 |
-| `maxChars` per resource (maximum) | 80,000 |
 | Captured pages per resource per call | 100 |
 | `prefilter` terms | 8 |
 | Choice labels / Score levels | 2–255 / 2–10 |
@@ -436,26 +271,43 @@ Do not copy unread bodies into `value`; use an unread read request so the host d
 | `carry` rows per question | 3 |
 | Provider request body | 4 MiB |
 
-`maxChars` bounds the sanitized evidence a resource submits, on every path: file pages, search snippets, hydrated chunks, and list items. Search and list candidates are kept in page order while they fit. A candidate larger than the whole `maxChars` fails with `classificationContextTooLarge` and keeps its `hints.read`; the first candidate that only overflows what the call has left resumes through `next.clasify` (search pages restart at that file row), or, when no continuation can address it, fails with `classificationBudgetSpent` and its `hints.read`. Hydrated chunk reads share the budget equally. A file page over the whole `maxChars` is re-read at the same start in smaller chunks (up to four attempts; an unpaged whole-file read becomes line chunks from line 1, and `next.clasify` walks the rest); a page that fits a fresh call but not the remainder of this one is deferred to `next.clasify`. A single smallest unit that still exceeds `maxChars` fails with `classificationContextTooLarge` and no continuation. A replay whose source changed fails with `staleSnapshot` instead of restarting on the new version.
+Cells are resources × questions, so 25 questions fit only with one resource. Search fan-out counts toward the 25-cell limit, and a `fileChunks` resource (including a search resource with a `locate` question) counts as five resources in both cell checks. A call over the expanded-cell bound fails before provider work instead of dropping candidates.
 
-Search fan-out is included in the 25-cell limit; a `fileChunks` resource (including a search resource with a `locate` question) counts as five resources in both the 25- and 50-cell checks. Twenty-five questions fit only with one resource, because resources × questions must stay at or under 25 cells. Calls that exceed the dynamic expanded-cell bound fail before provider work rather than silently dropping candidates.
+`maxChars` bounds the sanitized evidence a resource submits on every path: file pages, snippets, hydrated chunks, and list items. Hydrated chunk reads share it equally.
+
+- Search and list candidates stay in page order while they fit. A candidate larger than the whole `maxChars` fails with `classificationContextTooLarge` and keeps its `hints.read`.
+- The first candidate that only overflows what the call has left resumes through `next.clasify`, so the walk judges every candidate once. Search pages restart at that file row. Repository, history, and package-discovery lists restart at that row with a `page`/`pageSize` that starts there, then return to the original `pageSize` from the next aligned row; `resumePageSize` carries it until then. If no continuation can address the candidate, it fails with `classificationBudgetSpent` and its `hints.read`.
+- A file page over the whole `maxChars` is re-read at the same start in smaller chunks (up to four attempts); an unpaged whole-file read becomes line chunks from line 1, and `next.clasify` walks the rest. A page that fits a fresh call but not this call's remainder is deferred to `next.clasify`.
+- A `ranges` read over `maxChars` is judged in line windows that fit; `next.clasify` reads the rest of the range.
+- A smallest unit still over `maxChars` fails with `classificationContextTooLarge` and keeps a `hints.read` of its exact lines. Inside a `ranges` read, `next.clasify` still reads the lines after it; a chunk walk gets no continuation that would replay the oversized page.
+- A replay whose source changed fails with `staleSnapshot` instead of restarting on the new version.
 
 ## Output and verification
 
-Results are ordered as `queries[] → resources[] → pages[] → answers[questionId]`. By default each resource states its file `path` and `totalLines` once (when every page shares them) and each page is `{lines:[start,end], answers}`: `answers` maps every question id to a bare verdict — locate `exists`, yesno/research P(yes), a choice label, or a score level. A choice or score whose top probability is below 0.9 keeps `{choice|score, confidence, probabilities}`. A resource with one plain page (a supplied value) carries `answers` itself. Pages from other files, byte or disjoint scopes, transformed views, limitations, candidate `hints.read`, and typed errors stay on the page. A failed answer, page, or resource carries `error:{errorCode, error, hints?:{text}}`, the shape of a failed tool row. Measured on a single-file locate (redis `server.c`): about 4.0 KB → ~1.2 KB; a five-row choice judgment 902 B → ~0.26 KB.
+Results are ordered `queries[] → resources[] → pages[] → answers[questionId]`. Results hold hints, never captured bodies. MCP returns the structured payload and mirrors it as JSON in the text content.
 
-`debug:true` on a matrix returns the full per-page receipt instead: `source`, `scope`, runner-up `matches`, page `hints.read`, plus provider `usage` (`calls`, `inputTokens`, `outputTokens` when reported) on each page and for the matrix (with `ms`). Its `next.clasify` keeps `debug:true`, so a walk keeps one receipt shape.
-
-Each resource reports `coverage` only when it is `partial` or `error`; no `coverage` means every captured page in this call was judged. It does not mean an entire file, search result set, or repository was read. Page limitations name unread content.
+- Each resource states its file `path` (and a GitHub file's `ref`) and `totalLines` once when every page shares them. Each page is `{line, endLine, answers}`, where `answers` maps every question ID to a bare verdict: locate `exists`, yes/no or preset P(yes), a choice label, or a score level. A choice or score whose top probability is below 0.9 keeps `{choice|score, confidence, probabilities}`. A resource with one plain page (a supplied value) carries `answers` itself.
+- Pages from other files, byte or disjoint scopes, transformed views, limitations, candidate `hints.read`, and typed errors stay on the page. An error that two or more pages repeat moves to the resource once when every page carrying it keeps its `hints.read`; a page with neither `answers` nor `error` was not judged, for the reason the resource `error` states. A failed answer, page, or resource carries `error:{errorCode, error, hints?:{text}}`, the shape of a failed tool row.
+- `coverage` appears only as `partial` or `error`. No `coverage` means every page captured in this call was judged, not that a whole file, result set, or repository was read. Page limitations name unread content.
+- `debug:true` on a matrix returns the full receipt: `source`, `scope`, runner-up `matches`, page `hints.read`, and provider `usage` (`calls`, `inputTokens`, `outputTokens` when reported) per page and per matrix (with `ms`). Its `next.clasify` keeps `debug:true`.
 
 Rules:
 
-- Execute `next.clasify` unchanged when more selected coverage is needed. `best` lists only answering windows (`exists` ≥ 0.5), or a finished walk's single closest passage; read the top row by running the query's `hints.read` unchanged and other rows by their `lines`. A non-answering window on an open walk is withheld from `best` and kept in `carry`, which always holds the full top three.
-- Execute a deciding `hints.read` unchanged and cite the original source, not the score.
+- Run `next.clasify` unchanged when more coverage is needed.
+- Run a deciding `hints.read` unchanged and cite the original source, not the score.
 - Treat `partial`, `error`, `insufficient`, content-firewall rejection, and mid-band scores as unresolved.
-- Preserve disjoint ranges; transformed-view positions are not source coordinates.
+- Keep disjoint ranges; transformed-view positions are not source coordinates.
 - Source versions are observations; verify mutable source before asserting.
-- Do not average page scores or synthesize a global verdict unless the caller explicitly owns that policy.
+- Do not average page scores or build a global verdict unless the caller owns that policy.
+
+### Usage stats
+
+With `storage.stats` (`OCTOCODE_ENABLE_STATS=true`) and persistent storage, `<octocode-home>/stats.json` `stats.clasify` counts successful provider request groups once: `calls`, `input_tokens`, `output_tokens`, `known_usage_calls`, and `unknown_usage_calls`.
+
+- Cached judgments add no usage. Reported zero tokens count as known; missing or invalid token fields, and older calls without completeness counters, count as unknown, so token totals can be partial. Jev responses must carry both token fields; missing usage is a provider error.
+- Failed attempts have no billed-token receipt, so success counters cannot prove complete cost after a failure. Prices and provider request IDs are not exposed.
+- Updates are best-effort, serialized with a `stats.json.lock` sidecar, and written through a temp file and atomic rename, so concurrent MCP and CLI processes can share one home. A stats failure never fails a tool call.
+- For an isolated benchmark, use a unique `OCTOCODE_HOME`, collect its stats after the calls, and keep provider usage separate from host-model tokens and cost.
 
 ## CLI
 
@@ -463,18 +315,9 @@ Rules:
 npx octocode schema clasify --view query
 npx octocode clasify --input request.json
 cat request.json | npx octocode clasify --input -
+node packages/octocode/out/octocode.js clasify --input request.json   # in this repository
 ```
 
-In this repository:
+Exit codes: `0` judged, `6` continuation available, `2` invalid input (including every resource rejected as a caller error, such as `classificationLocateUnsupported` or a path outside the allowed roots). When every read failed the same way, clasify exits like that read: `3` not found (such as a missing local file or GitHub path), `4` authentication, `7` rate limited, `5` any other read or provider failure; `5` also means no key (`missingConfiguration`). When some resources succeed, a failed resource reports `coverage:"error"` in-band and the call exits `0`, as other tools do. Full table: [OCTOCODE_PROTOCOL.md](OCTOCODE_PROTOCOL.md#38-pages-leads-and-failure-hints).
 
-```bash
-node packages/octocode/out/octocode.js clasify --input request.json
-```
-
-Exit codes: `0` judged, `6` continuation available, `2` invalid input (including every resource rejected as a caller error, such as `classificationLocateUnsupported` or a path outside the allowed roots). When every read failed the same way, clasify exits like that read: `3` not found (such as a missing local file or GitHub path), `4` authentication, `7` rate limited, `5` any other read or provider failure; `5` also means no key (`missingConfiguration`). When some resources succeed, a failed resource reports `coverage:"error"` in-band and the call exits `0`, as other tools do. The full table is in [OCTOCODE_PROTOCOL.md](OCTOCODE_PROTOCOL.md#38-next-steps-and-failure-hints).
-
-## Removed names
-
-`semanticAssess`, `semanticRerank`, `jev`, `jevScout`, and `jevReasoning` are not public tools or aliases. Use `clasify`, its `next.clasify` walk, and `hints.clasify` handoffs. Historical evaluations live under `.octocode`; they are evidence, not current call instructions.
-
-The live schema is authoritative. Inspect it before hand-authoring a request.
+`semanticAssess`, `semanticRerank`, `jev`, `jevScout`, and `jevReasoning` are not public tools or aliases; use `clasify`, its `next.clasify` walk, and `hints.clasify` leads. The live schema is authoritative; inspect it before hand-authoring a request.

@@ -14,8 +14,9 @@
 //! - [`failure`]: typed failures, empty/partial rows, `next.*`
 //! - [`receipt`]: provider capabilities, Rust context, server receipt
 //!
-//! Public output coordinates are one-based lines and one-based UTF-16
-//! columns (see [`locations`]); only the `position` input is zero-based.
+//! Public coordinates, input and output, are one-based lines and one-based
+//! UTF-16 columns (see [`locations`]); requests anchor by `symbolName` and
+//! `lineHint`.
 use crate::policy::path::PathPolicy;
 use crate::tools::cancel::CancellationCheck;
 use crate::tools::num::{u32_of, u32_of_signed};
@@ -50,6 +51,7 @@ mod walk;
 
 pub use failure::LspFailure;
 use failure::{failure, mark_partial, with_next};
+pub(crate) use lead::lead_name;
 pub use lead::{Verify, verify_query, with_lead_discovery};
 pub(crate) use output::Output;
 use render::decode_uri_path;
@@ -77,7 +79,6 @@ macro_rules! each_shape {
     ($query:expr, $field:ident => $value:expr) => {
         match $query {
             LspSearchQuery::Anchored(wire::Anchored { $field, .. }) => $value,
-            LspSearchQuery::Position(wire::Position { $field, .. }) => $value,
             LspSearchQuery::Document(wire::Document { $field, .. }) => $value,
             LspSearchQuery::WorkspacePath(wire::WorkspacePath { $field, .. }) => $value,
             LspSearchQuery::WorkspaceRoot(wire::WorkspaceRoot { $field, .. }) => $value,
@@ -88,54 +89,42 @@ macro_rules! each_shape {
 /// Shape-independent views over the generated wire query, in LSP `u32`
 /// coordinates.
 impl LspSearchQuery {
-    pub fn operation(&self) -> String {
+    pub(crate) fn operation(&self) -> String {
         each_shape!(self, operation => operation.to_string())
     }
     /// The file the query names (a path or `file://` URI).
-    pub fn path(&self) -> Option<&str> {
+    pub(crate) fn path(&self) -> Option<&str> {
         match self {
             Self::Anchored(query) => Some(query.path.as_str()),
-            Self::Position(query) => Some(query.path.as_str()),
             Self::Document(query) => Some(query.path.as_str()),
             Self::WorkspacePath(query) => Some(query.path.as_str()),
             Self::WorkspaceRoot(query) => query.path.as_deref(),
         }
     }
-    pub fn workspace_root(&self) -> Option<&str> {
+    pub(crate) fn workspace_root(&self) -> Option<&str> {
         match self {
             Self::WorkspaceRoot(query) => Some(query.workspace_root.as_str()),
             Self::Anchored(query) => query.workspace_root.as_deref(),
-            Self::Position(query) => query.workspace_root.as_deref(),
             Self::Document(query) => query.workspace_root.as_deref(),
             Self::WorkspacePath(query) => query.workspace_root.as_deref(),
         }
     }
-    pub fn symbol_name(&self) -> Option<&str> {
+    pub(crate) fn symbol_name(&self) -> Option<&str> {
         match self {
             Self::Anchored(query) => Some(query.symbol_name.as_str()),
             Self::WorkspacePath(query) => Some(query.symbol_name.as_str()),
             Self::WorkspaceRoot(query) => Some(query.symbol_name.as_str()),
-            Self::Position(_) | Self::Document(_) => None,
+            Self::Document(_) => None,
         }
     }
-    /// The explicit zero-based anchor as `(line, character)`.
-    pub fn position(&self) -> Option<(u32, u32)> {
-        match self {
-            Self::Position(query) => Some((
-                u32_of_signed(query.position.line),
-                u32_of_signed(query.position.character),
-            )),
-            _ => None,
-        }
-    }
-    pub fn line_hint(&self) -> Option<u32> {
+    pub(crate) fn line_hint(&self) -> Option<u32> {
         match self {
             Self::Anchored(query) => Some(u32_of(query.line_hint.get())),
             _ => None,
         }
     }
     /// The occurrence index; the default (first occurrence) reads as unset.
-    pub fn order_hint(&self) -> Option<u32> {
+    pub(crate) fn order_hint(&self) -> Option<u32> {
         match self {
             Self::Anchored(query) => {
                 (query.order_hint != 0).then(|| u32_of_signed(query.order_hint))
@@ -143,56 +132,59 @@ impl LspSearchQuery {
             _ => None,
         }
     }
-    pub fn include_declaration(&self) -> Option<bool> {
+    pub(crate) fn include_declaration(&self) -> Option<bool> {
         match self {
             Self::Anchored(query) => query.include_declaration,
-            Self::Position(query) => query.include_declaration,
             _ => None,
         }
     }
-    pub fn group_by_file(&self) -> Option<bool> {
+    pub(crate) fn group_by_file(&self) -> Option<bool> {
         match self {
             Self::Anchored(query) => query.group_by_file,
-            Self::Position(query) => query.group_by_file,
             _ => None,
         }
     }
-    pub fn depth(&self) -> Option<u32> {
+    pub(crate) fn depth(&self) -> Option<u32> {
         match self {
             Self::Anchored(query) => query.depth.map(u32_of_signed),
-            Self::Position(query) => query.depth.map(u32_of_signed),
             _ => None,
         }
     }
-    pub fn page(&self) -> Option<u32> {
+    pub(crate) fn page(&self) -> Option<u32> {
         each_shape!(self, page => Some(u32_of(page.get())))
     }
     /// Rows per page: the caller's `pageSize`, else 40 locations.
-    pub fn page_size(&self) -> u32 {
+    pub(crate) fn page_size(&self) -> u32 {
         self.page_size_or(LOCATIONS_PER_PAGE)
     }
     /// Rows per page: the caller's `pageSize`, else `default`.
-    pub fn page_size_or(&self, default: u32) -> u32 {
+    pub(crate) fn page_size_or(&self, default: u32) -> u32 {
         each_shape!(self, page_size => page_size.as_ref().map_or(default, |size| u32_of(size.get())))
     }
-    pub fn snapshot(&self) -> Option<&str> {
+    /// The importer window (`importerPage`, one-based) of an anchored query.
+    pub(crate) fn importer_page(&self) -> u32 {
+        match self {
+            Self::Anchored(query) => query.importer_page.map_or(1, |page| u32_of(page.get())),
+            _ => 1,
+        }
+    }
+    pub(crate) fn snapshot(&self) -> Option<&str> {
         each_shape!(self, snapshot => snapshot.as_ref().map(|snapshot| snapshot.as_str()))
     }
-    pub fn context_lines(&self) -> Option<u32> {
+    pub(crate) fn context_lines(&self) -> Option<u32> {
         match self {
             Self::Anchored(query) => query.context_lines.map(u32_of_signed),
-            Self::Position(query) => query.context_lines.map(u32_of_signed),
             _ => None,
         }
     }
     /// The Rust build context as JSON, decoded by [`receipt`].
-    pub fn rust_context(&self) -> Option<Value> {
+    pub(crate) fn rust_context(&self) -> Option<Value> {
         each_shape!(self, rust_context => rust_context
             .as_ref()
             .and_then(|context| serde_json::to_value(context).ok()))
     }
     /// The query as a replayable JSON row.
-    pub fn to_row(&self) -> Value {
+    pub(crate) fn to_row(&self) -> Value {
         serde_json::to_value(self).unwrap_or_else(|_| serde_json::json!({}))
     }
 }
@@ -204,6 +196,8 @@ pub struct LspExecutionConfig {
     /// Resolved `OCTOCODE_*` settings (process env and trusted `.env` layers).
     pub env: std::collections::BTreeMap<String, String>,
     pub octocode_home: Option<std::path::PathBuf>,
+    pub(crate) lead_cache: std::sync::Arc<lead::LeadProbeCache>,
+    pub(crate) prewarm_state: std::sync::Arc<std::sync::Mutex<prewarm::WarmState>>,
 }
 
 impl LspExecutionConfig {
@@ -288,11 +282,6 @@ impl LspSearchQuery {
                     query.path = path;
                 }
             }
-            Self::Position(query) => {
-                if let Ok(path) = path.try_into() {
-                    query.path = path;
-                }
-            }
             Self::Document(query) => {
                 if let Ok(path) = path.try_into() {
                     query.path = path;
@@ -315,7 +304,6 @@ impl LspSearchQuery {
                 }
             }
             Self::Anchored(query) => query.workspace_root = Some(root),
-            Self::Position(query) => query.workspace_root = Some(root),
             Self::Document(query) => query.workspace_root = Some(root),
             Self::WorkspacePath(query) => query.workspace_root = Some(root),
         }
@@ -411,20 +399,24 @@ fn restore_root_spelling(row: &mut Value, canonical: Option<&str>, original: Opt
 /// Operations whose first page may reuse server responses from an earlier
 /// request: their answers depend only on the files the scope fingerprint
 /// covers. Diagnostics and hover always ask the server.
-const REUSED_OPERATIONS: [&str; 4] = ["references", "callers", "callees", "callHierarchy"];
+const REUSED_OPERATIONS: [&str; 3] = ["references", "callers", "callees"];
 
 /// The page's response scope. Every cached key carries the anchor content
 /// digest; for [`REUSED_OPERATIONS`] it also carries the scope fingerprint
 /// (any edit, addition, or removal of a family or project file misses), so
 /// a first page may reuse an earlier request's answers. Without a
 /// fingerprint (walk past its bounds) only continuation pages reuse, as the
-/// snapshot check proves they belong to the same result set.
+/// snapshot check proves they belong to the same result set. A later
+/// importer window is a continuation too: reusing the anchor's answer keeps
+/// its candidate list (and so the window) the one its digest names, even
+/// after earlier windows opened files the server now also searches.
 fn response_scope(
     query: &LspSearchQuery,
     content_digest: String,
     fingerprint: Option<&str>,
 ) -> octocode_engine::lsp::client::ResponseScope {
-    let continuation = query.page().is_some_and(|page| page > 1) && query.snapshot().is_some();
+    let continuation = (query.page().is_some_and(|page| page > 1) || query.importer_page() > 1)
+        && query.snapshot().is_some();
     match fingerprint {
         Some(fingerprint) if REUSED_OPERATIONS.contains(&query.operation().as_str()) => {
             octocode_engine::lsp::client::ResponseScope {
@@ -461,6 +453,9 @@ async fn scope_responses(
     } else {
         None
     };
+    if let Some(fingerprint) = &fingerprint {
+        scope.set_fingerprint(fingerprint.clone());
+    }
     let next = response_scope(query, digest, fingerprint.as_deref());
     let _ =
         octocode_engine::lsp::client::RESPONSE_SCOPE.try_with(|scope| *scope.borrow_mut() = next);
@@ -490,7 +485,7 @@ pub async fn execute(
     octocode_engine::lsp::client::RESPONSE_SCOPE
         .scope(
             std::cell::RefCell::new(scope),
-            execute_page(query, cancel, pool, paths, execution_config),
+            scope::with_canonical_memo(execute_page(query, cancel, pool, paths, execution_config)),
         )
         .await
 }
@@ -570,7 +565,9 @@ async fn run_page(
     if session.open_readiness.as_deref() == Some("timeout") {
         quarantine_responses();
     }
-    let snippet_policy = snippet_policy(paths);
+    // One request reads each snippet file once, however many responses
+    // name it.
+    let snippet_policy = snippet_policy(paths).shared_reads();
     let mut result = ops::Operation {
         client: &session.client,
         query,
@@ -656,7 +653,7 @@ fn discover_server(
         }
         _ => {
             return Err(fail(
-                "lsp.workspaceRootInvalid",
+                "workspaceRootInvalid",
                 "workspaceRoot is not an authorized directory.",
             ));
         }
@@ -680,7 +677,7 @@ fn discover_server(
     };
     let Some(mut config) = discovered else {
         return Err(fail(
-            "lsp.serverUnavailable",
+            "serverUnavailable",
             if root_only {
                 "No language server could be inferred for this workspace root (no tsconfig.json, Cargo.toml, go.mod, pyproject.toml, setup.py, jsconfig.json, or package.json)."
             } else {
@@ -711,7 +708,7 @@ async fn read_anchor_document(
         Ok(content) => Ok(Some(sources.insert(&target.path, content))),
         Err(SourceReadError::TooLarge(len)) => Err(target.fail(
             query,
-            "lsp.documentTooLarge",
+            "fileTooLarge",
             &format!(
                 "The source document is too large to synchronize with the language server ({len} bytes > {} bytes).",
                 source::MAX_LSP_DIDOPEN_BYTES
@@ -720,7 +717,7 @@ async fn read_anchor_document(
         )),
         Err(SourceReadError::Unreadable(error)) => Err(target.fail(
             query,
-            "lsp.documentReadFailed",
+            "fileReadFailed",
             &format!("The source document could not be read: {error}"),
             false,
         )),
@@ -755,15 +752,15 @@ async fn open_session(
             Ok(None) => {
                 return Err(target.fail(
                     query,
-                    "lsp.serverUnavailable",
+                    "serverUnavailable",
                     "Language server failed to start.",
                     false,
                 ));
             }
             Err(error) => {
                 let code = match LspFailure::from_engine(&error).code {
-                    "lsp.timeout" => "lsp.timeout",
-                    _ => "lsp.serverUnavailable",
+                    "timeout" => "timeout",
+                    _ => "serverUnavailable",
                 };
                 return Err(target.fail(query, code, &error.to_string(), false));
             }
@@ -771,7 +768,7 @@ async fn open_session(
     if client.readiness().as_deref() == Some("timeout") {
         return Err(target.fail(
             query,
-            "lsp.timeout",
+            "timeout",
             "Timed out waiting for the language server to become ready.",
             false,
         ));
@@ -781,7 +778,7 @@ async fn open_session(
     {
         return Err(target.fail(
             query,
-            "lsp.capabilityUnavailable",
+            "capabilityUnavailable",
             &format!("The language server does not advertise {capability}."),
             true,
         ));
@@ -809,7 +806,7 @@ async fn sync_document(
             cancel,
             client.open_document_and_wait(
                 target.path.clone(),
-                document.content.clone(),
+                &document.content,
                 Some(DIDOPEN_SETTLE_MS),
                 Some(DIDOPEN_READY_TIMEOUT_MS),
             ),
@@ -819,7 +816,7 @@ async fn sync_document(
             Ok(readiness) => Ok(readiness),
             Err(error) => Err(target.fail(
                 query,
-                "lsp.documentSyncFailed",
+                "documentSyncFailed",
                 &format!("The source document could not be synchronized: {error}"),
                 true,
             )),
@@ -835,7 +832,7 @@ async fn sync_document(
             cancel,
             client.open_document_and_wait(
                 representative,
-                source.content.clone(),
+                &source.content,
                 Some(DIDOPEN_SETTLE_MS),
                 Some(DIDOPEN_READY_TIMEOUT_MS),
             ),

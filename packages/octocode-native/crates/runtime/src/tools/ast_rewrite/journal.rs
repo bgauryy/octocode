@@ -14,7 +14,7 @@ use std::{
 
 pub(super) fn persist_journal(path: &Path, journal: &Journal) -> Result<(), RewriteError> {
     let bytes = serde_json::to_vec(journal)
-        .map_err(|error| RewriteError::new("ast.rewrite.transaction_failed", error.to_string()))?;
+        .map_err(|error| RewriteError::new("transactionFailed", error.to_string()))?;
     crate::private_file::write_atomic(path, &bytes, true).map_err(io_error)?;
     Ok(())
 }
@@ -52,7 +52,8 @@ pub(super) fn commit_transaction(
         .and_then(|()| promote_files(&mut journal, &journal_path, files, cancellation));
     match result {
         Ok(()) => {
-            let warnings = finalize_committed(&journal_path, &journal);
+            let Settled { errors, warnings } = finalize_committed(&journal_path, &journal);
+            let warnings = errors.into_iter().chain(warnings).collect::<Vec<_>>();
             // Per-file before/after hashes live on the result's `files[]`.
             let mut receipt = json!({"id":id,"committed":true,"files":files.len()});
             if !warnings.is_empty() {
@@ -61,9 +62,12 @@ pub(super) fn commit_transaction(
             Ok(receipt)
         }
         Err(error) => {
-            let recovered = recover_one(&journal_path, &journal);
+            let Settled {
+                errors: recovered,
+                warnings,
+            } = recover_one(&journal_path, &journal);
             Err(RewriteError::new(
-                "ast.rewrite.transaction_failed",
+                "transactionFailed",
                 if recovered.is_empty() {
                     "The rewrite transaction failed; automatic recovery completed."
                 } else {
@@ -72,7 +76,7 @@ pub(super) fn commit_transaction(
             )
             .detail(json!({
                 "cause":error.message,
-                "rollback":{"restored":recovered.is_empty(),"files":files.len(),"errors":recovered}
+                "rollback":{"restored":recovered.is_empty(),"files":files.len(),"errors":recovered,"warnings":warnings}
             })))
         }
     }
@@ -149,7 +153,7 @@ fn verify_targets(files: &[PreparedFile]) -> Result<(), RewriteError> {
             || sha256(&fs::read(&file.absolute).map_err(io_error)?) != file.before_hash
         {
             return Err(RewriteError::new(
-                "ast.rewrite.transaction_failed",
+                "transactionFailed",
                 format!("Target bytes changed: {}", file.absolute.display()),
             ));
         }
@@ -177,7 +181,7 @@ fn promote_files(
             != journal.files[index].before_hash
         {
             return Err(RewriteError::new(
-                "ast.rewrite.transaction_failed",
+                "transactionFailed",
                 "Target changed during commit.",
             ));
         }
@@ -201,21 +205,97 @@ fn promote_files(
     persist_journal(journal_path, journal)
 }
 
+/// Settles every interrupted transaction on `boundary`. `Ok` carries the
+/// warnings of transactions that settled while keeping an external edit.
+/// Settles every interrupted transaction the caller's root lock covers: the
+/// boundary's own journals and those of roots nested inside it (the lock
+/// rejects overlapping roots). A pending journal of an enclosing root is
+/// left to that root's lock and named in a warning.
 pub(super) fn recover_transactions(
     boundary: &Path,
     cancellation: &dyn CancellationCheck,
-) -> Result<(), RewriteError> {
-    let directory = journal_directory(boundary);
-    let entries = match fs::read_dir(&directory) {
+) -> Result<Vec<String>, RewriteError> {
+    let own = journal_directory(boundary);
+    let mut errors = Vec::new();
+    let mut warnings = Vec::new();
+    for directory in journal_directories(&own)? {
+        cancellation.check().map_err(cancelled)?;
+        for (path, journal) in read_journals(&directory, &mut errors)? {
+            cancellation.check().map_err(cancelled)?;
+            let root = if directory == own {
+                boundary
+            } else if journal.root != boundary
+                && journal.root.starts_with(boundary)
+                && directory == journal_directory(&journal.root)
+            {
+                journal.root.as_path()
+            } else {
+                if journal.root != boundary && boundary.starts_with(&journal.root) {
+                    warnings.push(format!(
+                        "An interrupted astRewrite transaction on the enclosing root {} is pending; apply a rewrite on that root to recover it.",
+                        journal.root.display()
+                    ));
+                }
+                continue;
+            };
+            if !valid_journal(root, &journal) {
+                errors.push(format!("Invalid transaction journal: {}", path.display()));
+                continue;
+            }
+            let settled = if journal.phase == JournalPhase::Committed {
+                finalize_committed(&path, &journal)
+            } else {
+                recover_one(&path, &journal)
+            };
+            errors.extend(settled.errors);
+            warnings.extend(settled.warnings);
+        }
+    }
+    if errors.is_empty() {
+        Ok(warnings)
+    } else {
+        Err(RewriteError::new(
+            "recoveryFailed",
+            "An interrupted astRewrite transaction could not be recovered safely.",
+        )
+        .detail(json!({"errors":errors})))
+    }
+}
+
+/// `own` first, then every other per-root journal directory.
+fn journal_directories(own: &Path) -> Result<Vec<PathBuf>, RewriteError> {
+    let mut directories = vec![own.to_path_buf()];
+    let Some(base) = own.parent() else {
+        return Ok(directories);
+    };
+    let entries = match fs::read_dir(base) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(directories),
+        Err(error) => return Err(io_error(error)),
+    };
+    for entry in entries {
+        let entry = entry.map_err(io_error)?;
+        if entry.file_type().map_err(io_error)?.is_dir() && entry.path() != own {
+            directories.push(entry.path());
+        }
+    }
+    Ok(directories)
+}
+
+/// The journals in `directory`; an unreadable one is recorded in `errors`.
+fn read_journals(
+    directory: &Path,
+    errors: &mut Vec<String>,
+) -> Result<Vec<(PathBuf, Journal)>, RewriteError> {
+    let entries = match fs::read_dir(directory) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(io_error(error)),
     }
     .collect::<Result<Vec<_>, _>>()
     .map_err(io_error)?;
-    let mut errors = Vec::new();
+    let mut journals = Vec::new();
     for entry in entries {
-        cancellation.check().map_err(cancelled)?;
         let name = entry.file_name();
         let Some(name) = name.to_str() else { continue };
         if !name.starts_with(JOURNAL_PREFIX) || !name.ends_with(".json") {
@@ -223,29 +303,14 @@ pub(super) fn recover_transactions(
         }
         let path = entry.path();
         match fs::read(&path).map_err(io_error).and_then(|bytes| {
-            serde_json::from_slice::<Journal>(&bytes).map_err(|error| {
-                RewriteError::new("ast.rewrite.recovery_failed", error.to_string())
-            })
+            serde_json::from_slice::<Journal>(&bytes)
+                .map_err(|error| RewriteError::new("recoveryFailed", error.to_string()))
         }) {
-            Ok(journal) if !valid_journal(boundary, &journal) => {
-                errors.push(format!("Invalid transaction journal: {}", path.display()));
-            }
-            Ok(journal) if journal.phase == JournalPhase::Committed => {
-                errors.extend(finalize_committed(&path, &journal));
-            }
-            Ok(journal) => errors.extend(recover_one(&path, &journal)),
+            Ok(journal) => journals.push((path, journal)),
             Err(error) => errors.push(error.message),
         }
     }
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(RewriteError::new(
-            "ast.rewrite.recovery_failed",
-            "An interrupted astRewrite transaction could not be recovered safely.",
-        )
-        .detail(json!({"errors":errors})))
-    }
+    Ok(journals)
 }
 
 fn valid_journal(boundary: &Path, journal: &Journal) -> bool {
@@ -277,8 +342,17 @@ fn hash_at(path: &Path) -> Result<Option<String>, String> {
     }
 }
 
-fn recover_one(path: &Path, journal: &Journal) -> Vec<String> {
+/// The outcome of settling one journal: errors keep the journal; warnings
+/// report an external edit that was kept while the journal retired.
+#[derive(Default)]
+pub(super) struct Settled {
+    pub(super) errors: Vec<String>,
+    pub(super) warnings: Vec<String>,
+}
+
+fn recover_one(path: &Path, journal: &Journal) -> Settled {
     let mut errors = Vec::new();
+    let mut warnings = Vec::new();
     for file in journal.files.iter().rev() {
         let result = (|| -> Result<(), String> {
             let target_hash = hash_at(&file.target)?;
@@ -313,8 +387,17 @@ fn recover_one(path: &Path, journal: &Journal) -> Vec<String> {
                     fs::rename(&file.backup, &file.target).map_err(|error| error.to_string())?;
                 }
             } else if target_hash.as_deref() != Some(file.before_hash.as_str()) {
-                return Err(format!(
-                    "Original bytes unavailable for recovery: {}",
+                // The backup rename is persisted (BackedUp) only after it
+                // happens, so a Planned/Staged target with no backup was never
+                // moved: its current bytes are someone else's edit. Keep them.
+                if !matches!(file.state, FileState::Planned | FileState::Staged) {
+                    return Err(format!(
+                        "Original bytes unavailable for recovery: {}",
+                        file.target.display()
+                    ));
+                }
+                warnings.push(format!(
+                    "Target changed outside the transaction before it was moved; kept its current bytes: {}",
                     file.target.display()
                 ));
             }
@@ -327,7 +410,10 @@ fn recover_one(path: &Path, journal: &Journal) -> Vec<String> {
             errors.push(error);
         }
     }
-    retire(path, errors)
+    Settled {
+        errors: retire(path, errors),
+        warnings,
+    }
 }
 
 /// Once every file settled cleanly, delete the journal and its directory.
@@ -346,18 +432,19 @@ fn retire(path: &Path, mut errors: Vec<String>) -> Vec<String> {
     errors
 }
 
-fn finalize_committed(path: &Path, journal: &Journal) -> Vec<String> {
+/// Removes a committed transaction's stage and backup files. A target edited
+/// after the commit keeps its edit: the commit already happened, so the
+/// mismatch is a warning and the journal still retires.
+fn finalize_committed(path: &Path, journal: &Journal) -> Settled {
     let mut errors = Vec::new();
+    let mut warnings = Vec::new();
     for file in &journal.files {
         match hash_at(&file.target) {
             Ok(Some(hash)) if hash == file.after_hash => {}
-            Ok(_) => {
-                errors.push(format!(
-                    "Committed target hash mismatch: {}",
-                    file.target.display()
-                ));
-                continue;
-            }
+            Ok(_) => warnings.push(format!(
+                "Committed target changed after the commit; kept its current bytes: {}",
+                file.target.display()
+            )),
             Err(error) => {
                 errors.push(error);
                 continue;
@@ -371,7 +458,10 @@ fn finalize_committed(path: &Path, journal: &Journal) -> Vec<String> {
             }
         }
     }
-    retire(path, errors)
+    Settled {
+        errors: retire(path, errors),
+        warnings,
+    }
 }
 
 #[cfg(test)]

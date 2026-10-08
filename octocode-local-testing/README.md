@@ -85,4 +85,4 @@ Clone again with `git clone --depth 1 https://github.com/<repo>.git repos/<dir>`
 
 LSP rows need the language server on PATH (TypeScript/JavaScript, Rust, C/C++
 are available here; Python, Go, Java, C#, Scala, Assembly report
-`lsp.serverUnavailable`, which the suites record rather than fail on).
+`serverUnavailable`, which the suites record rather than fail on).

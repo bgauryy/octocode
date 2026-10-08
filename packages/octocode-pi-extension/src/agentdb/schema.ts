@@ -14,17 +14,13 @@ export class AgentDbError extends Error {}
 
 /** Marks the file as an Octocode for Pi agent database ("OcPg"); a file with another id is never touched. */
 export const AGENT_APPLICATION_ID = 0x4f635067;
-export const AGENT_SCHEMA_VERSION = 4;
+export const AGENT_SCHEMA_VERSION = 1;
 
+/** v1, the first published schema: sessions, backlog, memories and the team tables. */
 const V1 = `
 CREATE TABLE sessions (
-  id TEXT PRIMARY KEY, file TEXT, cwd TEXT NOT NULL, repo_key TEXT NOT NULL, repo_name TEXT NOT NULL,
-  branch TEXT, name TEXT, first_prompt TEXT, parent_id TEXT,
-  created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-  turns INTEGER NOT NULL DEFAULT 0, cost REAL NOT NULL DEFAULT 0, tokens INTEGER NOT NULL DEFAULT 0,
-  files_changed INTEGER NOT NULL DEFAULT 0, pid INTEGER);
-CREATE INDEX sessions_repo ON sessions(repo_key, updated_at DESC);
-CREATE INDEX sessions_recent ON sessions(updated_at DESC);
+  id TEXT PRIMARY KEY, branch TEXT, head TEXT,
+  cost REAL NOT NULL DEFAULT 0, tokens INTEGER NOT NULL DEFAULT 0, files_changed INTEGER NOT NULL DEFAULT 0, pid INTEGER);
 
 CREATE TABLE backlog (
   id INTEGER PRIMARY KEY AUTOINCREMENT, repo_key TEXT NOT NULL, seq INTEGER NOT NULL,
@@ -49,27 +45,13 @@ CREATE TABLE memories (
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, last_used INTEGER, use_count INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX memories_scope ON memories(scope, repo_key, updated_at DESC);
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-`;
 
-/**
- * v3: Pi's session listing is the source of sessions (file, cwd, name, first message, times), so the index keeps only
- * what Pi does not know, keyed by session id. And the team tables, formerly a separate team database.
- */
-const SESSIONS_V3 = `
-CREATE TABLE sessions_v3 (
-  id TEXT PRIMARY KEY, branch TEXT, head TEXT,
-  cost REAL NOT NULL DEFAULT 0, tokens INTEGER NOT NULL DEFAULT 0, files_changed INTEGER NOT NULL DEFAULT 0, pid INTEGER);
-INSERT INTO sessions_v3 (id, branch, head, cost, tokens, files_changed, pid) SELECT id, branch, head, cost, tokens, files_changed, pid FROM sessions;
-DROP TABLE sessions;
-ALTER TABLE sessions_v3 RENAME TO sessions;
-`;
-
-const TEAM = `
 CREATE TABLE agents (
   id TEXT PRIMARY KEY, workspace TEXT NOT NULL, role TEXT NOT NULL, parent_id TEXT, pid INTEGER NOT NULL,
   status TEXT NOT NULL CHECK(status IN ('idle','working')), task TEXT, activity TEXT,
   joined_at INTEGER NOT NULL, seen_at INTEGER NOT NULL,
-  tool_calls INTEGER NOT NULL DEFAULT 0, input INTEGER NOT NULL DEFAULT 0, output INTEGER NOT NULL DEFAULT 0, cost REAL NOT NULL DEFAULT 0);
+  tool_calls INTEGER NOT NULL DEFAULT 0, input INTEGER NOT NULL DEFAULT 0, output INTEGER NOT NULL DEFAULT 0, cost REAL NOT NULL DEFAULT 0,
+  model TEXT);
 CREATE INDEX agents_scope ON agents(workspace, joined_at);
 CREATE TABLE messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT, workspace TEXT NOT NULL, sender TEXT NOT NULL, body TEXT NOT NULL,
@@ -78,8 +60,9 @@ CREATE TABLE messages (
 CREATE INDEX messages_age ON messages(created_at);
 CREATE TABLE deliveries (
   message INTEGER NOT NULL REFERENCES messages(id) ON DELETE CASCADE, recipient TEXT NOT NULL,
-  delivered_at INTEGER, completed_at INTEGER, dead_at INTEGER, PRIMARY KEY(message, recipient));
+  delivered_at INTEGER, completed_at INTEGER, dead_at INTEGER, wake INTEGER, notified_at INTEGER, PRIMARY KEY(message, recipient));
 CREATE INDEX deliveries_inbox ON deliveries(recipient, delivered_at);
+CREATE INDEX deliveries_unnotified ON deliveries(message) WHERE dead_at IS NOT NULL AND notified_at IS NULL;
 CREATE TABLE leases (
   id INTEGER PRIMARY KEY AUTOINCREMENT, workspace TEXT NOT NULL, path TEXT NOT NULL, path_key TEXT NOT NULL,
   kind TEXT NOT NULL CHECK(kind IN ('file','tree')), owner TEXT NOT NULL, reason TEXT NOT NULL,
@@ -91,23 +74,8 @@ CREATE TABLE edits (
 CREATE INDEX edits_recent ON edits(workspace, at);
 `;
 
-const DELIVERIES_V4 = `
-ALTER TABLE deliveries ADD COLUMN wake INTEGER;
-ALTER TABLE deliveries ADD COLUMN notified_at INTEGER;
-UPDATE deliveries SET notified_at = dead_at WHERE dead_at IS NOT NULL;
-CREATE INDEX deliveries_unnotified ON deliveries(message) WHERE dead_at IS NOT NULL AND notified_at IS NULL;
-`;
-
-/** Step `i` moves a file from `user_version` i to i + 1. Append only; never edit a shipped step. */
-const MIGRATIONS: ReadonlyArray<(db: DatabaseSync) => void> = [
-  (db) => db.exec(V1),
-  // v2: the git HEAD commit a session last saw, for the resume brief.
-  (db) => db.exec('ALTER TABLE sessions ADD COLUMN head TEXT'),
-  (db) => db.exec(SESSIONS_V3 + TEAM),
-  // v4: per-recipient wake decided when sent, and when a sender heard that its message went unread. Dead letters from
-  // before the upgrade count as told, so nobody hears about old traffic.
-  (db) => db.exec(DELIVERIES_V4),
-];
+/** Step `i` moves a file from `user_version` i to i + 1. Append only once published; never edit a shipped step. */
+const MIGRATIONS: ReadonlyArray<(db: DatabaseSync) => void> = [(db) => db.exec(V1)];
 
 const FTS = `
 CREATE VIRTUAL TABLE memories_fts USING fts5(title, keywords, body, content='memories', content_rowid='id', tokenize='porter unicode61');

@@ -1,5 +1,0 @@
-# cmd: octocode localSearch {"queries": [{"path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src", "searchText": "needle"}]}
-# env: None
-# exit: 2
-# stderr: 
-{"kind":"octocode.toolError","version":1,"tool":"localSearch","error":"Check the query fields.","details":["queries.0.goal: Missing required field: goal (a new query states it; only a next.* continuation with followUp: true inherits it)","queries.0.reasoning: Missing required field: reasoning (a new query states it; only a next.* continuation with followUp: true inherits it)"]}

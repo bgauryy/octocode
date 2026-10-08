@@ -1,7 +1,7 @@
 //! R7: a batch with a rejected row keeps every row's input index across
-//! response pages: the response continuation replays the whole input, so
-//! the rejected row is rejected again at its index instead of dropping out
-//! and shifting the rows after it.
+//! response pages. The continuation carries only the admitted rows (a
+//! rejected row would fail the output contract); the rejected row rides the
+//! first page and the snapshot mark keeps the admitted rows' indices.
 #![allow(clippy::panic, clippy::unwrap_used)]
 
 use crate::support::Workspace;
@@ -24,7 +24,6 @@ fn indices(page: &Value) -> Vec<u64> {
 }
 
 #[tokio::test]
-#[ignore = "R7: blocked by the output contract (a rejected row cannot ride responsePagination.next); needs a core decision"]
 async fn a_rejected_row_keeps_later_row_indices_on_the_next_page() {
     let workspace = Workspace::new();
     let body = (0..400)
@@ -37,45 +36,67 @@ async fn a_rejected_row_keeps_later_row_indices_on_the_next_page() {
         row["mainGoal"] = json!("Batch index replay.");
         row
     };
-    let input = json!({
-        "queries":[
-            brief(json!({"path":a,"fullContent":true})),
-            brief(json!({"path":a,"bogusField":1})),
-            brief(json!({"path":c,"fullContent":true}))
-        ],
-        "responseLength": 6000
-    });
-    let first = runtime
-        .execute("r7-1".into(), "localFetch".into(), input)
-        .await
-        .unwrap();
-    let page = &first.structured_content;
-    let next = page
-        .pointer("/responsePagination/next/query")
-        .cloned()
-        .unwrap_or_else(|| panic!("a second page: {}", page["responsePagination"]));
-    assert_eq!(
-        next["queries"].as_array().map(Vec::len),
-        Some(3),
-        "the continuation replays every input row: {next}"
-    );
-    assert_eq!(next["queries"][1]["bogusField"], 1, "{next}");
-    let mut seen = indices(page);
-    let mut next = Some(next);
-    let mut pages = 1;
-    while let Some(query) = next.take() {
-        pages += 1;
-        assert!(pages < 20, "page walk ends");
-        let out = runtime
-            .execute(format!("r7-{pages}"), "localFetch".into(), query)
+    // Text windows and row pages alike.
+    for scope in [None, Some("rows")] {
+        let mut input = json!({
+            "queries":[
+                brief(json!({"path":a,"fullContent":true})),
+                brief(json!({"path":a,"bogusField":1})),
+                brief(json!({"path":c,"fullContent":true}))
+            ],
+            "responseLength": 6000
+        });
+        if let Some(scope) = scope {
+            input["responseScope"] = json!(scope);
+        }
+        let first = runtime
+            .execute("r7-1".into(), "localFetch".into(), input)
             .await
             .unwrap();
-        let page = &out.structured_content;
-        seen.extend(indices(page));
-        next = page.pointer("/responsePagination/next/query").cloned();
+        let page = &first.structured_content;
+        let next = page
+            .pointer("/responsePagination/next/query")
+            .cloned()
+            .unwrap_or_else(|| panic!("a second page: {}", page["responsePagination"]));
+        assert_eq!(
+            next["queries"].as_array().map(Vec::len),
+            Some(2),
+            "the continuation carries the admitted rows only: {next}"
+        );
+        assert!(next.to_string().find("bogusField").is_none(), "{next}");
+        let first_rows = indices(page);
+        assert!(
+            first_rows.contains(&1),
+            "the rejected row rides page 1: {page}"
+        );
+        let mut later = Vec::new();
+        let mut next = Some(next);
+        let mut pages = 1;
+        while let Some(query) = next.take() {
+            pages += 1;
+            assert!(pages < 20, "page walk ends");
+            let out = runtime
+                .execute(format!("r7-{pages}"), "localFetch".into(), query)
+                .await
+                .unwrap();
+            let page = &out.structured_content;
+            assert!(
+                page["responsePagination"].get("restart").is_none(),
+                "the continuation reproduces the paged body: {page}"
+            );
+            later.extend(indices(page));
+            next = page.pointer("/responsePagination/next/query").cloned();
+        }
+        assert!(pages >= 2, "the fixture spans several pages");
+        assert!(later.contains(&2), "the last row keeps index 2: {later:?}");
+        assert!(
+            later.iter().all(|index| [0, 2].contains(index)),
+            "later pages show the admitted rows at their input indices: {later:?}"
+        );
+        let mut seen = [first_rows, later].concat();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen, [0, 1, 2], "indices stay the input's across pages");
     }
-    seen.sort_unstable();
-    seen.dedup();
-    assert_eq!(seen, [0, 1, 2], "indices stay the input's across pages");
     runtime.close().await;
 }

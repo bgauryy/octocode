@@ -22,7 +22,7 @@ export interface ConfigViewOptions {
   onReady?: (view: ConfigView) => Promise<void> | void;
 }
 
-export interface ConfigView {
+interface ConfigView {
   origin: string;
   /** One-use bootstrap URL. Do not log it in telemetry. */
   url: string;

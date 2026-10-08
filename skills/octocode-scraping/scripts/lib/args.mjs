@@ -18,7 +18,7 @@ export const MODE_ENDPOINT = { html: 'general', markdown: 'markdown', extended: 
 
 export function createArgParser(args) {
   const usage = (exitCode = 2) => {
-    console.error(`Usage: fetch.mjs --url <url> [--provider scrapingant|direct|cdp] [--mode html|markdown|extended|extract] [--extract-properties <text>] [--crawl --max-pages <n> [--sitemap] [--same-domain] [--delay-ms <n>]] [--session <id> [--append]] [--out <dir>] [--browser] [--wait-for <selector>] [--no-raw] [--max-raw-bytes <n>] [--max-text-bytes <n>] [--chunk-bytes <n>] [--extract-links] [--param k=v] [--cdp-port <n>] [--cdp-wait-ms <n>] [--no-cdp-stealth]\nDefault output: .octocode/tmp/scrape/<sessionId>\n`);
+    console.error(`Usage: fetch.mjs --url <url> [--provider scrapingant|direct|cdp] [--mode html|markdown|extended|extract] [--extract-properties <text>] [--crawl --max-pages <n> [--sitemap] [--same-domain] [--delay-ms <n>]] [--session <id> [--append]] [--out <dir>] [--browser] [--wait-for <selector>] [--no-raw] [--max-raw-bytes <n>] [--max-text-bytes <n>] [--chunk-bytes <n>] [--extract-links] [--param k=v] [--cdp-port <n>] [--cdp-wait-ms <n>] [--wait-text <text>] [--cdp-stealth]\nDefault output: .octocode/tmp/scrape/<sessionId>\n`);
     process.exit(exitCode);
   };
   const take = (flag) => {
@@ -84,14 +84,16 @@ export function parseConfig(args) {
   if (mode === 'extract' && !extractProperties) throw new Error('--mode extract requires --extract-properties');
   const crawl = has('--crawl');
   const maxPages = Number(take('--max-pages') || (crawl ? NaN : 1));
-  if (crawl && (!Number.isFinite(maxPages) || maxPages < 1)) throw new Error('--crawl requires --max-pages <n>');
+  if (!Number.isSafeInteger(maxPages) || maxPages < 1) throw new Error('--crawl requires --max-pages <n>');
   const delayMs = Number(take('--delay-ms') || 2000);
   const maxRawBytes = Number(take('--max-raw-bytes') || 1_000_000);
   const maxTextBytes = Number(take('--max-text-bytes') || 250_000);
   const chunkBytes = Number(take('--chunk-bytes') || 50_000);
-  if (!Number.isFinite(maxRawBytes) || maxRawBytes < 0) throw new Error('--max-raw-bytes must be a non-negative number');
-  if (!Number.isFinite(maxTextBytes) || maxTextBytes < 1) throw new Error('--max-text-bytes must be a positive number');
-  if (!Number.isFinite(chunkBytes) || chunkBytes < 1_000) throw new Error('--chunk-bytes must be a number >= 1000');
+  if (!Number.isSafeInteger(maxRawBytes) || maxRawBytes < 0) throw new Error('--max-raw-bytes must be a non-negative number');
+  if (!Number.isSafeInteger(maxTextBytes) || maxTextBytes < 4) throw new Error('--max-text-bytes must be an integer >= 4');
+  if (!Number.isSafeInteger(chunkBytes) || chunkBytes < 1_000) throw new Error('--chunk-bytes must be a number >= 1000');
+  if (!Number.isSafeInteger(delayMs) || delayMs < 0) throw new Error('--delay-ms must be a non-negative integer');
+  if (take('--cdp-wait-ms') && (!Number.isSafeInteger(Number(take('--cdp-wait-ms'))) || Number(take('--cdp-wait-ms')) < 1)) throw new Error('--cdp-wait-ms must be a positive integer');
   const workspaceRoot = workspaceRootFor(process.cwd());
   const workspaceOutputBase = join(workspaceRoot, '.octocode');
   const outBase = take('--out') ? resolve(take('--out')) : join(workspaceRoot, '.octocode', 'tmp', 'scrape');
@@ -131,6 +133,7 @@ export function parseConfig(args) {
     mockCreditCost: take('--mock-credit-cost') || null,
     cdpPort: take('--cdp-port') || null,
     cdpWaitMs: take('--cdp-wait-ms') ? Number(take('--cdp-wait-ms')) : undefined,
-    cdpStealth: !has('--no-cdp-stealth'), // deprecated opt-out; default mandatory verify in client.mjs
+    waitText: take('--wait-text') || null,
+    cdpStealth: has('--cdp-stealth') && !has('--no-cdp-stealth'),
   };
 }

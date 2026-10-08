@@ -83,10 +83,10 @@ mod tests {
             ToolId::ArtifactSearch => json!({"artifacts":[{"name":"x"}]}),
             ToolId::GhCloneRepo => json!({"error":"x"}),
             ToolId::LocalSearch => json!({
-                "stats":{"totalMatches":1},
+                "stats":{"matchCount":1},
                 "files":[{"path":"a.rs","matches":[{"value":"x"}]}]
             }),
-            ToolId::StructureSearch => json!({"entries":[]}),
+            ToolId::StructureSearch => json!({"files":[]}),
             ToolId::AstSearch => json!({
                 "files":[{"path":"a.rs","matches":[{"value":"x"}]}],
                 "nodes":["1 k 1:1-1:2"]
@@ -94,7 +94,9 @@ mod tests {
             ToolId::AstTopology => json!({"results":[{"file":"a.rs"}],"summary":{},"coverage":{}}),
             ToolId::AstRewrite => json!({"matches":[]}),
             ToolId::LocalFetch => json!({"path":"a.rs","content":"x"}),
-            ToolId::LspSearch => json!({"payload":{"kind":"empty"},"lsp":{}}),
+            ToolId::LspSearch => {
+                json!({"payload":{"kind":"references","files":[{"path":"a.ts","matches":[{"line":1}]}]},"lsp":{}})
+            }
             ToolId::Clasify => Value::Null,
         }
     }
@@ -303,12 +305,8 @@ mod tests {
             .expect("pruned row keeps a valid continuation");
         for continuation in [page, lead] {
             let tool = continuation["tool"].as_str().expect("tool");
-            crate::contracts::prepare_and_validate(
-                tool,
-                continuation["query"].clone(),
-                crate::contracts::PrepareOptions::default(),
-            )
-            .unwrap_or_else(|error| panic!("{tool}: {error:?}"));
+            crate::contracts::prepare_and_validate(tool, continuation["query"].clone())
+                .unwrap_or_else(|error| panic!("{tool}: {error:?}"));
         }
     }
 
@@ -333,7 +331,7 @@ mod tests {
             ("tools/gh_get_file_content/mod.rs", 1),
             // The `debug` accessor of each artifact query form.
             ("providers/artifact/types.rs", 4),
-            // Not yet migrated (files held by other lanes, or CLI-only beta).
+            // Debug-gated output not yet moved into core's verbose classes.
             ("tools/ast_rewrite/output.rs", 8),
             ("tools/artifact_search/mod.rs", 1),
             ("tools/gh_get_history_item/patch_hop.rs", 2),

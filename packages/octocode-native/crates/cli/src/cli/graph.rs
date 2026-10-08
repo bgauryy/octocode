@@ -47,8 +47,8 @@ pub(super) enum GraphCommand {
     /// Parse a directory and publish a snapshot (graph.bin + manifest.json).
     ///
     /// Writes <workspace>/.octocode/graph/<UTC time>-<scope>/ and updates `latest`; keeps the
-    /// newest 3 snapshots per scope (--keep). Honors .gitignore; prunes node_modules, dist,
-    /// build, out, coverage, target, .next, .cache, venv, __pycache__ and hidden directories.
+    /// newest 3 snapshots per scope (--keep). Honors .gitignore; prunes hidden directories and
+    /// dependency, build-output, and environment directories (node_modules, target, venv, ...).
     /// Prints a receipt: counts, call-link rate, scan gaps, and a `next` command.
     #[command(verbatim_doc_comment)]
     Ingest(Box<IngestArgs>),
@@ -78,7 +78,7 @@ pub(super) struct IngestArgs {
     #[arg(long)]
     workspace: Option<PathBuf>,
     /// Extra directory names to prune (repeatable or comma-separated), on top of
-    /// node_modules, dist, build, out, coverage, .git, target, .next, .cache.
+    /// the default pruned directories.
     #[arg(long, value_delimiter = ',')]
     exclude: Vec<String>,
     /// Maximum files to parse (default 50000).
@@ -128,6 +128,9 @@ pub(super) struct QueryArgs {
     /// Rows to skip (copy from `next`).
     #[arg(long)]
     offset: Option<usize>,
+    /// Page one evidence array from a graph summary (copy from `nextLists`).
+    #[arg(long)]
+    list: Option<String>,
     /// `issues`: detectors to run (comma-separated; default all).
     #[arg(long, value_delimiter = ',')]
     detector: Vec<String>,
@@ -190,6 +193,7 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand) -> u8 {
                 changed,
                 since,
                 min_tier,
+                list,
             } = *args;
             let options = QueryOptions {
                 op,
@@ -210,6 +214,7 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand) -> u8 {
                 changed,
                 since,
                 min_tier,
+                list,
             };
             runtime.graph_query(&options)
         }

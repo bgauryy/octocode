@@ -141,25 +141,45 @@ export function nextHints(value, pathLabel = '') {
   return hints;
 }
 
-/** A ghGetHistoryItem patch view without its new-side gutter (`N\t` on kept and added lines, a bare tab on removed ones): the raw patch. */
+/** A ghGetHistoryItem patch view without its gutter (`N\t` on every diff line, a bare tab on `\ No newline` markers): the raw patch. */
 export function rawPatch(view) {
   return (view ?? '').split(/(?<=\n)/).map(line => line.startsWith('@@') ? line : line.replace(/^\d*\t/, '')).join('');
 }
 
-/** Whether every kept/added line of a patch view carries its new-side line number (counted from its `@@ -a,b +c,d @@` header) and every removed line a bare tab. */
-export function patchNumbersOk(view) {
-  let next = null;
+/**
+ * Whether a patch view numbers each line on its sign's side (native `number_patch`,
+ * HI3 both-side numbering): kept and added lines carry their new-file line number,
+ * removed lines their old-file number (both counted from the `@@ -a,b +c,d @@`
+ * header), and a `\ No newline` marker a bare tab. With `oldLines`/`newLines`
+ * (the file at the parent / at the change), each numbered line must also equal
+ * that side's file line.
+ */
+export function patchNumbersOk(view, { oldLines, newLines } = {}) {
+  return patchNumbersIssue(view, { oldLines, newLines }) === null;
+}
+
+/** The first line of a patch view whose gutter number is wrong (null when all are right). */
+export function patchNumbersIssue(view, { oldLines, newLines } = {}) {
+  let oldNext = null, newNext = null;
+  const same = (lines, number, text) => !lines || (lines[number - 1] ?? '').replace(/\r$/, '') === text.replace(/\r$/, '');
   for (const line of (view ?? '').split('\n')) {
     if (line === '') continue;
-    const header = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
-    if (header) { next = +header[1]; continue; }
-    const m = line.match(/^(\d*)\t([\s\S])/);
-    if (!m || next === null) return false;
-    if (m[2] === '-' || m[2] === '\\') { if (m[1] !== '') return false; continue; }
-    if (+m[1] !== next) return false;
-    next++;
+    const header = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/);
+    if (header) { oldNext = +header[1]; newNext = +header[2]; continue; }
+    const m = line.match(/^(\d*)\t([\s\S])([\s\S]*)$/);
+    if (!m || newNext === null) return `unnumbered: ${line.slice(0, 80)}`;
+    const [, gutter, sign, text] = m;
+    if (sign === '\\') { if (gutter !== '') return `numbered marker: ${line.slice(0, 80)}`; continue; }
+    if (sign === '-') {
+      if (+gutter !== oldNext || !same(oldLines, oldNext, text)) return `old ${oldNext}: ${line.slice(0, 80)}`;
+      oldNext++;
+      continue;
+    }
+    if (+gutter !== newNext || !same(newLines, newNext, text)) return `new ${newNext}: ${line.slice(0, 80)}`;
+    if (sign !== '+') oldNext++;
+    newNext++;
   }
-  return next !== null;
+  return newNext === null ? 'no hunk header' : null;
 }
 
 /** Collect objects matching a predicate anywhere in a value. */
@@ -175,13 +195,17 @@ export function collect(value, predicate, out = []) {
  * Expand ghGetHistoryItem's compact changed-file inventory — rows
  * "M +3 -1 [!reason ]path[ <- full/old/path]" or {"dir/": [rows named in dir]} —
  * into {path, status, additions, deletions, patchUnavailable?, previousPath?}.
+ * An `omitted` file (GitHub sent neither patch nor counts) prints its letter
+ * only, "M !omitted path", and expands without counts; a row
+ * missing its counts for any other reason does not parse.
  * Object rows (patch responses) pass through unchanged.
  */
 const INVENTORY_STATUS = { A: 'added', D: 'removed', M: 'modified', R: 'renamed', C: 'copied', T: 'changed', U: 'unchanged' };
 function inventoryRow(row, dir = '') {
-  const m = /^(\S+) \+(\d+) -(\d+)(?: !(\w+))? (.+?)(?: <- (.+))?$/.exec(row);
-  if (!m) return { path: null, raw: row };
-  const file = { path: dir + m[5], status: INVENTORY_STATUS[m[1]] ?? m[1], additions: +m[2], deletions: +m[3] };
+  const m = /^(\S+)(?: \+(\d+) -(\d+))?(?: !(\w+))? (.+?)(?: <- (.+))?$/.exec(row);
+  if (!m || ((m[2] === undefined) !== (m[4] === 'omitted'))) return { path: null, raw: row };
+  const file = { path: dir + m[5], status: INVENTORY_STATUS[m[1]] ?? m[1] };
+  if (m[2] !== undefined) Object.assign(file, { additions: +m[2], deletions: +m[3] });
   if (m[4]) file.patchUnavailable = m[4];
   if (m[6]) file.previousPath = m[6];
   return file;
@@ -195,22 +219,22 @@ export function inventoryRows(items = []) {
 }
 
 /**
- * structureSearch `files` rows in one object shape. Bare entries are the row
- * `path`'s own; directory groups {dir, files: [...]} name `dir` relative to
- * that `path`. Entries ("<name>[/][ (<fields>)]"; fields: size in bytes,
- * "symlink", "lineCount=N", "modifiedMs=N"; "/" marks a directory, "." names
- * the directory itself) expand in order to {path: root/dir/name, size?, type?,
- * lineCount?, modifiedMs?}; pass the row `path` as `root` so `path` resolves
- * against the response `root`. Object rows pass through.
+ * structureSearch rows (tree and files) in one object shape. Every row is a
+ * {dir, files: [...]} group whose `dir` is workspace-relative (like a row
+ * path; "." is the workspace root). Entries ("<name>[/][ (<fields>)]";
+ * fields: size in bytes, "symlink", "lineCount=N", "modifiedMs=N"; "/" marks
+ * a directory) expand in order to {path: dir/name, size?, type?, lineCount?,
+ * modifiedMs?}, `path` resolving against the response `root`. Object rows
+ * pass through.
  */
-export function structureFiles(items = [], root = '') {
-  const join = (...parts) => parts.filter(part => part !== '' && part !== undefined).join('/');
+export function structureFiles(items = []) {
+  const join = (dir, name) => (dir === '.' || dir === '' ? name : `${dir}/${name}`);
   const expand = (dir, text) => {
     const m = /^(.*) \(([^()]*)\)$/.exec(text);
     let name = m ? m[1] : text;
     const row = {};
     if (name.endsWith('/')) { name = name.slice(0, -1); row.type = 'directory'; }
-    row.path = name === '.' ? join(root, dir) || '.' : join(root, dir, name);
+    row.path = name === '.' ? dir : join(dir, name);
     for (const field of m ? m[2].split(', ') : []) {
       if (field === 'symlink') row.type = 'symlink';
       else if (field.startsWith('lineCount=')) row.lineCount = Number(field.slice(10));
@@ -220,7 +244,6 @@ export function structureFiles(items = [], root = '') {
     return row;
   };
   return (items ?? []).flatMap(item => {
-    if (typeof item === 'string') return [expand('', item)];
     if (!item || typeof item !== 'object' || typeof item.dir !== 'string' || !Array.isArray(item.files)) return [item];
     return item.files.map(text => expand(item.dir, text));
   });
@@ -237,83 +260,82 @@ export function sourcePath(entry, location, fallback) {
 
 /**
  * lspSearch location rows in one shape: flat `payload.matches` location
- * objects, or the compact per-file `payload.files[].matches` rows
- * ("line:col text", "start-end:col text") long reference lists default to,
+ * objects, or the compact per-file `payload.files[].matches` reference rows
+ * {line, column, endLine?, value?} long reference lists default to,
  * expanded to {path, displayRange, content}.
  */
 export function lspLocations(entry, index = 0) {
   const payload = rowData(entry, index)?.payload;
   if (Array.isArray(payload?.matches)) return payload.matches;
-  return (payload?.files ?? []).flatMap(file => (file.matches ?? []).filter(ref => typeof ref === 'string').map(ref => {
-    const [, start, end, column, text] = /^(\d+)(?:-(\d+))?:(\d+)(?: (.*))?$/.exec(ref) ?? [];
-    return { path: file.path, displayRange: { startLine: Number(start), startCharacter: Number(column), endLine: Number(end ?? start) }, content: text ?? '' };
-  }));
+  return (payload?.files ?? []).flatMap(file => (file.matches ?? []).filter(ref => ref && typeof ref.line === 'number' && !ref.sites).map(ref => ({
+    path: file.path,
+    displayRange: { startLine: ref.line, startCharacter: ref.column, endLine: ref.endLine ?? ref.line },
+    content: ref.value ?? '',
+  })));
 }
 
 /**
- * astSearch symbols rows in one object shape. Outline strings
- * "<line>[-<endLine>] <kind> <name>[ +][ as a,b][ doc|doc@N][ from@N][ col N][ (in Parent@L)]",
- * indented two spaces per nesting level under the preceding row, parse to
- * {name, kind, line, endLine?, exported?, exportedAs?, docStartLine?,
- * startLine?, character?, parent?, parentLine?, parentKind?}; object rows (the earlier
- * shape) pass through. `extra` (e.g. a directory outline's file path) is
- * merged into each row.
+ * One symbols outline entry string (P1, a declaration without members):
+ * `<symbolName> (<line>[-<endLine>][, <kind>][, doc <docStartLine>][, exported][, <key>=<value>]…)`.
+ * The last ` (` opens the fields; a `<key>=<value>` value is bare words or
+ * JSON. Returns the declaration's fields ({symbolName, line, endLine?, kind?,
+ * docStartLine?, exported?, exportedAs?, startLine?, column?, parent?,
+ * parentLine?}) or null when `text` is not an entry.
  */
+export function parseOutlineEntry(text) {
+  if (typeof text !== 'string') return null;
+  const open = text.lastIndexOf(' (');
+  if (open <= 0 || !text.endsWith(')')) return null;
+  const fields = [];
+  let cur = '', quoted = false, escaped = false;
+  const inner = text.slice(open + 2, -1);
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if (quoted) {
+      if (escaped) escaped = false; else if (ch === '\\') escaped = true; else if (ch === '"') quoted = false;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ',' && inner[i + 1] === ' ') { fields.push(cur); cur = ''; i++; continue; }
+    cur += ch;
+  }
+  fields.push(cur);
+  const range = /^(\d+)(?:-(\d+))?$/.exec(fields[0]);
+  if (!range) return null;
+  const decl = { symbolName: text.slice(0, open), line: +range[1] };
+  if (range[2]) decl.endLine = +range[2];
+  for (const field of fields.slice(1)) {
+    if (field === 'exported') decl.exported = true;
+    else if (/^doc \d+$/.test(field)) decl.docStartLine = +field.slice(4);
+    else if (/^[A-Za-z_]+=/.test(field)) {
+      const eq = field.indexOf('=');
+      const raw = field.slice(eq + 1);
+      let value = raw;
+      if (/^-?\d+$/.test(raw) || /^["[{]/.test(raw) || raw === 'true' || raw === 'false') {
+        try { value = JSON.parse(raw); } catch { return null; }
+      }
+      decl[field.slice(0, eq)] = value;
+    } else if (field && decl.kind === undefined) decl.kind = field;
+    else return null;
+  }
+  return decl;
+}
+
 /**
- * astSearch symbols outline rows into one declaration each. A row is
- * "<indent><ranges> <kind> <label>[; <ranges> <label>]…": consecutive
- * childless same-kind siblings share a row (later items inherit the kind),
- * and adjacent blocks with the same kind and label share one item whose
- * ranges are comma-joined ("109-891,893-901 impl X"). Each range is one
- * declaration; nested rows (two spaces per level) name their parent.
+ * astSearch / lspSearch outline rows as harness declarations: an entry string
+ * (a declaration without members, see parseOutlineEntry) or a container
+ * object {symbolName, kind, line, endLine?, docStartLine?, exported?, shared?,
+ * members}. `name` = symbolName, `character` = column. `extra` (e.g. a
+ * directory outline's file path) is merged in.
  */
-const OUTLINE_RANGES = /^(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*) /;
-const OUTLINE_LABEL = /^(.+?)( \+)?(?: as (\S+))?( doc(?:@(\d+))?)?(?: from@(\d+))?(?: col (\d+))?(?: \(in (.+?)(?:@(\d+))?\))?$/;
-export function outlineRows(rows = [], extra = {}) {
-  const stack = [];
-  return (rows ?? []).flatMap(row => {
-    if (typeof row !== 'string') return [{ ...extra, ...row }];
-    const indent = /^ */.exec(row)[0];
-    const depth = indent.length / 2;
-    const holders = depth > 0 ? stack[depth - 1] : undefined;
-    let kind;
-    const out = [];
-    for (const [index, item] of row.slice(indent.length).split('; ').entries()) {
-      const ranges = OUTLINE_RANGES.exec(item);
-      if (!ranges) return [{ ...extra, raw: row }];
-      let rest = item.slice(ranges[0].length);
-      if (index === 0) {
-        const space = rest.indexOf(' ');
-        if (space < 0) return [{ ...extra, raw: row }];
-        kind = rest.slice(0, space);
-        rest = rest.slice(space + 1);
-      }
-      const m = OUTLINE_LABEL.exec(rest);
-      if (!m) return [{ ...extra, raw: row }];
-      const [, name, exported, as, doc, docAt, from, col, parent, parentLine] = m;
-      for (const range of ranges[1].split(',')) {
-        const [line, end] = range.split('-').map(Number);
-        const decl = { ...extra, name, kind, line };
-        if (end !== undefined) decl.endLine = end;
-        if (exported) decl.exported = true;
-        if (as) decl.exportedAs = as.split(',');
-        if (doc) decl.docStartLine = docAt ? +docAt : line - 1;
-        if (from) decl.startLine = +from;
-        if (col) decl.character = +col;
-        if (parent) { decl.parent = parent; if (parentLine) decl.parentLine = +parentLine; }
-        if (holders?.length) {
-          // A merged parent lists several blocks: the one whose range holds this line.
-          const holder = holders.find(h => h.line <= line && line <= (h.endLine ?? h.line)) ?? holders.at(-1);
-          decl.parent = holder.name; decl.parentLine = holder.line; decl.parentKind = holder.kind;
-        }
-        out.push(decl);
-      }
-    }
-    // Only the last item of a grouped row can hold children (grouped items are childless).
-    const last = out.at(-1);
-    stack.length = depth;
-    stack[depth] = out.filter(d => d.name === last.name && d.kind === last.kind);
-    return out;
+export function outlineRows(rows = [], extra = {}, parent = {}) {
+  // Containers nest members under them (`members`, with fields every member
+  // shares in the container's `shared`); flatten them in source order with
+  // `parent`/`parentLine` restored.
+  return (rows ?? []).map(row => (typeof row === 'string' ? parseOutlineEntry(row) : row)).filter(row => row && typeof row === 'object').flatMap(row => {
+    const { symbolName, column, members, shared, ...rest } = row;
+    const decl = { ...extra, ...parent, ...rest, name: symbolName };
+    if (column !== undefined) decl.character = column;
+    const nested = (members ?? []).map(member => (typeof member === 'string' ? parseOutlineEntry(member) : member)).filter(Boolean).map(member => ({ ...shared, ...member }));
+    return [decl, ...outlineRows(nested, extra, { parent: symbolName, parentLine: row.line })];
   });
 }
 
@@ -324,18 +346,9 @@ export function declarations(entry, index = 0) {
   return [...outlineRows(data.symbols), ...(data.files ?? []).flatMap(file => outlineRows(file.symbols, { path: file.path }))];
 }
 
-/**
- * One astSearch match row as {line, endLine?, value, ...}: lean rows are
- * "<line>[-<endLine>]\t<value>"; captureText rows (and the earlier shape)
- * are objects and pass through.
- */
+/** One astSearch match row {line, column, endLine?, value, ...}. */
 export function matchRow(row) {
-  if (typeof row !== 'string') return row;
-  const m = /^(\d+)(?:-(\d+))?\t([\s\S]*)$/.exec(row);
-  if (!m) return { raw: row };
-  const out = { line: +m[1], value: m[3] };
-  if (m[2]) out.endLine = +m[2];
-  return out;
+  return row && typeof row === 'object' ? row : { raw: row };
 }
 
 /** astSearch match rows of a response as {path, line, endLine?, value, ...}. */
@@ -345,12 +358,10 @@ export function astMatchRows(entry, index = 0) {
 
 /**
  * lspSearch callers as {name, kind, detail?, path, lines, declLine?, via?}:
- * flat `payload.matches` call-hierarchy edges, or the compact per-file rows
- * `payload.files[].matches`
- * ("<line>:<col>[,…] in|to <kind> <name>[ (<detail>)] <start>-<end>[ via <name>@[<path>:]<line>]");
- * `in` rows are callers, `to` rows callees (skipped here).
+ * flat `payload.matches` call-hierarchy edges, or the compact per-file call
+ * rows {symbolName, kind, line, endLine?, sites, detail?, via?} of a
+ * `callers` payload (a `callees` payload lists no callers).
  */
-const CALL_ROW = /^(\d+(?::\d+)?(?:,\d+(?::\d+)?)*) (in|to) (\S+) (\S+)(?: \((.*?)\))?(?: (\d+)(?:-(\d+))?)?(?: via (\S+)@(?:(.+):)?(\d+))?$/;
 export function lspCallers(entry, index = 0) {
   const payload = rowData(entry, index)?.payload;
   if (Array.isArray(payload?.matches)) {
@@ -359,13 +370,12 @@ export function lspCallers(entry, index = 0) {
       lines: (item.fromRanges ?? []).map(range => range.startLine), declLine: item.from.displayRange?.startLine,
     }));
   }
-  return (payload?.files ?? []).flatMap(file => (file.matches ?? []).flatMap(row => {
-    const m = CALL_ROW.exec(row);
-    if (!m) return [{ path: file.path, raw: row, lines: [] }];
-    if (m[2] !== 'in') return [];
-    const via = m[8] ? { name: m[8], line: +m[10], ...(m[9] ? { path: m[9] } : {}) } : undefined;
-    return [{ name: m[4], kind: m[3], detail: m[5], path: file.path, lines: m[1].split(',').map(site => +site.split(':')[0]), declLine: m[6] ? +m[6] : undefined, via }];
-  }));
+  if (payload?.kind === 'callees') return [];
+  return (payload?.files ?? []).flatMap(file => (file.matches ?? []).filter(row => row && Array.isArray(row.sites)).map(row => ({
+    name: row.symbolName, kind: row.kind, detail: row.detail, path: file.path,
+    lines: row.sites.map(site => site.line), declLine: row.line,
+    via: row.via ? { name: row.via.symbolName, line: row.via.line, ...(row.via.path ? { path: row.via.path } : {}) } : undefined,
+  })));
 }
 
 /**
@@ -381,7 +391,9 @@ export function sourceView(file) {
   // A gap marker, or one gap-run marker for single lines (ghGetFileContent).
   const marker = /^\.\.\. \[(?:lines? \d+(?:-\d+)?|\d+ gaps in lines \d+-\d+) (?:omitted|not requested)\] \.\.\.$/;
   const numbered = records.length > 0 && records.some(l => /^\d+\t/.test(l)) && records.every(l => /^\d+\t/.test(l) || marker.test(l));
-  if (!numbered) return { text: content, ranges: file?.sourceLineRanges ?? [], numbered: false };
+  // Verbatim views keep `sourceLineRanges` as `{line, endLine}` (X1); the
+  // view's ranges are `{start, end}` in both branches.
+  if (!numbered) return { text: content, ranges: (file?.sourceLineRanges ?? []).map(r => ({ start: r.line, end: r.endLine })), numbered: false };
   const ranges = [];
   const text = records.map(l => {
     const m = /^(\d+)\t/.exec(l);
@@ -408,12 +420,24 @@ export function checks(suite) {
     console.log(`${ok ? 'PASS' : 'FAIL'} [${suite}] ${name}${detail ? ` — ${String(detail).slice(0, 160)}` : ''}`);
     return !!ok;
   };
+  /** Record a check that cannot run in this environment (never counted as passed or failed). */
+  const skip = (name, reason) => {
+    results.push({ suite, name, ok: null, skipped: String(reason) });
+    console.log(`SKIP [${suite}] ${name} — ${reason}`);
+  };
   const summary = () => {
-    const failed = results.filter(r => !r.ok);
-    console.log(`\n[${suite}] ${results.length - failed.length}/${results.length} passed`);
+    const ran = results.filter(r => r.ok !== null);
+    const failed = ran.filter(r => !r.ok);
+    const skipped = results.length - ran.length;
+    console.log(`\n[${suite}] ${ran.length - failed.length}/${ran.length} passed${skipped ? `, ${skipped} skipped` : ''}`);
     return { results, failed };
   };
-  return { check, summary, results };
+  return { check, skip, summary, results };
+}
+
+/** Why clasify checks cannot run on this server (null when the tool is registered). */
+export function clasifyUnavailable(client) {
+  return client.tools.some(tool => tool.name === 'clasify') ? null : 'clasify is not registered on this server (no classification provider key configured)';
 }
 
 export function writeResults(name, payload) {
@@ -423,7 +447,7 @@ export function writeResults(name, payload) {
   return file;
 }
 
-/** The first `next.*`/`hints.*` continuation whose path ends with `.<key>` (e.g. `continue`, `hints.readTopMatch`). */
+/** The first `next.*`/`hints.*` continuation whose path ends with `.<key>` (e.g. `continue`, `hints.read`). */
 export function findHint(sc, key) {
   return nextHints(sc).find(h => h.path.endsWith(`.${key}`));
 }

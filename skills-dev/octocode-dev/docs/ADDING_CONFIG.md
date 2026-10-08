@@ -18,14 +18,14 @@ packages/octocode-config/config-contract.json
                       └─ $OUT_DIR/config_contract.rs
                            structs · defaults · field metadata · env policy
 
-contract metadata → generic TypeScript resolver/validator
-contract metadata → generic Rust resolver/validator
+contract metadata → generic Rust resolver/validator (the only resolver)
+contract metadata → TypeScript .env policy and editor metadata
 ```
 
 - Interpreters hold language mechanics only (reading JS objects or `serde_json::Value`, parsing env strings, diagnostics), no per-setting field lists.
-- Never edit generated files; never add a setting directly to `types.ts`, `defaults.ts`, `resolverSections.ts`, `validator.ts`, Rust config structs, `resolver.rs` or `validation.rs` (field logic in one resolver brings back drift); never copy a default or range into docs (the generated reference owns them).
-- `@octocodeai/config` owns this policy. Its `.` entry (the loader) uses only Node builtins; Ajv is a build/test dependency.
-- The `./schema` and `./mcp` subpaths re-export `@octocodeai/octocode-core`, and the tool-contract generator reads core ([contract pipeline](DEVELOPMENT.md#contract-pipeline)). `src/config` and `src/tokens` never import core: core owns tool contracts, config owns configuration and environment policy.
+- Never edit generated files; never add a setting directly to Rust config structs, `resolver.rs` or `validation.rs` (field logic there brings back drift); never copy a default or range into docs (the generated reference owns them).
+- `@octocodeai/config` owns this policy. Its `.` entry uses only Node builtins; Ajv is a build/test dependency. TypeScript surfaces never resolve settings themselves: the native runtime does, and `octocode config` shows the result.
+- The `./schema` and `./mcp` subpaths re-export `@octocodeai/octocode-core`, and the tool-contract generator reads core ([contract pipeline](DEVELOPMENT.md#contract-pipeline)). `src/home.ts`, `src/dotenv.ts`, and `src/config` never import core: core owns tool contracts, config owns configuration and environment policy.
 
 ## Source precedence and file policy
 
@@ -224,16 +224,7 @@ After you build CLI/MCP, run `yarn workspace @octocodeai/config test:tokens:acce
 
 ## Read resolved configuration
 
-```ts
-import { loadOctocodercLayers, resolveConfigFields } from '@octocodeai/config';
-
-// Workspace .octocoderc first, then global; environment wins per field.
-const config = resolveConfigFields(loadOctocodercLayers(), process.env);
-const timeout = config.network.timeout;
-const format = config.output.format;
-```
-
-The section-specific `resolveGitHub`, `resolveOutput`, and similar exports are compatibility adapters. They delegate to the generic contract interpreter; do not put field logic in them.
+Settings are read in native code from the resolved config:
 
 ```rust
 let timeout_ms = config.resolved.network.timeout as u64;

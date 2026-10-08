@@ -1,5 +1,0 @@
-# cmd: octocode astSearch {"goal": "g", "reasoning": "r", "operation": "match", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src", "langType": "typescript", "rule": "rule:\n  pattern: console.log($$$A)\n  inside:\n    kind: method_definition\n    stopBy: end"}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"complete":true,"files":[{"path":"src/a.ts","totalMatchRows":1,"returnedMatchRows":1,"matches":[{"line":10,"value":"console.log('run')","column":4,"endColumn":22,"metavarRanges":{"A":[{"text":"'run'","line":10,"column":16,"endColumn":21}]}}]}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx"}

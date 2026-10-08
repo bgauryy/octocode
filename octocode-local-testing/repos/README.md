@@ -33,4 +33,4 @@ Then run the rows you need, for example `clone rust tokio-rs/tokio facc6fc`. If 
 | langchain | langchain-ai/langchain | 67ee6cb63dd9ae7f3a4dfedc3095652bce15a125 | agent benchmark (`packages/octocode-benchmark/compare/unified`) |
 | nextjs | vercel/next.js | d155ba9ebfffe4742efefda8d68c2e0e8e490924 | agent benchmark (`packages/octocode-benchmark/compare/unified`) |
 
-The first 12 cover every grammar and are what the harness suites (`harness/*.mjs`) need (about 5 GB with the huge ones). Language servers are optional: suites record `lsp.serverUnavailable` rather than fail.
+The first 12 cover every grammar and are what the harness suites (`harness/*.mjs`) need (about 5 GB with the huge ones). Language servers are optional: suites record `serverUnavailable` rather than fail.

@@ -23,6 +23,7 @@ pub(super) fn needs_issue_search_qualifiers(q: &HistorySearch) -> bool {
         || f.mentions.is_some()
         || f.commenter.is_some()
         || f.reactions.is_some()
+        || f.linked.is_some()
         || f.comments.is_some()
         || f.created.is_some()
         || q.since().is_some()
@@ -263,6 +264,7 @@ fn issue_terms(
             ("closed", f.closed.as_deref()),
             ("comments", f.comments.as_deref()),
             ("reactions", f.reactions.as_deref()),
+            ("linked", f.linked.as_deref()),
             ("review", f.review.as_deref()),
         ])
     {

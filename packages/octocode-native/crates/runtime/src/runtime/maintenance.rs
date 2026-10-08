@@ -28,9 +28,10 @@ pub fn run_if_due(home: &Path) -> bool {
     // Clone entries may contain local edits. Their lock/status-aware eviction
     // runs through ghCloneRepo; a directory-age sweep cannot safely remove them.
     sweep_dir(&tmp.join("response"), INTERVAL);
+    // `tmp/tree` is written by octocode-mcp 19.x, which shares this home;
+    // native never reads it, so aged entries are cleared here.
     sweep_dir(&tmp.join("tree"), INTERVAL);
     sweep_dir(&tmp.join("materialize").join("v2"), INTERVAL);
-    sweep_dir(&tmp.join("search-snapshots"), Duration::from_secs(60));
     // Rate-limit mirrors only hold facts that expire within ~1h.
     sweep_dir(&tmp.join("ratelimit"), INTERVAL);
     let epoch = SystemTime::now()

@@ -125,7 +125,11 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, mcp:
         } else {
             format!("Run `octocode schema {tool_name} --view query` for the valid fields.")
         });
-        return serde_json::json!({"kind":"octocode.toolError","version":1,"tool":tool_name,"error":format!("Unknown field(s): {}", fields.join(", ")),"details":details});
+        return tool_error(
+            Some(tool_name),
+            &format!("Unknown field(s): {}", fields.join(", ")),
+            Some(details),
+        );
     }
     let details = error
         .issues
@@ -175,7 +179,22 @@ pub fn format_input_error(tool_name: &str, error: &ContractValidationError, mcp:
         })
         .chain(routing_details(tool_name, &error.issues))
         .collect::<Vec<_>>();
-    serde_json::json!({"kind":"octocode.toolError","version":1,"tool":tool_name,"error":"Check the query fields.","details":details})
+    tool_error(Some(tool_name), "Check the query fields.", Some(details))
+}
+
+/// The `octocode.toolError` envelope every surface returns for a call that
+/// never reached a tool: the tool (when known), the error, and its repair
+/// details (when any).
+pub fn tool_error(tool: Option<&str>, error: &str, details: Option<Vec<String>>) -> Value {
+    let mut value = serde_json::json!({"kind": "octocode.toolError", "version": 1});
+    if let Some(tool) = tool {
+        value["tool"] = serde_json::json!(tool);
+    }
+    value["error"] = serde_json::json!(error);
+    if let Some(details) = details {
+        value["details"] = serde_json::json!(details);
+    }
+    value
 }
 
 /// Core-authored guidance for a missing required field (the core schema's
@@ -571,6 +590,48 @@ pub fn validate_output(tool_name: &str, output: &Value) -> Result<(), ContractVa
     validate_schema(schema, schema, &mut candidate, &mut Vec::new())
 }
 
+/// [`validate_output`] without the copy when validation cannot change the
+/// output: the envelope hoists no `shared` fields to restore and the tool's
+/// output schema declares no defaults to insert. Every other schema step only
+/// reads (`not` probes and union branches validate their own copies), so the
+/// response stays byte-identical and is walked once.
+pub(crate) fn validate_output_in_place(
+    tool_name: &str,
+    output: &mut Value,
+) -> Result<(), ContractValidationError> {
+    let tool = contract_tool(tool_name)?;
+    let schema = &tool["outputSchema"];
+    if output.get("shared").is_some() || declares_defaults(tool_name, schema) {
+        return validate_output(tool_name, output);
+    }
+    validate_schema(schema, schema, output, &mut Vec::new())
+}
+
+/// Whether a tool's output schema has a `default` keyword anywhere (cached:
+/// the embedded contract never changes).
+fn declares_defaults(tool_name: &str, schema: &Value) -> bool {
+    fn any_default(value: &Value) -> bool {
+        match value {
+            Value::Object(map) => map.contains_key("default") || map.values().any(any_default),
+            Value::Array(items) => items.iter().any(any_default),
+            _ => false,
+        }
+    }
+    static DECLARED: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, bool>>,
+    > = std::sync::OnceLock::new();
+    let mut declared = DECLARED
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if let Some(&known) = declared.get(tool_name) {
+        return known;
+    }
+    let found = any_default(schema);
+    declared.insert(tool_name.to_owned(), found);
+    found
+}
+
 fn apply_normalization_rules(
     rules: &Value,
     input: &mut Value,
@@ -738,8 +799,11 @@ fn schema_issue(
     received: &Value,
 ) -> ContractValidationError {
     let mut error = issue(rule_id, path, message);
-    error.issues[0].schema = Some(schema.clone());
-    error.issues[0].received = Some(received.clone());
+    // A speculative probe reads only pass/fail: skip the copies.
+    if !union::speculative() {
+        error.issues[0].schema = Some(schema.clone());
+        error.issues[0].received = Some(received.clone());
+    }
     error
 }
 
@@ -824,16 +888,30 @@ mod tests {
         assert_eq!(super::suggest_field("pattern", &known), None);
     }
 
-    use super::{format_input_error, normalize_input, validate};
-    use crate::contracts::{PrepareOptions, prepare_and_validate};
+    use super::{format_input_error, normalize_input, tool_error, validate};
+    use crate::contracts::prepare_and_validate;
     use serde_json::{Value, json};
+
+    #[test]
+    fn tool_error_envelope_names_the_tool_and_details_only_when_known() {
+        assert_eq!(
+            tool_error(Some("localSearch"), "bad", None),
+            json!({"kind":"octocode.toolError","version":1,"tool":"localSearch","error":"bad"})
+        );
+        let bare = tool_error(None, "bad", None);
+        assert!(bare.get("tool").is_none() && bare.get("details").is_none());
+        assert_eq!(
+            tool_error(Some("localFetch"), "bad", Some(vec!["fix".into()]))["details"],
+            json!(["fix"])
+        );
+    }
 
     #[test]
     fn pure_clasify_requires_correlation_and_preserves_provider_entries() {
         let query = json!({"id":"decision","reasoning":"Decide the next evidence read.","mainGoal":"Files that decide the next read.","resources":[{"id":"source","value": {"observation": true}}], "questions":[{"id":"answer",
             "type": "yesno", "ask": {"prompt":"Assess supplied state"}, "labels":{"true":null,"false":null}
         }]});
-        let prepared = prepare_and_validate("clasify", query.clone(), PrepareOptions::default())
+        let prepared = prepare_and_validate("clasify", query.clone())
             .expect("pure semantic query needs no workflow fields");
         assert_eq!(prepared, query);
         let validated = validate("clasify", json!({"queries": [query.clone()]}))
@@ -841,30 +919,24 @@ mod tests {
         assert_eq!(validated["queries"][0], query);
         let mut padded = query.clone();
         padded["reasoning"] = json!("  Decide the next evidence read.  ");
-        assert_eq!(
-            prepare_and_validate("clasify", padded, PrepareOptions::default()).unwrap(),
-            query
-        );
+        assert_eq!(prepare_and_validate("clasify", padded).unwrap(), query);
         for field in ["model", "debug", "route", "sources"] {
             let mut invalid = query.clone();
             invalid[field] = json!("not part of the pure protocol");
-            assert!(
-                prepare_and_validate("clasify", invalid, PrepareOptions::default()).is_err(),
-                "{field}"
-            );
+            assert!(prepare_and_validate("clasify", invalid).is_err(), "{field}");
         }
         for field in ["resources", "questions"] {
             let mut invalid = query.clone();
             invalid.as_object_mut().expect("query object").remove(field);
             assert!(
-                prepare_and_validate("clasify", invalid, PrepareOptions::default()).is_err(),
+                prepare_and_validate("clasify", invalid).is_err(),
                 "missing {field}"
             );
         }
         let mut blank_reasoning = query.clone();
         blank_reasoning["reasoning"] = json!("");
-        let dropped = prepare_and_validate("clasify", blank_reasoning, PrepareOptions::default())
-            .expect("blank reasoning is dropped");
+        let dropped =
+            prepare_and_validate("clasify", blank_reasoning).expect("blank reasoning is dropped");
         assert!(dropped.get("reasoning").is_none());
         let mut missing_goal = query.clone();
         missing_goal
@@ -872,7 +944,7 @@ mod tests {
             .expect("query object")
             .remove("mainGoal");
         assert!(
-            prepare_and_validate("clasify", missing_goal, PrepareOptions::default()).is_ok(),
+            prepare_and_validate("clasify", missing_goal).is_ok(),
             "mainGoal is optional"
         );
     }
@@ -1044,13 +1116,12 @@ mod tests {
         let union = validate(
             "lspSearch",
             json!({"queries":[
-                {"path":"/tmp/a.rs","position":{"line":"3","character":"0"},"mainGoal":"test","reasoning":"Coerce."},
+                {"path":"/tmp/a.rs","operation":"documentSymbols","pageSize":"3","mainGoal":"test","reasoning":"Coerce."},
                 {"path":"/tmp/a.rs","symbolName":"main","lineHint":"4","mainGoal":"test","reasoning":"Coerce."}
             ]}),
         )
         .expect("union branches coerce their own typed fields");
-        assert_eq!(union["queries"][0]["position"]["line"], 3);
-        assert_eq!(union["queries"][0]["position"]["character"], 0);
+        assert_eq!(union["queries"][0]["pageSize"], 3);
         assert_eq!(union["queries"][1]["lineHint"], 4);
         for bad in [
             "02",
@@ -1213,7 +1284,7 @@ mod tests {
         }
         let blank = normalize_input(
             "artifactSearch",
-            with(json!({"type":"npm","packageName":"zod","version":" "})),
+            with(json!({"ecosystem":"npm","packageName":"zod","version":" "})),
         );
         assert!(blank["queries"][0].get("version").is_none(), "{blank}");
         validate("artifactSearch", blank).expect("blank optional dropped");
@@ -1306,7 +1377,7 @@ mod tests {
     fn names_the_mode_of_a_field_declared_by_a_sibling_branch() {
         let error = validate(
             "artifactSearch",
-            json!({"queries":[{"type":"npm","packageName":"zod","pageSize":3,"mainGoal": "test", "reasoning":"Exact lookup."}]}),
+            json!({"queries":[{"ecosystem":"npm","packageName":"zod","pageSize":3,"mainGoal": "test", "reasoning":"Exact lookup."}]}),
         )
         .expect_err("pageSize is discovery-only");
         let formatted = format_input_error("artifactSearch", &error, false);
@@ -1382,9 +1453,6 @@ mod tests {
             let result = crate::contracts::prepare_many_and_validate(
                 fixture["tool"].as_str().expect("tool"),
                 fixture["input"].clone(),
-                PrepareOptions {
-                    source_label: "fixture",
-                },
             )
             .map(|mut queries| queries.swap_remove(0));
             assert_eq!(
@@ -1492,7 +1560,6 @@ mod tests {
         let error = crate::contracts::prepare_many_and_validate(
             "localSearch",
             json!({"mainGoal":"g","queries":[{"path":".","matchString":"x","mainGoal":"g","reasoning":"r"}]}),
-            PrepareOptions { source_label: "test" },
         )
         .expect_err("mainGoal is per row");
         let formatted = format_input_error("localSearch", &error, false).to_string();

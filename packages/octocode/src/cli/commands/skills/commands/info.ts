@@ -1,17 +1,15 @@
-import { getSkill, getSkillContent, retiredHint } from '../registry.js';
+import { getSkill, getSkillContent } from '../registry.js';
 import { envParamRows, getSkillEnvStatus } from '../env-params.js';
 import { reportFailure } from './fail.js';
 import { bold, c, dim } from '../../../../utils/colors.js';
 
-export function runInfo(
-  skillName: string,
-  opts: { json: boolean }
-): void {
+export function runInfo(skillName: string, opts: { json: boolean }): void {
   const skill = getSkill(skillName);
   if (!skill) {
     reportFailure(
-      `Skill not found: "${skillName}". Run \`octocode skill list\` to see available skills.${retiredHint(skillName)}`,
-      opts.json);
+      `Skill not found: "${skillName}". Run \`octocode skill list\` to see available skills.`,
+      opts.json
+    );
     return;
   }
 

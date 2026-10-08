@@ -18,6 +18,7 @@ use super::nodes::{
     import_specifier, is_call_node, is_exported_declaration, is_import_node, is_name_leaf,
     last_name_leaf, node_text,
 };
+use crate::text::file_extension::{JS_TS_EXTENSIONS, extension_of};
 
 mod heritage;
 mod python;
@@ -30,13 +31,21 @@ const MODULE_CALLER: &str = "module";
 use python::collect_python_imports;
 use rust::{RustContext, collect_rust_imports, rust_child_contexts, rust_inner_unsupported};
 
-/// Thin wrapper over the shared `text::utf8_offsets::LineIndex` — see that
-/// type for the actual line-start/UTF-16 counting logic.
-struct LineIndex<'a>(crate::text::utf8_offsets::LineIndex<'a>);
+/// Graph positions of syntax-tree nodes: the shared [`LineIndex`] under the
+/// tree-sitter rule (`\n` only), with UTF-16 columns.
+///
+/// [`LineIndex`]: crate::text::LineIndex
+struct NodePositions<'a> {
+    content: &'a str,
+    index: crate::text::LineIndex,
+}
 
-impl<'a> LineIndex<'a> {
+impl<'a> NodePositions<'a> {
     fn new(content: &'a str) -> Self {
-        Self(crate::text::utf8_offsets::LineIndex::new(content))
+        Self {
+            content,
+            index: crate::text::LineIndex::tree_sitter(content),
+        }
     }
 
     fn range(&self, node: Node<'_>) -> GraphRange {
@@ -47,7 +56,9 @@ impl<'a> LineIndex<'a> {
     }
 
     fn position(&self, byte_offset: usize) -> GraphPosition {
-        let (line, character) = self.0.byte_to_position(byte_offset as u32);
+        let (line, character) = self
+            .index
+            .byte_to_position(self.content, byte_offset as u32);
         GraphPosition { line, character }
     }
 }
@@ -66,13 +77,26 @@ struct GraphAccumulator {
     /// names and the callee tokens of recorded calls (call edges).
     non_reference_tokens: std::collections::HashSet<usize>,
     /// Bodies of Rust item-level macro calls (`cfg_rt! { mod x; }`) with
-    /// their enclosing module scope, re-read as items after the main walk.
-    macro_bodies: Vec<(tree_sitter::Range, Vec<String>)>,
+    /// their enclosing module scope and declaration (an `impl` holding
+    /// `cfg_io_util! { pub fn … }`), re-read as items after the main walk.
+    macro_bodies: Vec<MacroBody>,
     /// Byte span of each entry of `declarations`, in the same order.
     declaration_spans: Vec<(usize, usize)>,
     /// Indices into `imports` of bindings from private Rust `use` items,
     /// whose uses `rust_import_uses` attributes to declarations.
     private_use_imports: Vec<usize>,
+    /// Name tokens the main walk passed, for `count_name_references`;
+    /// `None` outside that walk (macro bodies are not counted).
+    name_tokens: Option<Vec<NameToken>>,
+}
+
+/// A token `count_name_references` reads: a name leaf, or (`format`) a Rust
+/// string literal inside a macro token tree, whose inline captures name
+/// bindings.
+struct NameToken {
+    start: usize,
+    end: usize,
+    format: bool,
 }
 
 impl GraphAccumulator {
@@ -90,6 +114,7 @@ impl GraphAccumulator {
             macro_bodies: Vec::new(),
             declaration_spans: Vec::new(),
             private_use_imports: Vec::new(),
+            name_tokens: None,
             diagnostics: vec![
                 "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof".to_owned(),
             ],
@@ -108,22 +133,12 @@ const STATEMENT_KEYWORDS: &[&str] = &[
 /// other language these words are ordinary names (`fn new`, `def new`,
 /// `def case`), so filtering them silently drops real declarations.
 fn recovers_statements_as_declarations(file_path: &str) -> bool {
-    let extension = file_path.rsplit_once('.').map_or("", |(_, ext)| ext);
-    matches!(
-        extension.to_ascii_lowercase().as_str(),
-        "js" | "jsx"
-            | "mjs"
-            | "cjs"
-            | "ts"
-            | "tsx"
-            | "mts"
-            | "cts"
-            | "vue"
-            | "svelte"
-            | "astro"
-            | "html"
-            | "htm"
-    )
+    let extension = extension_of(file_path, true, "");
+    JS_TS_EXTENSIONS.contains(&extension.as_str())
+        || matches!(
+            extension.as_str(),
+            "vue" | "svelte" | "astro" | "html" | "htm"
+        )
 }
 
 /// In a JS/TS-family file a keyword-named declaration is a recovery artifact
@@ -227,7 +242,7 @@ fn extract_graph_facts_with_metadata_before(
     let rust = ext == "rs";
     if let Some(tree) = super::extractor::parse_before(content, &entry.language, deadline) {
         let root = tree.root_node();
-        let line_index = LineIndex::new(content);
+        let line_index = NodePositions::new(content);
         rust_root_unsupported = (ext == "rs").then(|| rust_inner_unsupported(root, content));
         if rust_root_unsupported == Some(true) {
             acc.diagnostics
@@ -239,7 +254,10 @@ fn extract_graph_facts_with_metadata_before(
             );
             error_lines = syntax_error_lines(root);
         }
-        if !visit_node(root, content, &line_index, &mut acc, deadline, &[])
+        acc.name_tokens = Some(Vec::new());
+        let visited = visit_node(root, content, &line_index, &mut acc, deadline, &[], None);
+        let name_tokens = acc.name_tokens.take().unwrap_or_default();
+        if !visited
             || !visit_macro_bodies(content, &entry.language, &line_index, &mut acc, deadline)
         {
             // Facts gathered before the deadline are positive syntax facts and
@@ -247,9 +265,8 @@ fn extract_graph_facts_with_metadata_before(
             // not read a missing import, call or module as absent.
             acc.diagnostics.push("graph.traversal.deadlineExceeded: graph extraction exceeded its execution deadline; facts are incomplete".to_owned());
             rust_root_unsupported = (ext == "rs").then_some(true);
-        } else if let Some(counts) = count_name_references(root, content, &acc, deadline) {
-            // A count cut short by the deadline would undercount; leaving it
-            // out makes consumers treat every declaration as escaping.
+        } else {
+            let counts = count_name_references(content, &acc, &name_tokens);
             reference_counts = acc
                 .declarations
                 .iter()
@@ -407,56 +424,37 @@ fn rust_import_uses(
 /// contents are never identifier tokens, so they cannot count; Rust inline
 /// format captures (`"{name}"` inside a macro) are the one string form that
 /// names a binding and are counted. No scope resolution: equal names share a
-/// count. `None` when the deadline cut the walk short.
+/// count. `tokens` are the ones the main walk recorded, so this reads no tree.
 fn count_name_references(
-    root: Node<'_>,
     content: &str,
     acc: &GraphAccumulator,
-    deadline: std::time::Instant,
-) -> Option<std::collections::HashMap<String, u32>> {
+    tokens: &[NameToken],
+) -> std::collections::HashMap<String, u32> {
     let mut counts: std::collections::HashMap<String, u32> = acc
         .declarations
         .iter()
         .map(|declaration| (declaration.name.clone(), 0))
         .collect();
     if counts.is_empty() {
-        return Some(counts);
+        return counts;
     }
-    let rust = acc.ext == "rs";
-    let mut pending = vec![root];
-    let mut cursor = root.walk();
-    let mut steps = 0_u32;
-    while let Some(node) = pending.pop() {
-        if polls_deadline(&mut steps) && std::time::Instant::now() >= deadline {
-            return None;
-        }
-        if is_name_leaf(node) {
-            if !acc.non_reference_tokens.contains(&node.start_byte())
-                && let Some(count) = node_text(node, content).and_then(|text| counts.get_mut(text))
+    for token in tokens {
+        let text = content.get(token.start..token.end);
+        if !token.format {
+            if !acc.non_reference_tokens.contains(&token.start)
+                && let Some(count) = text.and_then(|text| counts.get_mut(text))
             {
                 *count += 1;
             }
             continue;
         }
-        if rust
-            && node.kind() == "string_literal"
-            && node
-                .parent()
-                .is_some_and(|parent| parent.kind() == "token_tree")
-        {
-            for name in node_text(node, content)
-                .map(inline_format_captures)
-                .unwrap_or_default()
-            {
-                if let Some(count) = counts.get_mut(name) {
-                    *count += 1;
-                }
+        for name in text.map(inline_format_captures).unwrap_or_default() {
+            if let Some(count) = counts.get_mut(name) {
+                *count += 1;
             }
-            continue;
         }
-        pending.extend(node.named_children(&mut cursor));
     }
-    Some(counts)
+    counts
 }
 
 /// Whether a node walk should read the clock at this step: the first step
@@ -513,6 +511,11 @@ fn is_item_level(node: Node<'_>) -> bool {
     })
 }
 
+/// A Rust item-level macro body to re-read as items: its inner range, the
+/// enclosing `mod` names (outermost first), and the enclosing declaration's
+/// `(id, name)`, so the items it holds nest where the macro call sits.
+type MacroBody = (tree_sitter::Range, Vec<String>, Option<(String, String)>);
+
 fn push_macro_gap(acc: &mut GraphAccumulator) {
     let message = "unsupported Rust macro expansion: macro-generated imports are not linked";
     if !acc
@@ -525,24 +528,37 @@ fn push_macro_gap(acc: &mut GraphAccumulator) {
 }
 
 /// Read recorded Rust item-level macro bodies as items (nested bodies too,
-/// bounded). A body that does not parse as items stays an explicit gap.
+/// bounded), in the order the walk met them, each under the declaration that
+/// holds the macro call. A body that does not parse as items stays an
+/// explicit gap. Declarations found in bodies are then put back in source
+/// order (a stable sort by start byte keeps parents before their members).
 fn visit_macro_bodies(
     content: &str,
     language: &tree_sitter::Language,
-    line_index: &LineIndex<'_>,
+    line_index: &NodePositions<'_>,
     acc: &mut GraphAccumulator,
     deadline: std::time::Instant,
 ) -> bool {
     const MAX_MACRO_BODIES: usize = 256;
     let mut visited = 0;
-    while let Some((range, scope)) = acc.macro_bodies.pop() {
+    let declared_before = acc.declarations.len();
+    while visited < acc.macro_bodies.len() {
+        let (range, scope, container) = acc.macro_bodies[visited].clone();
         visited += 1;
         let parsed = (visited <= MAX_MACRO_BODIES)
             .then(|| super::extractor::parse_ranges_before(content, language, &[range], deadline))
             .flatten();
         match parsed {
             Some(tree) if !tree.root_node().has_error() => {
-                if !visit_node(tree.root_node(), content, line_index, acc, deadline, &scope) {
+                if !visit_node(
+                    tree.root_node(),
+                    content,
+                    line_index,
+                    acc,
+                    deadline,
+                    &scope,
+                    container.as_ref(),
+                ) {
                     return false;
                 }
             }
@@ -554,16 +570,33 @@ fn visit_macro_bodies(
             }
         }
     }
+    if acc.declarations.len() > declared_before {
+        let mut order: Vec<usize> = (0..acc.declarations.len()).collect();
+        order.sort_by_key(|&index| acc.declaration_spans[index].0);
+        let mut declarations = std::mem::take(&mut acc.declarations)
+            .into_iter()
+            .map(Some)
+            .collect::<Vec<_>>();
+        acc.declarations = order
+            .iter()
+            .filter_map(|&index| declarations[index].take())
+            .collect();
+        acc.declaration_spans = order
+            .iter()
+            .map(|&index| acc.declaration_spans[index])
+            .collect();
+    }
     true
 }
 
 fn visit_node(
     root: Node<'_>,
     content: &str,
-    line_index: &LineIndex<'_>,
+    line_index: &NodePositions<'_>,
     acc: &mut GraphAccumulator,
     deadline: std::time::Instant,
     outer_scope: &[String],
+    outer_declaration: Option<&(String, String)>,
 ) -> bool {
     enum Frame<'tree> {
         /// A node, its carried Rust context, and its depth below the root.
@@ -575,7 +608,7 @@ fn visit_node(
     let rust = acc.ext == "rs";
     let mut receivers = receiver::ReceiverTypes::new(&acc.ext, root);
     let mut frames = vec![Frame::Enter(root, RustContext::default(), 0)];
-    let mut declarations: Vec<(String, String)> = Vec::new();
+    let mut declarations: Vec<(String, String)> = outer_declaration.into_iter().cloned().collect();
     // Names of the enclosing `mod` items, outermost first.
     let mut module_scope: Vec<String> = outer_scope.to_vec();
     let mut children = Vec::new();
@@ -591,6 +624,20 @@ fn visit_node(
         let (node, mut context) = match frame {
             Frame::Enter(node, context, depth) => {
                 path.truncate(depth);
+                if let Some(tokens) = acc.name_tokens.as_mut() {
+                    let format = rust
+                        && node.kind() == "string_literal"
+                        && path
+                            .last()
+                            .is_some_and(|parent| parent.kind() == "token_tree");
+                    if format || is_name_leaf(node) {
+                        tokens.push(NameToken {
+                            start: node.start_byte(),
+                            end: node.end_byte(),
+                            format,
+                        });
+                    }
+                }
                 (node, context)
             }
             Frame::ExitDeclaration => {
@@ -717,12 +764,12 @@ fn method_kind(kind: &'static str, node: Node<'_>, active_decl: Option<&str>) ->
 ///
 /// Note the intentional coordinate-basis split on every emitted `GraphFactDeclaration`:
 /// `line` is 1-based (human-facing, computed as `range.start.line + 1`) while
-/// `range`/`selection_range` are 0-based (`LineIndex` coordinates). Consumers must
+/// `range`/`selection_range` are 0-based (`NodePositions` coordinates). Consumers must
 /// not mix the two bases — use `range` for zero-based math and `line` for display.
 fn collect_node_facts(
     node: Node<'_>,
     content: &str,
-    line_index: &LineIndex<'_>,
+    line_index: &NodePositions<'_>,
     acc: &mut GraphAccumulator,
     active_decl: Option<&str>,
     active_name: Option<&str>,
@@ -759,7 +806,11 @@ fn collect_node_facts(
                     column: body.end_position().column.saturating_sub(1),
                 },
             };
-            acc.macro_bodies.push((inner, rust.module_scope.to_vec()));
+            let container = active_decl
+                .zip(active_name)
+                .map(|(id, name)| (id.to_owned(), name.to_owned()));
+            acc.macro_bodies
+                .push((inner, rust.module_scope.to_vec(), container));
         }
     }
     let decl = declaration(node, content).and_then(|(kind, name_token)| {
@@ -1012,7 +1063,7 @@ fn collect_node_facts(
 fn collect_csharp_using(
     node: Node<'_>,
     content: &str,
-    line_index: &LineIndex<'_>,
+    line_index: &NodePositions<'_>,
     acc: &mut GraphAccumulator,
 ) {
     let alias = node.child_by_field_name("name");

@@ -11,7 +11,6 @@ import {
 } from '../../../src/cli/commands/skills/checker.js';
 
 import * as registry from '../../../src/cli/commands/skills/registry.js';
-import * as home from '../../../src/cli/commands/skills/home.js';
 
 describe('skill content freshness', () => {
   let root: string;
@@ -21,7 +20,7 @@ describe('skill content freshness', () => {
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(tmpdir(), 'octocode-skill-freshness-'));
     bundled = path.join(root, 'bundled', 'fixture-skill');
-    installed = path.join(root, 'installed', 'fixture-skill');
+    installed = path.join(root, 'home', 'skills', 'fixture-skill');
     for (const dir of [bundled, installed]) {
       fs.mkdirSync(path.join(dir, 'references'), { recursive: true });
       fs.writeFileSync(path.join(dir, 'SKILL.md'), '# Fixture\n');
@@ -31,6 +30,7 @@ describe('skill content freshness', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     fs.rmSync(root, { recursive: true, force: true });
   });
 
@@ -91,7 +91,8 @@ describe('skill content freshness', () => {
       description: 'fixture',
       dir: bundled,
     });
-    vi.spyOn(home, 'getSkillsHome').mockReturnValue(path.dirname(installed));
+    // The canonical skills home is <OCTOCODE_HOME>/skills.
+    vi.stubEnv('OCTOCODE_HOME', path.join(root, 'home'));
     vi.spyOn(process, 'cwd').mockReturnValue(root);
     const workspace = path.join(root, '.agents', 'skills');
     fs.mkdirSync(workspace, { recursive: true });

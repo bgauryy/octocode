@@ -41,14 +41,14 @@ for (const t of TASKS) {
   const prevAll = ocAll('astRewrite', [q], { cwd: HERE, reps: 1 });
   const prev = { chars: prevAll.chars, ms: prevAll.ms, calls: prevAll.calls, stdout: prevAll.steps.map(x => x.stdout).join('\n') };
   const datas = prevAll.parts.map(p => p?.results?.[0]?.data || {});
-  const d = { ...datas[0], ...datas[datas.length - 1], totalMatches: datas[0].totalMatches, next: datas.map(x => x.next).filter(Boolean).find(n => n.apply) || datas[datas.length - 1].next };
+  const d = { ...datas[0], ...datas[datas.length - 1], matchCount: datas[0].matchCount, next: datas.map(x => x.next).filter(Boolean).find(n => n.apply) || datas[datas.length - 1].next };
   let apply = null, applyData = null;
   if (d.hints?.apply?.query) { apply = ocRaw('astRewrite', { queries: [d.hints.apply.query] }, { cwd: HERE, reps: 1 }); applyData = apply.parsed?.results?.[0]?.data; }
   const rec = { id: t.id, lang: t.lang, task: `Rewrite ${t.pattern} → ${t.rewrite} in a copy of ${t.src}`,
     shell: { cmd: `ast-grep run -p … -r … (preview)  ;  ast-grep … -U`, calls: 2, chars: sgPrev.chars + sgApply.chars, ms: sgPrev.ms + sgApply.ms, changedLines: changedLines(orig, dSG), parseErrorsAfter: errNodes(dSG, t.lang) },
     sed: { cmd: t.sed, calls: 1, chars: sedRun.chars, ms: sedRun.ms, changedLines: changedLines(orig, dSED), parseErrorsAfter: errNodes(dSED, t.lang), vsAstGrep: diffStat(dSG, dSED) },
     octocode: { query: q, calls: prev.calls + (apply ? 1 : 0), previewCalls: prev.calls, chars: prev.chars + (apply?.chars || 0), ms: prev.ms + (apply?.ms || 0),
-      previewMatches: d.totalMatches, previewComplete: d.complete, affectedFiles: d.affectedFiles, previewError: d.error || null,
+      previewMatches: d.matchCount, previewComplete: d.complete, affectedFiles: d.affectedFiles, previewError: d.error || null,
       applyResult: applyData ? Object.fromEntries(Object.entries(applyData).filter(([k]) => !['files', 'matches'].includes(k))) : null,
       changedLines: changedLines(orig, dOC), parseErrorsAfter: errNodes(dOC, t.lang), vsAstGrep: diffStat(dSG, dOC), previewStdout: prev.stdout.slice(0, 4000), applyStdout: apply?.stdout.slice(0, 3000) },
     parseErrorsBefore: errNodes(orig, t.lang) };

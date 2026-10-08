@@ -1,7 +1,7 @@
 import Ajv2020 from 'ajv/dist/2020.js';
-import { z, type ZodType } from 'zod';
+import { type ZodType } from 'zod';
 import { isCliView } from './run.js';
-import { type CliCommand, type CliSpec, type JsonSchema, type ToolAnnotations } from './spec.js';
+import { commandJsonSchema, type CliCommand, type CliSpec, type JsonSchema, type ToolAnnotations } from './spec.js';
 
 export interface McpToolDefinition {
   name: string;
@@ -27,7 +27,7 @@ export interface ToolRegistrar {
       outputSchema?: unknown;
       annotations?: ToolAnnotations;
     },
-    callback: (args: Record<string, unknown>) => Promise<{
+    callback: (args: Record<string, unknown>, context?: { signal?: AbortSignal; mcpReq?: { signal?: AbortSignal } }) => Promise<{
       content: Array<{ type: 'text'; text: string }>;
       structuredContent?: Record<string, unknown>;
     }>,
@@ -46,20 +46,10 @@ export function cliToMcp(spec: CliSpec): McpExport {
   return {
     instructions: spec.instructions,
     tools: spec.commands.map(command => {
-      if (command.source === 'zod') {
-        if (!command.schema) throw new Error(`Zod command ${command.name} has no schema`);
-        return {
-          name: command.mcpName ?? command.name,
-          description: command.description,
-          inputSchema: z.toJSONSchema(command.schema) as JsonSchema,
-          ...protocolFields(command),
-        };
-      }
-      if (!command.inputSchema) throw new Error(`MCP command ${command.name} has no inputSchema`);
       return {
         name: command.mcpName ?? command.name,
         description: command.description,
-        inputSchema: command.inputSchema,
+        inputSchema: commandJsonSchema(command),
         ...protocolFields(command),
       };
     }),
@@ -128,7 +118,7 @@ export function registerOn(server: ToolRegistrar, spec: CliSpec): void {
         ...(outputSchema ? { outputSchema } : {}),
         ...(command.annotations ? { annotations: command.annotations } : {}),
       },
-      async args => toolMessage(await command.run(args ?? {})),
+      async (args, context) => toolMessage(await command.run(args ?? {}, { signal: context?.signal ?? context?.mcpReq?.signal })),
     );
   }
 }

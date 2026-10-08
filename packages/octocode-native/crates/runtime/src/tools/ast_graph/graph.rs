@@ -4,11 +4,13 @@ use super::packages::{PackageIndex, PackageLink};
 use super::types::*;
 use crate::tools::id::ToolId;
 use crate::tools::result::Continuation;
+use crate::tools::result::ToolError;
 use crate::{
     policy::{gitignore::GitignoreFilter, path::PathPolicy},
     security::ContentSecurity,
     tools::cancel::CancellationCheck,
 };
+use octocode_engine::text::JS_TS_EXTENSIONS;
 use octocode_engine::types::GraphFactsScanOptions;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -35,17 +37,17 @@ pub(crate) fn build_graph_with(
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
     extras: &BuildExtras,
-) -> Result<BuiltGraph, AstGraphError> {
-    let cancelled = |e| AstGraphError::new("ast.cancelled", e);
+) -> Result<BuiltGraph, ToolError> {
+    let cancelled = ToolError::cancelled;
     cancel.check().map_err(cancelled)?;
     let requested_root = q
         .path()
         .map(PathBuf::from)
         .or_else(|| infer_root(q))
         .ok_or_else(|| missing_root_error(q))?;
-    let validated = paths.validate(&requested_root).map_err(|e| {
-        AstGraphError::new(e.shared_code().unwrap_or("ast.path.invalid"), e.message)
-    })?;
+    let validated = paths
+        .validate(&requested_root)
+        .map_err(|e| ToolError::policy(e, "pathValidationFailed"))?;
     // Only drift diffs the evidence graph, which the memo does not keep.
     let drift = q.analysis() == super::GraphAnalysis::Drift;
     let key = memo_key(q, paths, extras, &validated.canonical);
@@ -67,6 +69,43 @@ pub(crate) fn build_graph_with(
         super::memo::put(key, std::sync::Arc::new(built.clone()));
     }
     Ok(built)
+}
+
+/// Shared immutable graph for public topology pages. Presentation path is
+/// separate because equivalent canonical roots may be requested by different
+/// spellings under the same path policy.
+pub(crate) fn build_graph_shared_with(
+    q: &AstTopologyQuery,
+    paths: &PathPolicy,
+    security: &ContentSecurity,
+    cancel: &dyn CancellationCheck,
+    extras: &BuildExtras,
+) -> Result<(std::sync::Arc<BuiltGraph>, String), ToolError> {
+    cancel.check().map_err(ToolError::cancelled)?;
+    let requested_root = q
+        .path()
+        .map(PathBuf::from)
+        .or_else(|| infer_root(q))
+        .ok_or_else(|| missing_root_error(q))?;
+    let validated = paths
+        .validate(&requested_root)
+        .map_err(|error| ToolError::policy(error, "pathValidationFailed"))?;
+    let display_path = paths.redact(&requested_root);
+    let key = memo_key(q, paths, extras, &validated.canonical);
+    if let Some(graph) = super::memo::get(&key) {
+        return Ok((graph, display_path));
+    }
+    let graph = std::sync::Arc::new(build_fresh(
+        q,
+        paths,
+        security,
+        cancel,
+        extras,
+        &requested_root,
+        validated,
+    )?);
+    super::memo::put(key, graph.clone());
+    Ok((graph, display_path))
 }
 
 /// Everything besides the files that decides the built graph.
@@ -100,10 +139,10 @@ fn build_fresh(
     extras: &BuildExtras,
     requested_root: &Path,
     validated: crate::policy::path::ValidatedPath,
-) -> Result<BuiltGraph, AstGraphError> {
+) -> Result<BuiltGraph, ToolError> {
     #[cfg(test)]
     FRESH_BUILDS.with(|count| count.set(count.get() + 1));
-    let cancelled = |e| AstGraphError::new("ast.cancelled", e);
+    let cancelled = ToolError::cancelled;
     let scan = scan_facts(q, paths, cancel, extras, &validated.canonical)?;
     cancel.check().map_err(cancelled)?;
     // A discovered path is not linkable until its facts were actually parsed.
@@ -131,10 +170,10 @@ fn build_fresh(
     if (scan.truncated || scan.files_skipped > 0)
         && let Some(builder) = graph_builder.as_mut()
     {
-        builder.mark_incomplete("scan-incomplete", scan.files_skipped);
+        builder.mark_incomplete("scan-incomplete");
     }
     let (rust_cargo_unavailable, cargo_crates) =
-        cargo_linking(q, &mut built, &known, extras.cargo.as_deref());
+        cargo_linking(q, &mut built, &known, extras.cargo.as_deref(), cancel);
     let resolve_context = ResolveContext::load(&built.root, &known, paths, security);
     let packages = PackageIndex::build(&built.root, &known, &|path| {
         super::aliases::read_config_text(paths, security, path)
@@ -180,10 +219,8 @@ fn build_fresh(
         cancel.check().map_err(cancelled)?;
         link_entry(&mut built, &inputs, entry, graph_builder.as_mut())?;
     }
-    // astTopology identifies results by their own digest (analysis
-    // `resultId`); the whole-graph digest is never read here.
     if let Some(builder) = graph_builder {
-        built.code_graph = builder.finish_without_digest();
+        built.code_graph = builder.finish();
     }
     built.diagnostics.sort();
     built.diagnostics.dedup();
@@ -197,7 +234,7 @@ fn scan_facts(
     cancel: &dyn CancellationCheck,
     extras: &BuildExtras,
     root: &Path,
-) -> Result<octocode_engine::graph::GraphFactsTypedScanResult, AstGraphError> {
+) -> Result<octocode_engine::graph::GraphFactsTypedScanResult, ToolError> {
     let mut exclude =
         crate::policy::prune::PruneMode::SyntaxVisible.directories(q.default_excludes());
     exclude.extend(extras.extra_excludes.iter().cloned());
@@ -224,6 +261,7 @@ fn scan_facts(
             exclude_dir: Some(exclude),
             exclude: globs,
             max_files: Some(max_files),
+            skip_files: None,
             max_file_bytes: Some(1_000_000),
             language_globs: q
                 .language_globs()
@@ -233,7 +271,7 @@ fn scan_facts(
         &|path| {
             cancel
                 .check()
-                .map_err(|message| format!("[ast.execution.cancelled] {message}"))?;
+                .map_err(|message| format!("[cancelled] {message}"))?;
             if gitignore
                 .as_ref()
                 .is_some_and(|filter| filter.is_ignored(path))
@@ -246,15 +284,15 @@ fn scan_facts(
     .map_err(|e| {
         let message = e.to_string();
         let code = if message.starts_with("[ast.language.unsupported]") {
-            "ast.language.unsupported"
+            "languageUnsupported"
         } else if message.starts_with("[ast.language.invalidGlob]") {
-            "ast.language.invalidGlob"
-        } else if message.starts_with("[ast.execution.cancelled]") {
-            "ast.cancelled"
+            "invalidGlob"
+        } else if message.starts_with("[cancelled]") {
+            "cancelled"
         } else {
-            "ast.graph.scanFailed"
+            "scanFailed"
         };
-        AstGraphError::new(code, message)
+        ToolError::new(code, message)
     })
 }
 
@@ -265,6 +303,7 @@ fn cargo_linking(
     b: &mut BuiltGraph,
     known: &BTreeSet<String>,
     cargo: Option<&str>,
+    cancel: &dyn CancellationCheck,
 ) -> (bool, CargoCrates) {
     let rust_cargo_unavailable = q.rust_workspace() == Some(AstTopologyQueryRustWorkspace::Cargo)
         && known.iter().any(|file| file.ends_with(".rs"))
@@ -280,7 +319,7 @@ fn cargo_linking(
     let cargo_crates = if q.rust_workspace() == Some(AstTopologyQueryRustWorkspace::Cargo)
         && !rust_cargo_unavailable
     {
-        match load_cargo_crates(&b.root, cargo) {
+        match load_cargo_crates(&b.root, cargo, cancel) {
             Ok(map) => map,
             Err(message) => {
                 b.diagnostics.push(Diagnostic {
@@ -304,7 +343,7 @@ fn link_entry(
     inputs: &LinkInputs,
     entry: octocode_engine::graph::GraphFactsTypedEntry,
     graph_builder: Option<&mut octocode_engine::graph::CodeGraphBuilder>,
-) -> Result<(), AstGraphError> {
+) -> Result<(), ToolError> {
     let file = normalize(&entry.relative_path);
     let parsed: RawFacts = entry.facts;
     if parsed.schema_version != 1 {
@@ -324,7 +363,7 @@ fn link_entry(
     if let Some(builder) = graph_builder.as_deref_mut() {
         builder
             .ingest_facts(&file, entry.content_digest.clone(), &parsed)
-            .map_err(|error| AstGraphError::new("ast.graph.modelFailed", error))?;
+            .map_err(|error| ToolError::new("executionFailed", error))?;
     }
     let counts = entry
         .reference_counts
@@ -334,6 +373,7 @@ fn link_entry(
     link_file(built, inputs, file.clone(), parsed, counts, graph_builder)?;
     if let Some(facts) = built.facts.get_mut(&file) {
         facts.digest = entry.content_digest;
+        facts.stamp = entry.source_stamp;
     }
     Ok(())
 }
@@ -365,14 +405,14 @@ fn has_cargo_manifest(root: &Path, known: &BTreeSet<String>) -> bool {
 
 /// No `path` and no absolute file to infer a root from: the caller must name
 /// the scan root, so this is an input error, not an execution failure.
-fn missing_root_error(q: &AstTopologyQuery) -> AstGraphError {
+fn missing_root_error(q: &AstTopologyQuery) -> ToolError {
     let message = match q.source().or(q.target()) {
         Some(relative) => format!(
             "path is required: file {relative:?} is relative and no scan root was given. Pass path:<absolute project root> (file then resolves against it) or an absolute file (its nearest Cargo.toml or package.json becomes the root)."
         ),
         None => "path is required: pass path:<absolute project root>, or an absolute file whose nearest Cargo.toml or package.json becomes the root.".to_owned(),
     };
-    let mut error = AstGraphError::new("ast.input.invalid", message);
+    let mut error = ToolError::new("invalidInput", message);
     error.hints =
         vec!["Add path with the absolute project root the relative file lives under.".into()];
     error
@@ -420,14 +460,8 @@ fn is_c_family_extension(ext: &str) -> bool {
         "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" | "cu" | "cuh"
     )
 }
-fn is_javascript_extension(ext: &str) -> bool {
-    matches!(
-        ext,
-        "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" | "mts" | "cts"
-    )
-}
 fn linking(ext: &str) -> &'static str {
-    if is_javascript_extension(ext) {
+    if JS_TS_EXTENSIONS.contains(&ext) {
         "javascript-relative"
     } else if ext == "go" {
         "go-packages"
@@ -485,7 +519,7 @@ fn link_file(
     p: RawFacts,
     counts: BTreeMap<String, u32>,
     graph_builder: Option<&mut octocode_engine::graph::CodeGraphBuilder>,
-) -> Result<(), AstGraphError> {
+) -> Result<(), ToolError> {
     let ext = extension(&file).to_owned();
     let language = if p.language.is_empty() {
         ext.clone()
@@ -606,7 +640,7 @@ struct FileLink<'x, 'g> {
 }
 
 impl FileLink<'_, '_> {
-    fn edge(&mut self, target: &str, kind: &str, line: u32) -> Result<(), AstGraphError> {
+    fn edge(&mut self, target: &str, kind: &str, line: u32) -> Result<(), ToolError> {
         add_edge(
             self.b,
             self.graph_builder.as_deref_mut(),
@@ -621,7 +655,7 @@ impl FileLink<'_, '_> {
     /// A bare JS/TS specifier naming project code (alias, workspace package,
     /// `#`/`@/`/`~/` convention): failing to link it is an internal gap.
     fn internal_bare(&self, spec: &str) -> bool {
-        is_javascript_extension(&self.ext)
+        JS_TS_EXTENSIONS.contains(&self.ext.as_str())
             && !spec.starts_with('.')
             && !spec.starts_with('/')
             && self.inputs.ctx.is_internal_bare_js(spec, &self.file)
@@ -694,7 +728,7 @@ impl FileLink<'_, '_> {
         &mut self,
         i: octocode_engine::graph::GraphFactImport,
         modules: &[octocode_engine::graph::GraphFactRustModule],
-    ) -> Result<(), AstGraphError> {
+    ) -> Result<(), ToolError> {
         if matches!(self.ext.as_str(), "go" | "java") {
             return self.package_import(i);
         }
@@ -742,7 +776,10 @@ impl FileLink<'_, '_> {
     fn package_import(
         &mut self,
         i: octocode_engine::graph::GraphFactImport,
-    ) -> Result<(), AstGraphError> {
+    ) -> Result<(), ToolError> {
+        if self.b.edges_capped {
+            return Ok(());
+        }
         let mut external = false;
         let targets = match self
             .inputs
@@ -772,16 +809,23 @@ impl FileLink<'_, '_> {
         if !targets.is_empty() {
             self.b.imports[0] += 1;
         }
-        for target in &targets {
-            if target != &self.file {
-                self.edge(target, edge_kind(&self.ext, "value"), i.line)?;
+        let mut linked_targets = Vec::new();
+        for target in targets {
+            if target != self.file {
+                self.edge(&target, edge_kind(&self.ext, "value"), i.line)?;
+                if self.b.edges_capped {
+                    break;
+                }
             }
+            linked_targets.push(target);
         }
-        if targets.len() > 1 {
-            self.b.namespace_targets.extend(targets.iter().cloned());
+        if linked_targets.len() > 1 {
+            self.b
+                .namespace_targets
+                .extend(linked_targets.iter().cloned());
         }
         let imported_name = i.imported_name.unwrap_or_default();
-        if targets.is_empty() {
+        if linked_targets.is_empty() {
             self.facts.imports.push(Import {
                 imported_name,
                 local_name: i.local_name,
@@ -793,7 +837,7 @@ impl FileLink<'_, '_> {
             });
             return Ok(());
         }
-        for target in targets {
+        for target in linked_targets {
             self.facts.imports.push(Import {
                 imported_name: imported_name.clone(),
                 local_name: i.local_name.clone(),
@@ -813,7 +857,7 @@ impl FileLink<'_, '_> {
         &mut self,
         calls: &[octocode_engine::graph::GraphFactCall],
         edges: &[octocode_engine::graph::GraphFactEdge],
-    ) -> Result<(), AstGraphError> {
+    ) -> Result<(), ToolError> {
         let mut named = BTreeMap::<&str, u32>::new();
         let uses = calls
             .iter()
@@ -854,7 +898,7 @@ impl FileLink<'_, '_> {
         Ok(())
     }
 
-    fn export(&mut self, x: octocode_engine::graph::GraphFactExport) -> Result<(), AstGraphError> {
+    fn export(&mut self, x: octocode_engine::graph::GraphFactExport) -> Result<(), ToolError> {
         let Some(spec) = x.source else {
             return Ok(());
         };
@@ -897,7 +941,7 @@ impl FileLink<'_, '_> {
         Ok(())
     }
 
-    fn call(&mut self, c: octocode_engine::graph::GraphFactCall) -> Result<(), AstGraphError> {
+    fn call(&mut self, c: octocode_engine::graph::GraphFactCall) -> Result<(), ToolError> {
         if c.kind == "dynamic-import" {
             let target = self.resolve(&c.callee, None, "*");
             self.record(c.line, &c.callee, &target, false);
@@ -935,10 +979,7 @@ impl FileLink<'_, '_> {
         Ok(())
     }
 
-    fn common_js(
-        &mut self,
-        c: octocode_engine::graph::GraphFactCommonJs,
-    ) -> Result<(), AstGraphError> {
+    fn common_js(&mut self, c: octocode_engine::graph::GraphFactCommonJs) -> Result<(), ToolError> {
         let Some(spec) = c.specifier else {
             self.b.imports[3] += 1;
             self.b.diagnostics.push(Diagnostic {
@@ -973,6 +1014,23 @@ impl FileLink<'_, '_> {
 /// evidence graph. Hitting the cap degrades to a truncated (diagnosed) graph.
 const MAX_GRAPH_EDGES: u32 = 2_000_000;
 
+#[cfg(test)]
+thread_local! {
+    /// The edge cap this test thread builds under (tests lower it).
+    pub(super) static EDGE_CAP: std::cell::Cell<u32> = const { std::cell::Cell::new(MAX_GRAPH_EDGES) };
+}
+
+pub(super) fn edge_cap() -> u32 {
+    #[cfg(test)]
+    {
+        EDGE_CAP.with(std::cell::Cell::get)
+    }
+    #[cfg(not(test))]
+    {
+        MAX_GRAPH_EDGES
+    }
+}
+
 fn add_edge(
     b: &mut BuiltGraph,
     graph_builder: Option<&mut octocode_engine::graph::CodeGraphBuilder>,
@@ -981,17 +1039,20 @@ fn add_edge(
     target: &str,
     kind: &str,
     line: u32,
-) -> Result<(), AstGraphError> {
-    if b.edge_count >= MAX_GRAPH_EDGES {
+) -> Result<(), ToolError> {
+    if b.edge_count >= edge_cap() {
         if !b.edges_capped {
             b.edges_capped = true;
-            b.truncated = true;
+            if let Some(builder) = graph_builder {
+                builder.mark_incomplete("edge-cap");
+            }
             b.diagnostics.push(Diagnostic {
                 file: ".".into(),
                 line: None,
                 code: "graph-edge-cap".into(),
                 message: format!(
-                    "Edge collection stopped at the {MAX_GRAPH_EDGES}-edge cap; topology results are partial. Narrow the scan root or exclude."
+                    "Edge collection stopped at the {}-edge cap; topology results are partial. Narrow the scan root or exclude.",
+                    edge_cap()
                 ),
             });
         }
@@ -1005,7 +1066,7 @@ fn add_edge(
     if let Some(builder) = graph_builder {
         builder
             .add_file_relation(source, target, kind, line)
-            .map_err(|error| AstGraphError::new("ast.graph.modelFailed", error))?;
+            .map_err(|error| ToolError::new("executionFailed", error))?;
     }
     Ok(())
 }
@@ -1160,7 +1221,7 @@ fn resolve(
     if ext == "rs" {
         return resolve_rust(spec, importer, known, cargo_crates);
     }
-    if !is_javascript_extension(ext) {
+    if !JS_TS_EXTENSIONS.contains(&ext) {
         return None;
     }
     if spec.starts_with('/') {
@@ -1486,7 +1547,7 @@ fn admit_scope(
     paths: &PathPolicy,
     gitignore: Option<&GitignoreFilter>,
     cancel: &dyn CancellationCheck,
-) -> Result<(), AstGraphError> {
+) -> Result<(), ToolError> {
     let found = octocode_engine::portable::query_file_system_filtered(
         octocode_engine::types::FileSystemQueryOptions {
             path: root.to_string_lossy().into_owned(),
@@ -1511,7 +1572,7 @@ fn admit_scope(
             Ok(paths.permits_discovery(path))
         },
     )
-    .map_err(|e| AstGraphError::new("ast.graph.scanFailed", e.to_string()))?;
+    .map_err(|e| ToolError::new("scanFailed", e.to_string()))?;
     if found.entries.len() as u32 <= SCOPE_ADMISSION_FILES {
         return Ok(());
     }
@@ -1533,19 +1594,31 @@ fn admit_scope(
     }
     let mut ranked: Vec<(String, u32)> = by_dir.into_iter().collect();
     ranked.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-    let narrower: Vec<&(String, u32)> = ranked
+    // A query anchored on files (source, target, entrypoints) can only
+    // narrow to a directory that holds all of them: the widest admissible one.
+    let relative_entries: Vec<String> = found
+        .entries
         .iter()
-        .filter(|(_, count)| *count <= SCOPE_ADMISSION_FILES)
-        .take(5)
+        .map(|entry| normalize(&entry.relative_path))
         .collect();
+    let anchored = anchored_root(q, root, &relative_entries);
+    let narrower: Vec<&(String, u32)> = match &anchored {
+        Some(pair) => vec![pair],
+        None if q.source().is_some() || q.target().is_some() => Vec::new(),
+        None => ranked
+            .iter()
+            .filter(|(_, count)| *count <= SCOPE_ADMISSION_FILES)
+            .take(5)
+            .collect(),
+    };
     let root_display = root.to_string_lossy().into_owned();
     let listed = narrower
         .iter()
         .map(|(dir, count)| format!("{dir} ({count})"))
         .collect::<Vec<_>>()
         .join(", ");
-    let mut error = AstGraphError::new(
-        "ast.graph.scopeTooBroad",
+    let mut error = ToolError::new(
+        "scopeTooBroad",
         format!(
             "More than {SCOPE_ADMISSION_FILES} parseable files under this root; a full parse can exhaust the call deadline before analysis. Admissible roots by file count: {}.",
             if listed.is_empty() {
@@ -1570,14 +1643,32 @@ fn admit_scope(
     };
     let mut next = serde_json::Map::new();
     if let Some((dir, _)) = narrower.first() {
+        let mut query = continuation(format!("{root_display}/{dir}"), None);
+        if anchored.is_some() {
+            // Re-root the anchors that were relative to the old root.
+            let prefix = format!("{dir}/");
+            let rebase = |value: &mut serde_json::Value| {
+                if let Some(text) = value.as_str()
+                    && !Path::new(text).is_absolute()
+                    && let Some(rest) = normalize(text).strip_prefix(&prefix)
+                {
+                    *value = serde_json::json!(rest);
+                }
+            };
+            for field in ["source", "target"] {
+                if let Some(value) = query.get_mut(field) {
+                    rebase(value);
+                }
+            }
+            if let Some(entries) = query.get_mut("entrypoints").and_then(|v| v.as_array_mut()) {
+                entries.iter_mut().for_each(rebase);
+            }
+        }
         next.insert(
             "narrowScope".into(),
-            Continuation::new(
-                ToolId::AstTopology,
-                continuation(format!("{root_display}/{dir}"), None),
-            )
-            .confidence("medium")
-            .build(),
+            Continuation::new(ToolId::AstTopology, query)
+                .confidence("medium")
+                .build(),
         );
     }
     next.insert(
@@ -1591,6 +1682,56 @@ fn admit_scope(
     );
     error.next = Some(Box::new(serde_json::Value::Object(next)));
     Err(error)
+}
+
+/// The widest directory under `root` that holds every file the query names
+/// (`source`, `target`, `entrypoints`) and is under the admission bound,
+/// with its file count; `None` when the query names no file or no such
+/// directory exists.
+fn anchored_root(q: &AstTopologyQuery, root: &Path, entries: &[String]) -> Option<(String, u32)> {
+    let anchors: Vec<String> = q
+        .source()
+        .into_iter()
+        .chain(q.target())
+        .chain(q.entrypoints().into_iter().flatten().map(String::as_str))
+        .map(|anchor| {
+            let path = Path::new(anchor);
+            if path.is_absolute() {
+                path.strip_prefix(root)
+                    .map(|relative| normalize(&relative.to_string_lossy()))
+                    .unwrap_or_default()
+            } else {
+                normalize(anchor)
+            }
+        })
+        .collect();
+    let first = anchors.first()?;
+    // Directory segments every anchor shares.
+    let segments = |anchor: &str| -> Vec<String> {
+        let mut parts: Vec<String> = anchor.split('/').map(str::to_owned).collect();
+        parts.pop();
+        parts
+    };
+    let mut common = segments(first);
+    for anchor in &anchors[1..] {
+        let other = segments(anchor);
+        let shared = common
+            .iter()
+            .zip(&other)
+            .take_while(|(a, b)| a == b)
+            .count();
+        common.truncate(shared);
+    }
+    (1..=common.len()).find_map(|depth| {
+        let dir = common[..depth].join("/");
+        let prefix = format!("{dir}/");
+        let count = entries
+            .iter()
+            .filter(|entry| entry.starts_with(&prefix))
+            .count();
+        let count = u32::try_from(count).unwrap_or(u32::MAX);
+        (count <= SCOPE_ADMISSION_FILES).then_some((dir, count))
+    })
 }
 
 const WORKSPACE_CONTAINERS: &[&str] =
@@ -1683,8 +1824,12 @@ mod tests {
     #[test]
     fn cargo_aliases_are_resolved_in_the_importing_package() {
         let fixture = cargo_fixture();
-        let crates =
-            super::load_cargo_crates(&fixture.path().canonicalize().unwrap(), None).unwrap();
+        let crates = super::load_cargo_crates(
+            &fixture.path().canonicalize().unwrap(),
+            None,
+            &crate::tools::cancel::NeverCancel,
+        )
+        .unwrap();
         let known = [
             "a/src/lib.rs",
             "b/src/lib.rs",
@@ -1725,13 +1870,26 @@ mod tests {
         .unwrap();
         // Warm up after any first-run lockfile creation, so only the member
         // manifest changes between the two observations below.
-        super::load_cargo_crates(&fixture.path().canonicalize().unwrap(), None).unwrap();
-        let before =
-            super::load_cargo_crates(&fixture.path().canonicalize().unwrap(), None).unwrap();
+        super::load_cargo_crates(
+            &fixture.path().canonicalize().unwrap(),
+            None,
+            &crate::tools::cancel::NeverCancel,
+        )
+        .unwrap();
+        let before = super::load_cargo_crates(
+            &fixture.path().canonicalize().unwrap(),
+            None,
+            &crate::tools::cancel::NeverCancel,
+        )
+        .unwrap();
         let text = std::fs::read_to_string(&manifest).unwrap();
         std::fs::write(&manifest, text.replace("shared =", "renamed =")).unwrap();
-        let after =
-            super::load_cargo_crates(&fixture.path().canonicalize().unwrap(), None).unwrap();
+        let after = super::load_cargo_crates(
+            &fixture.path().canonicalize().unwrap(),
+            None,
+            &crate::tools::cancel::NeverCancel,
+        )
+        .unwrap();
         let known = ["z_two/src/lib.rs", "z_one/src/lib.rs"]
             .into_iter()
             .map(str::to_owned)
@@ -2258,7 +2416,8 @@ mod tests {
     #[test]
     fn cargo_metadata_stdout_is_drained_while_the_child_runs() {
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let crates = super::load_cargo_crates(root, None).expect("cargo metadata");
+        let crates = super::load_cargo_crates(root, None, &crate::tools::cancel::NeverCancel)
+            .expect("cargo metadata");
         assert_eq!(
             crates
                 .resolve("src/lib.rs", "octocode_native")

@@ -1,1 +1,0 @@
-{"kind":"octocode.toolError","version":1,"tool":"ghGetFileContent","error":"Check the query fields.","details":["goal: Missing required field: goal (a new query states it; only a next.* continuation with followUp: true inherits it)","reasoning: Missing required field: reasoning (a new query states it; only a next.* continuation with followUp: true inherits it)"]}

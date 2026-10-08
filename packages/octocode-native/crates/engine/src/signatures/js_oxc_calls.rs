@@ -36,7 +36,7 @@
 
 use super::deep_stack::job_cancelled;
 use super::js_oxc_receiver::ReceiverScopes;
-use super::js_oxc_shared::{LineIndex, property_key_name};
+use super::js_oxc_shared::{SpanPositions, property_key_name};
 use crate::graph::{GraphFactCall, GraphPosition};
 use oxc_ast::ast::*;
 use oxc_ast_visit::{VisitJs, walk_js};
@@ -45,7 +45,7 @@ use oxc_span::{GetSpan, Span};
 
 pub(super) fn collect_program_calls(
     program: &Program,
-    li: &LineIndex,
+    li: &SpanPositions,
     calls: &mut Vec<GraphFactCall>,
     heritage: &mut Vec<GraphHeritage>,
 ) {
@@ -83,7 +83,7 @@ struct CallCollector<'c, 'l> {
     /// `None` only in declaration context: the program top level, a TS
     /// namespace body, or directly under an `export` declaration.
     owner: Option<String>,
-    li: &'c LineIndex<'l>,
+    li: &'c SpanPositions<'l>,
     calls: &'c mut Vec<GraphFactCall>,
     heritage: &'c mut Vec<GraphHeritage>,
     /// Lexical bindings and `this` fields for receiver types.
@@ -499,7 +499,7 @@ fn push_call(
     owner: &str,
     callee: String,
     span: Span,
-    li: &LineIndex,
+    li: &SpanPositions,
     kind: &'static str,
     receiver_type: Option<String>,
     calls: &mut Vec<GraphFactCall>,

@@ -26,7 +26,7 @@ The default catalog contains 12 tools; a classification key adds `clasify`. `OCT
 ## Output and recovery
 - A row `status` `error` names its repair: its `hints.text` tip, `hints.repair` lead, or `next.restart` page. Check hoisted `shared` before calling a field missing.
 - `next.*` pages sit in rows and nested payloads; they carry fields schemas omit. Coverage claims run every page.
-- `hints.*` holds `hints.text` tips and leads (`readTopMatch`, `readFixPullRequest`, `viewRepo`, `clasify`, …); skipping one never leaves a result incomplete.
+- `hints.*` holds `hints.text` tips and leads (`read`, `readPullRequest`, `viewRepo`, `clasify`, …); skipping one never leaves a result incomplete.
 - Result, match, content, patch, and diagnostic pagination are independent; inspect limits even when `hasMore:false`. `responsePagination` pages an oversized batch response (`responseScope`: text, structured, or rows); finish it before following a row continuation. A terminal limit calls for a narrower query, never an invented cursor.
 - GitHub empty or unindexed is a provider blind spot: verify the path or materialize and search locally.
 

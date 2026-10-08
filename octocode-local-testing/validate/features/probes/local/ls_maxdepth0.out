@@ -1,5 +1,0 @@
-# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx", "searchText": "needle", "maxDepth": 0, "resultView": "files"}
-# env: None
-# exit: 1
-# stderr: 
-{"results":[{"index":0,"data":{"stats":{"totalOccurrences":0,"filesSearched":1},"hints":["No matches. Try caseMode:\"insensitive\", a shorter term, regex:\"literal\" if searchText has metacharacters."]},"status":"empty"}]}

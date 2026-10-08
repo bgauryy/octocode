@@ -1,7 +1,7 @@
 //! Repository branches, tags, and language byte counts.
 use super::{
-    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason,
-    RequestContext, RequestSpec,
+    GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
+    RequestSpec,
 };
 use serde::Deserialize;
 
@@ -47,7 +47,7 @@ struct RefCommit {
     sha: String,
 }
 
-impl<R: CredentialResolver> GitHubTransport<R> {
+impl GitHubTransport {
     /// Page `page` (1-based) of a repository's branches or tags, `per_page`
     /// at a time; a missing repository is `RepositoryNotFound`.
     pub async fn repository_refs(

@@ -62,15 +62,15 @@ jobs:
       - run: yarn install --immutable
       - name: Verify crate boundaries and release scripts
         working-directory: packages/octocode-native
-        run: node scripts/check-crate-boundaries.cjs && node --test tests/build-publication.test.cjs
+        run: yarn check:crate-boundaries && node --test tests/build-publication.test.cjs
       - name: Format check
         working-directory: packages/octocode-native
-        run: cargo fmt --all --check
+        run: yarn fmt:rust:check
       - name: Test Rust libraries and host adapters
         working-directory: packages/octocode-native
-        run: cargo test --locked -p octocode-native -p octocode-github -p octocode-cli && cargo test --locked -p octocode-engine --all-features && cargo test --locked -p octocode-runtime-napi --features napi-test
+        run: yarn test:rust
         env:
           RUST_BACKTRACE: 1
       - name: Clippy workspace crates
         working-directory: packages/octocode-native
-        run: cargo clippy --locked --workspace --all-targets --all-features -- -D warnings
+        run: yarn lint

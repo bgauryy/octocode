@@ -310,7 +310,7 @@ function validatePrimaryToolGuidance() {
       ],
     },
     {
-      file: 'docs/OCTOCODE_RESEARCH_MANIFEST.md',
+      file: 'docs/OCTOCODE_WORKFLOWS.md',
       required: [
         '`ghSearchRepo`',
         '`ghSearchCode`',
@@ -384,6 +384,7 @@ function main() {
     ...validateDocumentationContracts(),
     ...validatePrimaryToolGuidance(),
     ...validateToolExamples(),
+    ...validateRetiredNames(),
   ];
 
   if (failures.length > 0) {
@@ -418,6 +419,67 @@ function validateToolExamples() {
       } catch (error) {
         failures.push(`docs/OCTOCODE_TOOLS.md ${name} example: ${error.message}`);
       }
+    }
+  }
+  return failures;
+}
+
+// D1 retired-name guard (retired-names.json): prose and consumer scripts
+// must not name a removed field, lead, input, or code.
+const RETIRED_SCAN_ROOTS = [
+  'docs',
+  'skills',
+  'skills-dev',
+  'skills-beta',
+  '.octocode/GOTCHAS.md',
+  'octocode-local-testing/harness',
+  'packages/octocode-benchmark/compare/unified/questions',
+  'packages/octocode-benchmark/compare/unified/references',
+  'octocode-local-testing/validate/local',
+  'octocode-local-testing/validate/github/tasks.json',
+];
+// Recorded tool outputs (old runs) keep the names they were recorded with.
+const RETIRED_SKIP_DIRS = new Set(['node_modules', 'raw', 'probes', 'results']);
+const RETIRED_SCAN_EXTENSIONS = /\.(md|mjs|js|cjs|ts|json|py|sh|txt|ya?ml)$/;
+
+function collectFiles(target) {
+  if (!fs.existsSync(target)) return [];
+  const stat = fs.statSync(target);
+  if (stat.isFile()) return [target];
+  const files = [];
+  for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
+    if (RETIRED_SKIP_DIRS.has(entry.name) || entry.name.startsWith('.')) continue;
+    files.push(...collectFiles(path.join(target, entry.name)));
+  }
+  return files.filter(file => RETIRED_SCAN_EXTENSIONS.test(file));
+}
+
+function validateRetiredNames() {
+  const listPath = path.join(__dirname, 'retired-names.json');
+  const entries = JSON.parse(fs.readFileSync(listPath, 'utf8')).names
+    .filter(entry => entry.text || entry.pattern)
+    .map(entry => ({
+      ...entry,
+      regex: new RegExp(entry.pattern ?? `\\b${entry.name}\\b`),
+    }));
+  if (entries.length === 0) return [];
+  const failures = [];
+  const packageRoots = fs
+    .readdirSync(path.join(ROOT, 'packages'), { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .flatMap(entry => ['docs', 'sanity_tests'].map(dir => path.join('packages', entry.name, dir)));
+  const files = [...RETIRED_SCAN_ROOTS, ...packageRoots].flatMap(root => collectFiles(path.join(ROOT, root)));
+  for (const file of files) {
+    if (file === listPath) continue;
+    const relative = path.relative(ROOT, file);
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    for (const entry of entries) {
+      if ((entry.allow ?? []).some(prefix => relative.startsWith(prefix))) continue;
+      lines.forEach((line, index) => {
+        if (entry.regex.test(line)) {
+          failures.push(`${relative}:${index + 1} names retired ${entry.scope} \`${entry.name}\` (${entry.slice})`);
+        }
+      });
     }
   }
   return failures;

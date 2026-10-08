@@ -7,7 +7,7 @@ use crate::tools::result::remove_null_fields;
 use serde_json::{Value, json};
 
 /// GitHub search stops at 1,000 results; the cap is not the end of history.
-const CAP_PARTITION_HINT: &str = "GitHub search returns at most 1,000 results; partition by date (qualifiers created:/merged:/closed: ranges, or since/until for commits) or narrow keywords to reach the rest.";
+const CAP_PARTITION_HINT: &str = "Search stops at 1,000 results: split by date (created:/merged:/closed:, commit since/until) or narrow keywords.";
 
 /// Where a page sits in the result.
 pub(super) struct Paging {
@@ -20,6 +20,8 @@ pub(super) struct Paging {
     total: usize,
     /// The provider total exceeds the reachable total.
     capped: bool,
+    /// The provider's own match count (a search's `total_count`).
+    matched: usize,
     /// A complete one-page REST list counts its rows exactly.
     exact_list_total: Option<usize>,
     listed: bool,
@@ -50,6 +52,7 @@ impl Paging {
             more,
             total,
             capped: !result.listed && result.total_count > SEARCH_RESULT_CAP,
+            matched: result.total_count,
             exact_list_total: (result.listed && current == 1 && !more)
                 .then_some(result.items.len()),
             listed: result.listed,
@@ -65,8 +68,12 @@ impl Paging {
         }
     }
     fn pagination(&self, current: usize) -> Value {
-        json!({"currentPage":current,"pageSize":self.per,"hasMore":self.more,
-            "nextPage":self.more.then_some(current + 1)})
+        let mut page =
+            crate::response::pages::PageFacts::open(current, Some(self.per), self.more).to_value();
+        if self.more {
+            page["nextPage"] = json!(current + 1);
+        }
+        page
     }
 }
 
@@ -215,18 +222,20 @@ fn commits(query: &HistorySearch, items: Vec<Value>, paging: &Paging) -> Value {
             .collect::<Vec<_>>();
         let mut v = json!({"commits":commits});
         if paging.more {
-            v["pagination"] = json!({"currentPage":paging.page,"pageSize":paging.per,
-                "hasMore":true,"nextPage":paging.page + 1});
+            v["pagination"] =
+                crate::response::pages::PageFacts::open(paging.page, Some(paging.per), true)
+                    .to_value();
+            v["pagination"]["nextPage"] = json!(paging.page + 1);
         }
         return v;
     }
     let commits = items.into_iter().map(rows::map_commit).collect::<Vec<_>>();
-    let mut v = json!({"scope":"defaultBranch",
-        "commits":commits,"pagination":{"currentPage":paging.page,"pageSize":paging.per,
-        "hasMore":paging.more}});
+    let mut facts =
+        crate::response::pages::PageFacts::open(paging.page, Some(paging.per), paging.more);
     if let Some(total) = paging.reported_total() {
-        v["pagination"]["totalItems"] = json!(total);
+        facts = facts.with_items(total);
     }
+    let mut v = json!({"scope":"defaultBranch","commits":commits,"pagination":facts.to_value()});
     if !paging.listed {
         v["pagination"]["totalItemsCapped"] = json!(paging.capped);
     }
@@ -259,9 +268,14 @@ fn mark_partial(value: &mut Value, paging: &Paging) {
         "providerIncompleteResults"
     }]);
     if paging.capped {
+        // The reachable `totalItems` is not the match count: state GitHub's.
+        let warning = json!(format!(
+            "GitHub matched {} results. {CAP_PARTITION_HINT}",
+            paging.matched
+        ));
         match value.get_mut("warnings").and_then(Value::as_array_mut) {
-            Some(warnings) => warnings.push(json!(CAP_PARTITION_HINT)),
-            None => value["warnings"] = json!([CAP_PARTITION_HINT]),
+            Some(warnings) => warnings.push(warning),
+            None => value["warnings"] = json!([warning]),
         }
     }
 }

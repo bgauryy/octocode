@@ -1,7 +1,7 @@
 """Octocode home policy for standalone Python consumers; owned by @octocodeai/config.
 
 Package builds copy this module into a skill's scripts directory. Like src/home.ts
-and rust/home.rs, this resolves lexical paths without following symlinks.
+and the native runtime, this resolves lexical paths without following symlinks.
 """
 import os
 from pathlib import Path

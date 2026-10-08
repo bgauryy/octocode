@@ -1,4 +1,5 @@
-import type { CLICommand, ParsedArgs } from '../types.js';
+import type { ParsedArgs } from '../types.js';
+import { OPTIONS_WITH_VALUES } from '../parser.js';
 import { EXIT } from '../exit-codes.js';
 import { reportFailure } from './skills/commands/fail.js';
 import { getBool, getString } from '../options.js';
@@ -62,7 +63,6 @@ const SUBCOMMAND_FLAGS: Record<string, readonly string[]> = {
     'upgrade',
     'global',
     'project-dir',
-    'workspace',
     'path',
     'dry-run',
     'json',
@@ -135,24 +135,8 @@ function installNames(args: ParsedArgs): string[] {
   return positionalAfterSubcommand(args).filter(a => !a.startsWith('-'));
 }
 
-export const skillCommand: CLICommand = {
+export const skillCommand = {
   name: 'skill',
-  options: [
-    { name: 'add', hasValue: true },
-    { name: 'platform', hasValue: true },
-    { name: 'all' },
-    { name: 'mode', hasValue: true, default: 'symlink' },
-    { name: 'force' },
-    { name: 'upgrade' },
-    { name: 'global' },
-    { name: 'project-dir', hasValue: true },
-    { name: 'workspace' },
-    { name: 'path', hasValue: true },
-    { name: 'dry-run' },
-    { name: 'fix' },
-    { name: 'no-env' },
-    { name: 'json' },
-  ],
   handler: (args: ParsedArgs) => {
     const json = getBool(args.options, 'json');
     const fail = (message: string): void => {
@@ -173,15 +157,11 @@ export const skillCommand: CLICommand = {
     }
     const flagError = unknownFlagError(command, args.options);
     if (flagError) return fail(flagError);
-    for (const option of skillCommand.options ?? []) {
-      if (
-        option.hasValue &&
-        args.options[option.name] !== undefined &&
-        typeof args.options[option.name] !== 'string'
-      ) {
-        return fail(`--${option.name} requires a value.`);
-      }
-    }
+    const missingValue = Object.keys(args.options).find(
+      key =>
+        OPTIONS_WITH_VALUES.has(key) && typeof args.options[key] !== 'string'
+    );
+    if (missingValue) return fail(`--${missingValue} requires a value.`);
     if (
       args.options.mode !== undefined &&
       !['copy', 'symlink', 'auto'].includes(String(args.options.mode))
@@ -226,9 +206,8 @@ export const skillCommand: CLICommand = {
         const rawPath = getString(args.options, 'path') || null;
         const opts: InstallOptions = {
           all: installAll,
-          sourcePath: addLocal ? addSource || rawPath : null,
+          sourcePath: addLocal ? addSource : null,
           platform: platformOption(args),
-          workspace: getBool(args.options, 'workspace'),
           global: getBool(args.options, 'global'),
           projectDir: getString(args.options, 'project-dir') || null,
           customPath: addLocal ? null : rawPath,

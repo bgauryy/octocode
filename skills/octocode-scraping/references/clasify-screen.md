@@ -1,6 +1,6 @@
 # Locate answers in unread scrape text
 
-Load when an unread saved artifact needs semantic location and a small direct read does not decide.
+Load when an unread saved artifact needs semantic location and a small direct read does not decide. Why: locate the deciding source without loading unrelated text.
 
 1. Capture once with this skill and retain artifacts under `.octocode/`. Use the emitted artifact path; the path below is only a placeholder. Reuse the saved capture before fetching or opening a browser again.
 2. Use metadata, titles, URLs and literal searches to narrow files without reading their bodies. Remove empty and duplicate captures.

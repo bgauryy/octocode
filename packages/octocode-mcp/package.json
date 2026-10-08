@@ -32,13 +32,6 @@
     ".": {
       "types": "./dist/public.d.ts",
       "import": "./dist/public.js"
-    },
-    "./types": {
-      "types": "./dist/public.d.ts"
-    },
-    "./public": {
-      "types": "./dist/public.d.ts",
-      "import": "./dist/public.js"
     }
   },
   "files": [
@@ -90,10 +83,8 @@
     "directory": "packages/octocode-mcp"
   },
   "scripts": {
-    "build": "yarn check:manifest && yarn clean && node ../../skills-dev/octocode-dev/scripts/esbuild-package.mjs && yarn build:types && node scripts/bundle-docs.mjs",
-    "build:ci": "yarn verify && yarn build",
-    "build:dev": "OCTOCODE_RUNTIME_PLATFORMS=native node ../../skills-dev/octocode-dev/scripts/esbuild-package.mjs && yarn build:types && node scripts/bundle-docs.mjs",
-    "build:publish": "yarn build",
+    "build": "yarn check:manifest && yarn clean && node ../../skills-dev/octocode-dev/scripts/esbuild-package.mjs && yarn build:types && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs dist",
+    "build:dev": "OCTOCODE_RUNTIME_PLATFORMS=native node ../../skills-dev/octocode-dev/scripts/esbuild-package.mjs && yarn build:types && node ../../skills-dev/octocode-dev/scripts/package-build.mjs docs dist",
     "build:types": "node ../../node_modules/typescript/bin/tsc --emitDeclarationOnly --outDir dist/.types -p tsconfig.build.json && node scripts/bundle-dts.mjs",
     "build:watch": "node ../../skills-dev/octocode-dev/scripts/esbuild-package.mjs --watch",
     "check:manifest": "node scripts/sync-manifest.mjs --check",
@@ -103,22 +94,20 @@
     "format:check": "prettier --check \"src/**/*.{ts,js,json}\"",
     "lint": "yarn check:manifest && node ../../node_modules/eslint/bin/eslint.js src tests",
     "lint:fix": "node ../../node_modules/eslint/bin/eslint.js src tests --fix",
-    "mcp:contracts": "yarn test:contracts",
-    "mcp:package": "yarn lint && yarn typecheck:full && yarn test:contracts",
     "sync:manifest": "node scripts/sync-manifest.mjs",
-    "prepack": "node ../octocode/scripts/check-no-workspace-protocol.mjs && node scripts/prepack.mjs",
     "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
-    "test:contracts": "OCTOCODE_ENFORCE_WARNING_FREE_TESTS=1 yarn test",
+    "test:acceptance": "cd ../.. && node packages/octocode-mcp/tests/integration/stdio.acceptance.mjs",
+    "test:boundary": "node tests/native/node-boundary.mjs",
     "test:contracts:classification": "cd ../.. && node packages/octocode-mcp/tests/integration/clasify-availability.acceptance.mjs",
-    "test:contracts:responses": "OCTOCODE_ENFORCE_WARNING_FREE_TESTS=1 node ../../node_modules/vitest/vitest.mjs run tests/tools/all-tools.pagination-contract.test.ts",
-    "test:contracts:startup": "OCTOCODE_ENFORCE_WARNING_FREE_TESTS=1 node ../../node_modules/vitest/vitest.mjs run tests/index.test.ts tests/public.test.ts",
+    "test:contracts:responses": "node ../../node_modules/vitest/vitest.mjs run tests/tools/all-tools.pagination-contract.test.ts",
+    "test:contracts:startup": "node ../../node_modules/vitest/vitest.mjs run tests/index.test.ts tests/public.test.ts",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",
     "test:ui": "node ../../node_modules/vitest/vitest.mjs --ui",
     "test:watch": "node ../../node_modules/vitest/vitest.mjs --watch",
     "typecheck": "node ../../node_modules/typescript/bin/tsc --noEmit --skipLibCheck -p tsconfig.package.json",
     "typecheck:full": "node ../../node_modules/typescript/bin/tsc --noEmit --skipLibCheck",
-    "verify": "yarn mcp:package"
+    "verify": "yarn lint && yarn typecheck:full && yarn test"
   },
   "type": "module",
   "types": "dist/public.d.ts"

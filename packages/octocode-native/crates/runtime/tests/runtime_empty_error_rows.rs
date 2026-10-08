@@ -104,7 +104,7 @@ fn check(probe: &Probe, outcome: &ToolOutcome) -> Vec<String> {
 }
 
 async fn github_and_registry() -> MockServer {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let empty_search = json!({"total_count":0,"incomplete_results":false,"items":[]});
     for search in ["code", "repositories", "issues", "commits"] {
         Mock::given(method("GET"))
@@ -228,7 +228,7 @@ async fn every_tool_empty_and_error_row_meets_the_row_contract() {
         probe(
             "artifactSearch",
             "error",
-            json!({"type":"npm","packageName":NEVER.to_lowercase(),"registry":server.uri()}),
+            json!({"ecosystem":"npm","packageName":NEVER.to_lowercase(),"registryUrl":server.uri()}),
         ),
         probe(
             "clasify",

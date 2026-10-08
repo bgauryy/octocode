@@ -10,8 +10,8 @@ Unprefixed paths are relative to the monorepo root.
 |---|---|---|
 | Input schema (authored) | `CORE/src/toolContract/input/resources/tools/<tool>.ts` (+ `_toolkit.ts`, `global.ts`, `toolVariants.ts`) | Fields, defaults, bounds, variants |
 | Cross-field validation | `CORE/src/toolContract/validation/<area>.ts`, `CORE/src/toolContract/nativeRules/` | Rules that native replays at prepare time |
-| Descriptions | `CORE/src/toolContract/descriptions.ts`, `metadata.ts`, `catalog.ts` | Tool/field prose shown to agents |
-| MCP + CLI instructions | `CORE/src/toolContract/instructions.ts` (`buildMcpInstructions`), `cliContext.ts` (`buildCliToolContext`), `CORE/src/systemPrompt.ts` | Shared workflow guidance |
+| Descriptions | `CORE/src/toolContract/descriptions.ts` (one string per tool), `publishedSchema.ts` (field notes) | Tool/field prose shown to agents |
+| MCP + CLI instructions | `CORE/src/toolContract/instructions.ts` (`TOOL_RESEARCH_INSTRUCTIONS`, one constant; `buildMcpInstructions`/`buildCliInstructions` return it) | Shared workflow guidance |
 | Output schemas / limits | `CORE/src/toolContract/outputSchemas.ts`, `limits.ts` | Internal validation of produced results |
 | Contract hub (re-export only) | `packages/octocode-config/src/contracts/{schema,mcp}.ts` | Must stay a thin `export *` |
 | Tool contract (generated, embedded by native build.rs) | `packages/octocode-config/contract/{tool-contract.json,provenance.json,contract-fixtures.json,tool-types.schema.json,tool_types.rs}` | Never hand-edit; `yarn contracts:regen` |

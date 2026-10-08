@@ -515,33 +515,36 @@ pub(crate) fn locate_unsupported(reason: &str) -> ClassificationError {
         code: "classificationLocateUnsupported".into(),
         message: format!("locate needs contiguous original source lines; {reason}."),
         hints: vec![
-            "For locate, use localFetch or ghGetFileContent without minify, or localSearch/ghSearchCode with candidateEvidence:\"fileChunks\".".into(),
-            "To screen search, structure, AST, LSP, history, or package results, ask yesno, choice, score, or relevant questions in a separate matrix.".into(),
+            "Locate needs localFetch/ghGetFileContent without minify, or localSearch/ghSearchCode candidateEvidence:\"fileChunks\".".into(),
+            "To screen search, structure, AST, LSP, history or package results, ask yesno/choice/score/relevant in a separate matrix.".into(),
         ],
         ..Default::default()
     }
 }
 
-/// Build the provider request for one state × provider question cell.
+/// Build the provider request for one state × provider question cell and
+/// serialize it once: the size check and the POST share those bytes.
 /// Delegates wire format to the vendor's [`ClassificationProvider::build_request`].
 fn prepare(
     state: &Value,
     question: &Value,
     model: &str,
     provider: &dyn crate::providers::classification::ClassificationProvider,
-) -> Result<Value, ClassificationError> {
+) -> Result<(Value, bytes::Bytes), ClassificationError> {
     if !entry(state) {
         return Err(request_error(
             "Context value must be a non-empty string, object, or array.",
         ));
     }
     let request = provider.build_request(state, question, model);
-    if request.to_string().len() > MAX_REQUEST_BYTES {
+    let body = serde_json::to_vec(&request)
+        .map_err(|_| request_error("Classification request could not be serialized."))?;
+    if body.len() > MAX_REQUEST_BYTES {
         return Err(request_error(
             "Classification request exceeded the 4 MiB limit.",
         ));
     }
-    Ok(request)
+    Ok((request, body.into()))
 }
 
 /// Judge one state × provider question with a single request.
@@ -559,10 +562,10 @@ pub(crate) async fn judge(
     gate: &GateLease,
 ) -> Result<Value, ClassificationError> {
     check_budget(&budget)?;
-    let request = prepare(state, question, model, provider)?;
+    let (request, body) = prepare(state, question, model, provider)?;
     check_key(&key)?;
     let (response, provider_calls) = post(
-        &request,
+        body,
         &key,
         endpoint(base_url, endpoint_path)?,
         &budget,
@@ -574,19 +577,16 @@ pub(crate) async fn judge(
         .validate_response(&request, &response)
         .map_err(|error| ClassificationError {
             code: error.code().into(),
-            message: error.message,
             provider_calls,
-            hints: vec!["Inspect provider compatibility before using the answer.".into()],
-            ..Default::default()
+            ..ClassificationError::invalid_response(error.message)
         })?;
     let answer = provider
         .extract_answer(&response)
         .ok_or_else(|| ClassificationError {
-            code: "invalidClassificationResponse".into(),
-            message: "Classification provider response is missing the expected answer.".into(),
             provider_calls,
-            hints: vec!["Inspect provider compatibility before using the response.".into()],
-            ..Default::default()
+            ..ClassificationError::invalid_response(
+                "Classification provider response is missing the expected answer.",
+            )
         })?;
     let mut result = transport::project(
         question,
@@ -638,13 +638,10 @@ mod tests {
     /// Clasify's engine path: contract validation of the public shape,
     /// [`normalize`], then preflight.
     fn admitted(query: &Value) -> Result<Vec<Value>, ClassificationError> {
-        let validated = crate::contracts::prepare_many_and_validate(
-            "clasify",
-            json!({"queries":[query]}),
-            crate::contracts::PrepareOptions::default(),
-        )
-        .and_then(|validated| super::admission::check(&validated).map(|()| validated))
-        .map_err(|error| request_error(&format!("{error:?}")))?;
+        let validated =
+            crate::contracts::prepare_many_and_validate("clasify", json!({"queries":[query]}))
+                .and_then(|validated| super::admission::check(&validated).map(|()| validated))
+                .map_err(|error| request_error(&format!("{error:?}")))?;
         let mut typed = validated
             .iter()
             .map(|row| serde_json::from_value::<ClasifyQuery>(row.clone()))
@@ -657,8 +654,7 @@ mod tests {
     #[test]
     fn preflight_accepts_a_continuation_that_carries_the_running_best() {
         let mut query = semantic_query(json!({"value":"x"}), question());
-        query["carry"] =
-            json!({"t":[{"resourceId":"resource-1","exists":0.9,"lines":[1,8],"probability":0.5}]});
+        query["carry"] = json!({"t":[{"resourceId":"resource-1","exists":0.9,"line":1,"endLine":8,"probability":0.5}]});
         assert!(admitted(&query).is_ok());
         query["carry"] = json!("not a map");
         assert!(admitted(&query).is_err());
@@ -716,7 +712,8 @@ mod tests {
                 "m",
                 provider,
             )
-            .unwrap(),
+            .unwrap()
+            .0,
             json!({"model":"m","state":{"observation":true},"questions":{"answer":provider_question()}})
         );
     }
@@ -729,8 +726,7 @@ mod tests {
         assert!(resolved[0]["question"].get("mainGoal").is_none());
         assert!(resolved[0]["question"].get("reasoning").is_none());
         assert_observation_request(&query, &resolved, provider);
-        query["carry"] =
-            json!({"t":[{"resourceId":"resource-1","exists":0.9,"lines":[1,8],"probability":0.5}]});
+        query["carry"] = json!({"t":[{"resourceId":"resource-1","exists":0.9,"line":1,"endLine":8,"probability":0.5}]});
         assert!(admitted(&query).is_ok());
         for field in ["reasoning", "mainGoal"] {
             let mut missing = query.clone();
@@ -876,9 +872,14 @@ mod tests {
             "Context value must be a non-empty string, object, or array."
         );
         assert_eq!(
-            prepare(&json!({"x":1}), &provider_question(), "m", provider).unwrap(),
+            prepare(&json!({"x":1}), &provider_question(), "m", provider)
+                .unwrap()
+                .0,
             json!({"model":"m","state":{"x":1},"questions":{"answer":provider_question()}})
         );
+        let (request, body) =
+            prepare(&json!({"x":1}), &provider_question(), "m", provider).unwrap();
+        assert_eq!(body, serde_json::to_vec(&request).unwrap());
     }
 
     #[tokio::test]
@@ -899,7 +900,7 @@ mod tests {
             let state = json!({"context":"HIDDEN_BODY"});
             let mut supplied = answer.clone();
             supplied["content"] = json!("HIDDEN_BODY");
-            Mock::given(method("POST")).and(body_json(prepare(&state, &question, "m", provider).unwrap()))
+            Mock::given(method("POST")).and(body_json(prepare(&state, &question, "m", provider).unwrap().0))
                 .respond_with(ResponseTemplate::new(200).set_body_json(json!({"model":"provider-model","answers":{"answer":supplied},"content":"HIDDEN_BODY","usage":{"input_tokens":10,"output_tokens":1,"content":"HIDDEN_BODY"}})))
                 .expect(1).mount(&server).await;
             let result = judge(

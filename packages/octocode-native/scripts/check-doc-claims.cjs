@@ -15,8 +15,7 @@
 //      config-contract.json source keys)
 //   4. Active source/docs/examples contain no retired pre-v20 CLI grammar
 //   5. ARCHITECTURE.md Ownership-table modules exist under crates/
-//   6. README `scheme` examples carry no instructions the CLI does not emit
-//   7. Docs pass Cargo feature flags only to crates that declare [features]
+//   6. Docs pass Cargo feature flags only to crates that declare [features]
 
 const fs = require('node:fs');
 const path = require('node:path');
@@ -271,7 +270,7 @@ if (!ownership) {
   if (rows === 0) fail('ownership modules', 'no modules parsed from the Ownership table (parser drift)');
 }
 
-// 7. Cargo feature flags ----------------------------------------------------
+// 6. Cargo feature flags ----------------------------------------------------
 const featurelessCrates = fs.readdirSync(path.join(nativeRoot, 'crates'))
   .map((crate) => path.join(nativeRoot, 'crates', crate, 'Cargo.toml'))
   .filter((manifest) => fs.existsSync(manifest))

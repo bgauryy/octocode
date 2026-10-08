@@ -4,7 +4,7 @@ use reqwest::header::{HeaderMap, RETRY_AFTER};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// A header's non-negative integer value, surrounding whitespace ignored.
-pub fn header_u64(headers: &HeaderMap, name: &str) -> Option<u64> {
+pub(crate) fn header_u64(headers: &HeaderMap, name: &str) -> Option<u64> {
     headers.get(name)?.to_str().ok()?.trim().parse().ok()
 }
 

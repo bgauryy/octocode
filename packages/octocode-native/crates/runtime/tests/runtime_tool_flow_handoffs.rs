@@ -36,7 +36,7 @@ impl Respond for CandidateJudgment {
 }
 
 async fn assert_candidate_walk(total: usize, page: u64, page_size: u64, expected: u64) {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(CandidateJudgment)
@@ -202,7 +202,6 @@ async fn large_paged_local_read_offers_clasify_locate() {
     octocode_native::contracts::prepare_many_and_validate(
         "clasify",
         json!({"queries":[matrix.clone()]}),
-        octocode_native::contracts::PrepareOptions::default(),
     )
     .expect("the offered matrix validates");
     for targeted in [

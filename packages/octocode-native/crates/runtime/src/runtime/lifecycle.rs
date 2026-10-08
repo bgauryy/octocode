@@ -1,3 +1,5 @@
+use crate::providers::github::{CredentialSource, ResolvedCredential};
+use secrecy::SecretString;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -5,12 +7,16 @@ use std::time::{Duration, Instant};
 use tokio::sync::{Notify, Semaphore};
 use tokio_util::sync::CancellationToken;
 
+/// Longest per-request timeout a runtime accepts. Deadlines are
+/// `Instant::now() + timeout`; a bound keeps that sum representable on every
+/// platform instead of panicking at admission (M4).
+pub const MAX_TIMEOUT: Duration = Duration::from_secs(24 * 60 * 60);
+
 #[derive(Clone, Debug)]
 pub struct RuntimeLimits {
     pub concurrency: usize,
     pub pending: usize,
     pub timeout: Duration,
-    pub output_bytes: usize,
 }
 
 impl Default for RuntimeLimits {
@@ -19,7 +25,6 @@ impl Default for RuntimeLimits {
             concurrency: 4,
             pending: 64,
             timeout: Duration::from_secs(60),
-            output_bytes: 16_000,
         }
     }
 }
@@ -44,7 +49,6 @@ pub enum ExecutionError {
 pub struct ExecutionContext {
     pub cancellation: CancellationToken,
     pub deadline: Instant,
-    pub output_bytes: usize,
     /// This query's share of the cores for parallel directory walks, set by
     /// the batch budget when several queries walk at once. `None` = all cores.
     pub walk_threads: Option<u32>,
@@ -53,6 +57,10 @@ pub struct ExecutionContext {
     /// fit, set by the engine per row. `None` = no window; pages take their
     /// default size.
     pub response_window: Option<usize>,
+    /// The GitHub credential the host supplied with this request
+    /// ([`RequestAdmission::with_github_token`]). When set, every GitHub call
+    /// of the request uses only it: no env, stored, or `gh` credential.
+    pub github_credential: Option<ResolvedCredential>,
 }
 
 impl ExecutionContext {
@@ -97,6 +105,18 @@ pub struct RequestAdmission {
     context: ExecutionContext,
 }
 
+impl RequestAdmission {
+    /// Carry the caller's GitHub token on this request as a secret override.
+    pub fn with_github_token(mut self, token: SecretString) -> Self {
+        self.context.github_credential =
+            Some(ResolvedCredential::new(token, CredentialSource::Override));
+        self
+    }
+    pub fn github_credential(&self) -> Option<&ResolvedCredential> {
+        self.context.github_credential.as_ref()
+    }
+}
+
 impl Drop for RequestGuard {
     fn drop(&mut self) {
         let mut state = self
@@ -114,7 +134,7 @@ impl RequestRuntime {
         if limits.concurrency == 0
             || limits.pending < limits.concurrency
             || limits.timeout.is_zero()
-            || limits.output_bytes == 0
+            || limits.timeout > MAX_TIMEOUT
         {
             return Err(ExecutionError::InvalidLimits);
         }
@@ -201,6 +221,9 @@ impl RequestRuntime {
         if state.requests.len() >= self.inner.limits.pending {
             return Err(ExecutionError::Busy);
         }
+        let deadline = Instant::now()
+            .checked_add(self.inner.limits.timeout)
+            .ok_or(ExecutionError::InvalidLimits)?;
         state.requests.insert(request_id.clone(), token.clone());
         Ok(RequestAdmission {
             guard: RequestGuard {
@@ -209,10 +232,10 @@ impl RequestRuntime {
             },
             context: ExecutionContext {
                 cancellation: token,
-                deadline: Instant::now() + self.inner.limits.timeout,
-                output_bytes: self.inner.limits.output_bytes,
+                deadline,
                 walk_threads: None,
                 response_window: None,
+                github_credential: None,
             },
         })
     }

@@ -1,7 +1,8 @@
 import type { Api, Model } from '@earendil-works/pi-ai';
-import type { ContextEditEntryDraft, ExtensionAPI, SessionBeforeCompactEvent } from '@earendil-works/pi-coding-agent';
-import { MCP_READ_TOOL, readPaths, type FileGuard } from '../files/tool.js';
-import { isRecord } from '../shared/util.js';
+import type { ContextEditEntryDraft, ExtensionAPI, SessionBeforeCompactEvent, ToolCallEvent, ToolCallEventResult } from '@earendil-works/pi-coding-agent';
+import { MCP_READ_TOOL, readPaths } from '../files/reads.js';
+import type { FileGuard } from '../files/tool.js';
+import { elisionMarkers, isRecord } from '../shared/util.js';
 
 /** At most this many recent tool results stay verbatim... */
 export const KEEP_RECENT_RESULTS = 12;
@@ -30,9 +31,15 @@ const MAX_POINTERS = 3;
 const READ_TOOLS = new Set(['read', MCP_READ_TOOL]);
 /** Size an image counts as when budgeting (it is replaced by a short note when trimmed). */
 const IMAGE_CHARS = 4_000;
-/** An old successful call's arguments are shrunk when their JSON exceeds this... */
 /** Tools whose successful call arguments are on disk afterwards, so they can be shortened even in the recent window. */
 const ARGS_ON_DISK_TOOLS = new Set(['file']);
+/**
+ * Tools whose call arguments are never shortened: a delegated task, a message or a question exists nowhere but in the
+ * context, and a shortened one becomes the template the model copies into its next delegation (a subagent then gets the
+ * head of its task plus a placeholder instead of the task).
+ */
+const KEEP_ARGS_VERBATIM_TOOLS = new Set(['agent', 'sendMessage', 'askUser']);
+/** An old successful call's arguments are shrunk when their JSON exceeds this... */
 const ARGS_TRIM_ABOVE_CHARS = 2_000;
 /** ...by cutting each string argument longer than this to its head and a note. */
 const ARG_KEEP_CHARS = 160;
@@ -152,6 +159,7 @@ function shrunkCalls(content: unknown[], settled: Set<string>, memo: TrimMemo): 
   const ids: string[] = [];
   const next = content.map((part) => {
     if (!isRecord(part) || part['type'] !== 'toolCall' || typeof part['id'] !== 'string' || !settled.has(part['id']) || !isRecord(part['arguments'])) return part;
+    if (KEEP_ARGS_VERBATIM_TOOLS.has(String(part['name']))) return part;
     let verdict = memo.get(part['id']);
     if (verdict === undefined) {
       verdict = shrinkVerdict(part['arguments']);
@@ -181,6 +189,28 @@ export function shrinkArgument(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(shrinkArgument);
   if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, shrinkArgument(item)]));
   return value;
+}
+
+/** Every string anywhere in a call's arguments. */
+function stringsIn(value: unknown): string[] {
+  if (typeof value === 'string') return [value];
+  if (Array.isArray(value)) return value.flatMap(stringsIn);
+  return isRecord(value) ? Object.values(value).flatMap(stringsIn) : [];
+}
+
+/**
+ * Refuses a call whose arguments carry a placeholder Octocode left where it shortened earlier text in the context: the
+ * model copied the shortened form, so the call would act on a hole (a subagent gets half a task, a message loses its
+ * body). `file` is exempt here: its own check also allows markers the file already contains or an edit replaces.
+ */
+export async function elisionGate(event: Pick<ToolCallEvent, 'toolName' | 'input'>): Promise<ToolCallEventResult | undefined> {
+  if (event.toolName === 'file') return undefined;
+  const copied = stringsIn(event.input).flatMap(elisionMarkers)[0];
+  if (!copied) return undefined;
+  return {
+    block: true,
+    reason: `Refused: the arguments contain "${copied}", a placeholder Octocode puts where it shortened an earlier call or result in your context, not text to send. Write the full text of every argument again.`,
+  };
 }
 
 function parts(message: unknown): unknown[] {

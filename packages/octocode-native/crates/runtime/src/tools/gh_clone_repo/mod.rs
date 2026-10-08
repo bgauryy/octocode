@@ -5,8 +5,8 @@ mod process;
 
 use crate::policy::{PolicyError, PolicyErrorCode, path::PathPolicy};
 use crate::providers::github::{
-    ConditionalCache, CredentialResolver, GitHubEndpoint, GitHubProvider, ProviderError,
-    ProviderErrorKind, ProviderErrorReason, RequestContext, ResolvedCredential,
+    ConditionalCache, GitHubEndpoint, GitHubProvider, ProviderError, ProviderErrorKind,
+    ProviderErrorReason, RequestContext, ResolvedCredential,
 };
 use crate::tools::cancel::CancellationCheck;
 use serde::Serialize;
@@ -194,13 +194,8 @@ pub fn repository_not_found(query: &GhCloneRepoQuery) -> CloneError {
     CloneError {
         // The message names the repository; the hint stays within the
         // response stage's guidance cap so it is never cut mid-sentence.
-        hints: vec![
-            "The repository is missing, private, or hidden from this token; check owner/repo spelling and token access.".into(),
-        ],
-        ..CloneError::new(
-            "notFound",
-            format!("Repository not found: {owner}/{repo}"),
-        )
+        hints: vec![crate::tools::gh_shared::REPOSITORY_ACCESS_HINT.into()],
+        ..CloneError::new("notFound", format!("Repository not found: {owner}/{repo}"))
     }
 }
 
@@ -215,8 +210,8 @@ pub enum CloneFailure {
 /// Run one ghCloneRepo row. The happy path runs on git alone; only after
 /// git failed does one `commits/{ref}` call name a missing ref or
 /// repository.
-pub async fn run<R: CredentialResolver, C: ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+pub async fn run<C: ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhCloneRepoQuery,
     request: Result<&RequestContext, ProviderError>,
     context: &CloneContext<'_>,
@@ -282,17 +277,16 @@ pub(crate) fn explain_git_failure(
     }
 }
 
-/// A path the policy denies, under the policy's own flat code (as the local
-/// tools report it).
+/// A path the policy denies, under the flat code the local tools share
+/// ([`PolicyError::local_error_code`]), so it gets their recovery hints.
 fn policy_denied(error: PolicyError) -> CloneError {
-    let code = serde_json::to_value(error.code)
-        .ok()
-        .and_then(|code| code.as_str().map(str::to_owned))
-        .unwrap_or_else(|| "permissionDenied".into());
-    CloneError::new(code, error.message)
+    CloneError::new(
+        error.local_error_code("pathValidationFailed"),
+        error.message,
+    )
 }
 
-pub fn execute_clone(
+fn execute_clone(
     query: &GhCloneRepoQuery,
     context: &CloneContext<'_>,
 ) -> Result<CloneResult, CloneError> {
@@ -444,7 +438,9 @@ fn cache_hit(
     let Ok(commit_sha) = git::read_head(context, clone_dir) else {
         return Ok(None);
     };
-    if is_commit(identity.branch) && commit_sha != identity.branch.to_ascii_lowercase() {
+    if octocode_github::is_full_sha(identity.branch)
+        && commit_sha != identity.branch.to_ascii_lowercase()
+    {
         return Ok(None);
     }
     // A modified cache no longer holds the fetched revision. Do not replace
@@ -599,7 +595,7 @@ fn checkout_stage(
         None => git::current_branch(context, stage)?,
     };
     let commit_sha = git::read_head(context, stage)?;
-    if is_commit(&resolved) && commit_sha != resolved.to_ascii_lowercase() {
+    if octocode_github::is_full_sha(&resolved) && commit_sha != resolved.to_ascii_lowercase() {
         return Err(CloneError::new(
             "commitMismatch",
             format!("Checkout HEAD {commit_sha} does not match requested commit {resolved}."),
@@ -652,7 +648,7 @@ fn write_stage_meta(
 fn dirty_checkout(path: &Path) -> CloneError {
     CloneError {
         hints: vec![
-            "Preserve your changes outside this managed checkout, then restore it to a clean state before retrying. forceRefresh does not discard local files.".into(),
+            "Move your edits out of this managed checkout, restore it to clean, then retry; forceRefresh never discards local files.".into(),
         ],
         ..CloneError::new(
             "checkoutDirty",
@@ -847,10 +843,6 @@ fn unsupported_endpoint() -> CloneError {
         "configuration",
         "ghCloneRepo requires an HTTPS GitHub API endpoint: https://api.github.com or a GitHub Enterprise endpoint ending in /api/v3, without credentials or query parameters. Use ghGetFileContent for other API proxies.",
     )
-}
-
-fn is_commit(value: &str) -> bool {
-    value.len() == 40 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn control<'a>(context: &'a CloneContext<'a>) -> GitRunControl<'a> {

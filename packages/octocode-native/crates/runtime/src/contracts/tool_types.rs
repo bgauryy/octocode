@@ -9,7 +9,8 @@
     clippy::unwrap_used,
     clippy::expect_used,
     clippy::panic,
-    missing_docs
+    missing_docs,
+    reason = "generated wire types: every contract type is emitted, whether or not native reads it"
 )]
 
 include!("../../../../../octocode-config/contract/tool_types.rs");

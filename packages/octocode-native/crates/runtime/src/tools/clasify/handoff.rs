@@ -96,10 +96,12 @@ const LARGE_READ_LINES: u64 = crate::tools::local_fetch::LARGE_READ_LINES as u64
 /// The lead for one file-read row (`localFetch` / `ghGetFileContent`): a
 /// read of a file of at least [`LARGE_READ_LINES`] lines that stopped before
 /// its end (more pages, or a partial row) and has no `matchString`, whose
-/// `mainGoal` asks where something is. A goal naming an identifier is a
-/// literal lookup: a local read gets a `textSearch` lead (`localSearch`, exact and cheaper
-/// than locate), a remote read nothing. Any other locate goal gets
-/// `clasify`, which reads the whole file with the goal as its target. Reads
+/// `mainGoal` asks where something is. A literal goal (only one identifier
+/// or quoted literal; see `locate::identifier_target`) is a literal lookup:
+/// a local read gets a `textSearch` lead (`localSearch`, exact and cheaper
+/// than locate), a remote read nothing. Any other locate goal, including a
+/// described one that mentions an identifier, gets `clasify`, which reads
+/// the whole file with the goal as its target. Reads
 /// that select a range, a match, or a transformed view are already targeted
 /// and get nothing. The cross-tool filter drops the lead when its tool is
 /// unavailable.
@@ -141,20 +143,16 @@ fn large_read_lead(
         .take(MAIN_GOAL_MAX_LENGTH)
         .collect();
     let path = query.get("path")?.as_str()?;
-    let literal_lead = |identifier: &str| {
-        (tool == ToolId::LocalFetch.as_str())
-            .then(|| crate::tools::clasify::locate::literal_file_search(path, identifier))
+    // One rule with locate: a goal whose only content is one literal is a
+    // literal lookup, whatever words surround it.
+    if let Some(literal) = crate::tools::clasify::locate::identifier_target(&goal) {
+        return (tool == ToolId::LocalFetch.as_str())
+            .then(|| crate::tools::clasify::locate::literal_file_search(path, literal))
             .flatten()
-            .map(|search| ("textSearch", search))
-    };
-    if let Some(identifier) = crate::tools::clasify::locate::bare_identifier(&goal) {
-        return literal_lead(identifier);
+            .map(|search| ("textSearch", search));
     }
     if goal.trim().is_empty() || generic_read_goal(&goal) || !locate_goal(&goal) {
         return None;
-    }
-    if let Some(identifier) = crate::tools::clasify::locate::literal_target(&goal) {
-        return literal_lead(identifier);
     }
     let mut read = Map::new();
     for key in ["path", "owner", "repo", "ref"] {
@@ -453,12 +451,9 @@ mod tests {
         );
         let bare = json!({"path":"src/server.c","reasoning":"r"});
         assert!(large_read_lead("localFetch", &bare, paged.as_object().unwrap()).is_none());
-        let prepared = crate::contracts::prepare_many_and_validate(
-            "clasify",
-            offer["query"].clone(),
-            crate::contracts::PrepareOptions::default(),
-        )
-        .expect("the offer validates");
+        let prepared =
+            crate::contracts::prepare_many_and_validate("clasify", offer["query"].clone())
+                .expect("the offer validates");
         let mut normalized = prepared;
         crate::tools::clasify::normalize_rows(&mut normalized);
         assert_eq!(normalized[0]["resources"][0]["query"]["fullContent"], true);
@@ -502,23 +497,47 @@ mod tests {
         }
     }
 
-    /// A goal that names an identifier is a literal lookup: localSearch finds
-    /// it exactly, so the read offers that search instead of a locate. A
-    /// remote read has no literal-search lead and gets nothing.
+    /// A literal goal (its only content is one identifier or quoted literal;
+    /// the locate classifier `identifier_target`) is a literal lookup:
+    /// localSearch finds it exactly, so the read offers that search instead
+    /// of a locate. A remote read has no literal-search lead and gets
+    /// nothing. A described goal that only mentions an identifier is not
+    /// literal: it gets the clasify locate, or nothing when it locates
+    /// nothing.
     #[test]
-    fn an_identifier_goal_offers_a_literal_search_instead_of_locate() {
+    fn only_a_literal_goal_offers_a_literal_search_instead_of_locate() {
         let paged = json!({"totalLines":3137,"pagination":{"hasMore":true}});
+        let query = |goal: &str| json!({"path":"django/db/models/query.py","mainGoal":goal,"reasoning":"r"});
+        for goal in [
+            "Where bulk_update refuses pk changes",
+            "why does worker_threads reject 0 in Builder::new or maxThreads",
+        ] {
+            let lead = large_read_lead("localFetch", &query(goal), paged.as_object().unwrap());
+            assert!(
+                lead.as_ref().is_none_or(|(name, _)| *name != "textSearch"),
+                "{goal}: {lead:?}"
+            );
+        }
+        let offer = locate_offer(
+            "localFetch",
+            &query("Where bulk_update refuses pk changes"),
+            &paged,
+        )
+        .expect("a described goal gets the clasify locate");
+        assert_eq!(
+            offer["query"]["queries"][0]["questions"][0]["ask"],
+            "Where bulk_update refuses pk changes"
+        );
         for (goal, literal) in [
             ("find bulk_update", "bulk_update"),
-            ("Where bulk_update refuses pk changes", "bulk_update"),
-            (
-                "why does worker_threads reject 0 in Builder::new or maxThreads",
-                "worker_threads",
-            ),
             ("MAX_CALL_CAPTURES", "MAX_CALL_CAPTURES"),
             ("where is `newElementWith()` defined", "newElementWith"),
+            (
+                "where is Type_instantiation_is_excessively_deep_and_possibly_infinite reported",
+                "Type_instantiation_is_excessively_deep_and_possibly_infinite",
+            ),
         ] {
-            let query = json!({"path":"django/db/models/query.py","mainGoal":goal,"reasoning":"r"});
+            let query = query(goal);
             let (name, lead) =
                 large_read_lead("localFetch", &query, paged.as_object().unwrap()).expect(goal);
             assert_eq!(name, "textSearch", "{goal}");
@@ -531,12 +550,8 @@ mod tests {
                 lead["query"]["queries"][0]["matchString"], literal,
                 "{lead}"
             );
-            crate::contracts::prepare_many_and_validate(
-                "localSearch",
-                lead["query"].clone(),
-                crate::contracts::PrepareOptions::default(),
-            )
-            .expect("the literal search validates");
+            crate::contracts::prepare_many_and_validate("localSearch", lead["query"].clone())
+                .expect("the literal search validates");
             let remote = json!({"owner":"o","repo":"r","path":"query.py","mainGoal":goal});
             assert!(
                 large_read_lead(
@@ -737,7 +752,6 @@ mod tests {
             crate::contracts::prepare_many_and_validate(
                 "clasify",
                 json!({"queries":[query.clone()]}),
-                crate::contracts::PrepareOptions::default(),
             )
             .unwrap_or_else(|error| panic!("{:?}: {query}", error.issues.first()));
         }
@@ -808,7 +822,6 @@ mod tests {
             let prepared = crate::contracts::prepare_many_and_validate(
                 "clasify",
                 json!({"queries":[query.clone()]}),
-                crate::contracts::PrepareOptions::default(),
             )
             .unwrap_or_else(|error| {
                 panic!(

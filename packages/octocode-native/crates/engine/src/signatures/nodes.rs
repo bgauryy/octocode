@@ -526,3 +526,24 @@ pub(super) fn clean_specifier(text: &str) -> Option<String> {
         Some(value.to_owned())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn every_grammar_declaration_kind_is_a_declared_declaration_kind() {
+        for entry in super::super::languages::all_entries() {
+            let language = &entry.language;
+            for id in 0..language.node_kind_count() {
+                let Some(node_kind) = language.node_kind_for_id(id as u16) else {
+                    continue;
+                };
+                if let Some(kind) = super::declaration_kind(node_kind) {
+                    assert!(
+                        crate::signatures::DECLARATION_KINDS.contains(&kind),
+                        "{kind} is missing from DECLARATION_KINDS"
+                    );
+                }
+            }
+        }
+    }
+}

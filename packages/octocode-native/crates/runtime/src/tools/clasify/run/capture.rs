@@ -104,6 +104,7 @@ pub(super) fn capture_pages(
         seen: HashSet::new(),
         remaining: None,
         walk_chunk: None,
+        range_rest: None,
         uncaptured: None,
     };
     walk.run()?;
@@ -173,6 +174,9 @@ pub(super) struct PageWalk<'a> {
     remaining: Option<Value>,
     /// The page size a shrunk page's continuation returns to.
     walk_chunk: Option<Value>,
+    /// A `ranges` read split to fit: the read as requested (a deferred page
+    /// replays it whole) and the read of the lines after the judged head.
+    range_rest: Option<(Value, Option<Value>)>,
     /// Search candidates the read reported past its captured page.
     uncaptured: Option<u64>,
 }
@@ -275,7 +279,7 @@ impl PageWalk<'_> {
                     .as_ref()
                     .and_then(crate::tools::clasify::context::continuation)
             });
-            self.list_page(items);
+            self.list_page(&state, items);
             return Ok(Step::Done);
         }
         self.whole_page(state, receipt, outline_next)
@@ -369,12 +373,17 @@ impl PageWalk<'_> {
         }
     }
 
-    /// A list page: one page per item, within the budget.
-    fn list_page(&mut self, items: Vec<items::Item>) {
+    /// A list page: one page per item, within the budget. Items the budget
+    /// defers are judged by the continuation, which resumes at the first of
+    /// them when the list pages by rows; otherwise each is reported with its
+    /// read.
+    fn list_page(&mut self, state: &Value, items: Vec<items::Item>) {
         let left = self.remaining_chars();
+        let (positions, rows) = list_rows(state, &items);
         let items = items
             .into_iter()
-            .map(|item| {
+            .zip(positions)
+            .map(|(item, position)| {
                 let page = item_page(&self.source, item);
                 Candidate {
                     chars: match &page {
@@ -382,12 +391,27 @@ impl PageWalk<'_> {
                         CapturedPage::Failed { .. } => 0,
                     },
                     page,
-                    position: None,
+                    position,
                 }
             })
             .collect();
         let deferred = self.keep(items);
-        self.spend(deferred, left);
+        let resume = deferred
+            .first()
+            .and_then(|first| first.position)
+            .and_then(|position| resume_list(&self.source, position, rows));
+        match resume {
+            Some(resume) => self.remaining = Some(resume),
+            None => {
+                self.spend(deferred, left);
+                // A page a resume put off the original grid steps back to it.
+                if self.remaining.is_some()
+                    && let Some(next) = after_resumed_list(&self.source, rows)
+                {
+                    self.remaining = Some(next);
+                }
+            }
+        }
     }
 
     /// A page over the whole cap would fail on every replay: read the same
@@ -417,6 +441,44 @@ impl PageWalk<'_> {
             receipt = shrunk_receipt;
             chars = assessed_payload_chars(&self.source, &state);
         }
+        // A `ranges` read has no chunk window: judge its first lines that
+        // fit and continue with the rest of the range.
+        self.range_rest = None;
+        let Some(spans) = (chars > cap)
+            .then(|| split_ranges(&self.source, &state))
+            .flatten()
+        else {
+            return Ok((state, receipt, chars));
+        };
+        let origin = self.source.clone();
+        let mut lines = span_lines(&spans);
+        let mut attempts = 0;
+        while chars > cap && lines > 1 && attempts < MAX_SHRINK_ATTEMPTS {
+            attempts += 1;
+            let scaled = u128::from(lines).saturating_mul(cap as u128) / chars.max(1) as u128;
+            let keep = u64::try_from(scaled)
+                .unwrap_or(u64::MAX)
+                .clamp(1, lines - 1);
+            let (head, rest) = ranges_read(&origin, &spans, keep);
+            let Ok((head_state, head_receipt)) = self.reader.resolve(&head)? else {
+                break;
+            };
+            // A head the tool pages itself would carry a second cursor.
+            if head_receipt
+                .as_ref()
+                .and_then(crate::tools::clasify::context::continuation)
+                .is_some()
+            {
+                break;
+            }
+            self.seen.insert(head.to_string());
+            self.source = head;
+            self.range_rest = Some((origin.clone(), rest));
+            state = head_state;
+            receipt = head_receipt;
+            lines = keep;
+            chars = assessed_payload_chars(&self.source, &state);
+        }
         Ok((state, receipt, chars))
     }
 
@@ -434,7 +496,11 @@ impl PageWalk<'_> {
             && state_chars > left
             && (self.budget.defer || !self.pages.is_empty())
         {
-            self.remaining = Some(self.source.clone());
+            // A split range replays as requested; the next call splits it.
+            self.remaining = Some(match self.range_rest.take() {
+                Some((origin, _)) => origin,
+                None => self.source.clone(),
+            });
             return Ok(Step::Done);
         }
         let mut context = receipt.unwrap_or_else(|| fallback_context(&self.source));
@@ -451,6 +517,10 @@ impl PageWalk<'_> {
                 error: too_large(state_chars, self.budget.cap),
                 context,
             });
+            // The lines after an unsplittable head stay reachable.
+            if let Some((_, rest)) = self.range_rest.take() {
+                self.remaining = rest;
+            }
             return Ok(Step::Done);
         }
         self.captured_chars = self.captured_chars.saturating_add(state_chars);
@@ -493,7 +563,9 @@ impl PageWalk<'_> {
 
     /// Keep a judged page and decide where the walk goes next.
     fn follow(&mut self, state: Value, mut context: Value) -> Step {
-        let Some(next) = crate::tools::clasify::context::continuation(&context) else {
+        // A split range continues with the lines after its judged head.
+        let rest = self.range_rest.take().and_then(|(_, rest)| rest);
+        let Some(next) = crate::tools::clasify::context::continuation(&context).or(rest) else {
             self.pages.push(CapturedPage::Ready { state, context });
             return Step::Done;
         };
@@ -620,6 +692,41 @@ pub(super) fn coalesce_pages(pages: Vec<CapturedPage>) -> Vec<CapturedPage> {
     }
     flush(&mut run, &mut output);
     output
+}
+
+/// Each list candidate's row on its page (the one row its narrowed state
+/// keeps, matched in page order) and the page's row count. A candidate that
+/// narrows no single row has no position.
+fn list_rows(state: &Value, items: &[items::Item]) -> (Vec<Option<usize>>, usize) {
+    let page = state.pointer("/results/0/data").and_then(Value::as_object);
+    let mut rows = 0;
+    let mut after = 0;
+    let positions = items
+        .iter()
+        .map(|item| {
+            let narrowed = item.state.pointer("/results/0/data")?.as_object()?;
+            // The narrowed list: a one-row array whose page array holds that
+            // row; the longest such page array when several qualify.
+            let (all, position) = narrowed
+                .iter()
+                .filter_map(|(key, value)| {
+                    let [row] = value.as_array()?.as_slice() else {
+                        return None;
+                    };
+                    let all = page?.get(key)?.as_array()?;
+                    let found = all
+                        .get(after..)?
+                        .iter()
+                        .position(|candidate| candidate == row)?;
+                    Some((all, after + found))
+                })
+                .max_by_key(|(all, _)| all.len())?;
+            rows = all.len();
+            after = position + 1;
+            Some(position)
+        })
+        .collect();
+    (positions, rows)
 }
 
 #[cfg(test)]

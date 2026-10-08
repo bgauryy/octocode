@@ -3,9 +3,6 @@
   "description": "Octocode unified env + config loader (zero-dep '.' entry) plus the shared tool-contract hub ('./schema', './mcp') and the generated TypeScript/Rust tool input and output types, built from @octocodeai/octocode-core.",
   "version": "20.1.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
-  "bin": {
-    "octocode-config": "./dist/cli.js"
-  },
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@octocodeai/octocode-core": "19.1.6"

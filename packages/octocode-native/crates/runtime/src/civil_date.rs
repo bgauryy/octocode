@@ -29,6 +29,27 @@ pub(crate) fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
+/// `YYYY-MM-DDTHH:MM:SSZ` for seconds since the Unix epoch.
+pub(crate) fn iso8601_secs(secs: i64) -> String {
+    let (date, clock) = date_and_clock(secs);
+    format!("{date}T{clock}Z")
+}
+
+/// `YYYY-MM-DDTHH:MM:SS.mmmZ` for milliseconds since the Unix epoch.
+pub(crate) fn iso8601_millis(millis: i64) -> String {
+    let (date, clock) = date_and_clock(millis.div_euclid(1_000));
+    format!("{date}T{clock}.{:03}Z", millis.rem_euclid(1_000))
+}
+
+fn date_and_clock(secs: i64) -> (String, String) {
+    let (year, month, day) = civil_from_days(secs.div_euclid(86_400));
+    let rem = secs.rem_euclid(86_400);
+    (
+        format!("{year:04}-{month:02}-{day:02}"),
+        format!("{:02}:{:02}:{:02}", rem / 3_600, rem % 3_600 / 60, rem % 60),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -42,5 +63,17 @@ mod tests {
         assert_eq!(civil_from_days(0), (1970, 1, 1));
         assert_eq!(days_from_civil(2000, 2, 29), 11_016);
         assert_eq!(civil_from_days(-1), (1969, 12, 31));
+    }
+
+    #[test]
+    fn formats_seconds_and_milliseconds_as_utc_iso8601() {
+        assert_eq!(iso8601_secs(0), "1970-01-01T00:00:00Z");
+        assert_eq!(iso8601_secs(951_825_599), "2000-02-29T11:59:59Z");
+        assert_eq!(iso8601_secs(-1), "1969-12-31T23:59:59Z");
+        assert_eq!(
+            iso8601_millis(1_600_000_000_443),
+            "2020-09-13T12:26:40.443Z"
+        );
+        assert_eq!(iso8601_millis(-1), "1969-12-31T23:59:59.999Z");
     }
 }

@@ -136,7 +136,7 @@ fn wire_form_omits_metadata_derivable_from_emitted_fields() {
     assert_eq!(wire["content"], "one\nneedle\nthree\n");
     assert_eq!(
         wire["sourceLineRanges"],
-        serde_json::json!([{"start":2,"end":4}])
+        serde_json::json!([{"line": 2, "endLine": 4}])
     );
     assert_eq!(wire["matchedLines"], serde_json::json!([3]));
     assert_eq!(wire["totalLines"], 5);
@@ -217,7 +217,7 @@ fn match_windows_are_separated_by_omission_marker() {
     );
     assert_eq!(
         wire["sourceLineRanges"],
-        serde_json::json!([{"start":2,"end":4},{"start":24,"end":26}])
+        serde_json::json!([{"line": 2, "endLine": 4},{"line": 24, "endLine": 26}])
     );
     assert_eq!(wire["matchedLines"], serde_json::json!([3, 25]));
 }
@@ -229,7 +229,7 @@ fn adjacent_match_windows_have_no_marker() {
     assert_eq!(wire["content"], "l2\nhit3\nl4\nhit5\nl6\n");
     assert_eq!(
         wire["sourceLineRanges"],
-        serde_json::json!([{"start":2,"end":6}])
+        serde_json::json!([{"line": 2, "endLine": 6}])
     );
 }
 #[test]
@@ -448,7 +448,7 @@ fn multiline_matches_preserve_every_matched_source_line() {
         assert_eq!(wire["matchedLines"], serde_json::json!([2, 3]));
         assert_eq!(
             wire["sourceLineRanges"],
-            serde_json::json!([{"start": 2, "end": 3}])
+            serde_json::json!([{"line": 2, "endLine": 3}])
         );
     }
 }
@@ -534,7 +534,7 @@ fn pcre2_matches_lookaround_backreferences_and_multiline_spans() {
         );
         assert_eq!(
             wire["sourceLineRanges"],
-            serde_json::json!([{"start": 2, "end": 3}]),
+            serde_json::json!([{"line": 2, "endLine": 3}]),
             "{engine}: {wire}"
         );
     }
@@ -725,10 +725,7 @@ fn full_content_continuation_pages_by_the_byte_budget_not_100_lines() {
         &LocalFetchRegex::default(),
         Some(50_000),
     );
-    assert_eq!(
-        limited.partial_reasons,
-        vec![PartialReason::FullContentLimit]
-    );
+    assert_eq!(limited.partial_reasons, vec![PartialReason::FullContent]);
     assert!(limited.pagination.as_ref().expect("first page").length > 1_000);
     let next = limited
         .next
@@ -770,7 +767,7 @@ fn full_content_is_cut_at_the_configured_response_window() {
         )
     };
     let small = read(Some(10_000));
-    assert_eq!(small.partial_reasons, vec![PartialReason::FullContentLimit]);
+    assert_eq!(small.partial_reasons, vec![PartialReason::FullContent]);
     assert!(small.next.and_then(|next| next.r#continue).is_some());
     let large = read(Some(50_000));
     assert!(
@@ -807,10 +804,7 @@ fn full_content_limits_return_executable_continuations() {
             .as_deref()
             .is_some_and(|text| !text.is_empty())
     );
-    assert_eq!(
-        result.partial_reasons,
-        vec![PartialReason::FullContentLimit]
-    );
+    assert_eq!(result.partial_reasons, vec![PartialReason::FullContent]);
     assert!(result.next.and_then(|next| next.r#continue).is_some());
 
     let source_temp = Temp::new();
@@ -833,10 +827,7 @@ fn full_content_limits_return_executable_continuations() {
             .as_deref()
             .is_some_and(|text| !text.is_empty())
     );
-    assert_eq!(
-        result.partial_reasons,
-        vec![PartialReason::FullContentLimit]
-    );
+    assert_eq!(result.partial_reasons, vec![PartialReason::FullContent]);
     assert!(result.next.and_then(|next| next.r#continue).is_some());
 }
 
@@ -1600,7 +1591,7 @@ fn missing_file_leads_to_files_by_stem() {
         "{result:?}"
     );
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
-    let listing = &next["viewStructure"]["query"]["queries"][0];
+    let listing = &next["findFile"]["query"]["queries"][0];
     assert_eq!(listing["operation"], "files", "{next}");
     assert_eq!(listing["path"], "src", "{next}");
     assert_eq!(listing["include"], serde_json::json!(["blok"]), "{next}");
@@ -1617,7 +1608,7 @@ fn match_miss_leads_to_directory_search() {
         &Paths(t.0.clone()),
     );
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
-    let search = &next["searchContent"];
+    let search = &next["textSearch"];
     assert_eq!(search["tool"], "localSearch", "{next}");
     assert_eq!(
         search["query"]["queries"][0]["matchString"], "nowhere_here",
@@ -1794,4 +1785,168 @@ fn read_block_covers_every_cut_declaration() {
     };
     assert!(covers(2) && covers(62), "{ranges:?}");
     assert!(covers(66) && covers(126), "{ranges:?}");
+}
+
+/// repo-sweep: a `unit:"lines"` walk over a file holding one line longer
+/// than a page reaches every source byte exactly once. Line pages continue
+/// at the next line; the oversized line is served as byte pages that each
+/// cite it as `sourceLineRanges: [{line, endLine}]` (the wire names, X1),
+/// and line paging resumes on the following line.
+#[test]
+fn line_walk_over_an_oversized_line_covers_every_byte_once() {
+    let t = Temp::new();
+    let paths = Paths(t.0.clone());
+    let file = t.0.join("bundle.js");
+    let mut source = String::new();
+    for i in 1..=1_164 {
+        source.push_str(&format!("var line_{i} = {i};\n"));
+    }
+    let long_line = 1_165;
+    source.push_str(&format!("    CSS: '{}',\n", "x".repeat(42_830)));
+    for i in 1..=11 {
+        source.push_str(&format!("tail_{i}();\n"));
+    }
+    let total_lines = long_line + 11;
+    fs::write(&file, &source).expect("fixture");
+    let mut query = qj(&file, serde_json::json!({"unit": "lines", "length": 400}));
+    let (mut text, mut last_line, mut byte_pages, mut pages) = (String::new(), 0, 0, 0);
+    loop {
+        let page = fetch(&query, &paths);
+        assert_eq!(page.error_code, None, "{page:?}");
+        pages += 1;
+        assert!(pages < 40, "runaway paging");
+        let wire = serde_json::to_value(&page).expect("serializable");
+        let content = page.content.clone().unwrap_or_default();
+        let unit = page.pagination.as_ref().map(|p| p.unit);
+        if unit == Some(WindowUnit::Bytes) {
+            byte_pages += 1;
+            assert_eq!(
+                wire["sourceLineRanges"],
+                serde_json::json!([{"line": long_line, "endLine": long_line}]),
+                "a byte page cites the oversized line it serves"
+            );
+            last_line = long_line;
+        } else {
+            let ranges = &page.source_line_ranges;
+            let first = ranges.first().map_or(0, |r| r.start);
+            assert_eq!(
+                first,
+                last_line + 1,
+                "line page {pages} must continue gap-free"
+            );
+            assert!(
+                ranges.windows(2).all(|w| w[1].start == w[0].end + 1),
+                "{ranges:?}"
+            );
+            last_line = ranges.last().map_or(last_line, |r| r.end);
+        }
+        text.push_str(&content);
+        match page.next.and_then(|next| next.r#continue) {
+            Some(next) => query = next.query,
+            None => break,
+        }
+    }
+    assert!(byte_pages >= 3, "the 42 KB line spans several byte pages");
+    assert_eq!(last_line, total_lines);
+    assert!(text == source, "pages join into the source exactly once");
+}
+
+/// H1: a regex read with more matches than the old 10,000 in-process cap
+/// selects every matching line (never a silent prefix of them).
+#[test]
+fn regex_read_selects_every_match_past_ten_thousand() {
+    use crate::contracts::tool_types::ReadRegex;
+    let t = Temp::new();
+    let p = t.0.join("many.txt");
+    let source: String = (1..=12_000).map(|i| format!("hit {i}\n")).collect();
+    fs::write(&p, &source).expect("fixture");
+    for engine in [ReadRegex::Rust, ReadRegex::Pcre2] {
+        let mut request = q(&p);
+        request.match_string = Some("hit [0-9]+".parse().expect("match string"));
+        request.regex = Some(engine);
+        request.context_lines = Some(0);
+        let result = fetch(&request, &Paths(t.0.clone()));
+        assert_eq!(result.error, None, "{engine:?}");
+        assert_eq!(result.selected_match_count, Some(12_000), "{engine:?}");
+        assert!(
+            result.warnings.iter().all(|w| !w.contains("match limit")),
+            "{engine:?}: {:?}",
+            result.warnings
+        );
+    }
+}
+
+/// H1: a regex read that reaches the in-process match limit discloses it:
+/// isPartial, a warning naming the limit, and a localSearch lead that pages
+/// every match of the same pattern in the same file.
+#[test]
+fn regex_read_past_the_match_limit_is_partial_with_a_search_lead() {
+    use crate::contracts::tool_types::ReadRegex;
+    let t = Temp::new();
+    let p = t.0.join("dense.txt");
+    let mut source = String::new();
+    for _ in 0..(extraction::MAX_REGEX_MATCHES / 1_000 + 1) {
+        source.push_str(&"x".repeat(1_000));
+        source.push('\n');
+    }
+    fs::write(&p, &source).expect("fixture");
+    for engine in [ReadRegex::Rust, ReadRegex::Pcre2] {
+        let mut request = q(&p);
+        request.match_string = Some("x".parse().expect("match string"));
+        request.regex = Some(engine);
+        request.context_lines = Some(0);
+        let result = fetch(&request, &Paths(t.0.clone()));
+        assert_eq!(result.error, None, "{engine:?}");
+        assert_eq!(result.is_partial, Some(true), "{engine:?}");
+        assert!(
+            result.warnings.iter().any(|w| w.contains("match limit")),
+            "{engine:?}: {:?}",
+            result.warnings
+        );
+        let lead = result
+            .next
+            .as_ref()
+            .and_then(|next| next.text_search.clone())
+            .expect("textSearch lead");
+        assert_eq!(lead["tool"], "localSearch", "{lead}");
+        let row = &lead["query"]["queries"][0];
+        assert_eq!(row["matchString"], "x", "{lead}");
+        assert_eq!(row["path"], p.to_string_lossy().as_ref(), "{lead}");
+    }
+}
+
+/// H1 when the read pages: the tool emits the textSearch lead beside the
+/// page continuation (the response moves it to `hints.textSearch`).
+#[test]
+fn paged_regex_read_past_the_match_limit_keeps_its_search_lead() {
+    use crate::contracts::tool_types::ReadRegex;
+    let t = Temp::new();
+    let p = t.0.join("hits.txt");
+    let source: String = (1..=extraction::MAX_REGEX_MATCHES + 5)
+        .map(|n| format!("hit {n}\n"))
+        .collect();
+    fs::write(&p, &source).expect("fixture");
+    let mut request = q(&p);
+    request.match_string = Some("hit".parse().expect("match string"));
+    request.regex = Some(ReadRegex::Rust);
+    let result = execute_local_fetch(
+        &request,
+        &Paths(t.0.clone()),
+        &Safe,
+        &NeverCancel,
+        &LocalFetchRegex::default(),
+        None,
+    );
+    assert!(
+        result.warnings.iter().any(|w| w.contains("match limit")),
+        "{:?}",
+        result.warnings
+    );
+    let next = result.next.as_ref().expect("next");
+    assert!(next.r#continue.is_some(), "the read pages: {next:?}");
+    let lead = next
+        .text_search
+        .as_ref()
+        .expect("textSearch lead on a paged read");
+    assert_eq!(lead["tool"], "localSearch", "{lead}");
 }

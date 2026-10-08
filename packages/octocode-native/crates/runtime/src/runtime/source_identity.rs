@@ -38,13 +38,9 @@ pub(super) fn unchanged_since(
         }
         ToolFamily::GitHub => queries
             .iter()
-            .all(|row| row["ref"].as_str().is_some_and(is_commit_sha)),
+            .all(|row| row["ref"].as_str().is_some_and(super::git_head::is_sha)),
         ToolFamily::Remote => false,
     }
-}
-
-fn is_commit_sha(value: &str) -> bool {
-    matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 /// Every entry under `root` exists, is readable, and was last modified

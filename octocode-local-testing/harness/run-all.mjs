@@ -1,18 +1,21 @@
 // Run every suite sequentially (each owns one MCP server) and summarize.
 // Usage: node harness/run-all.mjs [suite,...]
+// Opt-in suites run only when named, e.g. `run-all.mjs soak` (OCTOCODE_SOAK_MINUTES, default 30).
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { RESULTS, TESTING } from './mcp-client.mjs';
 
 const SUITES = ['chain-check', 'workflows', 'grammar', 'navigate', 'remote', 'github', 'artifacts', 'perf', 'deps-flows', 'repo-sweep', 'large-files', 'clasify', 'rewrite', 'usage-regressions', 'competitors'];
+const OPT_IN = ['soak'];
 const selected = process.argv[2]?.split(',') ?? SUITES;
-if (selected.some(s => !SUITES.includes(s))) throw new Error('unknown suite');
+if (selected.some(s => !SUITES.includes(s) && !OPT_IN.includes(s))) throw new Error('unknown suite');
+const suiteTimeout = suite => Math.max(Number(process.env.OCTOCODE_TEST_SUITE_TIMEOUT_MS ?? 1800000), suite === 'soak' ? (Number(process.env.OCTOCODE_SOAK_MINUTES ?? 30) + 15) * 60000 : 0);
 fs.mkdirSync(RESULTS, { recursive: true });
 const rows = [];
 for (const suite of selected) {
   const started = Date.now();
-  const run = spawnSync(process.execPath, [path.join(TESTING, 'harness', `${suite}.mjs`)], { cwd: TESTING, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: Number(process.env.OCTOCODE_TEST_SUITE_TIMEOUT_MS ?? 1800000), killSignal: 'SIGTERM' });
+  const run = spawnSync(process.execPath, [path.join(TESTING, 'harness', `${suite}.mjs`)], { cwd: TESTING, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, timeout: suiteTimeout(suite), killSignal: 'SIGTERM' });
   fs.writeFileSync(path.join(RESULTS, `${suite}.log`), `${run.stdout ?? ''}\n${run.stderr ?? ''}`);
   const failed = ((run.stdout ?? '').match(/^FAIL .*/gm) ?? []);
   const passed = ((run.stdout ?? '').match(/^PASS /gm) ?? []).length;

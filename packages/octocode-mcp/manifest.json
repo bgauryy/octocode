@@ -28,8 +28,7 @@
       ],
       "env": {
         "NODE_ENV": "production",
-        "GITHUB_TOKEN": "${user_config.github_token}",
-        "NPM_CONFIG_REGISTRY": "${user_config.npm_registry}"
+        "GITHUB_TOKEN": "${user_config.github_token}"
       }
     }
   },
@@ -117,13 +116,6 @@
       "title": "GitHub Token",
       "description": "Personal access token for GitHub API (optional, increases rate limits)",
       "sensitive": true,
-      "required": false
-    },
-    "npm_registry": {
-      "type": "string",
-      "title": "NPM Registry",
-      "description": "NPM registry URL",
-      "default": "https://registry.npmjs.org",
       "required": false
     }
   }

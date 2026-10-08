@@ -92,7 +92,7 @@ Subjects (`src/permissions/subjects.ts`; reuse `mutatedPaths`, `src/team/routing
 |---|---|---|
 | `file` | every `queries[].path` (strictest per batch) | `queries[].type` |
 | `edit`, `write`, `read`, `grep`, `find`, `ls` | `path` (default cwd) | — |
-| `mcp__octocode__local*`, `lspGetSemantics` | every `queries[].path` / `uri` | — |
+| `mcp__octocode__local*`, `structureSearch`, `astSearch`, `astTopology`, `lspSearch` | every `queries[].path` / `workspaceRoot` | — |
 | `browser` | `upload` paths | `action` |
 | `web` | — | URL host, or `search` |
 | `agent` | — | `profile` (or `general`) |
@@ -186,7 +186,7 @@ A subagent runs headless (`--mode json`, `src/subagents/process.ts:79-93`).
    ```
 
 3. **Child `ask`.** Until M4: deny with `Needs the user's approval: <rule>. Ask your parent with sendMessage, or report it as a blocker.` M4 relay: if the parent has a UI, the child sends a `permission-request` team message and waits up to `OCTOCODE_PERMISSIONS_RELAY_SECONDS`. The parent shows the dialog with the child's id and profile; a session grant covers only that child. Timeout, no UI, or parent gone → deny.
-4. **Message `kind`.** One agent-DB migration v4→v5 (`src/agentdb/schema.ts`) adds a team message `kind` column: `message | interrupt | permission-request`; old rows read as `message`. It ships with whichever lands first, [04](04-agents-view.md) interrupt or this relay; the other reuses it.
+4. **Message `kind`.** One agent-DB migration v1→v2 (`src/agentdb/schema.ts`) adds a team message `kind` column: `message | interrupt | permission-request`; old rows read as `message`. It ships with whichever lands first, [04](04-agents-view.md) interrupt or this relay; the other reuses it.
 5. **Headless main session** (`pi -p`, RPC without UI): `ask` → deny. Override: `OCTOCODE_PERMISSIONS_MODE=auto`.
 6. **Fan-out** ([05](05-fan-out-batches.md)): items are normal children with the merged policy; use a profile, not a batch-level policy.
 
@@ -227,7 +227,7 @@ The `octocode` section does not change. Block reasons carry the rule and "do not
 | `src/shared/env.ts` | New env names |
 | `src/subagents/profiles.ts` | Validate `permissions` frontmatter |
 | `src/subagents/process.ts` | Pass `OCTOCODE_PERMISSIONS_POLICY` |
-| `src/agentdb/schema.ts` | Migration v4→v5: message `kind` (shared with 04) |
+| `src/agentdb/schema.ts` | Migration v1→v2: message `kind` (shared with 04) |
 | `src/team/model.ts`, `store.ts`, `session.ts` | M4: `permission-request` kind and answer delivery |
 | `tests/architecture.test.ts` | `permissions/` above `shared/`, `files/`, below `index.ts` |
 | `docs/CONFIGURATION.md`, `docs/FEATURES.md`, `README.md` | Permissions section, env, commands |
@@ -239,7 +239,7 @@ The `octocode` section does not change. Block reasons carry the rule and "do not
 | M1 Engine + deny | Schema, loader, matcher, `commandSegments`, deny-only gate, `/octocode permissions`, `check` | Users can forbid calls |
 | M2 Ask | Dialog, grants, `auto`, built-in protected paths, headless ask → deny, loop guard | Interactive approval |
 | M3 Subagents | Profile `permissions`, env transfer, bundled profile rules (researcher/reviewer deny `git commit/push`, `rm`; plan preset in 02) | Enforced read-only profiles |
-| M4 Relay + hooks | Migration v4→v5 unless 04 shipped it; child → parent relay; hook `ask`/`allow`; optional `bashPaths` | Child approvals |
+| M4 Relay + hooks | Migration v1→v2 unless 04 shipped it; child → parent relay; hook `ask`/`allow`; optional `bashPaths` | Child approvals |
 
 ## Test plan
 

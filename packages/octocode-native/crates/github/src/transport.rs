@@ -2,9 +2,8 @@ use bytes::{Bytes, BytesMut};
 use futures_util::StreamExt;
 use reqwest::{
     Client, StatusCode,
-    header::{ACCEPT, AUTHORIZATION, HeaderMap, LOCATION, RETRY_AFTER, USER_AGENT},
+    header::{ACCEPT, HeaderMap, LOCATION, RETRY_AFTER, USER_AGENT},
 };
-use secrecy::{ExposeSecret, SecretString};
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -13,12 +12,11 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
-use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use super::{
-    CredentialRequest, CredentialResolver, GitHubEndpoint, ProviderError, ProviderErrorKind,
-    RateLimit,
+    BudgetStop, GitHubEndpoint, ProviderError, ProviderErrorKind, RateLimit, RequestBudget,
+    ResolvedCredential,
     budget::{
         GitHubBudget, GitHubResource, Group, LimiterKey, is_primary_rate_limit,
         is_secondary_rate_limit, now_ms, pause, rate_limited_error,
@@ -76,42 +74,27 @@ impl RequestSpec {
     }
 }
 
+/// One request's budget and the credential the host resolved for it. Every
+/// GitHub call made with this context carries that credential (or none).
 #[derive(Clone)]
 pub struct RequestContext {
-    pub deadline: Instant,
-    pub cancellation: CancellationToken,
-    pub max_body_bytes: usize,
-    pub override_token: Option<SecretString>,
-    credential: Arc<tokio::sync::OnceCell<Option<super::ResolvedCredential>>>,
+    pub budget: RequestBudget,
+    credential: Option<ResolvedCredential>,
 }
 impl RequestContext {
+    pub fn new(budget: RequestBudget, credential: Option<ResolvedCredential>) -> Self {
+        Self { budget, credential }
+    }
+    /// An anonymous request with a fresh `timeout` budget.
     pub fn with_timeout(timeout: Duration, max_body_bytes: usize) -> Self {
-        Self {
-            deadline: Instant::now() + timeout,
-            cancellation: CancellationToken::new(),
-            max_body_bytes,
-            override_token: None,
-            credential: Arc::new(tokio::sync::OnceCell::new()),
-        }
+        Self::new(RequestBudget::with_timeout(timeout, max_body_bytes), None)
     }
-    pub fn resolved_credential(&self) -> Option<&super::ResolvedCredential> {
-        self.credential.get().and_then(Option::as_ref)
+    pub fn resolved_credential(&self) -> Option<&ResolvedCredential> {
+        self.credential.as_ref()
     }
-
-    pub fn with_resolved_credential(
-        timeout: Duration,
-        max_body_bytes: usize,
-        resolved: Option<super::ResolvedCredential>,
-    ) -> Self {
-        let credential = tokio::sync::OnceCell::new();
-        let _ = credential.set(resolved);
-        Self {
-            deadline: Instant::now() + timeout,
-            cancellation: CancellationToken::new(),
-            max_body_bytes,
-            override_token: None,
-            credential: Arc::new(credential),
-        }
+    /// The budget check as a provider error: cancellation first, then the deadline.
+    pub fn check(&self) -> Result<(), ProviderError> {
+        Ok(self.budget.check()?)
     }
 }
 
@@ -156,69 +139,35 @@ pub struct GraphQlPage {
     pub errors: Vec<GraphQlError>,
 }
 
-pub struct GitHubTransport<R> {
+#[derive(Clone)]
+pub struct GitHubTransport {
     client: Client,
     endpoint: GitHubEndpoint,
-    credentials: Arc<R>,
     retry: RetryPolicy,
     budget: Arc<GitHubBudget>,
     state_dir: Option<PathBuf>,
     pub graphql_enabled: bool,
-    /// Response cache for reads made on the transport (code-search pages):
-    /// a repeated search, even from a new CLI process, spends none of the
-    /// 10/min budget. Clones share it.
+    /// Response cache for reads made on the transport (search pages and
+    /// history reads): a repeated search, even from a new CLI process,
+    /// sends no request, so it spends no search budget and waits for no
+    /// search spacing. Clones share it.
     pub cache: Arc<dyn super::ConditionalCache>,
     /// `owner/repo` (lowercase) whose requests GitHub redirected to
     /// `/repositories/<id>`: a renamed repository. Clones share it.
     renamed: Arc<std::sync::Mutex<std::collections::HashSet<String>>>,
 }
-impl<R> Clone for GitHubTransport<R> {
-    fn clone(&self) -> Self {
-        Self {
-            client: self.client.clone(),
-            endpoint: self.endpoint.clone(),
-            credentials: self.credentials.clone(),
-            retry: self.retry.clone(),
-            budget: self.budget.clone(),
-            state_dir: self.state_dir.clone(),
-            graphql_enabled: self.graphql_enabled,
-            cache: self.cache.clone(),
-            renamed: self.renamed.clone(),
-        }
-    }
-}
-impl<R: CredentialResolver> GitHubTransport<R> {
-    pub(crate) async fn credential(
-        &self,
-        context: &RequestContext,
-    ) -> Result<Option<super::ResolvedCredential>, ProviderError> {
-        context
-            .credential
-            .get_or_try_init(|| {
-                self.credentials.resolve(CredentialRequest {
-                    host: self.endpoint.credential_host(),
-                    override_token: context.override_token.as_ref().map(|v| v.expose_secret()),
-                })
-            })
-            .await
-            .cloned()
-    }
-    pub fn new(
-        endpoint: GitHubEndpoint,
-        credentials: Arc<R>,
-        retry: RetryPolicy,
-    ) -> Result<Self, ProviderError> {
+impl GitHubTransport {
+    pub fn new(endpoint: GitHubEndpoint, retry: RetryPolicy) -> Result<Self, ProviderError> {
         let budget = if cfg!(test) {
             GitHubBudget::relaxed()
         } else {
             GitHubBudget::global()
         };
-        Self::with_budget(endpoint, credentials, retry, budget)
+        Self::with_budget(endpoint, retry, budget)
     }
 
     pub fn with_budget(
         endpoint: GitHubEndpoint,
-        credentials: Arc<R>,
         retry: RetryPolicy,
         budget: Arc<GitHubBudget>,
     ) -> Result<Self, ProviderError> {
@@ -234,7 +183,6 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         Ok(Self {
             client,
             endpoint,
-            credentials,
             retry,
             budget,
             state_dir: None,
@@ -285,16 +233,15 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         &self.endpoint
     }
 
-    pub async fn cache_partition(
+    pub fn cache_partition(
         &self,
         context: &RequestContext,
         session: Option<&str>,
     ) -> Result<super::CachePartition, ProviderError> {
-        let credential = self.credential(context).await?;
         let mut digest = Sha256::new();
         digest.update(self.endpoint.rest(&[])?.as_str().as_bytes());
         digest.update([0]);
-        if let Some(credential) = credential {
+        if let Some(credential) = context.resolved_credential() {
             digest.update(credential.expose_secret().as_bytes());
         }
         digest.update([0]);
@@ -305,16 +252,13 @@ impl<R: CredentialResolver> GitHubTransport<R> {
     }
 
     /// Limiter state for this transport's host and the request credential.
-    fn key_state(
-        &self,
-        credential: Option<&super::ResolvedCredential>,
-    ) -> Arc<super::budget::KeyState> {
+    fn key_state(&self, credential: Option<&ResolvedCredential>) -> Arc<super::budget::KeyState> {
         let key = LimiterKey::for_url(
             &self
                 .endpoint
                 .rest(&[])
                 .unwrap_or_else(|_| self.endpoint.graphql()),
-            credential.map(super::ResolvedCredential::expose_secret),
+            credential.map(ResolvedCredential::expose_secret),
         );
         self.budget.key_state(&key, self.state_dir.as_deref())
     }
@@ -322,11 +266,8 @@ impl<R: CredentialResolver> GitHubTransport<R> {
     /// Whether GraphQL can be attempted now for this credential: false while
     /// the key's graphql bucket (or a secondary cooldown) blocks longer than
     /// the retry cap. Replaces the old permanent per-host skip.
-    pub async fn graphql_available(&self, context: &RequestContext) -> bool {
-        let Ok(credential) = self.credential(context).await else {
-            return false;
-        };
-        let state = self.key_state(credential.as_ref());
+    pub fn graphql_available(&self, context: &RequestContext) -> bool {
+        let state = self.key_state(context.resolved_credential());
         state.refresh_from_disk();
         state
             .blocked(GitHubResource::Graphql.bucket(), self.budget.config())
@@ -334,7 +275,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 let wait = block.wait(now_ms());
                 !block.circuit
                     && wait <= self.retry.max_retry_after
-                    && Instant::now() + wait < context.deadline
+                    && Instant::now() + wait < context.budget.deadline
             })
     }
 
@@ -360,8 +301,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             })?;
             if parsed.errors.iter().any(GraphQlError::is_rate_limited) {
                 // GraphQL primary limit arrives as HTTP 200 + errors[].type.
-                let credential = self.credential(context).await?;
-                let state = self.key_state(credential.as_ref());
+                let state = self.key_state(context.resolved_credential());
                 let reset = header_u64(&page.headers, "x-ratelimit-reset")
                     .unwrap_or_else(|| now_ms() / 1000 + 60);
                 state.exhaust(GitHubResource::Graphql.bucket(), reset);
@@ -373,7 +313,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 );
                 if attempt + 1 < self.retry.max_attempts
                     && wait <= self.retry.max_retry_after
-                    && Instant::now() + wait < context.deadline
+                    && Instant::now() + wait < context.budget.deadline
                 {
                     attempt += 1;
                     continue;
@@ -392,18 +332,15 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 // Octokit plugin-retry treats this GraphQL failure as a 500.
                 if attempt + 1 < self.retry.max_attempts {
                     let delay = full_jitter(self.retry.base_delay, u32::from(attempt), MAX_BACKOFF);
-                    if pause(delay, context.deadline, &context.cancellation)
+                    if pause(delay, context.budget.deadline, &context.budget.cancellation)
                         .await
                         .is_ok()
                     {
                         attempt += 1;
                         continue;
                     }
-                    if context.cancellation.is_cancelled() {
-                        return Err(ProviderError::new(
-                            ProviderErrorKind::Cancelled,
-                            "GitHub request cancelled",
-                        ));
+                    if context.budget.cancellation.is_cancelled() {
+                        return Err(BudgetStop::Cancelled.into());
                     }
                 }
             }
@@ -422,8 +359,8 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 "request URL is outside the configured GitHub API origin",
             ));
         }
-        let credential = self.credential(context).await?;
-        let state = self.key_state(credential.as_ref());
+        let credential = context.resolved_credential();
+        let state = self.key_state(credential);
         let config = self.budget.config();
         let cap = self.retry.max_retry_after;
         let resource = GitHubResource::classify(&spec.url);
@@ -438,25 +375,14 @@ impl<R: CredentialResolver> GitHubTransport<R> {
         let mut attempt: u8 = 0;
         let mut counted_window = false;
         loop {
-            if context.cancellation.is_cancelled() {
-                return Err(ProviderError::new(
-                    ProviderErrorKind::Cancelled,
-                    "GitHub request cancelled",
-                ));
-            }
-            if Instant::now() >= context.deadline {
-                return Err(ProviderError::new(
-                    ProviderErrorKind::Timeout,
-                    "GitHub request deadline exceeded",
-                ));
-            }
+            context.check()?;
             state
                 .wait_unblocked(
                     resource.bucket(),
                     config,
                     cap,
-                    context.deadline,
-                    &context.cancellation,
+                    context.budget.deadline,
+                    &context.budget.cancellation,
                 )
                 .await?;
             // The code-search window is charged once per logical request.
@@ -467,8 +393,8 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                     config,
                     charge_window,
                     cap,
-                    context.deadline,
-                    &context.cancellation,
+                    context.budget.deadline,
+                    &context.budget.cancellation,
                 )
                 .await?;
             counted_window |= charge_window;
@@ -476,18 +402,17 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                 HttpMethod::Get => self.client.get(spec.url.clone()),
                 HttpMethod::Post => self.client.post(spec.url.clone()),
             }
-            .header(USER_AGENT, "octocode-native")
+            .header(USER_AGENT, HTTP_USER_AGENT)
             .header(ACCEPT, "application/vnd.github+json")
             .header("x-github-api-version", "2022-11-28")
             .headers(spec.headers.clone());
-            if let Some(token) = &credential {
-                request =
-                    request.header(AUTHORIZATION, format!("Bearer {}", token.expose_secret()));
+            if let Some(token) = credential {
+                request = authorize(request, token.expose_secret());
             }
             if let Some(body) = &spec.body {
                 request = request.json(body);
             }
-            let response = tokio::select! { _ = context.cancellation.cancelled() => return Err(ProviderError::new(ProviderErrorKind::Cancelled, "GitHub request cancelled")), value = tokio::time::timeout(context.deadline.saturating_duration_since(Instant::now()), request.send()) => value.map_err(|_| ProviderError::new(ProviderErrorKind::Timeout, "GitHub request deadline exceeded"))? };
+            let response = context.budget.wait(request.send()).await?;
             let response = match response {
                 Ok(response) => response,
                 Err(_) => {
@@ -497,7 +422,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                     if attempt + 1 < self.retry.max_attempts {
                         let delay =
                             full_jitter(self.retry.base_delay, u32::from(attempt), MAX_BACKOFF);
-                        pause(delay, context.deadline, &context.cancellation).await?;
+                        pause(delay, context.budget.deadline, &context.budget.cancellation).await?;
                         attempt += 1;
                         continue;
                     }
@@ -592,7 +517,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                         reset_epoch_seconds: Some(reset),
                         retry_after_seconds: Some(
                             header_u64(&headers, RETRY_AFTER.as_str())
-                                .unwrap_or_else(|| ceil_secs(wait)),
+                                .unwrap_or_else(|| crate::budget::ceil_secs(wait)),
                         ),
                         resource: Some(bucket.into()),
                     });
@@ -608,7 +533,7 @@ impl<R: CredentialResolver> GitHubTransport<R> {
                     error.rate_limit = Some(RateLimit {
                         remaining: header_u64(&headers, "x-ratelimit-remaining"),
                         reset_epoch_seconds: header_u64(&headers, "x-ratelimit-reset"),
-                        retry_after_seconds: Some(ceil_secs(wait)),
+                        retry_after_seconds: Some(crate::budget::ceil_secs(wait)),
                         resource: Some(
                             headers
                                 .get("x-ratelimit-resource")
@@ -635,17 +560,20 @@ impl<R: CredentialResolver> GitHubTransport<R> {
             };
             if attempt + 1 >= self.retry.max_attempts
                 || wait > cap
-                || Instant::now() + wait >= context.deadline
+                || Instant::now() + wait >= context.budget.deadline
             {
                 return Err(error);
             }
-            pause(sleep, context.deadline, &context.cancellation).await?;
+            pause(sleep, context.budget.deadline, &context.budget.cancellation).await?;
             attempt += 1;
         }
     }
 }
 
 /// Upper bound for one 5xx/network backoff sleep.
+/// The User-Agent every GitHub request (API and OAuth) sends.
+pub const HTTP_USER_AGENT: &str = "octocode-native";
+
 const MAX_BACKOFF: Duration = Duration::from_secs(8);
 
 enum Failure {
@@ -702,10 +630,6 @@ fn classify_failure(
     }
 }
 
-fn ceil_secs(duration: Duration) -> u64 {
-    duration.as_millis().div_ceil(1000) as u64
-}
-
 async fn read_bounded(
     response: reqwest::Response,
     context: &RequestContext,
@@ -714,19 +638,21 @@ async fn read_bounded(
     let mut result = BytesMut::new();
     // The send phase is bounded by the request deadline; a body that stalls
     // after the headers must be too, not only by the outer runtime timeout.
-    let deadline = tokio::time::Instant::from_std(context.deadline);
-    while let Some(chunk) = tokio::select! {
-        _ = context.cancellation.cancelled() => return Err(ProviderError::new(ProviderErrorKind::Cancelled, "GitHub request cancelled")),
-        _ = tokio::time::sleep_until(deadline) => return Err(ProviderError::new(ProviderErrorKind::Timeout, "GitHub response body deadline exceeded")),
-        chunk = stream.next() => chunk,
-    } {
+    let stopped = |stop| match stop {
+        BudgetStop::Deadline => ProviderError::new(
+            ProviderErrorKind::Timeout,
+            "GitHub response body deadline exceeded",
+        ),
+        BudgetStop::Cancelled => stop.into(),
+    };
+    while let Some(chunk) = context.budget.wait(stream.next()).await.map_err(stopped)? {
         let chunk = chunk.map_err(|_| {
             ProviderError::new(
                 ProviderErrorKind::Transport,
                 "failed reading GitHub response",
             )
         })?;
-        if result.len().saturating_add(chunk.len()) > context.max_body_bytes {
+        if result.len().saturating_add(chunk.len()) > context.budget.max_body_bytes {
             return Err(ProviderError::new(
                 ProviderErrorKind::ResponseTooLarge,
                 "GitHub response exceeded configured byte limit",
@@ -805,6 +731,12 @@ struct ErrorBody {
 struct ErrorDetail {
     message: Option<String>,
 }
+/// Attach the GitHub token as a bearer `Authorization` header. `bearer_auth`
+/// marks the value sensitive, so `Debug` of the request redacts it.
+fn authorize(request: reqwest::RequestBuilder, token: &str) -> reqwest::RequestBuilder {
+    request.bearer_auth(token)
+}
+
 fn response_error(status: StatusCode, headers: &HeaderMap, body: Bytes) -> ProviderError {
     let parsed: ErrorBody = serde_json::from_slice(&body).unwrap_or_default();
     let kind = match status.as_u16() {
@@ -824,7 +756,6 @@ fn response_error(status: StatusCode, headers: &HeaderMap, body: Bytes) -> Provi
         .filter_map(|error| error.message)
         .map(|message| message.trim().to_owned())
         .filter(|message| !message.is_empty())
-        .take(3)
         .collect();
     let message = match (kind, parsed.message) {
         (ProviderErrorKind::Unavailable, Some(detail)) => {
@@ -861,6 +792,33 @@ fn response_error(status: StatusCode, headers: &HeaderMap, body: Bytes) -> Provi
 #[cfg(test)]
 mod response_error_tests {
     use super::*;
+    use reqwest::header::AUTHORIZATION;
+
+    /// Review open item: the token header is marked sensitive so `Debug`
+    /// output of a request or header map never prints it.
+    #[test]
+    fn authorization_header_is_sensitive() {
+        let request = authorize(
+            reqwest::Client::new().get("https://api.github.com/"),
+            "ghp_secret",
+        )
+        .build()
+        .expect("request");
+        let value = &request.headers()[AUTHORIZATION];
+        assert_eq!(value, "Bearer ghp_secret");
+        assert!(value.is_sensitive());
+        assert!(!format!("{:?}", request.headers()).contains("ghp_secret"));
+    }
+
+    /// Review L11: every validation cause GitHub returns is kept (never-trim).
+    #[test]
+    fn validation_errors_keep_every_detail() {
+        let body = Bytes::from_static(
+            br#"{"message":"Validation Failed","errors":[{"message":"a"},{"message":"b"},{"message":"c"},{"message":"d"},{"message":"e"}]}"#,
+        );
+        let error = response_error(StatusCode::UNPROCESSABLE_ENTITY, &HeaderMap::new(), body);
+        assert_eq!(&*error.message, "Validation Failed: a; b; c; d; e");
+    }
 
     #[test]
     fn validation_errors_keep_github_detail() {

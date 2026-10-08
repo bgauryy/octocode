@@ -1,9 +1,11 @@
 import type { ParsedArgs } from './types.js';
 
-// Only options the Node side itself reads need value-consumption here — the
-// `skill` and `schema` commands' value flags. Everything else is forwarded to
-// the native binary as raw argv, which owns its own parsing.
-const OPTIONS_WITH_VALUES = new Set([
+/**
+ * The one table of value-taking flags: only options the Node side itself reads
+ * — the `skill` and `schema` commands' value flags. Everything else is
+ * forwarded to the native binary as raw argv, which owns its own parsing.
+ */
+export const OPTIONS_WITH_VALUES: ReadonlySet<string> = new Set([
   'add',
   'mode',
   'path',
@@ -13,16 +15,11 @@ const OPTIONS_WITH_VALUES = new Set([
   'view',
 ]);
 
-function shouldConsumeNextValue(_args: ParsedArgs, key: string): boolean {
-  return OPTIONS_WITH_VALUES.has(key);
-}
-
 export function parseArgs(argv: string[] = process.argv.slice(2)): ParsedArgs {
   const result: ParsedArgs = {
     command: null,
     args: [],
     options: {},
-    raw: [...argv],
   };
 
   let i = 0;
@@ -52,7 +49,7 @@ export function parseArgs(argv: string[] = process.argv.slice(2)): ParsedArgs {
       if (value !== undefined) {
         result.options[key] = value;
       } else if (
-        shouldConsumeNextValue(result, key) &&
+        OPTIONS_WITH_VALUES.has(key) &&
         i + 1 < argv.length &&
         // A following token is a value unless it is itself a long flag ("--x").
         // This lets legitimate single-dash values (e.g. "--path -weird") be

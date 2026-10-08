@@ -115,6 +115,71 @@ pub enum FailureKind {
     Execution,
 }
 
+/// A local tool call that failed as a whole. The dispatcher renders it as
+/// the one error row: `errorCode`, `error`, then `hints` and `next` when set.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ToolError {
+    pub code: String,
+    pub message: String,
+    pub hints: Vec<String>,
+    /// Leads out of the error, e.g. a missing path's nearest existing parent.
+    /// Boxed to keep the error small in `Result`s.
+    pub next: Option<Box<Value>>,
+}
+
+impl ToolError {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            hints: Vec::new(),
+            next: None,
+        }
+    }
+
+    /// The call was cancelled or ran past its deadline.
+    pub fn cancelled(message: impl Into<String>) -> Self {
+        Self::new("cancelled", message)
+    }
+
+    /// A path-policy refusal under the flat code every local tool shares,
+    /// else under the tool's own `access_code`
+    /// ([`crate::policy::PolicyError::local_error_code`]).
+    pub fn policy(error: crate::policy::PolicyError, access_code: &'static str) -> Self {
+        Self::new(error.local_error_code(access_code), error.message)
+    }
+
+    /// [`Self::policy`] for a search root; a missing root also leads to a
+    /// tree of its nearest existing parent (`next.viewTree`), where a typo's
+    /// siblings show.
+    pub fn root_policy(
+        error: crate::policy::PolicyError,
+        requested: &str,
+        paths: &crate::policy::path::PathPolicy,
+        access_code: &'static str,
+    ) -> Self {
+        let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
+        let mut out = Self::policy(error, access_code);
+        if missing && let Some(parent) = paths.nearest_existing_dir(requested) {
+            let lead = Continuation::new(
+                ToolId::StructureSearch,
+                serde_json::json!({"operation": "tree", "path": parent}),
+            )
+            .build();
+            out.next = Some(Box::new(serde_json::json!({ "viewTree": lead })));
+        }
+        out
+    }
+}
+
+impl std::fmt::Display for ToolError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ToolError {}
+
 /// Fields that steer how a call reports, never what it reads; a
 /// continuation inherits them from its source row.
 pub const INTENT_FIELDS: [&str; 3] = ["mainGoal", "reasoning", "debug"];
@@ -160,13 +225,12 @@ impl From<Value> for ToolData {
 
 /// The row of a continuation whose snapshot no longer describes the source:
 /// `restart` (the same query from its first page, without its snapshot) is
-/// `next.restart`. The runtime keeps that restart, states the shared error
-/// text and clears `isPartial` (`response::pages::restart_stale`).
+/// `next.restart`. The runtime keeps that restart and writes the one shared
+/// `error` text and clears `isPartial` (`response::pages::restart_stale`).
 pub(crate) fn stale_snapshot(restart: Value) -> Value {
     serde_json::json!({
         "status": "error",
         "errorCode": "staleSnapshot",
-        "error": crate::response::pages::STALE_SNAPSHOT_ERROR,
         "next": {"restart": restart},
     })
 }

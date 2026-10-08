@@ -57,7 +57,8 @@ Load for a Rust command-line tool (args, output, exit codes, config, errors, pro
 - **Group-kill** grandchildren: own process group (Unix `setsid`/`pre_exec`) or a Windows **Job Object**, then kill the group; `kill()` on the parent leaks grandchildren.
 
 ## Subprocess: Bound every resource
-- **OS memory cap on the child**: `setrlimit(RLIMIT_AS)` via `pre_exec` (Unix) or a Job Object limit (Windows). Your internal caps don't stop a runaway child from OOMing the *host*.
+- **OS memory cap on the child**: bound memory the child *uses*: sample the tree's resident memory (RSS watchdog over `/proc` or `libproc`, kill over the cap), or a Job Object limit (Windows). Your internal caps don't stop a runaway child from OOMing the *host*. `setrlimit(RLIMIT_AS)` limits *reserved* address space: JVMs (max heap), V8 (WebAssembly cages), Go and glibc arenas reserve far more than they touch and fail to start under it, and on macOS it cannot be lowered at all. Use it only where nothing better exists.
+- **Sweep a process group before reaping its leader**: `kill(-pid)` after `wait()` can hit a recycled pid. Wait without reaping (`waitid(P_PID, pid, WEXITED | WNOWAIT)`), sweep, then reap.
 - **Cap every read**: max frame/message and header size, bounded stdout accumulation, stderr ring buffer (last N lines). Check a declared length (`Content-Length`) **before** allocating.
 - **Pool bounds**: max live servers, LRU + idle-timeout eviction, deduped concurrent starts (N callers, one process).
 - **Timeouts** on every request/write; on timeout cancel and mark the connection dead so the pool evicts it.

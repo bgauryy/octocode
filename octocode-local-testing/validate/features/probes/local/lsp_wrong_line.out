@@ -1,5 +1,0 @@
-# cmd: octocode lspSearch {"goal": "g", "reasoning": "r", "operation": "definition", "uri": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts", "symbolName": "helper", "lineHint": 12}
-# env: None
-# exit: 5
-# stderr: 
-{"results":[{"index":0,"data":{"next":{"readFile":{"tool":"localFetch","why":"Read the source directly because semantic navigation is unavailable.","confidence":"exact","query":{"path":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts","matchString":"helper","matchStringCaseSensitive":true,"contextLines":3,"followUp":true}}},"errorCode":"lsp.anchorUnresolved","error":"Could not find symbol 'helper' at or near line 12","type":"definition","lsp":{"serverAvailable":true},"hints":["Read the source, then provide an exact position or a unique symbolName with lineHint."],"path":"a.ts"},"status":"error"}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

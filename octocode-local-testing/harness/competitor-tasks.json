@@ -731,10 +731,17 @@
           { "file": "tokio/src/runtime/task/core.rs", "line": 377 },
           { "file": "tokio/src/sync/notify.rs", "line": 1041 },
           { "file": "tokio/src/sync/notify.rs", "line": 1096 },
-          { "file": "tokio/src/sync/batch_semaphore.rs", "line": 677 }
+          { "file": "tokio/src/sync/batch_semaphore.rs", "line": 677 },
+          { "file": "tokio/src/runtime/mod.rs", "line": 482 },
+          { "file": "tokio/src/runtime/mod.rs", "line": 503 },
+          { "file": "tokio/src/runtime/mod.rs", "line": 508 },
+          { "file": "tokio/src/runtime/mod.rs", "line": 519 },
+          { "file": "tokio/src/runtime/mod.rs", "line": 524 },
+          { "file": "tokio/src/runtime/mod.rs", "line": 541 },
+          { "file": "tokio/src/runtime/mod.rs", "line": 546 }
         ]
       },
-      "truthSource": "ast-grep run -p 'Pin::new_unchecked($A)' -l rust tokio/src (9 matches)",
+      "truthSource": "ast-grep run -p 'Pin::new_unchecked($A)' -l rust tokio/src (9 matches) + 7 in runtime/mod.rs inside macro bodies that ast-grep skips (rg -n 'Pin::new_unchecked' tokio/src/runtime/mod.rs; X14) = 16",
       "octocode": [
         {
           "tool": "astSearch",
@@ -1149,7 +1156,7 @@
         {
           "tool": "artifactSearch",
           "args": {
-            "type": "npm",
+            "ecosystem": "npm",
             "packageName": "express",
             "version": "4.21.2"
           }
@@ -1210,7 +1217,7 @@
         {
           "tool": "artifactSearch",
           "args": {
-            "type": "pypi",
+            "ecosystem": "pypi",
             "packageName": "requests",
             "version": "2.31.0"
           }
@@ -1247,7 +1254,7 @@
         {
           "tool": "artifactSearch",
           "args": {
-            "type": "crates",
+            "ecosystem": "crates",
             "packageName": "serde",
             "version": "1.0.100"
           }
@@ -1590,7 +1597,7 @@
             "operation": "pullRequest",
             "owner": "cli",
             "repo": "cli",
-            "number": "{{hint:readFixPullRequest.query.queries.0.number}}",
+            "number": "{{hint:readPullRequest.query.queries.0.number}}",
             "sections": [
               "patches"
             ],

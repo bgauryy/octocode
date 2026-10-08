@@ -1,5 +1,0 @@
-# cmd: octocode structureSearch {"goal": "g", "reasoning": "r", "operation": "tree", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many", "pageSize": 10}
-# env: None
-# exit: 6
-# stderr: 
-{"results":[{"index":0,"data":{"path":"many","entries":["f01.txt (17B)","f02.txt (17B)","f03.txt (17B)","f04.txt (17B)","f05.txt (17B)","f06.txt (17B)","f07.txt (17B)","f08.txt (17B)","f09.txt (17B)","f10.txt (18B)"],"summary":"25 entries (25 files, 0 dirs, 441B)","next":{"nextPage":{"tool":"structureSearch","confidence":"exact","query":{"snapshot":"d91e88f502bee23328b61144a1d856e81db4ef85607618720246017420651768","operation":"tree","page":2,"pageSize":10,"path":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many","followUp":true}}},"pagination":{"currentPage":1,"totalPages":3,"entriesPerPage":10,"totalEntries":25,"hasMore":true}}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx"}

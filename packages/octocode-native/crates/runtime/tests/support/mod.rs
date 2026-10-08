@@ -2,10 +2,6 @@
 //!
 //! Tests construct `ToolRuntime` from an explicit `ConfigInput` so they do not
 //! mutate process environment or race under `cargo test`.
-#![allow(
-    dead_code,
-    reason = "each integration-test binary compiles this module and uses a different subset"
-)]
 use octocode_native::config::{ConfigInput, FileInput, RuntimeSurface};
 use octocode_native::runtime::{RuntimeError, ToolOutcome, ToolRuntime};
 use serde_json::{Value, json};
@@ -25,6 +21,12 @@ static FIXTURE_SEQ: AtomicU64 = AtomicU64::new(0);
 /// workspace default of 5 seconds keeps unrelated timeout tests fast but is too
 /// narrow during a cold native build with several mock servers active.
 pub const MOCK_PROVIDER_TIMEOUT_MS: &str = "30000";
+
+// Mock servers are bare (`MockServer::builder().start()`), never wiremock's
+// pooled `MockServer::start()`: process-wide state keyed by the endpoint
+// (the clasify judgment cache, the GitHub budget's per-host limiter) must not
+// carry one test's answers or pacing into another test that reuses a pooled
+// server's address.
 
 pub struct Workspace {
     _root: tempfile::TempDir,
@@ -95,7 +97,6 @@ impl Workspace {
     pub fn config(&self, extra: &[(&str, String)]) -> ConfigInput {
         let mut env = BTreeMap::from([
             ("OCTOCODE_ENABLE_LOCAL".into(), "true".into()),
-            ("ENABLE_CLONE".into(), "false".into()),
             (
                 "ALLOWED_PATHS".into(),
                 self.workspace.to_string_lossy().into_owned(),
@@ -230,8 +231,8 @@ pub fn provider_runtime(workspace: &Workspace, server: &MockServer) -> ToolRunti
     ])
 }
 
-/// Locate provider stub: the choice question puts `top` on the first
-/// passage ID it was offered; the existence question answers `exists`.
+/// Locate provider stub: each choice question puts `top` on the first
+/// passage ID it was offered; each existence question answers `exists`.
 #[derive(Clone)]
 pub struct LocateTopPassage {
     pub top: f64,
@@ -270,14 +271,53 @@ impl Respond for LocateTopPassage {
             .enumerate()
             .map(|(index, id)| (id.clone(), json!(if index == 0 { self.top } else { rest })))
             .collect::<serde_json::Map<_, _>>();
+        let answers = body["questions"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(id, question)| {
+                let answer = if question["type"] == "choice" {
+                    json!({"type":"choice","choice":ids.first(),"confidence":self.top,
+                        "probabilities":probabilities})
+                } else {
+                    json!({"type":"noul","noul":self.exists})
+                };
+                (id.clone(), answer)
+            })
+            .collect::<serde_json::Map<_, _>>();
         ResponseTemplate::new(200).set_body_json(json!({
             "model":"resolved",
-            "answers":{
-                "answer_0":{"type":"choice","choice":ids.first(),"confidence":self.top,
-                    "probabilities":probabilities},
-                "answer_1":{"type":"noul","noul":self.exists}
-            },
+            "answers":answers,
             "usage":{"input_tokens":5,"output_tokens":2}
         }))
     }
+}
+
+/// Entries of the shared D1 retired-name deny-list
+/// (`skills-dev/octocode-dev/scripts/retired-names.json`) in one of `scopes`;
+/// with `tool`, only the entries that apply to it (no `tools` list, or one
+/// naming it).
+pub fn retired_names(scopes: &[&str], tool: Option<&str>) -> Vec<Value> {
+    let file = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../../skills-dev/octocode-dev/scripts/retired-names.json");
+    let text = std::fs::read_to_string(file).expect("read retired-names.json");
+    let list: Value = serde_json::from_str(&text).expect("parse retired-names.json");
+    list["names"]
+        .as_array()
+        .expect("names")
+        .iter()
+        .filter(|entry| {
+            entry["scope"]
+                .as_str()
+                .is_some_and(|scope| scopes.contains(&scope))
+        })
+        .filter(|entry| {
+            tool.is_none_or(|tool| {
+                entry["tools"]
+                    .as_array()
+                    .is_none_or(|tools| tools.iter().any(|name| name == tool))
+            })
+        })
+        .cloned()
+        .collect()
 }

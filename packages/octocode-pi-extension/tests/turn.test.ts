@@ -104,7 +104,7 @@ describe('registerTurnSetup', () => {
     fs.writeFileSync(path.join(agentDir, 'mcp.json'), JSON.stringify({ mcpServers: { octocode: { command: 'octocode-mcp' } } }));
     const own = await run(setup().fake, ['read']);
     expect(own).toContain('Prefer Octocode MCP');
-    // Its exposure is the user's: no claim that GitHub and npm tools need tool_search.
+    // Its exposure is the user's: no claim that GitHub and package registry tools need tool_search.
     expect(own).not.toContain('`tool_search`');
   });
 

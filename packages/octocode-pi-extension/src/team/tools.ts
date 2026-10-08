@@ -201,6 +201,6 @@ function registerTeamEvents(pi: ExtensionAPI, team: Team): void {
     }
   });
   pi.on('message_end', async (event) => {
-    if (event.message.role === 'assistant') team.onUsage(event.message.usage);
+    if (event.message.role === 'assistant') team.onUsage(event.message.usage, event.message.model);
   });
 }

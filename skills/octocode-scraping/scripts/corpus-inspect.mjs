@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { existsSync } from 'node:fs';
+import { paginate } from './lib/pagination.mjs';
+import { fileURLToPath } from 'node:url';
 import { resolve, join } from 'node:path';
 import { readJson as readJsonFile, readJsonl as readJsonlFile, takeArg } from './lib/bridge.mjs';
 
 function usage(code = 2) {
-  console.error('Usage: corpus-inspect.mjs --session-dir <dir> [--page <n>] [--workflow <type>] [--limit <n>]');
+  console.error('Usage: corpus-inspect.mjs --session-dir <dir> [--page <n>] [--workflow <type>] [--limit <n>] [--view <list>] [--cursor-<list> <n>]');
   process.exit(code);
 }
 const args = process.argv.slice(2);
@@ -16,23 +18,23 @@ const dir = resolve(sessionDir);
 const limit = Number(take('--limit') || 20);
 const page = Number(take('--page') || 1);
 const workflow = take('--workflow');
+if (!Number.isSafeInteger(page) || page < 1) { console.error('Invalid page'); process.exit(2); }
 const readJson = (rel, fallback = null) => readJsonFile(dir, rel, fallback);
 const readJsonl = (rel) => readJsonlFile(dir, rel);
 const agent = await readJson('AGENT_INDEX.json', {});
-const pageIndex = await readJson(`indexes/pages-${String(page).padStart(3, '0')}.json`, { rows: [] });
+const roster = await readJson('page-map.json', { pages: [] });
+const pageIndex = {page, rows: (roster.pages || []).slice((page - 1) * 20)};
 const workflows = await readJson('graph/workflows.json', { workflows: [] });
 const topLinks = await readJsonl('indexes/top-links.jsonl');
-const workflowRows = workflow ? workflows.workflows.filter((w) => w.workflowType === workflow).slice(0, limit) : workflows.workflows.slice(0, limit);
+const workflowRows = workflow ? workflows.workflows.filter((w) => w.workflowType === workflow) : workflows.workflows;
+const paging = await paginate({ lists: { pageRows: pageIndex.rows || [], workflows: workflowRows, topLinks, warnings: agent.warnings || [] }, files: ["AGENT_INDEX.json", "page-map.json", "graph/workflows.json", "indexes/top-links.jsonl"].map(p => join(dir, p)), dir, args, script: fileURLToPath(import.meta.url), defaultLimit: limit });
 const out = {
   ok: Boolean(agent.sessionId),
   sessionDir: dir,
   sessionId: agent.sessionId || null,
-  warnings: agent.warnings || [],
   totals: agent.totals || {},
   page: pageIndex.page || page,
-  pageRows: (pageIndex.rows || []).slice(0, limit),
-  workflows: workflowRows,
-  topLinks: topLinks.slice(0, limit),
+  ...paging,
   nextRead: [
     'AGENT_INDEX.json',
     `indexes/pages-${String(page).padStart(3, '0')}.json`,

@@ -1,5 +1,0 @@
-# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec/hosts_link"}
-# env: None
-# exit: 5
-# stderr: 
-{"results":[{"index":0,"data":{"errorCode":"pathOutsideAllowedRoots","error":"Symlink target 'hosts' is outside allowed directories (allowed: /Users/bgaryy/code/octocode, /Users/bgaryy/.octocode)","resolvedPath":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec/hosts_link","hints":["The path is outside the allowed roots: run from inside the workspace, or add it to ALLOWED_PATHS / WORKSPACE_ROOT."]},"status":"error"}]}

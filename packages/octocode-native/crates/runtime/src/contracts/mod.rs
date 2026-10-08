@@ -1,6 +1,6 @@
 //! Generated public tool contracts and transport-neutral input preparation.
 
-pub mod generated;
+pub(crate) mod generated;
 mod prepare;
 mod schema_facts;
 pub(crate) mod shared_fields;
@@ -9,12 +9,15 @@ mod validate;
 pub(crate) use validate::{levenshtein, qualifier_terms};
 
 use crate::tools::id::ToolId;
-pub use prepare::{ContractInputError, PrepareOptions, prepare};
-pub use schema_facts::{query_schema_max, query_schema_number, query_schema_value};
+pub use prepare::{ContractInputError, prepare};
+#[cfg(test)]
+pub(crate) use schema_facts::query_schema_value;
+pub use schema_facts::{query_schema_max, query_schema_number};
 pub(crate) use schema_facts::{resolve_ref, restorable_fields};
+pub(crate) use validate::validate_output_in_place;
 pub use validate::{
-    ContractValidationError, ValidationIssue, format_input_error, normalize_input, validate,
-    validate_output, validate_query,
+    ContractValidationError, ValidationIssue, format_input_error, normalize_input, tool_error,
+    validate, validate_output, validate_query,
 };
 
 /// Embedded contracts are immutable across runtime handles and requests.
@@ -110,12 +113,12 @@ pub fn isolate_row_violations(
 /// options (`responseLength`, `renderText`, etc.) should parse them from
 /// the raw input *before* calling this function, since those envelope fields
 /// are not part of the per-query contract.
-pub fn prepare_and_validate(
+#[cfg(test)]
+pub(crate) fn prepare_and_validate(
     tool_name: &str,
     input: serde_json::Value,
-    options: PrepareOptions<'_>,
 ) -> Result<serde_json::Value, ContractValidationError> {
-    let prepared = prepare(tool_name, input, options).map_err(prepare_validation_error)?;
+    let prepared = prepare(tool_name, input).map_err(prepare_validation_error)?;
     // Delegate to validate_query which handles the wrap/unwrap internally
     // and strips the "queries.0." prefix from any validation error paths.
     validate_query(tool_name, serde_json::Value::Object(prepared.query))
@@ -129,11 +132,7 @@ pub type RowValidation = Result<serde_json::Value, ContractValidationError>;
 /// single-row input, clasify (matrices share batch-level rules), every row
 /// invalid, or an envelope-level failure that persists without the invalid
 /// rows. Rejected rows carry issue paths rebased to their original index.
-pub fn prepare_rows(
-    tool_name: &str,
-    input: &serde_json::Value,
-    options: PrepareOptions<'_>,
-) -> Option<Vec<RowValidation>> {
+pub fn prepare_rows(tool_name: &str, input: &serde_json::Value) -> Option<Vec<RowValidation>> {
     if tool_name == ToolId::Clasify.as_str() {
         return None;
     }
@@ -153,7 +152,7 @@ pub fn prepare_rows(
         .iter()
         .enumerate()
         .map(|(index, row)| {
-            prepare_many_and_validate(tool_name, with_rows(vec![row.clone()]), options.clone())
+            prepare_many_and_validate(tool_name, with_rows(vec![row.clone()]))
                 .map(|mut prepared| prepared.pop().unwrap_or(serde_json::Value::Null))
                 .map_err(|mut error| {
                     for issue in &mut error.issues {
@@ -181,7 +180,7 @@ pub fn prepare_rows(
     if valid.is_empty() || valid.len() == rows.len() {
         return None;
     }
-    prepare_many_and_validate(tool_name, with_rows(valid), options).ok()?;
+    prepare_many_and_validate(tool_name, with_rows(valid)).ok()?;
     Some(results)
 }
 
@@ -197,7 +196,6 @@ pub const ENVELOPE_REQUIRED: &str =
 pub fn prepare_many_and_validate(
     tool_name: &str,
     input: serde_json::Value,
-    options: PrepareOptions<'_>,
 ) -> Result<Vec<serde_json::Value>, ContractValidationError> {
     if !input
         .as_object()
@@ -215,8 +213,7 @@ pub fn prepare_many_and_validate(
             prepare_validation_error(ContractInputError::new("queries must be an array"))
         })?;
     for query in queries.iter_mut() {
-        let prepared =
-            prepare(tool_name, query.take(), options.clone()).map_err(prepare_validation_error)?;
+        let prepared = prepare(tool_name, query.take()).map_err(prepare_validation_error)?;
         *query = serde_json::Value::Object(prepared.query);
     }
     match validate(tool_name, envelope)? {
@@ -250,8 +247,8 @@ fn prepare_validation_error(error: ContractInputError) -> ContractValidationErro
 }
 
 /// Fingerprint of the tool contract `@octocodeai/config` generated from core.
-#[must_use]
-pub const fn contract_fingerprint() -> &'static str {
+#[cfg(test)]
+const fn contract_fingerprint() -> &'static str {
     generated::CONTRACT_FINGERPRINT
 }
 
@@ -263,15 +260,16 @@ pub const fn contract_json() -> &'static str {
 
 /// Provenance written by `@octocodeai/config`: core package version, contract
 /// fingerprint, and the digest of the embedded contract bytes.
-pub const fn contract_provenance_json() -> &'static str {
+#[cfg(test)]
+const fn contract_provenance_json() -> &'static str {
     generated::CONTRACT_PROVENANCE_JSON
 }
 
 #[cfg(test)]
 mod contract_owner_tests {
     use super::{
-        PrepareOptions, contract_json, contract_provenance_json, isolate_row_violations,
-        normalize_input, prepare_and_validate, prepare_many_and_validate, validate_output,
+        contract_json, contract_provenance_json, isolate_row_violations, normalize_input,
+        prepare_and_validate, prepare_many_and_validate, validate_output,
     };
     use serde_json::{Value, json};
 
@@ -301,7 +299,7 @@ mod contract_owner_tests {
         let wrapped = normalize_input("localSearch", bare);
         assert_eq!(wrapped["queries"], expected["queries"]);
         assert_eq!(wrapped["responseLength"], 100);
-        let prepared = prepare_many_and_validate("localSearch", wrapped, PrepareOptions::default())
+        let prepared = prepare_many_and_validate("localSearch", wrapped)
             .expect("a bare row validates as one row");
         assert_eq!(prepared.len(), 1);
         assert_eq!(prepared[0]["include"], json!(["*.ts"]));
@@ -315,9 +313,8 @@ mod contract_owner_tests {
             normalize_input("localSearch", only_envelope.clone()),
             only_envelope
         );
-        let error =
-            prepare_many_and_validate("localSearch", json!([row]), PrepareOptions::default())
-                .expect_err("an array is not the envelope");
+        let error = prepare_many_and_validate("localSearch", json!([row]))
+            .expect_err("an array is not the envelope");
         assert!(
             error.issues[0].message.contains("{\"queries\":[...]}"),
             "{error:?}"
@@ -352,31 +349,24 @@ mod contract_owner_tests {
 
     #[test]
     fn public_queries_take_an_optional_brief_and_drop_a_blank_one() {
-        let omitted = prepare_and_validate(
-            "localFetch",
-            json!({"path":"/tmp/source.rs"}),
-            PrepareOptions::default(),
-        )
-        .expect("a call without a brief is accepted");
+        let omitted = prepare_and_validate("localFetch", json!({"path":"/tmp/source.rs"}))
+            .expect("a call without a brief is accepted");
         assert!(omitted.get("mainGoal").is_none() && omitted.get("reasoning").is_none());
         let blank = prepare_and_validate(
             "localFetch",
             json!({"path":"/tmp/source.rs","mainGoal":"   ","reasoning":"   "}),
-            PrepareOptions::default(),
         )
         .expect("a blank brief is dropped, not rejected");
         assert!(blank.get("mainGoal").is_none() && blank.get("reasoning").is_none());
         let error = prepare_and_validate(
             "localFetch",
             json!({"path":"/tmp/source.rs","goal":" Read the source. "}),
-            PrepareOptions::default(),
         )
         .expect_err("goal is an unknown field, not a second name for mainGoal");
         assert_eq!(error.issues[0].rule_id, "schema.unknown-field");
         let ok = prepare_and_validate(
             "localFetch",
             json!({"path":"/tmp/source.rs","mainGoal":" Read the source. ","reasoning":" The next step needs these lines. "}),
-            PrepareOptions::default(),
         )
         .expect("a trimmed brief is accepted");
         assert_eq!(ok["mainGoal"], "Read the source.");
@@ -391,7 +381,6 @@ mod contract_owner_tests {
                 {"path":"/tmp/a","mainGoal": "test", "reasoning":"Read both."},
                 {"path":"/tmp/b","mainGoal": "test", "reasoning":"Read both."}
             ]}),
-            PrepareOptions::default(),
         )
         .expect("valid bulk input");
         assert_eq!(queries.len(), 2);
@@ -405,7 +394,6 @@ mod contract_owner_tests {
                 {"path":"/tmp/a","mainGoal":"Find the writer.","reasoning":"Read both."},
                 {"path":"/tmp/b","mainGoal":"Find the caller.","reasoning":"Read one."}
             ]}),
-            PrepareOptions::default(),
         )
         .expect("each batch row carries its own goal and reasoning");
         assert_eq!(split[0]["mainGoal"], "Find the writer.");
@@ -430,7 +418,6 @@ mod contract_owner_tests {
                     {"id":"q2","type":"score","ask":"Rate risk","labels":["low","high"]}
                 ]
             }]}),
-            PrepareOptions::default(),
         )
         .expect("valid semantic matrix");
         assert_eq!(queries.len(), 1);
@@ -447,7 +434,6 @@ mod contract_owner_tests {
             prepare_and_validate(
                 "astSearch",
                 json!({"operation":"syntax","path":"/tmp/lib.rs"}),
-                PrepareOptions::default(),
             )
             .is_err()
         );
@@ -463,7 +449,6 @@ mod contract_owner_tests {
                     "pattern":"fn $N() {}",
                     "replacement":"fn $N() {}"
                 }),
-                PrepareOptions::default(),
             )
             .is_err()
         );
@@ -480,7 +465,6 @@ mod contract_owner_tests {
                     "line":257,
                     "operation":"definition"
                 }),
-                PrepareOptions::default(),
             )
             .is_err()
         );
@@ -741,7 +725,7 @@ mod contract_owner_tests {
         // strips nulls so the query matches the keyword+cursor branch.
         let data = |query: serde_json::Value| {
             json!({"results":[{"index":0,"data":{
-                "type":"npm",
+                "ecosystem":"npm",
                 "artifacts":[],
                 "pagination":{"pageSize":5,"hasMore":true,"totalItems":100},
                 "next":{"nextPage":{"tool":"artifactSearch","query":{"queries":[query]},"confidence":"exact"}}
@@ -749,20 +733,22 @@ mod contract_owner_tests {
         };
         let buggy = validate_output(
             "artifactSearch",
-            &data(json!({"type":"npm","packageName":null,"registry":null,
-                "keywords":["x"],"pageSize":5,"page":2})),
+            &data(
+                json!({"ecosystem":"npm","packageName":null,"registryUrl":null,
+                "keywords":["x"],"pageSize":5,"page":2}),
+            ),
         )
-        .expect_err("null packageName/registry must be rejected");
+        .expect_err("null packageName/registryUrl must be rejected");
         assert!(
             buggy.issues.iter().any(|issue| issue
                 .path
                 .iter()
-                .any(|part| part == "packageName" || part == "registry")),
-            "expected a packageName/registry issue, got {buggy:?}"
+                .any(|part| part == "packageName" || part == "registryUrl")),
+            "expected a packageName/registryUrl issue, got {buggy:?}"
         );
         validate_output(
             "artifactSearch",
-            &data(json!({"type":"npm","keywords":["x"],"pageSize":5,"page":2})),
+            &data(json!({"ecosystem":"npm","keywords":["x"],"pageSize":5,"page":2})),
         )
         .expect("a keyword page continuation is valid");
     }
@@ -782,7 +768,7 @@ mod contract_owner_tests {
                 .or_insert_with(|| json!("Verify the scoped repository exists."));
             json!({"results":[{"index":0,"data":{
                 "files":[],
-                "next":{"viewStructure":{"tool":"ghStructure","query":{"queries":[query]},
+                "next":{"viewTree":{"tool":"ghStructure","query":{"queries":[query]},
                     "confidence":"exact","why":"Verify structure."}}
             }}]})
         };
@@ -819,7 +805,7 @@ mod contract_owner_tests {
                 "results":[{"file":"src/util.ts","name":"greet","kind":"function",
                     "line":1,"reason":"unreferenced-export","viaHeuristic":"reexport-chain"}],
                 "completeness":{"results":"complete","graph":"complete","diagnostics":"complete"},
-                "next":{"verifyReferences":{"tool":"lspSearch","query":{"queries":[query]},
+                "next":{"references":{"tool":"lspSearch","query":{"queries":[query]},
                     "confidence":"high","why":"Verify candidate before deletion."}}
             }}]})
         };
@@ -960,7 +946,6 @@ mod contract_owner_tests {
                 "materializeOffset": 12,
                 "mainGoal": "test", "reasoning": "Exercise materialized tree validation."
             }),
-            PrepareOptions::default(),
         )
         .expect("materialize fields are in the generated tree contract");
         assert_eq!(query["materialize"], true);

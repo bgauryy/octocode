@@ -11,12 +11,14 @@ use std::{cell::RefCell, collections::HashMap};
 
 use super::{RewriteError, RewriteRequest, compile_error, engine_error, rule_config};
 
+#[cfg(test)]
 thread_local! {
     /// Engine parses issued by astRewrite on this thread (tests assert the
     /// per-file parse budget).
     static PARSES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+#[cfg(test)]
 pub(super) fn note_parses(count: usize) {
     PARSES.with(|parses| parses.set(parses.get().saturating_add(count)));
 }
@@ -67,6 +69,7 @@ impl StagedAnalyzer {
 
     /// Syntax errors in content the scan did not report on (fallback only).
     pub(super) fn count_errors(&self, path: &str, content: &str) -> Result<u32, RewriteError> {
+        #[cfg(test)]
         note_parses(1);
         count_syntax_errors(content, &self.parser(path)).map_err(engine_error)
     }
@@ -92,6 +95,7 @@ impl StagedAnalyzer {
             compile_rewrite(file_rule).ok()
         });
         if let Some(scan) = rewrite.as_ref().and_then(|rewrite| {
+            #[cfg(test)]
             note_parses(1);
             rewrite.scan(content).ok()
         }) {

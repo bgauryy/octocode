@@ -117,45 +117,25 @@ describe('skill command', () => {
     ['install'],
     ['remove'],
     ['check', 'missing-skill'],
-  ])('reports failures as the JSON error envelope with --json for %j', (...args) => {
-    run(args, { json: true });
-    expect(process.exitCode).toBeGreaterThan(0);
-    expect(loggedJson()).toMatchObject({
-      kind: 'octocode.toolError',
-      version: 1,
-      error: expect.any(String),
-    });
-    expect(console.error).not.toHaveBeenCalled();
-  });
+  ])(
+    'reports failures as the JSON error envelope with --json for %j',
+    (...args) => {
+      run(args, { json: true });
+      expect(process.exitCode).toBeGreaterThan(0);
+      expect(loggedJson()).toMatchObject({
+        kind: 'octocode.toolError',
+        version: 1,
+        error: expect.any(String),
+      });
+      expect(console.error).not.toHaveBeenCalled();
+    }
+  );
 
   it('has name "skill"', () => {
     expect(skillCommand.name).toBe('skill');
   });
 
-  it('declares only canonical bundled-skill options', () => {
-    const optNames = (skillCommand.options ?? []).map(o => o.name);
-    const required = [
-      'add',
-      'platform',
-      'all',
-      'mode',
-      'force',
-      'upgrade',
-      'global',
-      'project-dir',
-      'workspace',
-      'path',
-      'dry-run',
-      'json',
-      'fix',
-      'no-env',
-    ];
-    for (const opt of required) {
-      expect(optNames, `missing option --${opt}`).toContain(opt);
-    }
-    expect(skillCommand.options?.find(o => o.name === 'add')?.hasValue).toBe(
-      true
-    );
+  it('rejects retired skill flags and requires values for value flags', () => {
     for (const removed of [
       'name',
       'list',
@@ -168,26 +148,40 @@ describe('skill command', () => {
       'all-skills',
       'repo',
     ]) {
-      expect(optNames).not.toContain(removed);
+      vi.mocked(console.log).mockClear();
+      run(['install'], { [removed]: true, json: true });
+      expect(loggedJson<{ error: string }>().error).toContain(
+        `Unknown option: --${removed}`
+      );
+    }
+    for (const flag of ['add', 'platform', 'mode', 'project-dir', 'path']) {
+      vi.mocked(console.log).mockClear();
+      run(['install'], { [flag]: true, json: true });
+      expect(loggedJson<{ error: string }>().error).toBe(
+        `--${flag} requires a value.`
+      );
     }
   });
 
-  it('documents the same install flags in generated command help', () => {
-    const helpOptions = skillCommand.options ?? [];
-    const names = helpOptions.map(option => option.name);
-    expect(names).toEqual(
-      expect.arrayContaining([
-        'platform',
-        'mode',
-        'force',
-        'upgrade',
-        'global',
-        'project-dir',
-        'dry-run',
-      ])
-    );
-    expect(names).not.toContain('keep');
-    expect(names).toContain('workspace');
+  it('documents every install and check flag in the help', () => {
+    run(['--help'], { help: true });
+    const help = String(vi.mocked(console.log).mock.calls[0]?.[0]);
+    for (const flag of [
+      'platform',
+      'mode',
+      'force',
+      'upgrade',
+      'global',
+      'project-dir',
+      'path',
+      'workspace',
+      'fix',
+      'no-env',
+      'dry-run',
+    ]) {
+      expect(help).toContain(`--${flag}`);
+    }
+    expect(help).not.toContain('--keep');
   });
 
   it('prints bundled skill help, exiting USAGE without a subcommand', () => {
@@ -303,7 +297,8 @@ describe('skill command', () => {
     });
     expect(loggedJson<{ kind: string; error: string }>()).toMatchObject({
       kind: 'octocode.toolError',
-      error: expect.stringContaining('--platform codex --project-dir'),
+      error:
+        'Unknown option for skill install: --workspace (it applies to skill check)',
     });
 
     vi.mocked(console.log).mockClear();
@@ -513,52 +508,6 @@ describe('skill command', () => {
     expect(parsed.skills[0]?.name).toBe('octocode-research');
     expect(parsed.summary.install.total).toBe(1);
     expect(parsed.summary.env.needsConfig).toBe(0);
-  });
-
-  it('names the replacement when installing a retired skill', () => {
-    run(['install', 'octocode-clasify'], { json: true });
-    expect(process.exitCode).toBe(EXIT.GENERAL);
-    expect(loggedJson<{ error: string }>().error).toContain(
-      'merged into "octocode-research"'
-    );
-  });
-
-  it('reports retired installs on a full check and removes them with --fix', () => {
-    const home = path.join(
-      isolated.home,
-      '.octocode',
-      'skills',
-      'octocode-clasify'
-    );
-    fs.mkdirSync(home, { recursive: true });
-    fs.writeFileSync(
-      path.join(home, 'SKILL.md'),
-      '---\nname: octocode-clasify\n---\n'
-    );
-    const link = path.join(getPlatformSkillsDir('claude'), 'octocode-clasify');
-    fs.mkdirSync(path.dirname(link), { recursive: true });
-    fs.symlinkSync(path.join(isolated.home, 'deleted-source'), link);
-
-    run(['check'], { 'no-env': true, json: true });
-    const parsed = loggedJson<{
-      success: boolean;
-      retired: Array<{ name: string; replacement: string; paths: string[] }>;
-      summary: { install: { retired: number } };
-    }>();
-    expect(parsed.success).toBe(false);
-    expect(parsed.summary.install.retired).toBe(1);
-    expect(parsed.retired[0]).toMatchObject({
-      name: 'octocode-clasify',
-      replacement: 'octocode-research',
-    });
-    expect(parsed.retired[0]?.paths).toEqual(
-      expect.arrayContaining([home, link])
-    );
-
-    process.exitCode = undefined;
-    run(['check'], { 'no-env': true, fix: true });
-    expect(fs.existsSync(home)).toBe(false);
-    expect(() => fs.lstatSync(link)).toThrow();
   });
 
   it('rejects unknown skill names on check', () => {

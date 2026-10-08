@@ -254,13 +254,6 @@ impl ConfigInspectorData {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ValidationResult {
-    pub valid: bool,
-    pub errors: Vec<String>,
-    pub warnings: Vec<String>,
-    pub config: Option<Value>,
-}
-#[derive(Clone, Debug, PartialEq)]
 pub struct LoadConfigResult {
     pub success: bool,
     pub config: Option<Value>,

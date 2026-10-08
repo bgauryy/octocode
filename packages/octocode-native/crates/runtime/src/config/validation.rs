@@ -1,6 +1,5 @@
 use super::types::{
     CONFIG_FIELDS, CONFIG_SCHEMA_VERSION, ConfigEnumStyle, ConfigFieldKind, ConfigFieldSpec,
-    ValidationResult,
 };
 use serde_json::{Map, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -267,21 +266,19 @@ pub fn config_issues(config: &Value) -> (Vec<ConfigIssue>, Vec<String>) {
     (issues, warnings)
 }
 
-pub fn validate_config(config: &Value) -> ValidationResult {
-    let (issues, warnings) = config_issues(config);
-    let valid = issues.is_empty();
-    ValidationResult {
-        valid,
-        errors: issues.into_iter().map(|issue| issue.message).collect(),
-        warnings,
-        config: valid.then(|| config.clone()),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::validate_config;
-    use serde_json::json;
+    use super::config_issues;
+    use serde_json::{Value, json};
+
+    /// The issue messages `config_issues` reports for `config`.
+    fn errors(config: &Value) -> Vec<String> {
+        config_issues(config)
+            .0
+            .into_iter()
+            .map(|issue| issue.message)
+            .collect()
+    }
 
     #[test]
     fn home_paths_need_a_separator_after_the_tilde() {
@@ -291,37 +288,34 @@ mod tests {
             ("/abs", true),
             ("~user/x", false),
         ] {
-            let result = validate_config(&json!({"local": {"workspaceRoot": path}}));
-            assert_eq!(result.valid, valid, "{path}");
+            let errors = errors(&json!({"local": {"workspaceRoot": path}}));
+            assert_eq!(errors.is_empty(), valid, "{path}");
         }
     }
 
     #[test]
     fn output_format_yaml_validates_clean() {
-        let result = validate_config(&json!({"output": {"format": "yaml"}}));
-        assert!(result.valid, "unexpected errors: {:?}", result.errors);
-        assert!(result.errors.is_empty());
+        let errors = errors(&json!({"output": {"format": "yaml"}}));
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     }
 
     #[test]
     fn output_format_json_validates_clean() {
-        let result = validate_config(&json!({"output": {"format": "json"}}));
-        assert!(result.valid, "unexpected errors: {:?}", result.errors);
+        let errors = errors(&json!({"output": {"format": "json"}}));
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     }
 
     #[test]
     fn output_format_null_validates_clean() {
-        let result = validate_config(&json!({"output": {"format": null}}));
-        assert!(result.valid, "unexpected errors: {:?}", result.errors);
+        let errors = errors(&json!({"output": {"format": null}}));
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     }
 
     #[test]
     fn output_format_invalid_string_errors() {
-        let result = validate_config(&json!({"output": {"format": "xml"}}));
-        assert!(!result.valid);
+        let errors = errors(&json!({"output": {"format": "xml"}}));
         assert!(
-            result
-                .errors
+            errors
                 .iter()
                 .any(|error| error == "output.format: Must be one of: yaml, json")
         );
@@ -329,11 +323,9 @@ mod tests {
 
     #[test]
     fn output_format_non_string_errors() {
-        let result = validate_config(&json!({"output": {"format": 42}}));
-        assert!(!result.valid);
+        let errors = errors(&json!({"output": {"format": 42}}));
         assert!(
-            result
-                .errors
+            errors
                 .iter()
                 .any(|error| error == "output.format: Must be a string")
         );

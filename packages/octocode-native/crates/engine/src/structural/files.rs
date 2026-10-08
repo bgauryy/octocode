@@ -3,21 +3,24 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use ignore::overrides::{Override, OverrideBuilder};
+use ignore::overrides::Override;
 use rayon::prelude::*;
 
 use super::language::AgLanguage;
 use super::octo::{ExecutionError, OctoCompiledMatcher, compile_matcher};
 use super::query::{Prefilter, StructuralQuery, invalid_query_explanation};
 use super::types::{
-    STRUCTURAL_ANALYZER, STRUCTURAL_ANALYZER_VERSION, StructuralDetailedMatch,
-    StructuralDiagnostic, StructuralSearchDetailedFileResult, StructuralSearchFilesDetailedResult,
-    StructuralSearchFilesOptions, structural_query_fingerprint,
+    StructuralDetailedMatch, StructuralDiagnostic, StructuralSearchDetailedFileResult,
+    StructuralSearchFilesDetailedResult, StructuralSearchFilesOptions,
 };
-use crate::search::walk::{WalkFlags, walk_builder};
+use crate::search::walk::{WalkFlags, build_overrides, walk_builder};
 use crate::signatures::languages;
+use crate::text::file_extension::extension_of;
 
-pub fn search_files_detailed(
+/// Test helper: [`search_files_detailed_filtered_with_extension`] with no
+/// path policy and each file's own extension.
+#[cfg(test)]
+pub(crate) fn search_files_detailed(
     options: StructuralSearchFilesOptions,
 ) -> Result<StructuralSearchFilesDetailedResult, String> {
     search_files_detailed_filtered_with_extension(options, &|_| Ok(true), &|path| {
@@ -46,6 +49,7 @@ pub fn search_files_detailed_filtered_with_extension(
         no_ignore,
         max_depth,
         max_files,
+        skip_files,
         max_file_bytes,
     } = options;
     let pattern_ref = pattern.as_deref();
@@ -85,18 +89,21 @@ pub fn search_files_detailed_filtered_with_extension(
     )?;
     let scan_truncated = candidate_files.len() > max_files;
     candidate_files.truncate(max_files);
-    let matching_paths = matching_prefilter_paths(&candidate_files, &prefilter, allow_path)?;
-
+    // Walk order is stable, so the leading candidates an earlier window
+    // evaluated are exactly these.
+    let skip = skip_files
+        .map_or(0, |n| n as usize)
+        .min(candidate_files.len());
+    candidate_files.drain(..skip);
     // Compile one matcher per extension up front (cheap, serial), then read,
-    // parse and match files in parallel. `collect` keeps candidate order, and
-    // the serial fold below rebuilds the same counters.
+    // prefilter, parse and match files in parallel. `collect` keeps candidate
+    // order, and the serial fold below rebuilds the same counters.
     let scan = FileScan {
         allow_path,
         select_extension,
-        matching_paths: matching_paths.as_ref(),
+        anchors: AnchorFilter::new(&prefilter)?,
         matchers: compile_matchers(&candidate_files, select_extension, &query),
         max_file_bytes,
-        query_fingerprint: structural_query_fingerprint(pattern_ref, rule_ref),
     };
     let outcomes = candidate_files
         .par_iter()
@@ -125,8 +132,6 @@ pub fn search_files_detailed_filtered_with_extension(
         skipped_unsupported: counts.skipped_unsupported,
         skipped_unreadable: counts.skipped_unreadable,
         skipped_large: counts.skipped_large,
-        analyzer: STRUCTURAL_ANALYZER.to_owned(),
-        analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
         status: status.to_owned(),
         query: query_explanation,
         diagnostics,
@@ -159,8 +164,6 @@ fn invalid_query_result(
         skipped_unsupported: 0,
         skipped_unreadable: 0,
         skipped_large: 0,
-        analyzer: STRUCTURAL_ANALYZER.to_owned(),
-        analyzer_version: STRUCTURAL_ANALYZER_VERSION.to_owned(),
         status: "parserFailed".to_owned(),
         query: invalid_query_explanation(pattern, rule, &message),
         diagnostics: vec![diagnostic],
@@ -205,10 +208,9 @@ type FileOutcome = Option<(Tally, StructuralSearchDetailedFileResult)>;
 struct FileScan<'a> {
     allow_path: &'a (dyn Fn(&Path) -> Result<bool, String> + Sync),
     select_extension: &'a (dyn Fn(&Path) -> String + Sync),
-    matching_paths: Option<&'a HashSet<String>>,
+    anchors: Option<AnchorFilter>,
     matchers: CompiledMatchers,
     max_file_bytes: u64,
-    query_fingerprint: String,
 }
 
 impl FileScan<'_> {
@@ -218,10 +220,12 @@ impl FileScan<'_> {
             return Ok(None);
         }
         let path_string = file_path.to_string_lossy().to_string();
-        if self
-            .matching_paths
-            .is_some_and(|paths| !paths.contains(path_string.as_str()))
-        {
+        // One read serves both the anchor check and the parse.
+        let prefiltered = self
+            .anchors
+            .as_ref()
+            .map(|anchors| anchors.check(file_path, self.max_file_bytes));
+        if matches!(prefiltered, Some(Anchored::Miss)) {
             return Ok(Some((Tally::PreFilter, skipped_file(
                 path_string,
                 "skippedByPreFilter",
@@ -258,7 +262,12 @@ impl FileScan<'_> {
             )));
         };
 
-        let content = match read_source(file_path, self.max_file_bytes) {
+        let content = match prefiltered {
+            None | Some(Anchored::Miss) => read_source(file_path, self.max_file_bytes),
+            Some(Anchored::Hit(bytes)) => source_text(bytes),
+            Some(Anchored::Large(len)) => Err(SourceSkip::Large(len)),
+        };
+        let content = match content {
             Ok(content) => content,
             Err(skip) => {
                 return Ok(Some(source_skipped(
@@ -340,14 +349,7 @@ impl FileScan<'_> {
             }
         }
         .into_iter()
-        .map(|m| {
-            StructuralDetailedMatch::from_match(
-                &path_string,
-                &self.query_fingerprint,
-                m.matched,
-                m.node_kind,
-            )
-        })
+        .map(|m| StructuralDetailedMatch::from_match(m.matched, m.node_kind))
         .collect();
         (
             Tally::Parsed(matches.len() as u32),
@@ -538,69 +540,95 @@ impl ScanCounts {
     }
 }
 
-fn matching_prefilter_paths(
-    candidates: &[PathBuf],
-    prefilter: &Prefilter,
-    allow_path: &(dyn Fn(&Path) -> Result<bool, String> + Sync),
-) -> Result<Option<HashSet<String>>, String> {
-    let anchors = match prefilter {
-        Prefilter::None => return Ok(None),
-        Prefilter::Single(anchor) => std::slice::from_ref(anchor),
-        Prefilter::Union(anchors) => anchors.as_slice(),
-    };
-    let mut matching = HashSet::new();
-    // An empty anchor matches every file; short-circuit those instead of
-    // feeding an empty pattern to Aho-Corasick. Otherwise build one automaton
-    // for all anchors and scan each file in a single linear pass.
-    let automaton = if anchors.iter().any(String::is_empty) {
-        None
-    } else {
-        Some(aho_corasick::AhoCorasick::new(anchors).map_err(|error| error.to_string())?)
-    };
-    for path in candidates {
-        if !allow_path(path)? {
-            continue;
-        }
-        let Ok(bytes) = fs::read(path) else { continue };
-        let hit = match &automaton {
-            None => true,
-            Some(automaton) => automaton.is_match(&bytes),
-        };
-        if hit {
-            matching.insert(path.to_string_lossy().into_owned());
-        }
-    }
-    Ok(Some(matching))
+/// The literal prefilter: a file that holds none of the pattern's anchors
+/// cannot match, so it is skipped unparsed.
+struct AnchorFilter {
+    /// `None` when an anchor is empty: every readable file holds it.
+    automaton: Option<aho_corasick::AhoCorasick>,
 }
 
-/// Compile `include` + `exclude` into a gitignore-style override set, rooted at
-/// the search path so relative globs like `src/**/*.ts` resolve as users expect.
-/// `exclude` globs are added negated (`!glob`) so they drop files that `include`
-/// would otherwise match — mirroring the local-search `exclude` field.
-fn build_overrides(
-    root: &Path,
-    include: &[String],
-    exclude: &[String],
-) -> Result<Override, String> {
-    let mut builder = OverrideBuilder::new(root);
-    for glob in include {
-        builder
-            .add(glob)
-            .map_err(|err| format!("invalid include glob '{glob}': {err}"))?;
-    }
-    for glob in exclude {
-        let negated = if glob.starts_with('!') {
-            glob.to_owned()
-        } else {
-            format!("!{glob}")
+/// What the prefilter learned about one candidate.
+enum Anchored {
+    /// No anchor in the file, or the file could not be read.
+    Miss,
+    /// An anchor is present; the bytes read for the check, kept for the parse.
+    Hit(Vec<u8>),
+    /// An anchor is present in a file over the parse cap (its length).
+    Large(u64),
+}
+
+impl AnchorFilter {
+    fn new(prefilter: &Prefilter) -> Result<Option<Self>, String> {
+        let anchors = match prefilter {
+            Prefilter::None => return Ok(None),
+            Prefilter::Single(anchor) => std::slice::from_ref(anchor),
+            Prefilter::Union(anchors) => anchors.as_slice(),
         };
-        builder
-            .add(&negated)
-            .map_err(|err| format!("invalid exclude glob '{glob}': {err}"))?;
+        // An empty anchor matches every file; short-circuit those instead of
+        // feeding an empty pattern to Aho-Corasick. Otherwise build one
+        // automaton for all anchors and scan each file in a single linear pass.
+        let automaton = if anchors.iter().any(String::is_empty) {
+            None
+        } else {
+            Some(aho_corasick::AhoCorasick::new(anchors).map_err(|error| error.to_string())?)
+        };
+        Ok(Some(Self { automaton }))
     }
-    builder
-        .build()
-        .map_err(|err| format!("failed to compile include/exclude globs: {err}"))
+
+    /// Read `path` once. A file within `max_file_bytes` is read whole and its
+    /// bytes kept for the parse; a larger one is streamed only until the first
+    /// anchor, never held in memory, since the parse skips it anyway.
+    fn check(&self, path: &Path, max_file_bytes: u64) -> Anchored {
+        use std::io::Read as _;
+        let Ok(mut file) = fs::File::open(path) else {
+            return Anchored::Miss;
+        };
+        let Ok(len) = file.metadata().map(|meta| meta.len()) else {
+            return Anchored::Miss;
+        };
+        if len > max_file_bytes {
+            let hit = match &self.automaton {
+                None => true,
+                Some(automaton) => automaton
+                    .try_stream_find_iter(&mut file)
+                    .ok()
+                    .and_then(|mut found| found.next())
+                    .is_some_and(|found| found.is_ok()),
+            };
+            return if hit {
+                Anchored::Large(len)
+            } else {
+                Anchored::Miss
+            };
+        }
+        let mut bytes = Vec::with_capacity(usize::try_from(len).unwrap_or(0).saturating_add(1));
+        if file.read_to_end(&mut bytes).is_err() {
+            return Anchored::Miss;
+        }
+        if self
+            .automaton
+            .as_ref()
+            .is_some_and(|automaton| !automaton.is_match(&bytes))
+        {
+            return Anchored::Miss;
+        }
+        // A file that grew past the cap while it was read is skipped as large.
+        if bytes.len() as u64 > max_file_bytes {
+            return Anchored::Large(bytes.len() as u64);
+        }
+        Anchored::Hit(bytes)
+    }
+}
+
+/// The UTF-8 text of bytes the prefilter read, failing as
+/// `fs::read_to_string` does on invalid UTF-8.
+fn source_text(bytes: Vec<u8>) -> Result<String, SourceSkip> {
+    String::from_utf8(bytes).map_err(|_| {
+        SourceSkip::NotUtf8(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "stream did not contain valid UTF-8",
+        ))
+    })
 }
 
 /// Loud existence check shared by every entry point — mirrors the message
@@ -697,9 +725,8 @@ fn collect_files(
 }
 
 fn extension_for_path(path: &Path) -> Option<String> {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(str::to_ascii_lowercase)
+    let extension = extension_of(&path.to_string_lossy(), true, "");
+    (!extension.is_empty()).then_some(extension)
 }
 
 fn skipped_file(
@@ -723,7 +750,7 @@ fn skipped_file(
 /// Result for a single file from a structural rewrite file-tree scan.
 pub struct StructuralRewriteFileResult {
     pub path: String,
-    pub matches: Vec<super::StructuralRewriteMatch>,
+    pub matches: Vec<super::rewrite::StructuralRewriteMatch>,
     /// ERROR/MISSING nodes in the scanned source, from the same parse that
     /// produced `matches` (the pre-rewrite side of the syntax-regression check).
     pub syntax_errors: u32,

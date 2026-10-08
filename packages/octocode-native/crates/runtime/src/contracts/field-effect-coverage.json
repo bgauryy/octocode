@@ -104,6 +104,10 @@
         "resources[].query": [
           "consumed"
         ],
+        "resources[].resumePageSize": [
+          "consumed",
+          "continuation"
+        ],
         "resources[].query.owner": [
           "forwarded"
         ],
@@ -428,12 +432,6 @@
         ]
       },
       "fields": {
-        "author": [
-          "forwarded"
-        ],
-        "committer": [
-          "forwarded"
-        ],
         "concise": [
           "forwarded",
           "output-control"
@@ -632,7 +630,7 @@
       ],
       "variants": [],
       "discriminators": {
-        "type": [
+        "ecosystem": [
           "npm",
           "pypi",
           "crates",
@@ -646,6 +644,9 @@
       "fields": {
         "debug": [
           "workflow-metadata"
+        ],
+        "ecosystem": [
+          "forwarded"
         ],
         "keywords": [
           "forwarded"
@@ -668,12 +669,9 @@
         "reasoning": [
           "workflow-metadata"
         ],
-        "registry": [
+        "registryUrl": [
           "forwarded",
           "security-policy"
-        ],
-        "type": [
-          "forwarded"
         ],
         "version": [
           "forwarded"
@@ -921,6 +919,11 @@
         "reasoning": [
           "workflow-metadata"
         ],
+        "scanOffset": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
         "size": [
           "consumed"
         ],
@@ -1059,6 +1062,14 @@
         "rule": [
           "consumed"
         ],
+        "rule.rule": [
+          "consumed"
+        ],
+        "scanOffset": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
         "snapshot": [
           "consumed",
           "output-control",
@@ -1074,7 +1085,7 @@
     },
     "astTopology": {
       "evidence": [
-        "src/tools/ast_graph/mod.rs",
+        "src/tools/ast_graph/tests.rs",
         "src/tools/ast_graph/analysis.rs",
         "tests/runtime_local.rs"
       ],
@@ -1169,6 +1180,11 @@
         "source": [
           "consumed"
         ],
+        "supersedes": [
+          "consumed",
+          "output-control",
+          "continuation"
+        ],
         "target": [
           "consumed"
         ]
@@ -1247,6 +1263,18 @@
           "consumed"
         ],
         "rule": [
+          "consumed"
+        ],
+        "rule.constraints": [
+          "consumed"
+        ],
+        "rule.rule": [
+          "consumed"
+        ],
+        "rule.transform": [
+          "consumed"
+        ],
+        "rule.utils": [
           "consumed"
         ],
         "selectedMatchIds": [
@@ -1354,7 +1382,6 @@
       "variants": [
         "anchored",
         "document",
-        "position",
         "workspace:path",
         "workspace:root"
       ],
@@ -1364,7 +1391,6 @@
           "references",
           "callers",
           "callees",
-          "callHierarchy",
           "hover",
           "typeDefinition",
           "implementation",
@@ -1388,6 +1414,11 @@
         ],
         "groupByFile": [
           "consumed"
+        ],
+        "importerPage": [
+          "consumed",
+          "output-control",
+          "continuation"
         ],
         "includeDeclaration": [
           "consumed"
@@ -1414,15 +1445,6 @@
           "output-control"
         ],
         "path": [
-          "consumed"
-        ],
-        "position": [
-          "consumed"
-        ],
-        "position.character": [
-          "consumed"
-        ],
-        "position.line": [
           "consumed"
         ],
         "reasoning": [

@@ -53,7 +53,7 @@ fn sha(ch: char) -> String {
 ///     cache, `cache:1` set in the result row.
 #[tokio::test]
 async fn ghgetfilecontent_second_call_sets_cache_flag() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = sha('a');
     // Serve the file; respond with 304 when a conditional request arrives.
     Mock::given(method("GET"))
@@ -107,7 +107,7 @@ async fn ghgetfilecontent_second_call_sets_cache_flag() {
 /// request, leaving `cache:1` absent from the result row.
 #[tokio::test]
 async fn ghgetfilecontent_force_refresh_bypasses_populated_cache() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = sha('b');
     // The mock always returns 200 — it must NOT return 304 even on the second
     // call because forceRefresh skips the cached ETag.
@@ -167,7 +167,7 @@ async fn ghgetfilecontent_force_refresh_bypasses_populated_cache() {
 /// again, wiremock will record 2 requests and `Mock::verify` will fail.
 #[tokio::test]
 async fn ghsearch_tree_second_call_hits_cache_and_skips_http() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = sha('c');
 
     // Git tree endpoint — must be fetched exactly once.
@@ -213,7 +213,7 @@ async fn ghsearch_tree_second_call_hits_cache_and_skips_http() {
 /// search results are mutable.  Neither call should ever set `cache:1`.
 #[tokio::test]
 async fn ghsearchhistory_never_sets_cache_flag() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/issues"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -253,7 +253,7 @@ async fn ghsearchhistory_never_sets_cache_flag() {
 /// row never claims `cache:1` (the item was checked, not assumed).
 #[tokio::test]
 async fn ghgethistoryitem_revalidates_with_a_conditional_read() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     // Disable GraphQL so the tool falls back to the REST PR endpoint.
     let pr_body = json!({
         "number": 1,
@@ -335,7 +335,7 @@ async fn ghgethistoryitem_revalidates_with_a_conditional_read() {
 /// (not tested here to avoid process-static cache pollution across tests).
 #[tokio::test]
 async fn artifactsearch_memory_storage_mode_bypasses_in_process_cache() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     // Use a unique package name so this test doesn't share state with the
     // process-global artifact cache from other tests.
     let pkg = format!("cache-bypass-test-{}", std::process::id());
@@ -363,9 +363,9 @@ async fn artifactsearch_memory_storage_mode_bypasses_in_process_cache() {
     let runtime = workspace.runtime(&settings);
 
     let query = json!({
-        "type": "npm",
+        "ecosystem": "npm",
         "packageName": pkg,
-        "registry": registry,
+        "registryUrl": registry,
     });
 
     for call_n in 1..=2u32 {

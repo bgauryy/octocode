@@ -16,7 +16,7 @@ use crate::tools::clasify::stats::ClassificationUsage;
 use crate::tools::clasify::{self, transport::ClassificationError};
 use crate::tools::clasify::{
     locate::{
-        LocateRead, bare_identifier, bare_target_hint, drop_redundant_page_reads, literal_search,
+        LocateRead, bare_target_hint, drop_redundant_page_reads, identifier_target, literal_search,
         literal_target_hint, rank_locate, readable_best, with_row_reads,
     },
     output::{self, PageOutcome},
@@ -60,16 +60,16 @@ use crate::tools::clasify::items;
 use crate::tools::clasify::resource::tool_of;
 use capture::capture_resource;
 use evidence::relativize_local_paths;
-pub(super) use hydrate::densest_match_line;
+pub(super) use hydrate::judged_line_windows;
 use render::{
     Rendered, literal_route, matrix_output, render_captured, shared_kind, unjudged_matrix,
 };
 
 mod budget;
 use budget::{
-    Candidate, CaptureBudget, MAX_SHRINK_ATTEMPTS, assessed_payload_chars, budget_candidates,
-    budget_spent, candidate_chars, evidence_chars, restore_chunk, resume_search, shrunk_page,
-    too_large,
+    Candidate, CaptureBudget, MAX_SHRINK_ATTEMPTS, after_resumed_list, assessed_payload_chars,
+    budget_candidates, budget_spent, candidate_chars, evidence_chars, ranges_read, restore_chunk,
+    resume_list, resume_search, shrunk_page, span_lines, split_ranges, too_large,
 };
 
 /// Row `data` fields that route the host (continuations, scan diagnostics,

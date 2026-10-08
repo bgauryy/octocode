@@ -15,13 +15,14 @@ import { reviewChanges, type ReviewMode } from './review.js';
 import { exclusive } from '../shared/locks.js';
 import { timed } from '../shared/render.js';
 import { renderFileCall, renderFileResult, type QueryOutcome } from './render.js';
+import { wholeReadPaths } from './reads.js';
 import { contentText, elisionMarkers, errorMessage, isRecord } from '../shared/util.js';
 
 /**
  * Octocode's `file` tool: batched edit / write / delete queries, each with a
  * reasoning line. Edits and writes run through Pi's own engines (exact-match
  * replacement, diffs, per-file mutation queue) but write atomically (temp file + rename) and only over the bytes
- * they checked. A file read with Pi's `read` (or whole with Octocode MCP's `localGetFileContent`), or changed by this
+ * they checked. A file read with Pi's `read` (or whole with Octocode MCP's `localFetch`), or changed by this
  * tool, that changed on disk since then must be read again before it is changed. A file whose earlier read left the
  * context (compaction, a branch switch, a rewind that restored it, its read result trimmed) must be read again before
  * it is changed, even if the disk did not move.
@@ -304,29 +305,6 @@ export function formatOutcomes(outcomes: QueryOutcome[]): string {
     .join('\n');
 }
 
-/** Octocode MCP's local file reader: its `fullContent` queries return a whole file. */
-export const MCP_READ_TOOL = 'mcp__octocode__localGetFileContent';
-
-/**
- * Whether an MCP `localGetFileContent` query returned its whole file unminified: `fullContent` without a character
- * window or minification (a range, match or default view shows only part of it, or a compacted form).
- */
-function wholeFileQuery(query: unknown): query is { path: string } {
-  if (!isRecord(query) || typeof query['path'] !== 'string' || query['fullContent'] !== true) return false;
-  if (query['charOffset'] !== undefined || query['charLength'] !== undefined) return false;
-  return query['minify'] === undefined || query['minify'] === 'none';
-}
-
-/**
- * Paths the model read whole enough to change: Pi's `read` (any range: Pi's own guard semantics), and the whole-file
- * queries of Octocode MCP's `localGetFileContent`. The guard keeps their stat to compare against later.
- */
-export function readPaths(toolName: string, input: Record<string, unknown>, cwd: string): string[] {
-  if (toolName === 'read') return typeof input['path'] === 'string' ? [resolveToolPath(cwd, input['path'])] : [];
-  if (toolName !== MCP_READ_TOOL || !Array.isArray(input['queries'])) return [];
-  return input['queries'].filter(wholeFileQuery).map((query) => resolveToolPath(cwd, query.path));
-}
-
 /**
  * The digest of what Pi's read returned when that is the whole file verbatim (no offset, limit or truncation), so the
  * guard checks the change against what the model saw rather than what the disk holds a moment later.
@@ -345,7 +323,7 @@ export function registerFileTool(pi: ExtensionAPI, guard: FileGuard, review?: Re
     label: 'File',
     description:
       'Create, edit or delete workspace files. Queries run in order and report individual outcomes; a failure does not roll back earlier changes. Put replacements for one file in one query. ' +
-      'Read existing files with `read` (or Octocode MCP `localGetFileContent` with `fullContent`) before changing them. If a change is refused because the file changed or left the context, read it again with `read` (only `read` or a `fullContent` read clears the refusal), then retry. Inspect every outcome before continuing.',
+      'Read existing files with `read` (or Octocode MCP `localFetch` with `fullContent`) before changing them. If a change is refused because the file changed or left the context, read it again with `read` (only `read` or a `fullContent` read clears the refusal), then retry. Inspect every outcome before continuing.',
     promptSnippet: 'Apply guarded file changes and inspect each outcome',
     promptGuidelines: [
       'Use file for authored changes; batch related files when useful. Run formatters, generators and builds with bash, then inspect their changes.',
@@ -374,6 +352,6 @@ export function registerFileTool(pi: ExtensionAPI, guard: FileGuard, review?: Re
   pi.on('tool_result', async (event, ctx) => {
     if (event.isError) return;
     const known = returnedContent(event.toolName, event.input, event.content, event.details);
-    for (const file of readPaths(event.toolName, event.input, ctx.cwd)) guard.record(file, known);
+    for (const file of wholeReadPaths(event.toolName, event.input, ctx.cwd, event)) guard.record(file, known);
   });
 }

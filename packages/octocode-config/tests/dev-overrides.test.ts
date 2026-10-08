@@ -4,9 +4,9 @@ import {
   configFieldEnvNames,
   contractDriftAllowed,
   contractDriftMessage,
-  CONTRACT_DRIFT_OVERRIDE_ENV,
   devOverridesAllowed,
 } from '../src/index.js';
+import { CONTRACT_DRIFT_OVERRIDE_ENV } from '../src/config/devOverrides.js';
 
 describe('devOverridesAllowed', () => {
   it('never honours overrides under NODE_ENV=production', () => {

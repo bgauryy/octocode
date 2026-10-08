@@ -40,8 +40,8 @@ pub(super) fn label_release_source(artifact: &mut ArtifactItem, exact: bool) {
 /// when the registry names one), and with a release ref the package
 /// manifest at that ref. With a release ref the tree lead is
 /// `viewReleaseSource`; the default-branch tree is that lead without `ref`,
-/// so no second tree lead restates it. Every lead carries the row's
-/// `verification` (leads are copied out of context).
+/// so no second tree lead restates it. The row states how its ref was
+/// checked (`verification`); its leads do not repeat it.
 pub(super) fn source_leads(artifact: &ArtifactItem) -> Map<String, Value> {
     let mut leads = Map::new();
     let Some((owner, repo)) = artifact.repository.as_deref().and_then(github_repo) else {
@@ -92,11 +92,6 @@ pub(super) fn source_leads(artifact: &ArtifactItem) -> Map<String, Value> {
                     .build(),
                 );
             }
-        }
-    }
-    if let Some(verification) = artifact.verification {
-        for lead in leads.values_mut() {
-            lead["verification"] = json!(verification);
         }
     }
     leads
@@ -191,8 +186,8 @@ mod tests {
             leads["viewRepo"]["query"]["queries"][0],
             json!({"owner":"psf","repo":"requests"})
         );
-        // AR2: the default branch is labeled as such, never as a release.
-        assert_eq!(leads["viewRepo"]["verification"], "defaultBranch");
+        // AR2: the row labels the default branch; the lead does not repeat it.
+        assert!(leads["viewRepo"].get("verification").is_none());
         assert!(leads_of(&item(ArtifactType::Npm, "https://gitlab.com/o/r")).is_empty());
     }
 
@@ -219,33 +214,38 @@ mod tests {
         row.source_attested = true;
         let lead = &leads_of(&row)["viewReleaseSource"];
         assert_eq!(lead["query"]["queries"][0]["path"], "packages/x/src");
-        assert_eq!(lead["verification"], "provenance");
+        assert!(
+            lead["why"]
+                .as_str()
+                .is_some_and(|why| why.contains("provenance")),
+            "{lead}"
+        );
     }
 
-    /// Every lead at the release ref states how that ref was checked: an
-    /// npm `gitHead` without attestation is the registry's claim.
+    /// The row is the one source of the release ref's label: no lead at
+    /// that ref repeats it.
     #[test]
-    fn the_manifest_lead_carries_the_release_refs_label() {
+    fn leads_at_the_release_ref_do_not_repeat_the_rows_label() {
         let mut row = item(ArtifactType::Npm, "https://github.com/o/r");
         row.source_ref = Some("abc123".into());
         for lead in leads_of(&row).values() {
-            assert_eq!(lead["verification"], "registryRef", "{lead}");
+            assert!(lead.get("verification").is_none(), "{lead}");
         }
-        row.source_attested = true;
-        assert_eq!(leads_of(&row)["readManifest"]["verification"], "provenance");
     }
 
     #[test]
     fn an_upstream_tag_and_an_unchecked_ref_are_labeled_apart() {
         let mut row = item(ArtifactType::Pypi, "https://github.com/psf/requests");
         row.source_ref = Some("v2.31.0".into());
-        assert_eq!(
-            leads_of(&row)["viewReleaseSource"]["verification"],
-            "registryRef"
+        let lead = &leads_of(&row)["viewReleaseSource"];
+        assert!(
+            lead["why"]
+                .as_str()
+                .is_some_and(|why| why.contains("release-ref")),
+            "{lead}"
         );
         row.source_tag = true;
         let lead = &leads_of(&row)["viewReleaseSource"];
-        assert_eq!(lead["verification"], "tag");
         assert!(
             lead["why"].as_str().is_some_and(|why| why.contains("tag")),
             "{lead}"

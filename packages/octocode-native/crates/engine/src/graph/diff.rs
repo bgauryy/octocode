@@ -109,12 +109,8 @@ pub struct BoolChange {
 pub struct CompletenessDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scan_complete: Option<BoolChange>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub semantic_complete: Option<BoolChange>,
     pub reasons_added: Vec<String>,
     pub reasons_removed: Vec<String>,
-    pub scopes_added: Vec<String>,
-    pub scopes_removed: Vec<String>,
 }
 
 /// Added and resolved import cycles, each identified by its sorted member set.
@@ -132,7 +128,6 @@ pub struct MetricDelta {
     pub nodes: i64,
     pub edges: i64,
     pub evidence: i64,
-    pub observations: i64,
 }
 
 /// A typed structural diff between two snapshots.
@@ -327,15 +322,10 @@ fn completeness_delta(base: &CodeGraphSnapshot, head: &CodeGraphSnapshot) -> Com
         )
     };
     let (reasons_added, reasons_removed) = diff(&bc.reasons, &hc.reasons);
-    let (scopes_added, scopes_removed) =
-        diff(&bc.semantic_scopes_complete, &hc.semantic_scopes_complete);
     CompletenessDelta {
         scan_complete: bool_change(bc.scan_complete, hc.scan_complete),
-        semantic_complete: bool_change(bc.semantic_complete, hc.semantic_complete),
         reasons_added,
         reasons_removed,
-        scopes_added,
-        scopes_removed,
     }
 }
 
@@ -389,7 +379,6 @@ fn metric_delta(base: &CodeGraphSnapshot, head: &CodeGraphSnapshot) -> MetricDel
         nodes: delta(base.nodes.len(), head.nodes.len()),
         edges: delta(base.edges.len(), head.edges.len()),
         evidence: delta(base.evidence.len(), head.evidence.len()),
-        observations: delta(base.observations.len(), head.observations.len()),
     }
 }
 
@@ -500,7 +489,7 @@ mod tests {
         head_builder
             .add_file_relation("src/a.rs", "src/b.rs", "rust-use", 1)
             .expect("relation");
-        head_builder.mark_incomplete("scan-budget", 3);
+        head_builder.mark_incomplete("scan-budget");
         let head = head_builder.finish();
 
         let diff = diff_graphs(&base, &head);

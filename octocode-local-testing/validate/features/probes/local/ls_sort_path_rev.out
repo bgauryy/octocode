@@ -1,5 +1,0 @@
-# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many", "searchText": "needle", "sort": "path", "reverse": true, "resultView": "files", "pageSize": 3}
-# env: None
-# exit: 6
-# stderr: 
-{"results":[{"index":0,"data":{"stats":{"totalOccurrences":25,"filesMatched":25},"files":[{"path":"f25.txt"},{"path":"f24.txt"},{"path":"f23.txt"}],"pagination":{"snapshot":"lexical-live-v1:3fef77050d055e1867a0646895f6419db628cc3575268acf9d27d199f76e6d95","currentPage":1,"totalPages":9,"filesPerPage":3,"totalFiles":25,"hasMore":true,"nextPage":2},"next":{"nextPage":{"tool":"localSearch","confidence":"exact","query":{"snapshot":"lexical-live-v1:3fef77050d055e1867a0646895f6419db628cc3575268acf9d27d199f76e6d95","page":2,"pageSize":3,"path":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many","matchContentLength":200,"resultView":"files","reverse":true,"searchText":"needle","sort":"path","followUp":true}}}}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/many"}

@@ -1,5 +1,0 @@
-# cmd: octocode localFetch {"queries": [{"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts"}, {"path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/b.ts"}]}
-# env: None
-# exit: 2
-# stderr: 
-{"results":[{"index":0,"data":{"path":"a.ts","content":"import { helper } from './b';\n\nexport function alphaNeedle(x: number): number {\n  const y = helper(x);\n  return y + 1;\n}\n\nexport class Widget {\n  run(): void {\n    console.log('run');\n    alphaNeedle(2);\n  }\n}\n","totalLines":13,"sourceLineRanges":[{"start":1,"end":13}]}},{"index":1,"data":{"error":"Check the query fields.","errorCode":"invalidInput","hints":["queries.1.goal: Missing required field: goal (a new query states it; only a next.* continuation with followUp: true inherits it)","queries.1.reasoning: Missing required field: reasoning (a new query states it; only a next.* continuation with followUp: true inherits it)"]},"status":"error"}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

@@ -2,10 +2,12 @@
 use super::schema::validate_schema;
 use super::{ContractValidationError, ValidationIssue, issue};
 use serde_json::Value;
+use std::cell::Cell;
 
 const SELECTORS: &[&str] = &[
     "operation",
     "type",
+    "ecosystem",
     "resultView",
     "fullContent",
     "matchString",
@@ -17,7 +19,168 @@ const SELECTORS: &[&str] = &[
     "keywords",
 ];
 
+thread_local! {
+    /// Depth of speculative validation on this thread: a branch tried only
+    /// for acceptance, whose issues nobody reads.
+    static SPECULATIVE: Cell<u32> = const { Cell::new(0) };
+}
+
+/// True while validating a value whose issues are discarded (a union branch
+/// tried for acceptance, a `not` probe). Only pass/fail matters there, so
+/// issue construction may skip copying schemas and received values, and a
+/// failing union skips branch scoring.
+pub(super) fn speculative() -> bool {
+    SPECULATIVE.with(Cell::get) > 0
+}
+
+/// Marks the current thread speculative until dropped (panic-safe).
+pub(super) struct Speculation;
+
+impl Speculation {
+    pub(super) fn enter() -> Self {
+        SPECULATIVE.with(|depth| depth.set(depth.get() + 1));
+        Self
+    }
+}
+
+impl Drop for Speculation {
+    fn drop(&mut self) {
+        SPECULATIVE.with(|depth| depth.set(depth.get() - 1));
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Differential tests switch the fast acceptance path off to compare
+    /// against the reference algorithm (every branch, full issues).
+    static REFERENCE_ONLY: Cell<bool> = const { Cell::new(false) };
+}
+
 pub(super) fn validate(
+    root: &Value,
+    branches: &[Value],
+    exclusive: bool,
+    value: &mut Value,
+    path: &[String],
+) -> Result<(), ContractValidationError> {
+    #[cfg(test)]
+    if REFERENCE_ONLY.with(Cell::get) {
+        return reference(root, branches, exclusive, value, path);
+    }
+    if accept(root, branches, exclusive, value, path) {
+        return Ok(());
+    }
+    if speculative() {
+        // A speculative caller reads only pass/fail; the scored diagnosis
+        // runs once, when a non-speculative validation fails.
+        return Err(issue(
+            "schema.union",
+            path.to_vec(),
+            "No schema branch accepts the value",
+        ));
+    }
+    reference(root, branches, exclusive, value, path)
+}
+
+/// The acceptance `reference` reaches, without its failure diagnosis.
+/// Branches that certainly reject the value are skipped (`reference` fails
+/// them too); the rest validate speculatively on copies. On success the value
+/// becomes the first accepting branch's normalized copy, as in `reference`.
+fn accept(
+    root: &Value,
+    branches: &[Value],
+    exclusive: bool,
+    value: &mut Value,
+    path: &[String],
+) -> bool {
+    let _speculation = Speculation::enter();
+    let mut accepted = None;
+    for branch in branches
+        .iter()
+        .filter(|branch| !certainly_rejects(root, branch, value))
+    {
+        let mut candidate = value.clone();
+        if validate_schema(root, branch, &mut candidate, &mut path.to_vec()).is_err() {
+            continue;
+        }
+        if accepted.is_some() {
+            // A second match fails an exclusive union.
+            return false;
+        }
+        if !exclusive {
+            *value = candidate;
+            return true;
+        }
+        accepted = Some(candidate);
+    }
+    match accepted {
+        Some(candidate) => {
+            *value = candidate;
+            true
+        }
+        None => false,
+    }
+}
+
+/// True when the branch certainly rejects the value: it is a plain object
+/// schema that requires a field the value lacks and gives no default for, or
+/// whose property pins a field the value carries to other literals (`tool`,
+/// `operation`, `ecosystem`). `validate_schema` checks both on every object,
+/// so such a branch always fails.
+fn certainly_rejects(root: &Value, branch: &Value, value: &Value) -> bool {
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    let target = branch_object(root, branch);
+    if target.get("type").and_then(Value::as_str) != Some("object")
+        || ["$ref", "oneOf", "anyOf"]
+            .iter()
+            .any(|keyword| target.get(*keyword).is_some())
+    {
+        return false;
+    }
+    let properties = target.get("properties").and_then(Value::as_object);
+    let missing_required = target
+        .get("required")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .any(|name| {
+            !object.contains_key(name)
+                && properties
+                    .and_then(|properties| properties.get(name))
+                    .is_none_or(|schema| schema.get("default").is_none())
+        });
+    if missing_required {
+        return true;
+    }
+    let Some(properties) = properties else {
+        return false;
+    };
+    properties.iter().any(|(name, schema)| {
+        let Some(field) = object.get(name) else {
+            return false;
+        };
+        if ["$ref", "oneOf", "anyOf"]
+            .iter()
+            .any(|keyword| schema.get(*keyword).is_some())
+        {
+            return false;
+        }
+        if let Some(constant) = schema.get("const") {
+            return field != constant;
+        }
+        schema
+            .get("enum")
+            .and_then(Value::as_array)
+            .is_some_and(|values| !values.contains(field))
+    })
+}
+
+/// Canonical selection: validate every branch, then accept a sole match or
+/// diagnose the closest failing branch.
+fn reference(
     root: &Value,
     branches: &[Value],
     exclusive: bool,
@@ -104,7 +267,7 @@ pub(super) fn validate(
     Err(ContractValidationError { issues: selected })
 }
 
-/// The failed branches whose selector fields (`operation`, `type`, …) all
+/// The failed branches whose selector fields (`operation`, `ecosystem`, …) all
 /// accept the value: their enum issues are the value's own. When no branch's
 /// selectors match, every branch competes and all of them count.
 fn selected_failures(
@@ -299,7 +462,7 @@ fn score(issues: &[ValidationIssue], depth: usize) -> [usize; 4] {
     [
         // A continuation names its tool: a branch for another tool is never
         // the closest match, however few field issues it reports.
-        invalid(&["tool", "operation", "type", "questionType"]),
+        invalid(&["tool", "operation", "type", "ecosystem", "questionType"]),
         invalid(&["analysis", "resultView"]),
         rejected,
         count,
@@ -619,8 +782,213 @@ fn group_unknown_fields(issues: Vec<ValidationIssue>) -> Vec<ValidationIssue> {
 
 #[cfg(test)]
 mod tests {
-    use crate::contracts::{PrepareOptions, prepare_many_and_validate};
-    use serde_json::json;
+    use crate::contracts::prepare_many_and_validate;
+    use serde_json::{Value, json};
+
+    /// Runs `check` with the fast acceptance path and again with only the
+    /// reference algorithm, and returns both results.
+    fn both<T>(check: impl Fn() -> T) -> (T, T) {
+        let fast = check();
+        super::REFERENCE_ONLY.with(|flag| flag.set(true));
+        let reference = check();
+        super::REFERENCE_ONLY.with(|flag| flag.set(false));
+        (fast, reference)
+    }
+
+    /// Output validation as `validate_output` runs it, keeping the
+    /// normalized copy so defaults chosen by union branches compare too.
+    fn validate_output_normalized(
+        tool: &str,
+        output: &Value,
+    ) -> Result<Value, super::ContractValidationError> {
+        let schema = &super::super::contract_tool(tool)?["outputSchema"];
+        let mut candidate = output.clone();
+        crate::contracts::shared_fields::restore(&mut candidate);
+        super::validate_schema(schema, schema, &mut candidate, &mut Vec::new())?;
+        Ok(candidate)
+    }
+
+    /// B10: the copy-free validation the response stage runs returns what
+    /// `validate_output` returns and leaves the response byte-identical.
+    fn assert_in_place_matches(tool: &str, output: &Value) {
+        let mut in_place = output.clone();
+        assert_eq!(
+            crate::contracts::validate_output_in_place(tool, &mut in_place),
+            crate::contracts::validate_output(tool, output),
+            "{tool}: {output}"
+        );
+        assert_eq!(
+            serde_json::to_string(&in_place).expect("json"),
+            serde_json::to_string(output).expect("json"),
+            "{tool}"
+        );
+    }
+
+    fn fixtures() -> Vec<Value> {
+        let fixtures: Value =
+            serde_json::from_str(crate::contracts::generated::CONTRACT_FIXTURES_JSON)
+                .expect("generated fixtures");
+        fixtures.as_array().expect("fixture array").clone()
+    }
+
+    /// Each fixture query, then one variant per field: removed, a boolean,
+    /// an unknown literal, an object; plus an unknown field. The variants
+    /// reach every union failure diagnosis (selector mismatch, missing field,
+    /// mixed forms, widened literals, sibling annotations).
+    fn query_variants(query: &Value) -> Vec<Value> {
+        let mut variants = vec![query.clone()];
+        let Some(object) = query.as_object() else {
+            return variants;
+        };
+        for key in object.keys() {
+            let mut removed = object.clone();
+            removed.remove(key);
+            variants.push(Value::Object(removed));
+            for replacement in [json!(true), json!("zz-not-a-value"), json!({}), json!(7)] {
+                let mut changed = object.clone();
+                changed.insert(key.clone(), replacement);
+                variants.push(Value::Object(changed));
+            }
+        }
+        let mut unknown = object.clone();
+        unknown.insert("bogusField".into(), json!(1));
+        variants.push(Value::Object(unknown));
+        variants
+    }
+
+    /// B20: the discriminator-first acceptance path returns exactly what
+    /// the reference algorithm returns (same normalized value, same issues)
+    /// for every generated fixture and its field variants, as input.
+    #[test]
+    fn fast_union_acceptance_matches_the_reference_on_every_input_fixture() {
+        let mut compared = 0;
+        let mut rejected = 0;
+        for fixture in fixtures() {
+            let tool = fixture["tool"].as_str().expect("tool");
+            let Some(query) = fixture["input"]["queries"].get(0) else {
+                continue;
+            };
+            for variant in query_variants(query) {
+                let input = json!({"queries":[variant]});
+                let (fast, reference) = both(|| prepare_many_and_validate(tool, input.clone()));
+                assert_eq!(fast, reference, "{}: {input}", fixture["id"]);
+                compared += 1;
+                rejected += usize::from(fast.is_err());
+            }
+        }
+        assert!(compared > 1_000 && rejected > 500, "{compared}/{rejected}");
+    }
+
+    /// B20: the same on output envelopes, where a row's continuation is the
+    /// 16-branch `ExecutableContinuation` union: every fixture query and a
+    /// sixth of its variants as a continuation in its tool's output, some
+    /// under a wrong tool name; each tool's first query in every output.
+    #[test]
+    fn fast_union_acceptance_matches_the_reference_on_continuation_outputs() {
+        let tools: Vec<&str> = crate::contracts::parsed_contract().expect("contract")["tools"]
+            .as_array()
+            .expect("tools")
+            .iter()
+            .filter_map(|tool| tool["name"].as_str())
+            .collect();
+        let envelope = |continuation: Value| {
+            json!({"results":[
+                {"index":0,"data":{"path":"a.txt","content":"x\n","totalLines":1,
+                    "next":{"continue":continuation.clone()}}},
+                {"index":1,"status":"error","data":{"error":"Not found","errorCode":"notFound",
+                    "hints":{"retry":continuation}}}
+            ]})
+        };
+        let mut compared = 0;
+        let mut rejected = 0;
+        let mut compare = |output_tool: &str, output: &Value| {
+            let (fast, reference) = both(|| validate_output_normalized(output_tool, output));
+            assert_eq!(fast, reference, "{output_tool}: {output}");
+            assert_in_place_matches(output_tool, output);
+            compared += 1;
+            rejected += usize::from(fast.is_err());
+        };
+        let mut seen = Vec::new();
+        for fixture in fixtures() {
+            let tool = fixture["tool"].as_str().expect("tool").to_owned();
+            let Some(query) = fixture["input"]["queries"].get(0) else {
+                continue;
+            };
+            let unchanged = envelope(json!({"tool":tool,"query":{"queries":[query]}}));
+            let output_tools = if seen.contains(&tool) {
+                vec![tool.as_str()]
+            } else {
+                tools.clone()
+            };
+            for output_tool in output_tools {
+                compare(output_tool, &unchanged);
+            }
+            for (index, variant) in query_variants(query).into_iter().enumerate().step_by(6) {
+                let named = if index % 7 == 6 { "localFetch" } else { &tool };
+                let output = envelope(json!({"tool":named,"query":{"queries":[variant]}}));
+                compare(&tool, &output);
+            }
+            seen.push(tool);
+        }
+        eprintln!("compared {compared} outputs, {rejected} rejected");
+        assert!(compared > 600 && rejected > 200, "{compared}/{rejected}");
+    }
+
+    /// B20/B10: recorded responses (`OCTOCODE_RECORDED_OUTPUTS`: a directory
+    /// of `<n>-<tool>-<surface>.json` envelopes captured from the live tools)
+    /// validate identically on both paths and in place, unchanged and with
+    /// each row's fields individually corrupted.
+    #[test]
+    #[ignore = "needs a recorded corpus: OCTOCODE_RECORDED_OUTPUTS=<dir>"]
+    fn fast_union_acceptance_matches_the_reference_on_recorded_outputs() {
+        let dir = std::env::var("OCTOCODE_RECORDED_OUTPUTS").expect("OCTOCODE_RECORDED_OUTPUTS");
+        let mut compared = 0;
+        for entry in std::fs::read_dir(dir).expect("corpus dir") {
+            let path = entry.expect("entry").path();
+            let name = path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("name")
+                .to_owned();
+            let Some(tool) = name.split('-').nth(1) else {
+                continue;
+            };
+            let output: Value =
+                serde_json::from_str(&std::fs::read_to_string(&path).expect("read")).expect("json");
+            let output = output.get("structuredContent").cloned().unwrap_or(output);
+            if output.get("thrown").is_some() {
+                continue;
+            }
+            let mut variants = vec![output.clone()];
+            for (row_index, row) in output["results"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .enumerate()
+            {
+                for field in row["data"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .map(|(k, _)| k)
+                {
+                    for replacement in [json!(true), json!({"tool":"nope"}), json!([1])] {
+                        let mut changed = output.clone();
+                        changed["results"][row_index]["data"][field] = replacement;
+                        variants.push(changed);
+                    }
+                }
+            }
+            for variant in variants {
+                let (fast, reference) = both(|| validate_output_normalized(tool, &variant));
+                assert_eq!(fast, reference, "{name}");
+                assert_in_place_matches(tool, &variant);
+                compared += 1;
+            }
+        }
+        assert!(compared > 0);
+        eprintln!("compared {compared} recorded outputs and variants");
+    }
 
     #[test]
     fn clasify_question_selectors_report_the_selected_forms_missing_field() {
@@ -637,7 +1005,6 @@ mod tests {
                     "resources":[{"id":"held","value":"Observed evidence"}],
                     "questions":[question]
                 }]}),
-                PrepareOptions::default(),
             )
             .expect_err("the selected question lacks a required field");
             assert_eq!(error.issues.len(), 1, "{error:?}");
@@ -655,15 +1022,14 @@ mod tests {
     fn a_field_of_another_selector_value_names_the_values_that_accept_it() {
         let error = prepare_many_and_validate(
             "artifactSearch",
-            json!({"queries":[{"type":"pypi","keywords":["http"]}]}),
-            PrepareOptions::default(),
+            json!({"queries":[{"ecosystem":"pypi","keywords":["http"]}]}),
         )
         .expect_err("pypi has no keyword discovery");
         let projected = crate::contracts::format_input_error("artifactSearch", &error, true);
         let details = projected["details"].to_string();
         assert!(
             details.contains(
-                "Remove 'keywords' from queries[0]: it applies only with type one of \
+                "Remove 'keywords' from queries[0]: it applies only with ecosystem one of \
                  \\\"npm\\\", \\\"crates\\\""
             ),
             "{projected}"
@@ -681,7 +1047,6 @@ mod tests {
                 "mainGoal":"g","reasoning":"r","operation":"compare",
                 "owner":"o","repo":"r","base":"v1","head":"v2","sections":["bogus"]
             }]}),
-            PrepareOptions::default(),
         )
         .expect_err("bogus section");
         let message = error
@@ -698,7 +1063,6 @@ mod tests {
         let error = prepare_many_and_validate(
             "ghGetHistoryItem",
             json!({"queries":[{"mainGoal":"g","reasoning":"r","operation":"bogus","owner":"o","repo":"r"}]}),
-            PrepareOptions::default(),
         )
         .expect_err("bogus operation");
         let message = error
@@ -717,13 +1081,11 @@ mod tests {
         let error = prepare_many_and_validate(
             "lspSearch",
             json!({"queries":[{
-                "mainGoal":"g","reasoning":"r","operation":"definition",
-                "uri":"/tmp/a.rs","symbolName":"finish","lineHint":3,
-                "position":{"line":3,"character":1}
+                "mainGoal":"g","reasoning":"r","operation":"documentSymbols",
+                "path":"/tmp/a.rs","symbolName":"finish","lineHint":3
             }]}),
-            PrepareOptions::default(),
         )
-        .expect_err("position conflicts with symbolName/lineHint");
+        .expect_err("a document query forbids symbolName/lineHint");
         let message = error
             .issues
             .iter()

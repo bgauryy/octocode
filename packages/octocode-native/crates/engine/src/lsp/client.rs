@@ -1,11 +1,12 @@
 use crate::error::{Error, Result};
-use crate::lsp::resolver::LineIndex;
 use crate::lsp::spawn_limits;
 use crate::lsp::transport::{
-    ClientRequestContext, JsonRpcConnection, ProgressTracker, configuration_section_for_command,
+    ClientRequestContext, JsonRpcConnection, ProgressTracker, Readiness,
+    configuration_section_for_command,
 };
 use crate::lsp::types::{JsCodeSnippet, JsExactPosition, JsLanguageServerConfig, JsRange};
 use crate::lsp::uri::{path_to_uri, uri_to_path};
+use crate::text::LineIndex;
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -85,37 +86,68 @@ const LSP_SERVER_ENV_ALLOWLIST: &[&str] = &[
 /// Returns `true` if the process exited within `timeout_duration` without
 /// needing to be killed.
 async fn wait_for_graceful_exit(child: &mut Child, timeout_duration: Duration) -> bool {
-    // Capture the group-leader pid BEFORE reaping: once `child.wait()` resolves,
-    // `Child::id()` returns `None` and the group can no longer be swept, so a
-    // clean-exit sweep would otherwise be a silent no-op.
-    let pid = child.id();
-    let exited = timeout(timeout_duration, child.wait()).await.is_ok();
-    finish_graceful_exit(
-        exited,
-        || group_kill_pid(pid),
-        || async {
-            let _ = child.kill().await;
-        },
-    )
-    .await;
+    end_child(child, timeout_duration, |pid| group_kill_pid(Some(pid))).await
+}
+
+/// Ends `child` and sweeps its process group with `sweep(pid)` on both paths:
+/// descendants (proc-macro-srv, cargo/build scripts, clangd workers) must die
+/// on a clean exit too, not only on timeout. The sweep signals `-pid`, so it
+/// fires while the leader is still unreaped (alive, or a zombie that keeps its
+/// pid reserved); after the reap the pid could be recycled by an unrelated
+/// process leading its own group. The leader is reaped last, and hard-killed
+/// only when it outlived the window.
+async fn end_child(child: &mut Child, timeout_duration: Duration, sweep: impl FnOnce(u32)) -> bool {
+    let exited = exited_unreaped(child, timeout_duration).await;
+    if let Some(pid) = child.id() {
+        sweep(pid);
+    }
+    if exited {
+        let _ = child.wait().await;
+    } else {
+        let _ = child.kill().await;
+    }
     exited
 }
 
-/// Post-wait teardown shared by `wait_for_graceful_exit`. Runs the process-group
-/// sweep UNCONDITIONALLY — descendants (proc-macro-srv, cargo/build scripts,
-/// clangd workers) must be reaped on the clean-exit path too, not only on
-/// timeout — and hard-kills the leader only when it outlived the graceful
-/// window. Split out with injected `sweep_group`/`hard_kill` so the
-/// "sweep always runs" contract is unit-testable without a real child process.
-async fn finish_graceful_exit<S, K, KFut>(exited: bool, mut sweep_group: S, hard_kill: K)
-where
-    S: FnMut(),
-    K: FnOnce() -> KFut,
-    KFut: std::future::Future<Output = ()>,
-{
-    sweep_group();
-    if !exited {
-        hard_kill().await;
+/// Waits up to `limit` for the leader to exit without reaping it, so its pid
+/// stays reserved for the group sweep. A blocking `waitid(WNOWAIT)` on the
+/// blocking pool returns when the leader exits; on timeout the caller kills
+/// the leader, which releases that wait. `true` when it exited in time (or
+/// was already reaped).
+#[cfg(unix)]
+async fn exited_unreaped(child: &mut Child, limit: Duration) -> bool {
+    let Some(pid) = child.id() else {
+        return true;
+    };
+    let exit = tokio::task::spawn_blocking(move || wait_for_exit_without_reaping(pid));
+    timeout(limit, exit).await.is_ok()
+}
+
+#[cfg(not(unix))]
+async fn exited_unreaped(child: &mut Child, limit: Duration) -> bool {
+    // No pid-addressed group sweep off Unix (the Job Object tears the tree
+    // down), so reaping here cannot misdirect a signal.
+    timeout(limit, child.wait()).await.is_ok()
+}
+
+/// Blocks until `pid` (an unreaped child of this process) exits, leaving it
+/// waitable. Returns early on any error other than `EINTR` (for example
+/// `ECHILD` once it was reaped elsewhere); the caller then reaps or kills it.
+#[cfg(unix)]
+fn wait_for_exit_without_reaping(pid: u32) {
+    let id = libc::id_t::from(pid);
+    loop {
+        // SAFETY: `siginfo_t` is plain data that `waitid` fills in; zero is a
+        // valid initial value.
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        // SAFETY: `info` is a valid, exclusively borrowed `siginfo_t` for the
+        // call. `WNOWAIT` leaves the child waitable, so tokio's later
+        // `wait`/`kill` still reaps it.
+        let result =
+            unsafe { libc::waitid(libc::P_PID, id, &mut info, libc::WEXITED | libc::WNOWAIT) };
+        if result == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+            return;
+        }
     }
 }
 
@@ -336,11 +368,6 @@ struct NativeLspClientInner {
     stderr_lines: Arc<StdMutex<VecDeque<String>>>,
     capabilities: StdMutex<Option<Value>>,
     server_info: StdMutex<Option<Value>>,
-    /// The `positionEncoding` the server selected in its `InitializeResult`
-    /// (LSP 3.17). We advertise UTF-16 only, so this should be `utf-16` or absent
-    /// (absent ⇒ utf-16 by spec). Any other value means the server ignored our
-    /// capability. Startup rejects it before serving positions in the wrong units.
-    position_encoding: StdMutex<Option<String>>,
     readiness: StdMutex<Option<String>>,
     progress: Arc<ProgressTracker>,
     /// In-flight requests, document syncs, diagnostic waits, and caller
@@ -361,14 +388,47 @@ struct NativeLspClientInner {
     /// Windows: owns the Job Object enforcing the server's memory cap; must
     /// outlive the child and be released only after the child is reaped
     /// (closing a kill-on-close job hard-kills the tree). Unit on Unix, where
-    /// the cap is applied via `pre_exec` before spawn.
+    /// the watchdog (or `pre_exec` on other Unix targets) applies the cap.
     memory_cap_guard: StdMutex<Option<spawn_limits::MemoryCapGuard>>,
-    /// macOS: the RSS watchdog enforcing `max_memory_mb` (no `RLIMIT_AS`
-    /// there). Dropped (aborted) by `stop` before the child is reaped.
+    /// macOS and Linux: the RSS watchdog enforcing `max_memory_mb` on the
+    /// server tree. Dropped (aborted) by `stop` before the child is reaped.
     memory_watchdog: StdMutex<Option<spawn_limits::AbortOnDrop>>,
     /// Query responses (generation + `method` + params) from this server,
     /// reused only inside a [`RESPONSE_SCOPE`] that allows it.
-    responses: moka::sync::Cache<String, Arc<Value>>,
+    responses: moka::sync::Cache<String, CachedResponse>,
+}
+
+/// One cached response and its JSON size, measured once at insert so the
+/// cache weigher reads a number instead of serializing the value again.
+#[derive(Clone)]
+struct CachedResponse {
+    value: Arc<Value>,
+    json_bytes: usize,
+}
+
+impl CachedResponse {
+    fn new(value: Arc<Value>) -> Self {
+        let json_bytes = json_len(&value);
+        Self { value, json_bytes }
+    }
+}
+
+/// Serialized JSON length of `value`, counted without building the text.
+fn json_len(value: &Value) -> usize {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    // Writing a `Value` to an infallible sink cannot fail.
+    let _ = serde_json::to_writer(&mut count, value);
+    count.0
 }
 
 /// Response reuse for one lspSearch call. `generation` is part of every
@@ -392,11 +452,11 @@ tokio::task_local! {
 const RESPONSE_CACHE_BYTES: u64 = 64 * 1024 * 1024;
 const RESPONSE_CACHE_IDLE: std::time::Duration = std::time::Duration::from_secs(600);
 
-fn response_cache() -> moka::sync::Cache<String, Arc<Value>> {
+fn response_cache() -> moka::sync::Cache<String, CachedResponse> {
     moka::sync::Cache::builder()
         .max_capacity(RESPONSE_CACHE_BYTES)
-        .weigher(|key: &String, value: &Arc<Value>| {
-            u32::try_from(key.len() + value.to_string().len()).unwrap_or(u32::MAX)
+        .weigher(|key: &String, entry: &CachedResponse| {
+            u32::try_from(key.len() + entry.json_bytes).unwrap_or(u32::MAX)
         })
         .time_to_idle(RESPONSE_CACHE_IDLE)
         .build()
@@ -417,7 +477,6 @@ impl NativeLspClient {
                 stderr_lines: Arc::new(StdMutex::new(VecDeque::new())),
                 capabilities: StdMutex::new(None),
                 server_info: StdMutex::new(None),
-                position_encoding: StdMutex::new(None),
                 readiness: StdMutex::new(None),
                 progress: ProgressTracker::new(),
                 activity: Arc::new(AtomicUsize::new(0)),
@@ -437,9 +496,6 @@ impl NativeLspClient {
         }
         if let Ok(mut server_info) = self.inner.server_info.lock() {
             *server_info = None;
-        }
-        if let Ok(mut encoding) = self.inner.position_encoding.lock() {
-            *encoding = None;
         }
         if let Ok(mut readiness) = self.inner.readiness.lock() {
             *readiness = None;
@@ -473,11 +529,10 @@ impl NativeLspClient {
             .stderr(Stdio::piped())
             .kill_on_drop(true);
         // OS-level memory cap: internal buffer bounds do not stop a runaway
-        // server from OOMing the host. Supported Unix targets cap the address
-        // space before exec; Windows attaches a Job Object right after spawn.
-        // Darwin skips RLIMIT_AS (inherited virtual mappings make lowering it
-        // in pre_exec fail every spawn with EINVAL) and runs an RSS watchdog
-        // on the server tree instead (`memory_watchdog_for`).
+        // server from OOMing the host. macOS and Linux bound the resident
+        // memory of the whole server tree with an RSS watchdog
+        // (`memory_watchdog_for`); Windows attaches a Job Object right after
+        // spawn; other Unix targets cap the address space before exec.
         let memory_cap = spawn_limits::memory_cap_bytes(self.inner.config.max_memory_mb);
         if let Some(cap_bytes) = memory_cap {
             spawn_limits::apply_pre_spawn_cap(&mut command, cap_bytes);
@@ -544,9 +599,10 @@ impl NativeLspClient {
             },
             Arc::clone(&self.inner.progress),
         ));
-        // macOS has no enforceable address-space cap: watch the tree's RSS
-        // instead. Armed before `initialize` (indexing can start there);
-        // dropping the guard on any failed-start path aborts it.
+        // Watch the server tree's RSS (macOS has no address-space cap; Linux
+        // RLIMIT_AS bounds one process, not the tree). Armed before
+        // `initialize` (indexing can start there); dropping the guard on any
+        // failed-start path aborts it.
         let memory_watchdog = memory_watchdog_for(&child, memory_cap, &connection);
         let initialize_result = match initialize(&connection, &self.inner.config).await {
             Ok(value) => value,
@@ -572,9 +628,6 @@ impl NativeLspClient {
         }
         if let Ok(mut server_info) = self.inner.server_info.lock() {
             *server_info = initialize_result.get("serverInfo").cloned();
-        }
-        if let Ok(mut encoding) = self.inner.position_encoding.lock() {
-            *encoding = negotiated_encoding;
         }
         if let Err(error) = connection.notify("initialized", json!({})).await {
             cleanup_failed_start(&mut child, stderr_task).await;
@@ -629,7 +682,7 @@ impl NativeLspClient {
     /// a readiness descriptor so JS can tell a confirmed-idle server apart from
     /// one that never reported progress or is still busy. The returned string
     /// is one of `"progressIdle"`, `"settledWithoutProgress"`, or `"timeout"`.
-    pub async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<String> {
+    pub(crate) async fn wait_for_ready(&self, timeout_ms: Option<u32>) -> Result<String> {
         let timeout_ms = u64::from(timeout_ms.unwrap_or(45_000));
         let readiness = self
             .inner
@@ -666,24 +719,38 @@ impl NativeLspClient {
             .unwrap_or(false)
     }
 
-    /// The `positionEncoding` the server selected at initialize time, if any.
-    /// `None` means the server omitted it (implying the spec default, utf-16) or
-    /// the client has not started yet. octocode advertises utf-16 only, so a
-    /// value other than `Some("utf-16")` indicates a non-conformant server.
-    pub fn position_encoding(&self) -> Option<String> {
-        self.inner
-            .position_encoding
-            .lock()
-            .ok()
-            .and_then(|slot| slot.clone())
-    }
-
     pub fn readiness(&self) -> Option<String> {
         self.inner
             .readiness
             .lock()
             .ok()
             .and_then(|slot| slot.clone())
+    }
+
+    fn readiness_is(&self, readiness: Readiness) -> bool {
+        self.inner
+            .readiness
+            .lock()
+            .is_ok_and(|slot| slot.as_deref() == Some(readiness.as_str()))
+    }
+
+    pub(crate) fn language_id(&self) -> Option<&str> {
+        self.inner.config.language_id.as_deref()
+    }
+
+    /// A pooled client whose last readiness wait ended in `timeout` waits
+    /// again, up to `timeout_ms`, before it is handed out: the server kept
+    /// indexing since, so the next call can see it finish instead of failing
+    /// on the stored `timeout`. Any other readiness returns at once. The
+    /// re-wait never pays the silent-server settle again: a `timeout` means
+    /// the server already reported progress. The wait holds a lease, so idle
+    /// expiry cannot stop the server under it.
+    pub(crate) async fn resume_timed_out_readiness(&self, timeout_ms: u32) {
+        if !self.readiness_is(Readiness::Timeout) {
+            return;
+        }
+        let _activity = self.lease();
+        let _ = self.wait_for_ready(Some(timeout_ms)).await;
     }
 
     /// Sync a document's in-memory content to the server, honoring the LSP
@@ -694,7 +761,7 @@ impl NativeLspClient {
     /// already holds sends nothing. Re-sending
     /// `didOpen` is ignored or rejected by many servers and can make
     /// changed content resolve against the stale original.
-    pub async fn open_document(&self, file_path: String, content: String) -> Result<()> {
+    pub async fn open_document(&self, file_path: String, content: &str) -> Result<()> {
         self.sync_document(&file_path, content).await.map(|_| ())
     }
 
@@ -707,13 +774,18 @@ impl NativeLspClient {
     /// wave to start (default 400 ms) and `timeout_ms` bounds the whole wait
     /// (default 15 s, capped at 60 s).
     ///
+    /// The settle is not stacked on a startup readiness wait that already
+    /// confirmed the project loaded (`progressIdle`): that server announced
+    /// and finished its project load before this open, so only progress
+    /// already under way when the open was written is drained.
+    ///
     /// Returns the readiness string (`progressIdle`, `settledWithoutProgress`, or
     /// `timeout`) for a first open, and `None` for a re-sync of an already open
     /// document, which does not wait.
     pub async fn open_document_and_wait(
         &self,
         file_path: String,
-        content: String,
+        content: &str,
         settle_ms: Option<u32>,
         timeout_ms: Option<u32>,
     ) -> Result<Option<String>> {
@@ -723,7 +795,11 @@ impl NativeLspClient {
         if version != Some(1) {
             return Ok(None);
         }
-        let settle_ms = u64::from(settle_ms.unwrap_or(400));
+        let settle_ms = if self.readiness_is(Readiness::ProgressIdle) {
+            0
+        } else {
+            u64::from(settle_ms.unwrap_or(400))
+        };
         let timeout_ms = u64::from(timeout_ms.unwrap_or(15_000).min(60_000));
         let readiness = self
             .inner
@@ -745,11 +821,14 @@ impl NativeLspClient {
         .await
     }
 
-    pub async fn get_document_symbols(&self, file_path: String) -> Result<Value> {
+    /// `textDocument/documentSymbol`, shared with the response cache (a
+    /// reused answer is not copied).
+    pub async fn get_document_symbols(&self, file_path: String) -> Result<Arc<Value>> {
         let uri = path_to_uri(&file_path)?;
-        self.request(
+        self.cached_request(
             "textDocument/documentSymbol",
             json!({ "textDocument": { "uri": uri } }),
+            None,
         )
         .await
     }
@@ -887,7 +966,7 @@ impl NativeLspClient {
     /// Sync `content` for `file_path` and return the version that was sent
     /// (`1` means a fresh `didOpen`), or `None` when the server already holds
     /// `content`.
-    async fn sync_document(&self, file_path: &str, content: String) -> Result<Option<i32>> {
+    async fn sync_document(&self, file_path: &str, content: &str) -> Result<Option<i32>> {
         let file_path = file_path.to_owned();
         let uri = path_to_uri(&file_path)?;
         let _activity = self.lease();
@@ -1005,13 +1084,13 @@ impl NativeLspClient {
 
     /// `true` when `other` is a clone of this client (same server process
     /// state), not merely one with an equal config.
-    pub fn same_client(&self, other: &Self) -> bool {
+    pub(crate) fn same_client(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.inner, &other.inner)
     }
 
     /// `true` while any request, sync, diagnostic wait, or [`LspLease`] is
     /// outstanding on this client (or a clone of it).
-    pub fn is_busy(&self) -> bool {
+    pub(crate) fn is_busy(&self) -> bool {
         self.inner.activity.load(Ordering::Acquire) > 0
     }
 
@@ -1020,6 +1099,11 @@ impl NativeLspClient {
     /// `policy` before any of its bytes are read; a refused path keeps its
     /// location with [`SNIPPET_CONTENT_WITHHELD`] as content. Reads are
     /// bounded to regular files of at most 1 MB.
+    ///
+    /// With `settle`, the answer is one asked at least `settle` after the
+    /// call: an answer the server gave earlier (before a project load
+    /// settled) is never returned, and a settled answer the response scope
+    /// already holds is returned without waiting.
     pub async fn get_locations(
         &self,
         request: LocationRequest,
@@ -1027,6 +1111,7 @@ impl NativeLspClient {
         line: u32,
         character: u32,
         policy: &SnippetReadPolicy,
+        settle: Option<Duration>,
     ) -> Result<Vec<JsCodeSnippet>> {
         let uri = path_to_uri(&file_path)?;
         let mut params = json!({
@@ -1039,11 +1124,27 @@ impl NativeLspClient {
         {
             params["context"] = json!({ "includeDeclaration": include_declaration });
         }
-        let result = self.request(request.method(), params).await?;
-        snippets_from_locations(result, policy).await
+        let result = self
+            .cached_request(request.method(), params, settle)
+            .await?;
+        snippets_from_locations(&result, policy).await
     }
 
     async fn request(&self, method: &str, params: Value) -> Result<Value> {
+        self.cached_request(method, params, None)
+            .await
+            .map(Arc::unwrap_or_clone)
+    }
+
+    /// `method` under the current [`RESPONSE_SCOPE`]: a reused answer is
+    /// shared, not copied. A `settle` request keys its answer apart from
+    /// the plain one and waits `settle` only when it reaches the server.
+    async fn cached_request(
+        &self,
+        method: &str,
+        params: Value,
+        settle: Option<Duration>,
+    ) -> Result<Arc<Value>> {
         let (reuse, generation) = RESPONSE_SCOPE
             .try_with(|scope| {
                 let scope = scope.borrow();
@@ -1051,14 +1152,23 @@ impl NativeLspClient {
             })
             .unwrap_or_default();
         if generation.is_empty() {
-            return self.send_request(method, params).await;
+            if let Some(settle) = settle {
+                tokio::time::sleep(settle).await;
+            }
+            return self.send_request(method, params).await.map(Arc::new);
         }
-        let key = format!("{generation}\u{0}{method}\u{0}{params}");
+        let variant = if settle.is_some() { "settled" } else { "" };
+        let key = format!("{generation}\u{0}{variant}\u{0}{method}\u{0}{params}");
         if reuse && let Some(hit) = self.inner.responses.get(&key) {
-            return Ok((*hit).clone());
+            return Ok(hit.value);
         }
-        let value = self.send_request(method, params).await?;
-        self.inner.responses.insert(key, Arc::new(value.clone()));
+        if let Some(settle) = settle {
+            tokio::time::sleep(settle).await;
+        }
+        let value = Arc::new(self.send_request(method, params).await?);
+        self.inner
+            .responses
+            .insert(key, CachedResponse::new(Arc::clone(&value)));
         Ok(value)
     }
 
@@ -1146,6 +1256,8 @@ impl LocationRequest {
 #[derive(Clone, Default)]
 pub struct SnippetReadPolicy {
     authorizer: Option<Arc<SnippetPathAuthorizer>>,
+    /// See [`Self::shared_reads`].
+    shared: Option<Arc<StdMutex<HashMap<String, CachedRead>>>>,
 }
 
 /// See [`SnippetReadPolicy`].
@@ -1157,6 +1269,28 @@ impl SnippetReadPolicy {
     ) -> Self {
         Self {
             authorizer: Some(Arc::new(authorizer)),
+            shared: None,
+        }
+    }
+
+    /// Share each path's authorization and read across every response read
+    /// under this policy and its clones, so a file named by many responses
+    /// is authorized, read, and line-indexed once. The reads live as long as
+    /// the policy: build one per request, never per process, so a later
+    /// request sees later edits.
+    #[must_use]
+    pub fn shared_reads(mut self) -> Self {
+        self.shared = Some(Arc::default());
+        self
+    }
+
+    fn shared_read(&self, path: &str) -> Option<CachedRead> {
+        self.shared.as_ref()?.lock().ok()?.get(path).cloned()
+    }
+
+    fn share_read(&self, path: &str, read: &CachedRead) {
+        if let Some(mut shared) = self.shared.as_ref().and_then(|shared| shared.lock().ok()) {
+            shared.insert(path.to_owned(), read.clone());
         }
     }
 
@@ -1299,7 +1433,7 @@ fn initialize_params(config: &JsLanguageServerConfig) -> Result<Value> {
 }
 
 async fn snippets_from_locations(
-    value: Value,
+    value: &Value,
     policy: &SnippetReadPolicy,
 ) -> Result<Vec<JsCodeSnippet>> {
     let mut snippets = Vec::new();
@@ -1308,15 +1442,14 @@ async fn snippets_from_locations(
         Value::Null => Ok(snippets),
         Value::Array(items) => {
             for item in items {
-                if let Some(snippet) = snippet_from_location_like(&item, &mut content_cache).await?
-                {
+                if let Some(snippet) = snippet_from_location_like(item, &mut content_cache).await? {
                     snippets.push(snippet);
                 }
             }
             Ok(snippets)
         }
         object @ Value::Object(_) => {
-            if let Some(snippet) = snippet_from_location_like(&object, &mut content_cache).await? {
+            if let Some(snippet) = snippet_from_location_like(object, &mut content_cache).await? {
                 snippets.push(snippet);
             }
             Ok(snippets)
@@ -1331,18 +1464,22 @@ struct CachedSource {
     lines: LineIndex,
 }
 
+#[derive(Clone)]
 enum CachedRead {
-    Source(CachedSource),
+    Source(Arc<CachedSource>),
     Withheld,
     Failed(Error),
 }
 
 /// Per-response cache of snippet sources keyed by the server-supplied path,
 /// so a file named by many locations is authorized, read, and line-indexed
-/// once (failures and refusals are cached too).
+/// once (failures and refusals are cached too); with
+/// [`SnippetReadPolicy::shared_reads`], once per request.
 struct SnippetContentCache {
     policy: SnippetReadPolicy,
     files: HashMap<String, CachedRead>,
+    /// Decoded file path per location URI.
+    paths: HashMap<String, String>,
 }
 
 impl SnippetContentCache {
@@ -1350,22 +1487,40 @@ impl SnippetContentCache {
         Self {
             policy,
             files: HashMap::new(),
+            paths: HashMap::new(),
         }
+    }
+
+    /// The file path a location URI names, decoded once per response.
+    fn file_path(&mut self, uri: &str) -> Result<String> {
+        if let Some(path) = self.paths.get(uri) {
+            return Ok(path.clone());
+        }
+        let path = uri_to_path(uri)?;
+        self.paths.insert(uri.to_owned(), path.clone());
+        Ok(path)
     }
 
     /// Whole-line snippet for `range`, [`SNIPPET_CONTENT_WITHHELD`] when the
     /// policy refuses the path, or the read error.
     async fn read_range_content(&mut self, file_path: &str, range: &JsRange) -> Result<String> {
         if !self.files.contains_key(file_path) {
-            let entry = match self.policy.authorize(Path::new(file_path)) {
-                None => CachedRead::Withheld,
-                Some(authorized) => match read_snippet_source(authorized).await {
-                    Ok(content) => CachedRead::Source(CachedSource {
-                        lines: LineIndex::new(&content),
-                        content,
-                    }),
-                    Err(error) => CachedRead::Failed(error),
-                },
+            let entry = match self.policy.shared_read(file_path) {
+                Some(shared) => shared,
+                None => {
+                    let entry = match self.policy.authorize(Path::new(file_path)) {
+                        None => CachedRead::Withheld,
+                        Some(authorized) => match read_snippet_source(authorized).await {
+                            Ok(content) => CachedRead::Source(Arc::new(CachedSource {
+                                lines: LineIndex::new(&content),
+                                content,
+                            })),
+                            Err(error) => CachedRead::Failed(error),
+                        },
+                    };
+                    self.policy.share_read(file_path, &entry);
+                    entry
+                }
             };
             self.files.insert(file_path.to_owned(), entry);
         }
@@ -1419,7 +1574,7 @@ async fn snippet_from_location_like(
         Some(selection) => parse_range(selection)?,
         None => context_range.clone(),
     };
-    let file_path = uri_to_path(uri)?;
+    let file_path = content_cache.file_path(uri)?;
     // A read failure here is real evidence ("target file is missing/unreadable/
     // generated"), not "no useful definition". Surface it as explicit content
     // instead of an empty string so callers don't misread it — and keep the
@@ -1547,13 +1702,12 @@ fn truncate_stderr_line(line: String) -> String {
     truncated
 }
 
-/// Arm the RSS watchdog for a freshly spawned server on macOS, where
-/// `RLIMIT_AS` cannot cap it (see [`spawn_limits`]). Over the cap, the
-/// connection fails with a "language server exceeded memory cap" error and
-/// the server tree is killed. `None` when no cap is configured, off macOS
-/// (the pre-spawn `RLIMIT_AS` / Job Object caps apply there), or when the
-/// child already exited.
-#[cfg(target_os = "macos")]
+/// Arm the RSS watchdog for a freshly spawned server on macOS and Linux (see
+/// [`spawn_limits`]). Over the cap, the connection fails with a "language
+/// server exceeded memory cap" error and the server tree is killed. `None`
+/// when no cap is configured, on other platforms (the pre-spawn `RLIMIT_AS` /
+/// Job Object caps apply there), or when the child already exited.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 fn memory_watchdog_for(
     child: &Child,
     memory_cap: Option<u64>,
@@ -1581,7 +1735,7 @@ fn memory_watchdog_for(
     )))
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 fn memory_watchdog_for(
     _child: &Child,
     _memory_cap: Option<u64>,

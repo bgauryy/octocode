@@ -8,7 +8,6 @@ import {
   contractDriftMessage,
   devOverridesAllowed,
   INTERACTIVE_EXECUTION_TIMEOUT_SECS,
-  setRuntimeSurface,
   type RuntimeSurface,
 } from '@octocodeai/config';
 import {
@@ -21,64 +20,41 @@ import {
   DEFERRED_TOOL_DISPATCHER,
   deferredDispatcherDefinition,
   publishedInputSchema,
-  type GrammarCapability,
 } from '@octocodeai/config/mcp';
-import { NATIVE_ABI_VERSION } from '@octocodeai/octocode-native/runtime';
+import {
+  NATIVE_ABI_VERSION,
+  type ClassificationProbe,
+  type NativeCatalog,
+  type NativeCatalogTool,
+  type NativeRuntime as NativeAddonRuntime,
+  type NativeRuntimeOptions,
+} from '@octocodeai/octocode-native/runtime';
 import packageJson from '../../package.json';
 
 /**
- * A tool as reported by the native runtime catalog: runtime truth only —
+ * The native runtime surface this adapter uses, declared once by
+ * `@octocodeai/octocode-native`: the catalog carries runtime truth only —
  * names, availability, and the enforcement contract fingerprint. Everything
  * agent-facing (`title`/`description`/`inputSchema` for `registerTool`,
  * server instructions) is composed by the `@octocodeai/config` contract hub
- * from canonical core contracts plus capability-aware addons; the native embed
- * carries no presentation.
+ * from canonical core contracts plus capability-aware addons.
  */
-export interface NativeCatalogTool {
-  name: string;
-  shortDescription?: string;
-  available: boolean;
-}
+export type NativeRuntime = Pick<
+  NativeAddonRuntime,
+  | 'abiVersion'
+  | 'probeClassification'
+  | 'catalog'
+  | 'executeMcp'
+  | 'cancel'
+  | 'close'
+>;
 
-export interface NativeCatalog {
-  fingerprint: string;
-  tools: NativeCatalogTool[];
-  grammarCapabilities?: GrammarCapability[];
-  /** Language labels whose LSP server resolves on this machine. */
-  lspServers?: string[];
-  /**
-   * MCP presentation switches resolved by native from config `mcp.*`: the
-   * available tools served only through the deferred-tool dispatcher.
-   */
-  presentation?: {
-    deferred?: string[];
-  };
-}
-
-/** Native startup check of the clasify provider (`probeClassification`). */
-export interface ClassificationProbe {
-  probed: boolean;
-  available: boolean;
-  code?: string;
-  message?: string;
-}
-
-export interface NativeRuntime {
-  readonly abiVersion: number;
-  /** Disables clasify in `catalog()` when its provider cannot answer. */
-  probeClassification(): Promise<ClassificationProbe>;
-  catalog(): NativeCatalog;
-  executeMcp(requestId: string, tool: string, input: unknown): Promise<unknown>;
-  cancel(requestId: string): boolean;
-  close(): Promise<void>;
-}
-
-export interface NativeRuntimeOptions {
-  surface: RuntimeSurface;
-  regexWorkerPath?: string | undefined;
-  timeoutSecs?: number | undefined;
-  env?: Record<string, string> | undefined;
-}
+export type {
+  ClassificationProbe,
+  NativeCatalog,
+  NativeCatalogTool,
+  NativeRuntimeOptions,
+};
 
 export interface NativeRuntimeBinding {
   NativeRuntime: new (options?: NativeRuntimeOptions) => NativeRuntime;
@@ -137,13 +113,10 @@ export function loadNativeBinding(
  * Contract agreement between the advertised schema and the runtime that executes
  * it is guaranteed separately by the fingerprint check below — not by this type.
  */
-// @modelcontextprotocol/server 2.x exposes the per-request abort signal and
-// JSON-RPC id under `ctx.mcpReq`; the flat `signal` / `requestId` shape is the
-// 1.x layout, kept only as a harmless fallback.
+// @modelcontextprotocol/server 2.x carries the per-request abort signal and
+// JSON-RPC id under `ctx.mcpReq`.
 type ToolCallContext = {
   mcpReq?: { signal?: AbortSignal; id?: string | number };
-  signal?: AbortSignal;
-  requestId?: string | number;
 };
 
 type RegisterTool = (
@@ -245,7 +218,6 @@ export async function createNativeMcp({
       (entry): entry is [string, string] => typeof entry[1] === 'string'
     )
   );
-  setRuntimeSurface(MCP_SURFACE);
   const runtime = new NativeRuntime({
     surface: MCP_SURFACE,
     regexWorkerPath: env.OCTOCODE_REGEX_WORKER,
@@ -322,17 +294,13 @@ export async function createNativeMcp({
   const deferred = availableNames.filter(name =>
     presentation.deferred?.includes(name)
   );
-  const listed = availableTools.filter(tool => !deferred.includes(tool.name));
   const server = new McpServer(implementation, {
     capabilities: { tools: { listChanged: false } },
-    // Availability-scoped instructions, built by core from the tools the
-    // native runtime actually enables — the native catalog carries none.
-    // Hosts truncate instructions near 2 KB, so the grammar inventory stays
-    // with `octocode schema` rather than being appended here.
-    instructions: buildMcpInstructions(
-      listed.map(tool => tool.name),
-      { deferred }
-    ),
+    // One core prompt for every surface; it states in plain words which
+    // tools need a key or the CLI. The native catalog carries none. Hosts
+    // truncate instructions near 2 KB, so the grammar inventory stays with
+    // `octocode schema`.
+    instructions: buildMcpInstructions(),
   });
   const registerTool = server.registerTool.bind(server) as RegisterTool;
 
@@ -348,10 +316,8 @@ export async function createNativeMcp({
     args: unknown,
     context: ToolCallContext
   ): Promise<unknown> => {
-    const signal = context.mcpReq?.signal ?? context.signal;
-    const requestId = String(
-      context.mcpReq?.id ?? context.requestId ?? randomUUID()
-    );
+    const signal = context.mcpReq?.signal;
+    const requestId = String(context.mcpReq?.id ?? randomUUID());
     signal?.throwIfAborted();
     const cancel = () => runtime.cancel(requestId);
     signal?.addEventListener('abort', cancel, { once: true });
@@ -423,13 +389,22 @@ export async function createNativeMcp({
           query?: unknown;
         };
         if (typeof tool !== 'string' || !availableNames.includes(tool)) {
+          // The same typed envelope native returns for a rejected input.
+          const error = `tool: ${String(tool)} is not available; use one of ${availableNames.join(', ')}`;
           return {
             content: [
               {
                 type: 'text',
-                text: `Input validation error: Invalid arguments for tool ${DEFERRED_TOOL_DISPATCHER}: tool: ${String(tool)} is not available; use one of ${availableNames.join(', ')}`,
+                text: `Input validation error: Invalid arguments for tool ${DEFERRED_TOOL_DISPATCHER}: ${error} (errorCode: invalidInput)`,
               },
             ],
+            structuredContent: {
+              kind: 'octocode.toolError',
+              version: 1,
+              tool: DEFERRED_TOOL_DISPATCHER,
+              error,
+              errorCode: 'invalidInput',
+            },
             isError: true,
           };
         }

@@ -126,7 +126,7 @@ At session start, `pruneWorktrees` runs first. The batch module then finds journ
 
 - Status line: `batch b-7f3a 9/20 merged · 4 running · 1 conflict · 0.81M/3M tok`.
 - 04's `/agents` overlay groups children under the batch id, labeled by item name.
-- `/batch status` prints the journal table; verify logs are files the model reads with `localGetFileContent`.
+- `/batch status` prints the journal table; verify logs are files the model reads with `localFetch`.
 
 ### Failure modes
 

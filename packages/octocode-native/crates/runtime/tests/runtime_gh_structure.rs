@@ -16,7 +16,7 @@ const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
 /// A repository `a/b` whose default branch `main` is at [`SHA`] with
 /// `one.rs` and `two.rs`; each file read is expected `reads` times.
 async fn tree_server(reads: u64) -> MockServer {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
@@ -124,7 +124,7 @@ async fn materialize_never_trusts_a_foreign_directory() {
 /// disk is written again.
 #[tokio::test]
 async fn materialize_reuses_only_recorded_files_at_their_size() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
@@ -210,7 +210,7 @@ async fn materialize_reuses_only_recorded_files_at_their_size() {
 /// ref is listed exactly once.
 #[tokio::test]
 async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
@@ -277,14 +277,10 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
     assert_eq!(data["defaultBranch"], "main", "{data}");
     assert_eq!(
         data["branches"],
-        json!([{"name":"dev","sha":sha(1)},{"name":"main","sha":sha(2)}]),
+        json!({"dev":sha(1),"main":sha(2)}),
         "{data}"
     );
-    assert_eq!(
-        data["tags"],
-        json!([{"name":"v1.0.0","sha":sha(4)}]),
-        "{data}"
-    );
+    assert_eq!(data["tags"], json!({"v1.0.0":sha(4)}), "{data}");
     let next = data["next"]["nextPage"]["query"]["queries"][0].clone();
     assert_eq!(next["operation"], "refs", "{data}");
     assert_eq!(next["page"], 2, "{data}");
@@ -292,13 +288,56 @@ async fn refs_list_every_branch_and_tag_once_with_the_default_branch() {
         .await
         .expect("refs page 2");
     let data = row_data(&second);
-    assert_eq!(
-        data["branches"],
-        json!([{"name":"release","sha":sha(3)}]),
-        "{data}"
-    );
-    assert_eq!(data["tags"], json!([]), "{data}");
+    assert_eq!(data["branches"], json!({"release":sha(3)}), "{data}");
+    assert_eq!(data["tags"], json!({}), "{data}");
     assert!(data.get("next").is_none(), "{data}");
+    runtime.close().await;
+}
+
+/// GS6a: refs page 30 by default (a tree page is 300 entries), and the
+/// continuation does not restate the default.
+#[tokio::test]
+async fn refs_default_page_is_thirty() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
+        .mount(&server)
+        .await;
+    for kind in ["branches", "tags"] {
+        Mock::given(method("GET"))
+            .and(path(format!("/api/v3/repos/a/b/{kind}")))
+            .and(query_param("per_page", "30"))
+            .and(query_param("page", "1"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!([{"name":"main","commit":{"sha":"1".repeat(40)}}]))
+                    .insert_header(
+                        "link",
+                        format!(
+                            "<{}/api/v3/repos/a/b/{kind}?per_page=30&page=2>; rel=\"next\"",
+                            server.uri()
+                        ),
+                    ),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let first = call(
+        &runtime,
+        "ghStructure",
+        json!({"owner": "a", "repo": "b", "operation": "refs"}),
+    )
+    .await
+    .expect("refs");
+    let data = row_data(&first);
+    assert_eq!(data["branches"], json!({"main":"1".repeat(40)}), "{data}");
+    let next = &data["next"]["nextPage"]["query"]["queries"][0];
+    assert_eq!(next["page"], 2, "{data}");
+    assert!(next.get("pageSize").is_none(), "{data}");
     runtime.close().await;
 }
 
@@ -332,7 +371,7 @@ async fn refs_and_languages_reject_tree_fields() {
 /// Languages: bytes of code per language, largest first.
 #[tokio::test]
 async fn languages_list_bytes_per_language_largest_first() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/languages"))
         .respond_with(
@@ -390,7 +429,7 @@ impl wiremock::Respond for DatesEcho {
 
 /// A repository `a/b` at [`SHA`] whose root lists `entries` (name, type).
 async fn listing_server(entries: &[(String, &str)]) -> MockServer {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
@@ -412,6 +451,57 @@ async fn listing_server(entries: &[(String, &str)]) -> MockServer {
         .mount(&server)
         .await;
     server
+}
+
+/// A listing entry `"<name> (<fields>)"` as its name and fields (the last
+/// `" ("` opens them); a bare entry has none.
+fn split_entry(text: &str) -> (&str, Vec<&str>) {
+    match text
+        .strip_suffix(')')
+        .and_then(|rest| rest.rsplit_once(" ("))
+    {
+        Some((name, fields)) => (name, fields.split(", ").collect()),
+        None => (text, Vec::new()),
+    }
+}
+
+fn is_day(field: &str) -> bool {
+    field.len() == 10 && field.as_bytes()[4] == b'-' && field.as_bytes()[7] == b'-'
+}
+
+/// A listing row's dates: each dated file or folder name → its day.
+fn updated(row: &serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+    let mut out = serde_json::Map::new();
+    for key in ["files", "folders"] {
+        for text in row[key].as_array().into_iter().flatten() {
+            let (name, fields) = split_entry(text.as_str().expect("entry"));
+            if let Some(day) = fields.into_iter().find(|field| is_day(field)) {
+                out.insert(name.to_owned(), json!(day));
+            }
+        }
+    }
+    out
+}
+
+/// A listing row's entries of `key` without their dates.
+fn undated(row: &serde_json::Value, key: &str) -> serde_json::Value {
+    row[key]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|text| {
+            let (name, fields) = split_entry(text.as_str().expect("entry"));
+            let kept = fields
+                .into_iter()
+                .filter(|field| !is_day(field))
+                .collect::<Vec<_>>();
+            if kept.is_empty() {
+                json!(name)
+            } else {
+                json!(format!("{name} ({})", kept.join(", ")))
+            }
+        })
+        .collect()
 }
 
 async fn graphql_requests(server: &MockServer) -> Vec<serde_json::Value> {
@@ -458,7 +548,7 @@ async fn a_tree_page_dates_every_entry_and_the_listed_commit() {
     let data = row_data(&outcome);
     assert_eq!(data["commitDate"], "2026-01-31", "{data}");
     assert_eq!(
-        data["entries"][0]["updated"],
+        json!(updated(&data["entries"][0])),
         json!({"one.rs": "2025-03-07", "src": "2025-03-04", "a \"q\"\\b.md": "2025-03-11"}),
         "{data}"
     );
@@ -469,11 +559,13 @@ async fn a_tree_page_dates_every_entry_and_the_listed_commit() {
     runtime.close().await;
 }
 
-/// A page past one GraphQL request's 100 aliases is dated in ordered
-/// chunks; every entry still carries its date.
+/// GS5: a page dates its first 100 entries in one GraphQL request; the
+/// rest are named by count and reached by `next.expandDates` (the same
+/// listing pinned to its SHA at `pageSize:100`, one row per undated 100),
+/// whose every row dates its page in one request.
 #[tokio::test]
-async fn a_page_of_more_than_one_hundred_entries_is_dated_in_chunks() {
-    let names = (0..150)
+async fn a_page_past_one_hundred_entries_dates_the_first_hundred_and_expands_the_rest() {
+    let names = (0..250)
         .map(|n| (format!("f{n:03}.rs"), "file"))
         .collect::<Vec<_>>();
     let server = listing_server(&names).await;
@@ -488,10 +580,120 @@ async fn a_page_of_more_than_one_hundred_entries_is_dated_in_chunks() {
         .await
         .expect("listing");
     let data = row_data(&outcome);
-    let updated = data["entries"][0]["updated"].as_object().expect("updated");
-    assert_eq!(updated.len(), 150, "{data}");
-    assert!(updated.values().all(|date| date == "2025-03-08"), "{data}");
-    assert_eq!(graphql_requests(&server).await.len(), 2);
+    let dates = updated(&data["entries"][0]);
+    assert_eq!(dates.len(), 100, "{data}");
+    assert!(dates.contains_key("f000.rs") && dates.contains_key("f099.rs"));
+    assert!(data["entries"][0].get("updated").is_none(), "{data}");
+    assert_eq!(
+        graphql_requests(&server).await.len(),
+        1,
+        "one request per page"
+    );
+    let warning = data["warnings"][0].as_str().unwrap_or_default();
+    assert!(
+        warning.contains("150 more") && warning.contains("next.expandDates"),
+        "{data}"
+    );
+    let expand = &data["next"]["expandDates"];
+    assert_eq!(expand["tool"], "ghStructure", "{data}");
+    let rows = expand["query"]["queries"].as_array().expect("rows");
+    assert_eq!(
+        rows.iter()
+            .map(|row| (
+                row["page"].clone(),
+                row["pageSize"].clone(),
+                row["ref"].clone()
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (json!(2), json!(100), json!(SHA)),
+            (json!(3), json!(100), json!(SHA))
+        ],
+        "{data}"
+    );
+    let replay = call(&runtime, "ghStructure", expand["query"].clone())
+        .await
+        .expect("expandDates replay");
+    let results = replay.structured_content["results"]
+        .as_array()
+        .expect("rows");
+    // Each replay row is one whole dated page (page 3 holds the last 50).
+    let dated = results
+        .iter()
+        .map(|row| {
+            let page = &row["data"];
+            assert!(
+                page.get("next")
+                    .is_none_or(|next| next.get("expandDates").is_none()),
+                "{page}"
+            );
+            updated(&page["entries"][0]).len()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(dated, [100, 50], "{}", replay.structured_content);
+    assert_eq!(
+        graphql_requests(&server).await.len(),
+        3,
+        "one request per replay row"
+    );
+    runtime.close().await;
+}
+
+/// GS3: a listing states each file's size, in the structureSearch entry
+/// form `"<name> (<bytes>)"`; folders stay bare and dates key bare names.
+#[tokio::test]
+async fn a_listing_states_each_file_size() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"default_branch":"main"})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex("/api/v3/repos/a/b/commits/(main|HEAD)$"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": SHA})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/contents"))
+        .and(query_param("ref", SHA))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            {"name": "small.rs", "path": "small.rs", "type": "file", "size": 10},
+            {"name": "big (1).bin", "path": "big (1).bin", "type": "file", "size": 400000},
+            {"name": "src", "path": "src", "type": "dir", "size": 0}
+        ])))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/graphql"))
+        .respond_with(DatesEcho)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = github(&workspace, &server);
+    let outcome = call(&runtime, "ghStructure", json!({"owner": "a", "repo": "b"}))
+        .await
+        .expect("listing");
+    let data = row_data(&outcome);
+    assert_eq!(
+        undated(&data["entries"][0], "files"),
+        json!(["big (1).bin (400000)", "small.rs (10)"]),
+        "{data}"
+    );
+    assert_eq!(
+        undated(&data["entries"][0], "folders"),
+        json!(["src"]),
+        "{data}"
+    );
+    // The size comes first, then the day: each name is written once.
+    let dates = updated(&data["entries"][0]);
+    assert!(
+        dates.contains_key("small.rs")
+            && dates.contains_key("big (1).bin")
+            && dates.contains_key("src"),
+        "{data}"
+    );
+    assert!(data["entries"][0].get("updated").is_none(), "{data}");
     runtime.close().await;
 }
 
@@ -524,9 +726,13 @@ async fn a_graphql_failure_keeps_the_listing_and_warns_once() {
         outcome.structured_content
     );
     let data = row_data(&outcome);
-    assert_eq!(data["entries"][0]["files"], json!(["one.rs"]), "{data}");
+    assert_eq!(
+        data["entries"][0]["files"],
+        json!(["one.rs (10)"]),
+        "{data}"
+    );
     assert_eq!(data["entries"][0]["folders"], json!(["src"]), "{data}");
-    assert!(data["entries"][0].get("updated").is_none(), "{data}");
+    assert!(updated(&data["entries"][0]).is_empty(), "{data}");
     assert!(data.get("commitDate").is_none(), "{data}");
     let warnings = data["warnings"].as_array().expect("warnings");
     assert_eq!(warnings.len(), 1, "{data}");
@@ -553,7 +759,7 @@ async fn materialize_sends_no_date_request() {
     .await
     .expect("materialize");
     let data = row_data(&outcome);
-    assert!(data["entries"][0].get("updated").is_none(), "{data}");
+    assert!(updated(&data["entries"][0]).is_empty(), "{data}");
     assert!(graphql_requests(&server).await.is_empty());
     runtime.close().await;
 }
@@ -593,18 +799,18 @@ async fn a_scoped_listing_names_repo_relative_dirs_and_dates_every_name() {
     let data = row_data(&outcome);
     let entries = data["entries"].as_array().expect("entries");
     assert_eq!(entries[0]["dir"], "pkg", "{data}");
-    assert_eq!(entries[0]["files"], json!(["a.rs"]), "{data}");
-    assert_eq!(entries[0]["folders"], json!(["src"]), "{data}");
+    assert_eq!(undated(&entries[0], "files"), json!(["a.rs (1)"]), "{data}");
+    assert_eq!(undated(&entries[0], "folders"), json!(["src"]), "{data}");
     assert_eq!(entries[1]["dir"], "pkg/src", "{data}");
     // Dates key on the full path: `pkg/a.rs` (8) and `pkg/src` (7) and
     // `pkg/src/lib.rs` (14).
     assert_eq!(
-        entries[0]["updated"],
+        json!(updated(&entries[0])),
         json!({"a.rs": "2025-03-09", "src": "2025-03-08"}),
         "{data}"
     );
     assert_eq!(
-        entries[1]["updated"],
+        json!(updated(&entries[1])),
         json!({"lib.rs": "2025-03-15"}),
         "{data}"
     );
@@ -616,7 +822,7 @@ async fn a_scoped_listing_names_repo_relative_dirs_and_dates_every_name() {
 /// read, warns once, and leads under the canonical name.
 #[tokio::test]
 async fn a_renamed_repository_is_listed_and_continued_under_its_canonical_name() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/main"))
         .respond_with(ResponseTemplate::new(301).insert_header(
@@ -687,7 +893,7 @@ async fn a_renamed_repository_is_listed_and_continued_under_its_canonical_name()
 /// canonical repository: no extra metadata request.
 #[tokio::test]
 async fn a_renamed_repository_without_a_ref_costs_no_extra_metadata_read() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
         .respond_with(

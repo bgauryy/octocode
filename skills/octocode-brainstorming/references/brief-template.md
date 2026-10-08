@@ -1,49 +1,50 @@
 # Idea brief template
-Load when you approve a saved brief; save under `.octocode/octocode-brainstorming/<date>-<slug>.md` or `<doc_placement>`. This is exploratory research, not a spec. Include `## Resources` when evidence was cited. <!-- style-lint: ignore-line passive-voice -->
+
+Load when the user has agreed to save the record. Why: the file keeps the final findings, every agent, and the debate, which the chat brief does not replace. Ask first. Save under `.octocode/octocode-brainstorming/<date>-<slug>.md` only after a yes. Omit an empty section. This is a check, not a spec. Include `## Resources` when evidence was cited.
+
 ```markdown
-# Idea Brief: {one-line restatement}
+# Check: {one-sentence issue}
 | Field | Value |
 |---|---|
-| Status | Exploratory / Validated / Contested / Parked / Too-broad |
-| Mode | Generate / Validate / Map |
+| Mode | Validate / Generate / Map |
 | Created | {YYYY-MM-DD} |
-| Verdict | Crowded / Underserved / Contested / Worth-prototyping |
+| Mark | strong / moderate / weak |
 | Decision | Build RFC / Prototype First / Narrow / Park / Do Not Build |
-| Research limits | {skipped/degraded surfaces and why} |
+| Research limits | {directions not run, and why} |
 
-## TL;DR
-{Researched framing, verdict, limits, and one next step in 2-3 sentences.}
+## Frame
+- Issue: {one sentence}
+- Context: {what is already true, constraints, who is affected}
+- Decision: {what is still open}
+- Flip: {the result that would change the decision}
 
-## Framings Considered
-- {angle} — researched / set aside: {reason}
+## Directions
+- {direction} — {question asked} — {kept or dropped, and why}
 
-## Already in the Workspace
-{Repo-relevant only: existing behavior with file:line; build on vs replace.}
+## Checks
+- Context: {kept or dropped, and the constraint}
+- Evidence: {kept or dropped, and the sentence on the page}
+- Objection: {kept or dropped, and the contradicting direction}
+- Concession: {what changed, or the one drop}
 
-## Landscape — Prior Art
-- **{name}** — {surface, behavior, activity/health}. `{strong|moderate|weak}` {URL}
+## Final findings
+{What survived, the mark, the verdict, and what is still unknown.}
 
-## Perspective Review
-- **Critical Architect:** {surviving claim -> evidence -> decision impact -> confidence}
-- **Visionary Entrepreneur:** {surviving claim -> evidence -> decision impact -> confidence}
-- **Product:** {surviving claim -> evidence -> decision impact -> confidence}
-- **Conceded/contested:** {what changed and why}
+## Agents
+One block for every agent. A sequential pass counts. Leave none out.
+- **{who}** — direction {question}. Status {complete|partial|blocked}. {claim}. Assumes {context}. `{strong|moderate|weak}` {URL or path:line}. "{supporting sentence}". Falsifier: {what would drop it}.
 
-## Verdict
-{Strongest defensible synthesis, disagreement, and key unknowns.}
+## Debate
+- {side}: {claim, source, and whether it survived}
+- Concession: {what this side gave up}
+- Parent: {what stayed, and the one drop}
 
-## Opportunities / Risks / Angles
-- {item -> source or weak marker -> implication}
+## Next step
+{One action: commit, run the smallest test, split, park, or stop.}
 
-## Recommended Next Step
-{One action: prototype, narrow, build RFC, park, or do not build.}
-
-## RFC Handoff
-{Build RFC/requested only: problem; framing; value thesis; surviving evidence; alternatives; constraints/risks; bounded first slice; open questions; success signal.}
-
-## Open Questions
-- [ ] {cheapest check that could flip the verdict}
+## RFC handoff
+{Build RFC only: problem, frame, evidence, alternatives, constraints, bounded first step, open questions, success signal.}
 
 ## Resources
-- {path:line or URL} — {claim supported, author/org/date where unstable, confidence}
+- {path:line or URL} — {claim supported, author/org/date where unstable, mark}
 ```

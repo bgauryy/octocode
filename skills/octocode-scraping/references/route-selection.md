@@ -1,6 +1,6 @@
 # Scope and route selection
 
-Load before a broad crawl, an extract schema, or workflow analysis, or when the fetch route is unclear. Better inputs give smaller corpora; the cheapest route that can prove the claim wins.
+Load before a broad crawl, an extract schema, or workflow analysis, or when the fetch route is unclear. Better inputs give smaller corpora; the cheapest route that can prove the claim wins. Why: choose the smallest route that can prove the goal.
 
 ## Ask
 Goal · scope (one URL / list / same-domain max-pages) · output shape · evidence strictness · boundaries (auth, personal data, forms, CAPTCHA, rate limits).

@@ -1,5 +1,0 @@
-# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec/creds.ts", "minify": "symbols"}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"path":"creds.ts","content":"2| export const awsKey = \"[REDACTED-AWSACCESSKEYID]\";\n3| export const awsSecret = \"wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\";\n4| export const ghToken = \"[REDACTED-GITHUBTOKENS]\";\n5| export const PEM = `\n6| [REDACTED-PRIVATEKEYFRAGMENT]\n7| [REDACTED-PRIVATEKEYFRAGMENT]\n8| [REDACTED-PRIVATEKEYFRAGMENT]\n9| [REDACTED-PRIVATEKEYFRAGMENT]\n10| `;\n11| export const marker = \"tokenmarker\";","contentView":"symbols","warnings":["Redacted private-key block(s) found in the source before selecting the window.","redactedContent: 6 secret-shaped value(s) in the returned text were replaced by [REDACTED…] placeholders; this content is not verbatim source."],"totalLines":11,"returnedLines":10}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec"}

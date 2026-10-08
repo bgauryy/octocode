@@ -1,9 +1,7 @@
 use regex::{Regex, RegexBuilder};
 
 mod isolated;
-pub use isolated::{
-    ExecutionMetadata, IsolatedRegexEngine, IsolatedRegexLimits, MemoryConfinement,
-};
+pub use isolated::{IsolatedRegexEngine, IsolatedRegexLimits};
 
 pub const REGEX_WORKER_PROTOCOL_VERSION: u32 = 1;
 
@@ -46,8 +44,6 @@ impl Default for RegexLimits {
 
 #[derive(Clone, Debug)]
 pub struct EcmaPattern {
-    source: String,
-    flags: String,
     global: bool,
     class: RegexExecutionClass,
     linear: Option<Regex>,
@@ -58,6 +54,24 @@ pub struct EcmaPattern {
 pub struct MatchRange {
     pub start: usize,
     pub end: usize,
+}
+
+/// The ranges a bounded scan found, in input order. `truncated` says the
+/// scan stopped at its match limit with at least one further match unseen.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct FoundRanges {
+    pub ranges: Vec<MatchRange>,
+    pub truncated: bool,
+}
+
+impl FoundRanges {
+    /// Keep the first `limit` of `ranges` (which holds at most `limit + 1`),
+    /// recording whether one past the limit existed.
+    pub fn bounded(mut ranges: Vec<MatchRange>, limit: usize) -> Self {
+        let truncated = ranges.len() > limit;
+        ranges.truncate(limit);
+        Self { ranges, truncated }
+    }
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -74,7 +88,6 @@ pub struct WorkerRequest {
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum WorkerOperation {
     Find { max_matches: usize },
-    ReplaceLiteral { replacement: String },
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -82,7 +95,6 @@ pub enum WorkerOperation {
 pub struct WorkerResponse {
     pub version: u32,
     pub ranges: Option<Vec<MatchRange>>,
-    pub replaced: Option<String>,
     pub error: Option<String>,
 }
 
@@ -116,8 +128,6 @@ impl EcmaPattern {
             None
         };
         Ok(Self {
-            source: source.to_owned(),
-            flags: flags.to_owned(),
             global,
             class,
             linear,
@@ -125,46 +135,35 @@ impl EcmaPattern {
         })
     }
 
-    pub fn source(&self) -> &str {
-        &self.source
-    }
-    pub fn flags(&self) -> &str {
-        &self.flags
-    }
     pub fn execution_class(&self) -> RegexExecutionClass {
         self.class
     }
 
-    pub fn find_ranges(&self, input: &str) -> Result<Vec<MatchRange>, RegexError> {
+    /// Every match up to the limit; one probe past it sets `truncated`, so a
+    /// caller never mistakes a capped prefix for the whole result.
+    pub fn find_ranges(&self, input: &str) -> Result<FoundRanges, RegexError> {
         self.check_input(input)?;
         let regex = self.linear()?;
-        let take = if self.global {
-            self.limits.max_matches
-        } else {
-            1
-        };
-        Ok(regex
+        if !self.global {
+            let first = regex.find(input).map(|item| MatchRange {
+                start: item.start(),
+                end: item.end(),
+            });
+            return Ok(FoundRanges {
+                ranges: first.into_iter().collect(),
+                truncated: false,
+            });
+        }
+        let limit = self.limits.max_matches;
+        let ranges = regex
             .find_iter(input)
-            .take(take)
+            .take(limit.saturating_add(1))
             .map(|item| MatchRange {
                 start: item.start(),
                 end: item.end(),
             })
-            .collect())
-    }
-
-    pub fn replace_literal(&self, input: &str, replacement: &str) -> Result<String, RegexError> {
-        self.check_input(input)?;
-        let regex = self.linear()?;
-        Ok(if self.global {
-            regex
-                .replace_all(input, regex::NoExpand(replacement))
-                .into_owned()
-        } else {
-            regex
-                .replace(input, regex::NoExpand(replacement))
-                .into_owned()
-        })
+            .collect();
+        Ok(FoundRanges::bounded(ranges, limit))
     }
 
     fn linear(&self) -> Result<&Regex, RegexError> {
@@ -238,26 +237,25 @@ mod tests {
             pattern
                 .find_ranges("TOKEN-one token-two")
                 .expect("ranges")
+                .ranges
                 .len(),
             2
-        );
-        assert_eq!(
-            pattern
-                .replace_literal("TOKEN-one token-two", "$SAFE")
-                .expect("replace"),
-            "$SAFE $SAFE"
         );
     }
 
     #[test]
-    fn preserves_first_replacement_without_global_flag() {
-        let pattern = EcmaPattern::compile("token", "i", RegexLimits::default()).expect("pattern");
-        assert_eq!(
-            pattern
-                .replace_literal("TOKEN token", "x")
-                .expect("replace"),
-            "x token"
-        );
+    fn find_ranges_reports_a_match_past_the_limit() {
+        let limits = RegexLimits {
+            max_matches: 3,
+            ..RegexLimits::default()
+        };
+        let pattern = EcmaPattern::compile("x", "g", limits).expect("pattern");
+        let capped = pattern.find_ranges("xxxx").expect("ranges");
+        assert_eq!(capped.ranges.len(), 3);
+        assert!(capped.truncated);
+        let exact = pattern.find_ranges("xxx").expect("ranges");
+        assert_eq!(exact.ranges.len(), 3);
+        assert!(!exact.truncated);
     }
 
     #[test]

@@ -12,28 +12,9 @@ use std::{
 };
 
 pub(super) fn paginate(items: Vec<Value>, q: &AstTopologyQuery) -> (Vec<Value>, Value) {
-    let limited = items;
     let size = q.page_size().clamp(1, super::topology_max("pageSize")) as usize;
-    let pages = usize::max(1, limited.len().div_ceil(size));
-    // A page past the end is empty, terminal and flagged — never clamped to
-    // the last page, which would repeat rows the caller already has.
-    let current = q.page().max(1) as usize;
-    let out_of_range = current > pages;
-    let start = (current - 1).saturating_mul(size);
-    let mut pagination = json!({
-        "currentPage": current,
-        "totalPages": pages,
-        "pageSize": size,
-        "totalItems": limited.len(),
-        "hasMore": !out_of_range && current < pages
-    });
-    if out_of_range {
-        pagination["outOfRange"] = json!(true);
-    }
-    (
-        limited.into_iter().skip(start).take(size).collect(),
-        pagination,
-    )
+    let (page, facts) = crate::response::pages::slice_page(&items, q.page() as usize, size);
+    (page, facts.to_value())
 }
 
 /// The warning for a result page past the end, naming the valid range.
@@ -48,14 +29,11 @@ pub(super) fn out_of_range_warning(pagination: &Value) -> Option<String> {
     })
 }
 
-/// Mark a replayed page whose graph snapshot no longer matches.
+/// Mark a replayed page whose graph snapshot no longer matches; the runtime
+/// writes the shared `error` text (`response::pages::restart_stale`).
 pub(super) fn insert_snapshot_changed(base: &mut Map<String, Value>) {
     base.insert("status".into(), json!("error"));
     base.insert("errorCode".into(), json!("staleSnapshot"));
-    base.insert(
-        "error".into(),
-        json!(crate::response::pages::STALE_SNAPSHOT_ERROR),
-    );
 }
 
 /// Restart both result and diagnostic pagination from the current graph.
@@ -88,12 +66,10 @@ pub(super) struct CoverageState {
 /// code and message are grouped into one row listing every `path[:line]`.
 pub(super) fn add_coverage(
     base: &mut Map<String, Value>,
-    b: &mut BuiltGraph,
+    b: &BuiltGraph,
     q: &AstTopologyQuery,
     results_digest: &str,
 ) -> CoverageState {
-    b.diagnostics.sort();
-    b.diagnostics.dedup();
     let tuples = b
         .diagnostics
         .iter()
@@ -160,9 +136,14 @@ pub(super) fn add_coverage(
         .map(|d| (&d.code, &d.message))
         .collect::<BTreeSet<_>>()
         .len();
-    let mut diagnostics_pagination = json!({"currentPage":current,"totalPages":pages,"pageSize":size,"totalItems":total,"hasMore":more,"resultId":id});
-    if q.diagnostic_page() as usize > pages {
-        diagnostics_pagination["outOfRange"] = json!(true);
+    let past_end = q.diagnostic_page() as usize > pages;
+    let mut diagnostics_pagination =
+        crate::response::pages::PageFacts::counted(current, size, total)
+            .out_of_range(past_end)
+            .to_value();
+    diagnostics_pagination["hasMore"] = json!(more);
+    diagnostics_pagination["resultId"] = json!(id);
+    if past_end {
         let warning = format!(
             "diagnosticPage:{} is out of range; returned diagnostic page {}.",
             q.diagnostic_page(),
@@ -221,11 +202,117 @@ pub(super) fn group_diagnostics(diagnostics: &[Diagnostic]) -> Vec<Value> {
         })
         .collect()
 }
+/// What cut a graph's scope: the file scan (`maxFiles`), the edge cap, or
+/// skipped files. A drift unions its two graphs' cuts.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct ScanCuts {
+    pub(super) max_files: bool,
+    pub(super) edge_cap: bool,
+    pub(super) files_skipped: bool,
+}
+
+impl ScanCuts {
+    pub(super) fn of(b: &BuiltGraph) -> Self {
+        Self {
+            max_files: b.truncated,
+            edge_cap: b.edges_capped,
+            files_skipped: b.files_skipped > 0,
+        }
+    }
+    pub(super) fn union(self, other: Self) -> Self {
+        Self {
+            max_files: self.max_files || other.max_files,
+            edge_cap: self.edge_cap || other.edge_cap,
+            files_skipped: self.files_skipped || other.files_skipped,
+        }
+    }
+    /// The graph itself is cut (skipped files are named in coverage).
+    pub(super) fn graph_cut(self) -> bool {
+        self.max_files || self.edge_cap
+    }
+    /// A wider file scan reaches more of the graph: more files cannot lift
+    /// the edge cap.
+    pub(super) fn widenable(self) -> bool {
+        self.max_files && !self.edge_cap
+    }
+    pub(super) fn reasons(self) -> Vec<&'static str> {
+        [
+            (self.max_files, "maxFiles"),
+            (self.edge_cap, "edgeCap"),
+            (self.files_skipped, "filesSkipped"),
+        ]
+        .into_iter()
+        .filter_map(|(cut, reason)| cut.then_some(reason))
+        .collect()
+    }
+    pub(super) fn warnings(self, q: &AstTopologyQuery) -> Vec<String> {
+        let mut warnings = Vec::new();
+        if self.max_files {
+            warnings.push(format!(
+                "scan stopped at maxFiles ({}) — graph results are partial",
+                q.max_files().unwrap_or(20_000)
+            ));
+        }
+        if self.edge_cap {
+            warnings.push(format!(
+                "edge collection stopped at the {}-edge cap — graph results are partial; more files cannot lift it, so narrow path or add exclude",
+                super::graph::edge_cap()
+            ));
+        }
+        warnings
+    }
+    /// No continuation reaches the rest: a skipped file, the edge cap, or a
+    /// file scan cut at the `maxFiles` maximum.
+    pub(super) fn terminal(self, q: &AstTopologyQuery) -> bool {
+        self.files_skipped
+            || self.edge_cap
+            || self.max_files && q.max_files().unwrap_or(20_000) >= super::topology_max("maxFiles")
+    }
+}
+
+/// The `supersedes` field and warning of page 1 of a widened scan.
+pub(super) fn insert_supersedes(
+    base: &mut Map<String, Value>,
+    q: &AstTopologyQuery,
+    warnings: &mut Vec<String>,
+) {
+    if let Some(narrower) = q.supersedes() {
+        base.insert("supersedes".into(), json!(narrower));
+        warnings.push(format!(
+            "widened scan: these results replace every row of the maxFiles:{narrower} scan; discard those rows"
+        ));
+    }
+}
+
+/// The same query over a doubled file bound whose results replace this
+/// scan's rows (`supersedes`); `None` at the `maxFiles` maximum.
+pub(super) fn expand_scan(q: &AstTopologyQuery) -> Option<Value> {
+    let max_files = super::topology_max("maxFiles");
+    let cur = q.max_files().unwrap_or(20_000);
+    if cur >= max_files {
+        return None;
+    }
+    let mut widen = continuation(
+        q,
+        Some(1),
+        Some((cur * 2).max(cur + 1).min(max_files)),
+        None,
+        "Rebuild the graph with more files; its results replace every row of this scan.",
+    );
+    if let Some(row) = widen
+        .pointer_mut("/query/queries/0")
+        .and_then(Value::as_object_mut)
+    {
+        row.insert("supersedes".into(), json!(cur));
+    }
+    Some(widen)
+}
+
 pub(super) fn add_next(
     base: &mut Map<String, Value>,
     q: &AstTopologyQuery,
     root: &Path,
-    scan_truncated: bool,
+    widenable: bool,
     withheld_diagnostics: Option<&str>,
 ) {
     let mut next = Map::new();
@@ -299,19 +386,14 @@ pub(super) fn add_next(
                 .build(),
         );
     }
-    let max_files = super::topology_max("maxFiles");
-    if scan_truncated && q.max_files().unwrap_or(20_000) < max_files {
-        let cur = q.max_files().unwrap_or(20_000);
-        next.insert(
-            "expandScan".into(),
-            continuation(
-                q,
-                Some(1),
-                Some((cur * 2).max(cur + 1).min(max_files)),
-                None,
-                "Re-run with a larger file-scan bound because this graph is partial.",
-            ),
-        );
+    // A widened scan rebuilds the whole graph, and its rows replace this
+    // scan's (`supersedes`): offered once, on the last reachable result page,
+    // so a walk reads every row of this graph before the one replacing it.
+    if widenable
+        && !next.contains_key("nextPage")
+        && let Some(widen) = expand_scan(q)
+    {
+        next.insert("expandScan".into(), widen);
     }
     if q.analysis() == GraphAnalysis::DeadCode
         && let Some(c) = base["results"].as_array().and_then(|x| x.first())
@@ -330,7 +412,7 @@ pub(super) fn add_next(
             row["includeDeclaration"] = json!(false);
             row["groupByFile"] = json!(true);
             next.insert(
-                "verifyReferences".into(),
+                crate::tools::lsp_search::lead_name(&row),
                 Continuation::new(ToolId::LspSearch, row)
                     .why(format!("Verify candidate \"{name}\" before deletion; repeat for each result, prioritizing viaHeuristic:\"reexport-chain\"."))
                     .confidence("high")
@@ -381,6 +463,8 @@ pub(super) fn clean_query(q: &AstTopologyQuery) -> Value {
     let mut v = serde_json::to_value(q).unwrap_or_else(|_| json!({}));
     if let Some(m) = v.as_object_mut() {
         m.retain(|_, x| !x.is_null());
+        // Only page 1 of a widened scan replaces the narrower scan's rows.
+        m.shift_remove("supersedes");
         if m.get("diagnosticPage") == Some(&json!(1)) {
             m.remove("diagnosticPage");
         }

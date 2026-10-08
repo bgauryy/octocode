@@ -12,6 +12,8 @@ export interface Member {
   task?: string;
   /** The tool it is running right now. */
   activity?: string;
+  /** The model it runs (`claude-opus-4-5`), as Pi names it; absent until known. */
+  model?: string;
   joinedAt: number;
   updatedAt: number;
   toolCalls: number;
@@ -74,6 +76,7 @@ export function toMember(row: Row): Member {
   const task = text(row['task']);
   const activity = text(row['activity']);
   const parentId = text(row['parent_id']);
+  const model = text(row['model']);
   return {
     id: String(row['id']),
     role: String(row['role']),
@@ -82,6 +85,7 @@ export function toMember(row: Row): Member {
     status: row['status'] === 'working' ? 'working' : 'idle',
     ...(task ? { task } : {}),
     ...(activity ? { activity } : {}),
+    ...(model ? { model } : {}),
     joinedAt: num(row['joined_at']),
     updatedAt: num(row['seen_at']),
     toolCalls: num(row['tool_calls']),

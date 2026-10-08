@@ -13,27 +13,19 @@ use wiremock::{
 
 use super::*;
 
-#[derive(Clone)]
-struct RotatingResolver(Arc<AtomicUsize>);
-impl CredentialResolver for RotatingResolver {
-    fn resolve<'a>(
-        &'a self,
-        _: CredentialRequest<'a>,
-    ) -> std::pin::Pin<
-        Box<
-            dyn std::future::Future<Output = Result<Option<ResolvedCredential>, ProviderError>>
-                + Send
-                + 'a,
-        >,
-    > {
-        Box::pin(async move {
-            let n = self.0.fetch_add(1, Ordering::SeqCst);
-            Ok(Some(ResolvedCredential::new(
-                if n == 0 { "one" } else { "two" },
-                CredentialSource::Storage,
-            )))
-        })
-    }
+fn api_github_com() -> GitHubEndpoint {
+    GitHubEndpoint::new(url::Url::parse("https://api.github.com/").expect("URL")).expect("endpoint")
+}
+
+/// A request with a `timeout` budget carrying `token`.
+fn with_token(token: &str, timeout: Duration, max_body_bytes: usize) -> RequestContext {
+    RequestContext::new(
+        RequestBudget::with_timeout(timeout, max_body_bytes),
+        Some(ResolvedCredential::new(
+            token,
+            CredentialSource::Environment,
+        )),
+    )
 }
 #[derive(Default)]
 struct MemoryCache(Mutex<Option<CachedContent>>);
@@ -143,13 +135,8 @@ fn mock_endpoint(server: &MockServer) -> GitHubEndpoint {
 }
 
 /// An anonymous transport to `endpoint` with the default retry policy.
-fn anonymous_transport(endpoint: &GitHubEndpoint) -> GitHubTransport<StaticCredentialResolver> {
-    GitHubTransport::new(
-        endpoint.clone(),
-        Arc::new(StaticCredentialResolver::anonymous()),
-        RetryPolicy::default(),
-    )
-    .expect("transport")
+fn anonymous_transport(endpoint: &GitHubEndpoint) -> GitHubTransport {
+    GitHubTransport::new(endpoint.clone(), RetryPolicy::default()).expect("transport")
 }
 
 /// A read of `path` in `a/b` at `main`.
@@ -179,8 +166,8 @@ async fn mount_json(
 }
 
 /// `GET x` through `transport`, with a 2 s deadline and a `max_bytes` body cap.
-async fn get_x<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn get_x(
+    transport: &GitHubTransport,
     endpoint: &GitHubEndpoint,
     max_bytes: usize,
 ) -> Result<ResponsePage, ProviderError> {
@@ -192,14 +179,11 @@ async fn get_x<R: CredentialResolver>(
         .await
 }
 
-async fn provider(server: &MockServer) -> GitHubProvider<StaticCredentialResolver, MemoryCache> {
+/// Requests to it carry the `"secret"` token through [`with_token`].
+async fn provider(server: &MockServer) -> GitHubProvider<MemoryCache> {
     let endpoint = mock_endpoint(server);
     let transport = GitHubTransport::new(
         endpoint,
-        Arc::new(StaticCredentialResolver::new(
-            "secret",
-            CredentialSource::Environment,
-        )),
         RetryPolicy {
             max_attempts: 2,
             base_delay: Duration::from_millis(1),
@@ -237,11 +221,11 @@ async fn ghes_content_route_auth_and_decode() {
                 force_refresh: false,
                 session_id: None,
             },
-            &RequestContext::with_timeout(Duration::from_secs(2), 1024),
+            &with_token("secret", Duration::from_secs(2), 1024),
         )
         .await
         .expect("content");
-    assert_eq!(result.bytes, b"hello\n");
+    assert_eq!(result.bytes, &b"hello\n"[..]);
     assert_eq!(result.etag.as_deref(), Some("\"v1\""));
     assert!(!result.from_cache);
 }
@@ -260,7 +244,7 @@ async fn conditional_304_reuses_cached_body() {
     .await;
     *provider.cache.0.lock().expect("cache lock") = Some(CachedContent {
         etag: Some("\"v1\"".into()),
-        bytes: b"cached".to_vec(),
+        bytes: b"cached".to_vec().into(),
         resolved_ref: sha.into(),
     });
     Mock::given(method("GET"))
@@ -271,11 +255,11 @@ async fn conditional_304_reuses_cached_body() {
     let result = provider
         .get_file_content(
             &main_file("x", false),
-            &RequestContext::with_timeout(Duration::from_secs(2), 1024),
+            &with_token("secret", Duration::from_secs(2), 1024),
         )
         .await
         .expect("cached");
-    assert_eq!(result.bytes, b"cached");
+    assert_eq!(result.bytes, &b"cached"[..]);
     assert!(result.from_cache);
     assert_eq!(result.raw_response_bytes, 0);
     assert_eq!(result.resolved_ref, sha);
@@ -403,7 +387,6 @@ async fn retries_secondary_rate_limit_without_remaining_zero() {
     let endpoint = mock_endpoint(&server);
     let transport = GitHubTransport::with_budget(
         endpoint.clone(),
-        Arc::new(StaticCredentialResolver::anonymous()),
         RetryPolicy {
             max_attempts: 3,
             base_delay: Duration::from_millis(1),
@@ -468,7 +451,7 @@ async fn cancellation_interrupts_an_inflight_response() {
     let endpoint = mock_endpoint(&server);
     let transport = anonymous_transport(&endpoint);
     let context = RequestContext::with_timeout(Duration::from_secs(3), 16);
-    let cancellation = context.cancellation.clone();
+    let cancellation = context.budget.cancellation.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(20)).await;
         cancellation.cancel();
@@ -535,68 +518,59 @@ async fn preserves_graphql_partial_data_and_errors() {
 async fn cache_partition_covers_endpoint_credential_and_session() {
     let server = MockServer::start().await;
     let endpoint = mock_endpoint(&server);
-    let transport = GitHubTransport::new(
-        endpoint,
-        Arc::new(StaticCredentialResolver::new(
-            "one",
-            CredentialSource::Storage,
-        )),
-        RetryPolicy::default(),
-    )
-    .expect("transport");
-    let context = RequestContext::with_timeout(Duration::from_secs(2), 16);
+    let transport = GitHubTransport::new(endpoint, RetryPolicy::default()).expect("transport");
+    let context = with_token("one", Duration::from_secs(2), 16);
     let a = transport
         .cache_partition(&context, Some("a"))
-        .await
         .expect("partition");
     let b = transport
         .cache_partition(&context, Some("b"))
-        .await
         .expect("partition");
     assert_ne!(a, b);
-    let mut override_context = RequestContext::with_timeout(Duration::from_secs(2), 16);
-    override_context.override_token = Some(secrecy::SecretString::from("two"));
-    let overridden = transport
-        .cache_partition(&override_context, Some("a"))
-        .await
+    let other = transport
+        .cache_partition(&with_token("two", Duration::from_secs(2), 16), Some("a"))
         .expect("partition");
-    assert_ne!(a, overridden);
+    assert_ne!(a, other);
+    let anonymous = transport
+        .cache_partition(
+            &RequestContext::with_timeout(Duration::from_secs(2), 16),
+            Some("a"),
+        )
+        .expect("partition");
+    assert_ne!(a, anonymous);
 }
 
+/// One transport serves many requests; each carries its own context's
+/// credential (a credential rotated between requests is used at once).
 #[tokio::test]
-async fn pins_one_credential_across_partition_and_request() {
+async fn each_request_carries_its_own_context_credential() {
     let server = MockServer::start().await;
-    Mock::given(method("GET"))
-        .and(header("authorization", "Bearer one"))
-        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"ok"))
-        .mount(&server)
-        .await;
+    for token in ["one", "two"] {
+        Mock::given(method("GET"))
+            .and(header("authorization", format!("Bearer {token}").as_str()))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(token.as_bytes()))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
     let endpoint = mock_endpoint(&server);
-    let calls = Arc::new(AtomicUsize::new(0));
-    let transport = GitHubTransport::new(
-        endpoint.clone(),
-        Arc::new(RotatingResolver(calls.clone())),
-        RetryPolicy::default(),
-    )
-    .expect("transport");
-    let context = RequestContext::with_timeout(Duration::from_secs(2), 16);
-    transport
-        .cache_partition(&context, Some("s"))
-        .await
-        .expect("partition");
-    transport
-        .execute(
-            RequestSpec::get(endpoint.rest(&["x"]).expect("route")),
-            &context,
-        )
-        .await
-        .expect("request");
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let transport =
+        GitHubTransport::new(endpoint.clone(), RetryPolicy::default()).expect("transport");
+    for token in ["one", "two"] {
+        let page = transport
+            .execute(
+                RequestSpec::get(endpoint.rest(&["x"]).expect("route")),
+                &with_token(token, Duration::from_secs(2), 16),
+            )
+            .await
+            .expect("request");
+        assert_eq!(page.body.as_ref(), token.as_bytes());
+    }
 }
 
 #[test]
 fn canonicalizes_github_dot_com_credential_host() {
-    assert_eq!(GitHubEndpoint::github_com().credential_host(), "github.com");
+    assert_eq!(api_github_com().credential_host(), "github.com");
     let ghes = GitHubEndpoint::new(url::Url::parse("https://ghe.example/api/v3").expect("URL"))
         .expect("endpoint");
     assert_eq!(ghes.credential_host(), "ghe.example");
@@ -641,11 +615,11 @@ async fn content_413_falls_back_to_parent_directory_and_blob() {
         .await
         .get_file_content(
             &main_file("dir/large.txt", false),
-            &RequestContext::with_timeout(Duration::from_secs(2), 4096),
+            &with_token("secret", Duration::from_secs(2), 4096),
         )
         .await
         .expect("fallback");
-    assert_eq!(result.bytes, b"large body");
+    assert_eq!(result.bytes, &b"large body"[..]);
     assert_eq!(result.resolved_ref, commit);
 }
 
@@ -683,11 +657,11 @@ async fn content_encoding_none_for_large_file_fetches_blob() {
         .await
         .get_file_content(
             &main_file("big.txt", true),
-            &RequestContext::with_timeout(Duration::from_secs(2), 4096),
+            &with_token("secret", Duration::from_secs(2), 4096),
         )
         .await
         .expect("blob fallback");
-    assert_eq!(result.bytes, b"large body");
+    assert_eq!(result.bytes, &b"large body"[..]);
 }
 
 #[tokio::test]
@@ -731,7 +705,7 @@ async fn content_directory_symlink_and_submodule_get_clear_errors() {
             provider
                 .get_file_content(
                     &main_file(p, true),
-                    &RequestContext::with_timeout(Duration::from_secs(2), 4096),
+                    &with_token("secret", Duration::from_secs(2), 4096),
                 )
                 .await
                 .expect_err("not a file")
@@ -762,7 +736,6 @@ async fn retries_transient_server_failure_once() {
     let endpoint = mock_endpoint(&server);
     let transport = GitHubTransport::new(
         endpoint.clone(),
-        Arc::new(StaticCredentialResolver::anonymous()),
         RetryPolicy {
             max_attempts: 2,
             base_delay: Duration::from_millis(1),
@@ -802,18 +775,12 @@ fn routes_graphql_and_escapes_content_path_as_one_segment() {
 
 fn executor_transport(
     server: &MockServer,
-    token: Option<&str>,
     budget: Arc<GitHubBudget>,
     retry: RetryPolicy,
-) -> (GitHubTransport<StaticCredentialResolver>, GitHubEndpoint) {
+) -> (GitHubTransport, GitHubEndpoint) {
     let endpoint = mock_endpoint(server);
-    let resolver = match token {
-        Some(token) => StaticCredentialResolver::new(token, CredentialSource::Environment),
-        None => StaticCredentialResolver::anonymous(),
-    };
     let transport =
-        GitHubTransport::with_budget(endpoint.clone(), Arc::new(resolver), retry, budget)
-            .expect("transport");
+        GitHubTransport::with_budget(endpoint.clone(), retry, budget).expect("transport");
     (transport, endpoint)
 }
 
@@ -858,12 +825,11 @@ async fn primary_limit_waits_for_a_short_reset_then_retries() {
         .expect(2)
         .mount(&server)
         .await;
-    let (transport, endpoint) =
-        executor_transport(&server, Some("t"), GitHubBudget::relaxed(), short_retry());
+    let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let page = transport
         .execute(
             RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).expect("route")),
-            &RequestContext::with_timeout(Duration::from_secs(5), 1024),
+            &with_token("t", Duration::from_secs(5), 1024),
         )
         .await
         .expect("retried after reset");
@@ -886,9 +852,8 @@ async fn primary_limit_fails_fast_and_blocks_later_sends_until_reset() {
         .expect(1)
         .mount(&server)
         .await;
-    let (transport, endpoint) =
-        executor_transport(&server, Some("t"), GitHubBudget::relaxed(), short_retry());
-    let context = RequestContext::with_timeout(Duration::from_secs(5), 1024);
+    let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    let context = with_token("t", Duration::from_secs(5), 1024);
     let first = transport
         .execute(
             RequestSpec::get(endpoint.rest(&["repos", "a", "b"]).expect("route")),
@@ -926,8 +891,7 @@ async fn secondary_limit_without_retry_after_waits_sixty_seconds_or_fails_fast()
         .expect(1)
         .mount(&server)
         .await;
-    let (transport, endpoint) =
-        executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
+    let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let context = RequestContext::with_timeout(Duration::from_secs(5), 1024);
     let error = transport
         .execute(
@@ -969,7 +933,7 @@ async fn do_not_retry_statuses_are_sent_once() {
             .mount(&server)
             .await;
         let (transport, endpoint) =
-            executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
+            executor_transport(&server, GitHubBudget::relaxed(), short_retry());
         let error = get_x(&transport, &endpoint, 1024)
             .await
             .expect_err("final status");
@@ -996,10 +960,9 @@ async fn graphql_top_level_rate_limited_type_is_a_primary_limit() {
         .expect(1)
         .mount(&server)
         .await;
-    let (transport, _) =
-        executor_transport(&server, Some("t"), GitHubBudget::relaxed(), short_retry());
-    let context = RequestContext::with_timeout(Duration::from_secs(5), 1024);
-    assert!(transport.graphql_available(&context).await);
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    let context = with_token("t", Duration::from_secs(5), 1024);
+    assert!(transport.graphql_available(&context));
     let error = transport
         .execute_graphql(
             "query { viewer { login } }",
@@ -1013,14 +976,8 @@ async fn graphql_top_level_rate_limited_type_is_a_primary_limit() {
     assert_eq!(rate.resource.as_deref(), Some("graphql"));
     assert_eq!(rate.reset_epoch_seconds, Some(reset));
     // Cooldown-until-reset for this key only (not a permanent host skip).
-    assert!(!transport.graphql_available(&context).await);
-    let (other, _) = executor_transport(
-        &server,
-        Some("other"),
-        GitHubBudget::relaxed(),
-        short_retry(),
-    );
-    assert!(other.graphql_available(&context).await);
+    assert!(!transport.graphql_available(&context));
+    assert!(transport.graphql_available(&with_token("other", Duration::from_secs(5), 1024)));
 }
 
 #[derive(Clone)]
@@ -1049,13 +1006,12 @@ async fn graphql_something_went_wrong_is_retried_like_a_500() {
         .expect(2)
         .mount(&server)
         .await;
-    let (transport, _) =
-        executor_transport(&server, Some("t"), GitHubBudget::relaxed(), short_retry());
+    let (transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let page = transport
         .execute_graphql(
             "query { viewer { login } }",
             serde_json::json!({}),
-            &RequestContext::with_timeout(Duration::from_secs(5), 1024),
+            &with_token("t", Duration::from_secs(5), 1024),
         )
         .await
         .expect("retried");
@@ -1095,7 +1051,7 @@ async fn permits_are_released_while_backing_off() {
         global_concurrency: 1,
         ..ExecutorConfig::relaxed()
     }));
-    let (transport, endpoint) = executor_transport(&server, Some("t"), budget, short_retry());
+    let (transport, endpoint) = executor_transport(&server, budget, short_retry());
     let slow = {
         let transport = transport.clone();
         let url = endpoint.rest(&["flaky"]).expect("route");
@@ -1103,7 +1059,7 @@ async fn permits_are_released_while_backing_off() {
             transport
                 .execute(
                     RequestSpec::get(url),
-                    &RequestContext::with_timeout(Duration::from_secs(5), 1024),
+                    &with_token("t", Duration::from_secs(5), 1024),
                 )
                 .await
         })
@@ -1116,7 +1072,7 @@ async fn permits_are_released_while_backing_off() {
     let fast = transport
         .execute(
             RequestSpec::get(endpoint.rest(&["fast"]).expect("route")),
-            &RequestContext::with_timeout(Duration::from_secs(5), 1024),
+            &with_token("t", Duration::from_secs(5), 1024),
         )
         .await
         .expect("fast");
@@ -1155,7 +1111,7 @@ async fn search_requests_are_spaced_per_key() {
         search_spacing: Duration::from_millis(150),
         ..ExecutorConfig::relaxed()
     }));
-    let (transport, endpoint) = executor_transport(&server, Some("t"), budget, short_retry());
+    let (transport, endpoint) = executor_transport(&server, budget, short_retry());
     let calls = (0..3).map(|_| {
         let transport = transport.clone();
         let url = endpoint.rest(&["search", "issues"]).expect("route");
@@ -1163,7 +1119,7 @@ async fn search_requests_are_spaced_per_key() {
             transport
                 .execute(
                     RequestSpec::get(url),
-                    &RequestContext::with_timeout(Duration::from_secs(5), 1024),
+                    &with_token("t", Duration::from_secs(5), 1024),
                 )
                 .await
                 .expect("search")
@@ -1202,22 +1158,21 @@ async fn limiter_keys_isolate_tokens() {
         .mount(&server)
         .await;
     let budget = GitHubBudget::relaxed();
-    let (exhausted, endpoint) =
-        executor_transport(&server, Some("exhausted"), budget.clone(), short_retry());
-    let (fresh, _) = executor_transport(&server, Some("fresh"), budget, short_retry());
-    let context = || RequestContext::with_timeout(Duration::from_secs(5), 1024);
+    let (transport, endpoint) = executor_transport(&server, budget, short_retry());
+    let exhausted = || with_token("exhausted", Duration::from_secs(5), 1024);
+    let fresh = || with_token("fresh", Duration::from_secs(5), 1024);
     let url = endpoint.rest(&["repos", "a", "b"]).expect("route");
-    exhausted
-        .execute(RequestSpec::get(url.clone()), &context())
+    transport
+        .execute(RequestSpec::get(url.clone()), &exhausted())
         .await
         .expect_err("exhausted");
-    exhausted
-        .execute(RequestSpec::get(url.clone()), &context())
+    transport
+        .execute(RequestSpec::get(url.clone()), &exhausted())
         .await
         .expect_err("still exhausted, not sent");
     for _ in 0..2 {
-        fresh
-            .execute(RequestSpec::get(url.clone()), &context())
+        transport
+            .execute(RequestSpec::get(url.clone()), &fresh())
             .await
             .expect("other token unaffected");
     }
@@ -1281,7 +1236,7 @@ async fn default_branch_resolves_with_one_sha_request_and_is_memoized_per_batch(
         transport: base.transport,
         cache: KeyedCache::default(),
     };
-    let context = RequestContext::with_timeout(Duration::from_secs(2), 1024);
+    let context = with_token("secret", Duration::from_secs(2), 1024);
     for name in ["a.rs", "b.rs", "a.rs"] {
         let result = provider
             .get_file_content(
@@ -1298,7 +1253,7 @@ async fn default_branch_resolves_with_one_sha_request_and_is_memoized_per_batch(
             .await
             .expect("content");
         assert_eq!(result.resolved_ref, sha);
-        assert_eq!(result.bytes, b"x\n");
+        assert_eq!(result.bytes, &b"x\n"[..]);
     }
 }
 
@@ -1322,7 +1277,7 @@ async fn legal_block_and_unmapped_statuses_are_not_network_failures() {
             .mount(&server)
             .await;
         let (transport, endpoint) =
-            executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
+            executor_transport(&server, GitHubBudget::relaxed(), short_retry());
         let error = get_x(&transport, &endpoint, 1024)
             .await
             .expect_err("status error");
@@ -1341,8 +1296,7 @@ async fn oversized_error_body_keeps_status_and_says_the_body_was_not_read() {
         .respond_with(ResponseTemplate::new(404).set_body_bytes(vec![b'x'; 4096]))
         .mount(&server)
         .await;
-    let (transport, endpoint) =
-        executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
+    let (transport, endpoint) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     let error = get_x(&transport, &endpoint, 64)
         .await
         .expect_err("not found");
@@ -1375,15 +1329,11 @@ async fn cancel_while_reading_an_error_body_is_cancelled() {
     let endpoint =
         GitHubEndpoint::new(url::Url::parse(&format!("http://{address}/api/v3")).expect("URL"))
             .expect("endpoint");
-    let transport = GitHubTransport::with_budget(
-        endpoint.clone(),
-        Arc::new(StaticCredentialResolver::anonymous()),
-        short_retry(),
-        GitHubBudget::relaxed(),
-    )
-    .expect("transport");
+    let transport =
+        GitHubTransport::with_budget(endpoint.clone(), short_retry(), GitHubBudget::relaxed())
+            .expect("transport");
     let context = RequestContext::with_timeout(Duration::from_secs(4), 1 << 20);
-    let cancellation = context.cancellation.clone();
+    let cancellation = context.budget.cancellation.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(200)).await;
         cancellation.cancel();
@@ -1421,13 +1371,11 @@ async fn code_search_cache_is_scoped_to_the_request_credential() {
         .expect(3)
         .mount(&server)
         .await;
-    let (mut transport, _) =
-        executor_transport(&server, None, GitHubBudget::relaxed(), short_retry());
+    let (mut transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     transport.cache = Arc::new(PartitionedCache::default());
     let context = |token: Option<&str>| {
-        RequestContext::with_resolved_credential(
-            Duration::from_secs(5),
-            1 << 20,
+        RequestContext::new(
+            RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20),
             token.map(|token| ResolvedCredential::new(token, CredentialSource::Storage)),
         )
     };
@@ -1436,6 +1384,34 @@ async fn code_search_cache_is_scoped_to_the_request_credential() {
             .search_code(&code_search_request(), &context(token))
             .await
             .expect("search");
+    }
+}
+
+#[tokio::test]
+async fn a_resolved_full_sha_is_cached_per_credential() {
+    let server = MockServer::start().await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/o/r/commits/{sha}")))
+        .respond_with(ResponseTemplate::new(200).set_body_string(sha))
+        .expect(2)
+        .mount(&server)
+        .await;
+    let (mut transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    transport.cache = Arc::new(PartitionedCache::default());
+    let context = |token: &str| {
+        RequestContext::new(
+            RequestBudget::with_timeout(Duration::from_secs(5), 1 << 20),
+            Some(ResolvedCredential::new(token, CredentialSource::Storage)),
+        )
+    };
+    // alice twice (one request), bob once (his own partition): two requests.
+    for token in ["alice", "alice", "bob"] {
+        let resolved = transport
+            .commit_sha("o", "r", sha, &context(token))
+            .await
+            .expect("resolved");
+        assert_eq!(resolved, sha);
     }
 }
 
@@ -1450,10 +1426,9 @@ async fn incomplete_code_search_pages_are_not_cached() {
         .expect(2)
         .mount(&server)
         .await;
-    let (mut transport, _) =
-        executor_transport(&server, Some("t"), GitHubBudget::relaxed(), short_retry());
+    let (mut transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     transport.cache = Arc::new(PartitionedCache::default());
-    let context = || RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    let context = || with_token("t", Duration::from_secs(5), 1 << 20);
     for _ in 0..2 {
         let page = transport
             .search_code(&code_search_request(), &context())
@@ -1463,9 +1438,140 @@ async fn incomplete_code_search_pages_are_not_cached() {
     }
 }
 
+/// Repository, issue and commit searches use the code-search cache policy:
+/// an identical repeat is a cache hit, so it sends no request and does not
+/// wait out the search spacing the first request reserved.
+#[tokio::test]
+async fn repeated_searches_are_served_from_cache_without_spacing() {
+    let server = MockServer::start().await;
+    let page = serde_json::json!({"total_count": 0, "incomplete_results": false, "items": []});
+    for route in [
+        "/api/v3/search/code",
+        "/api/v3/search/repositories",
+        "/api/v3/search/issues",
+        "/api/v3/search/commits",
+    ] {
+        Mock::given(method("GET"))
+            .and(path(route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(page.clone()))
+            .expect(1)
+            .mount(&server)
+            .await;
+    }
+    let spacing = Duration::from_secs(2);
+    let budget = Arc::new(GitHubBudget::with_config(ExecutorConfig {
+        search_spacing: spacing,
+        ..ExecutorConfig::relaxed()
+    }));
+    let (mut transport, _) = executor_transport(&server, budget, short_retry());
+    transport.cache = Arc::new(PartitionedCache::default());
+    let context = || with_token("t", Duration::from_secs(30), 1 << 20);
+    let repositories = RepositorySearchRequest {
+        query: "ripgrep".into(),
+        sort: None,
+        page: 1,
+        per_page: 5,
+    };
+    let history = HistoryRequest {
+        query: "repo:o/r is:pr is:merged".into(),
+        page: 1,
+        per_page: 10,
+        sort: None,
+        order: None,
+    };
+    // Cold: the four searches share one spacing lane, so three of them wait.
+    transport
+        .search_code(&code_search_request(), &context())
+        .await
+        .expect("code");
+    transport
+        .search_repositories(&repositories, &context())
+        .await
+        .expect("repositories");
+    transport
+        .search_issues(&history, &context())
+        .await
+        .expect("issues");
+    transport
+        .search_commits(&history, &context())
+        .await
+        .expect("commits");
+    let started = std::time::Instant::now();
+    for _ in 0..3 {
+        transport
+            .search_code(&code_search_request(), &context())
+            .await
+            .expect("code");
+        transport
+            .search_repositories(&repositories, &context())
+            .await
+            .expect("repositories");
+        transport
+            .search_issues(&history, &context())
+            .await
+            .expect("issues");
+        transport
+            .search_commits(&history, &context())
+            .await
+            .expect("commits");
+    }
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < spacing / 4,
+        "cache hits must not wait for search spacing: {elapsed:?}"
+    );
+}
+
+#[tokio::test]
+async fn incomplete_repository_and_history_search_pages_are_not_cached() {
+    let server = MockServer::start().await;
+    for route in ["/api/v3/search/repositories", "/api/v3/search/issues"] {
+        Mock::given(method("GET"))
+            .and(path(route))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "total_count": 0, "incomplete_results": true, "items": []
+            })))
+            .expect(2)
+            .mount(&server)
+            .await;
+    }
+    let (mut transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
+    transport.cache = Arc::new(PartitionedCache::default());
+    let context = || with_token("t", Duration::from_secs(5), 1 << 20);
+    for _ in 0..2 {
+        let repositories = transport
+            .search_repositories(
+                &RepositorySearchRequest {
+                    query: "ripgrep".into(),
+                    sort: None,
+                    page: 1,
+                    per_page: 5,
+                },
+                &context(),
+            )
+            .await
+            .expect("repositories");
+        assert!(repositories.incomplete_results);
+        let issues = transport
+            .search_issues(
+                &HistoryRequest {
+                    query: "repo:o/r".into(),
+                    page: 1,
+                    per_page: 10,
+                    sort: None,
+                    order: None,
+                },
+                &context(),
+            )
+            .await
+            .expect("issues");
+        assert!(issues.incomplete_results);
+    }
+}
+
 #[test]
 fn rest_routes_reject_dot_segments() {
-    let endpoint = GitHubEndpoint::github_com();
+    let endpoint = api_github_com();
     for bad in [".", ".."] {
         let error = endpoint
             .rest(&["repos", bad, "r", "pulls"])
@@ -1529,10 +1635,9 @@ async fn history_reads_revalidate_and_pinned_commits_are_served_from_cache() {
         .expect(1)
         .mount(&server)
         .await;
-    let (mut transport, _) =
-        executor_transport(&server, Some("t"), GitHubBudget::relaxed(), short_retry());
+    let (mut transport, _) = executor_transport(&server, GitHubBudget::relaxed(), short_retry());
     transport.cache = Arc::new(PartitionedCache::default());
-    let context = || RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    let context = || with_token("t", Duration::from_secs(5), 1 << 20);
     for _ in 0..3 {
         let item = transport
             .history_item(&["repos", "o", "r", "pulls", "1"], &[], &context())
@@ -1567,7 +1672,7 @@ async fn missing_ref_is_not_found_with_a_ref_reason() {
     )
     .await;
     let provider = provider(&server).await;
-    let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    let context = with_token("secret", Duration::from_secs(5), 1 << 20);
     let error = provider
         .transport
         .commit_sha("o", "r", "nope", &context)
@@ -1608,7 +1713,7 @@ async fn a_followed_repository_redirect_marks_the_name_renamed() {
     )
     .await;
     let provider = provider(&server).await;
-    let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    let context = with_token("secret", Duration::from_secs(5), 1 << 20);
     assert!(!provider.transport.followed_rename("a", "b"));
     let sha = provider
         .transport

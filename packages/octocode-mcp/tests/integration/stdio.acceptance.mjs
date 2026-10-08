@@ -451,7 +451,7 @@ try {
       regex: 'literal',
       resultView: 'files',
     });
-    assert.equal(data.stats.totalMatches, 0);
+    assert.equal(data.stats.matchCount, 0);
     assert.equal(data.hints?.text?.length, 1);
     assert.match(data.hints.text[0], /try|shorter|case|regex/i);
   });
@@ -483,9 +483,8 @@ try {
     });
     // Minimal output drops the `operation` request echo.
     assert.equal(data.operation, undefined);
-    // Outline row "<line> <kind> <name>" plus suffixes: " +" exported,
-    // " doc" for the comment block above.
-    assert.deepEqual(data.symbols, ['2 function add + doc']);
+    // One outline entry (P1); `doc 1` marks the comment block above it.
+    assert.deepEqual(data.symbols, ['add (2, function, doc 1, exported)']);
     assert.equal(data.pagination?.totalItems ?? data.symbols.length, 1);
   });
   await check('astRewrite is CLI-only: MCP rejects it, the CLI previews and applies on an isolated fixture', async () => {
@@ -502,7 +501,7 @@ try {
       const rule = { reasoning: 'Verify CLI rewrite.', path: directory, language: 'typescript', pattern: 'oldCall($A)', rewrite: 'newCall($A)', pageSize: 10 };
       const preview = executeCliTool('astRewrite', [rule]).results[0].data;
       assert.equal(preview.mode, 'preview');
-      assert.equal(preview.totalMatches, 2);
+      assert.equal(preview.matchCount, 2);
       // Apply is the preview's hints.apply lead replayed verbatim: it carries
       // the snapshot (not echoed in minimal output) and the expected hashes.
       assert.equal(preview.next, undefined);
@@ -944,12 +943,12 @@ try {
       assert.ok(JSON.stringify(data).includes(sha));
     });
     await check('npm exact metadata positive', async () => {
-      const data = await call('artifactSearch', { type: 'npm', packageName: 'is-number' });
+      const data = await call('artifactSearch', { ecosystem: 'npm', packageName: 'is-number' });
       assert.ok(JSON.stringify(data).includes('7.0.0'));
     });
     await check('npm discovery continuation is executable', async () => {
       const data = await call('artifactSearch', {
-        type: 'npm',
+        ecosystem: 'npm',
         keywords: ['is-number'],
         pageSize: 1,
       });

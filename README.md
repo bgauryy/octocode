@@ -190,9 +190,9 @@ The concept, the research loop, and the measured advantages (and where plain too
 
 ## Benchmarks
 
-A unified, doc-driven agent benchmark lives in [`packages/octocode-benchmark/compare/unified/`](packages/octocode-benchmark/compare/unified/README.md): the same Claude model answers 30 pinned questions (10 GitHub: PR review, code research, bug root-cause; 20 local, on cloned repos in 8 languages), once per worker. Each worker is defined only by its instruction doc and tool profile (Octocode MCP vs `rg` + `gh`). A blind Opus judge scores quality against evaluator-only references, and tokens are split into fixed overhead and research tokens.
+A unified, doc-driven agent benchmark lives in [`packages/octocode-benchmark/compare/unified/`](packages/octocode-benchmark/compare/unified/README.md): the same Claude model answers pinned GitHub, local and mixed research questions, once per worker. Each worker is defined only by its instruction doc and tool profile (Octocode MCP vs `rg` + `gh`). A blind Opus judge scores quality against evaluator-only references, and tokens are split into fixed overhead and research tokens.
 
-First full run (`full-1`, 2026-09-30, on a build that predates the schema slimming): Octocode scored 8.42 vs 9.12 for `rg` + `gh` (3 wins, 11 ties, 16 losses) at 1.67× the cost, and it never called `clasify`. A re-run on the current build is pending. Details, including where Octocode loses: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
+Results, including where Octocode loses: [benchmark results](packages/octocode-benchmark/compare/unified/RESULTS.md).
 
 ---
 
@@ -257,7 +257,7 @@ Each GitHub search tool accepts 1 to 5 parallel queries and has no `operation` f
 
 `clasify` is the only semantic tool. **Scout** screens unread local or GitHub read requests, **Locate** finds the line window that answers a question in an unread file, and **Judge** classifies state the caller already holds. Batch independent candidates in one `resources[] × questions[]` matrix (≤25 cells). Results carry typed judgments and source ranges, never source bodies.
 
-Use it to classify an explicit list instead of reading every item, to locate an answer inside a large known file (add `prefilter` literals when the answer contains one), or to screen for absence. To locate behavior, guess one literal and search for it first. In 2026-09-30 A/B runs, clasify cost 2.6× the bytes when a literal was guessable and 22× for a literal target. Skip it for identifiers, literals, PR filters and search snippets. Scores from 0.36 to 0.69 mean read to verify. A verdict routes reading and does not prove a claim; verify the deciding source.
+Use it to classify an explicit list instead of reading every item, to locate an answer inside a large known file (add `prefilter` literals when the answer contains one), or to screen for absence. To locate behavior, guess one literal and search for it first: when a literal can be guessed, search is cheaper than clasify ([measurements](docs/OCTOCODE_CLASIFY.md)). Skip it for identifiers, literals, PR filters and search snippets. Scores from 0.36 to 0.69 mean read to verify. A verdict routes reading and does not prove a claim; verify the deciding source.
 
 **Enable classification** (restart CLI and MCP processes afterwards):
 
@@ -430,7 +430,7 @@ npx octocode skill help
 ### Plan and architecture
 | Skill | Use when |
 |-------|----------|
-| [**octocode-brainstorming**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-brainstorming) | Disciplined idea exploration before building: options, worth-building tests, prior-art maps. Exploratory mode: awareness shifts where substance names are presences (18+). |
+| [**octocode-brainstorming**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-brainstorming) | Check an issue, idea, or open decision from more than one direction: context, evidence, and the objection. Exploratory mode (18+) starts only when someone asks for it. |
 | [**octocode-rfc-generator**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-rfc-generator) | Evidence-backed RFCs, execution plans, and audits of an existing RFC. |
 | [**octocode-documentation**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-documentation) | Writing or updating README, API docs, runbooks, AGENTS.md, ADRs. |
 
@@ -510,8 +510,8 @@ Website: **[octocode.ai](https://octocode.ai)** · Documentation hub: **[`docs/R
 | Area | Docs |
 |---|---|
 | Start here | [The Octocode protocol](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_PROTOCOL.md) · [MCP server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) |
-| Using Octocode | [Research manifest](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_RESEARCH_MANIFEST.md) · [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Data contract](https://github.com/bgauryy/octocode/blob/main/docs/TOOL_DATA_CONTRACT.md) · [clasify](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md) · [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) · [Security](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) |
-| Developing Octocode | [Development](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/DEVELOPMENT.md) · [Adding config](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/ADDING_CONFIG.md) · [Tool quality](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/TOOL_QUALITY.md) · [Release](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/RELEASE.md) · [Benchmark research](https://github.com/bgauryy/octocode/blob/main/docs/BENCHMARKS.md) |
+| Using Octocode | [Workflows](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_WORKFLOWS.md) · [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Data contract](https://github.com/bgauryy/octocode/blob/main/docs/TOOL_DATA_CONTRACT.md) · [clasify](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md) · [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) · [Security](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) |
+| Developing Octocode | [Development](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/DEVELOPMENT.md) · [Adding config](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/ADDING_CONFIG.md) · [Tool quality](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/TOOL_QUALITY.md) · [Release](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/RELEASE.md) · [Benchmark research](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/compare/unified/RESULTS.md) |
 | Skills and method | [Public skills](skills/) · [Tested skills](skills-beta/) · [Repository skills](skills-dev/) · [RDD manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) |
 | Language support | [LSP lifecycle and language matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) |
 
@@ -548,7 +548,7 @@ npx node-doctor
 
 ### Research-driven loop
 
-Most agent failures happen before the edit: guessing who owns a behavior, trusting a snippet without reading the source, editing before proving blast radius. Run a cheaper loop instead: orient with trees, search, read exact evidence, use AST/LSP when identity matters, then patch and verify. The host edits, Octocode is the map, and skills encode the habit. How to choose and combine tools for each step: [Research manifest](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_RESEARCH_MANIFEST.md).
+Most agent failures happen before the edit: guessing who owns a behavior, trusting a snippet without reading the source, editing before proving blast radius. Run a cheaper loop instead: orient with trees, search, read exact evidence, use AST/LSP when identity matters, then patch and verify. The host edits, Octocode is the map, and skills encode the habit. How to choose and combine tools for each step: [Workflows](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_WORKFLOWS.md#choose-the-first-tool).
 
 ### The Manifest
 

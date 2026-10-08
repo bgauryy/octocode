@@ -138,6 +138,10 @@ pub struct ResponseContinuation {
     pub query: Value,
 }
 
+/// The contract's `responseLength` maximum (pinned by a contracts test): a
+/// continuation the pager builds must stay within it.
+const MAX_RESPONSE_LENGTH: usize = 50_000;
+
 #[derive(Clone, Copy, Debug)]
 pub struct ResponsePagerConfig {
     pub max_rendered_bytes: usize,
@@ -154,7 +158,6 @@ impl Default for ResponsePagerConfig {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ResponseError {
     Cancelled,
-    RenderedTextTooLarge,
     StructuredContentMustBeObject,
     Unserializable,
 }
@@ -208,10 +211,8 @@ impl ResponsePager {
         // from; the snapshot and page plan never see them.
         let volatile = take_volatile_fields(&mut structured);
         // Same bytes as the Value form, without cloning the envelope first.
+        // Every page is bounded by its budget, so any envelope size pages.
         let full = serde_json::to_string(&structured).map_err(|_| ResponseError::Unserializable)?;
-        if full.len() > self.config.max_rendered_bytes {
-            return Err(ResponseError::RenderedTextTooLarge);
-        }
         let (mut envelope, mut pagination) =
             paginate_rows(structured, &full, &input.options, volatile);
         if cancelled.is_cancelled() {
@@ -237,9 +238,6 @@ impl ResponsePager {
     ) -> Result<PreparedResponse, ResponseError> {
         strip_transient_telemetry(&mut structured);
         let full = Value::Object(structured).to_string();
-        if full.len() > self.config.max_rendered_bytes {
-            return Err(ResponseError::RenderedTextTooLarge);
-        }
         let page = paginate_units(&full, &input.options, false);
         if cancelled.is_cancelled() {
             return Err(ResponseError::Cancelled);
@@ -276,7 +274,34 @@ impl ResponsePager {
         cancelled: &CancellationToken,
     ) -> Result<PreparedResponse, ResponseError> {
         if text.len() > self.config.max_rendered_bytes {
-            return Err(ResponseError::RenderedTextTooLarge);
+            // Past the ceiling, serve whole-row pages (each at most the
+            // requested length, else the ceiling) with a `responseScope:
+            // "rows"` continuation instead of failing the call (M9).
+            // A row larger than a page (rows split arrays, never a string)
+            // falls back to concatenable envelope windows instead.
+            drop(text);
+            let length = input
+                .options
+                .response_length
+                .unwrap_or(self.config.max_rendered_bytes)
+                .min(MAX_RESPONSE_LENGTH);
+            let oversized_row = structured
+                .get("results")
+                .and_then(Value::as_array)
+                .is_some_and(|rows| {
+                    rows.iter().any(|row| {
+                        serde_json::to_string(row).map_or(true, |row| row.len() > length)
+                    })
+                });
+            let mut paged = input.clone();
+            paged.options.response_length = Some(length);
+            paged.options.response_scope =
+                Some(if oversized_row { "structured" } else { "rows" }.into());
+            return if oversized_row {
+                self.prepare_window(structured, &paged, cancelled)
+            } else {
+                self.prepare_rows(structured, &paged, cancelled)
+            };
         }
         let page = paginate_text(&text, &input.options);
         if cancelled.is_cancelled() {
@@ -915,12 +940,8 @@ mod tests {
                 .expect("continuation must satisfy the public output contract");
             let next = &result.structured_content["responsePagination"]["next"]["query"];
             assert_eq!(next["queries"], queries);
-            let prepared = crate::contracts::prepare_many_and_validate(
-                "localFetch",
-                next.clone(),
-                crate::contracts::PrepareOptions::default(),
-            )
-            .expect("continuation must be accepted as a new tool call");
+            let prepared = crate::contracts::prepare_many_and_validate("localFetch", next.clone())
+                .expect("continuation must be accepted as a new tool call");
             assert_eq!(prepared.len(), 2);
             for (prepared, original) in prepared.iter().zip(queries.as_array().expect("queries")) {
                 for (field, value) in original.as_object().expect("query") {
@@ -986,7 +1007,7 @@ mod tests {
     }
 
     #[test]
-    fn cancellation_and_render_budget_fail_before_cache_growth() {
+    fn cancellation_fails_before_cache_growth() {
         let pager = ResponsePager::new(ResponsePagerConfig {
             max_rendered_bytes: 4,
         });
@@ -998,16 +1019,94 @@ mod tests {
             is_error: false,
             options: options(2),
         };
-        assert!(matches!(
-            pager.prepare(input.clone(), &CancellationToken::new()),
-            Err(ResponseError::RenderedTextTooLarge)
-        ));
         let cancelled = CancellationToken::new();
         cancelled.cancel();
         assert!(matches!(
             pager.prepare(input, &cancelled),
             Err(ResponseError::Cancelled)
         ));
+    }
+
+    /// M9: rendered text past the byte ceiling is served as row pages with an
+    /// executable continuation, never a whole-call failure; walking the pages
+    /// returns every row exactly once.
+    #[test]
+    fn oversized_rendered_text_falls_back_to_row_pages() {
+        let pager = ResponsePager::new(ResponsePagerConfig {
+            max_rendered_bytes: 600,
+        });
+        let rows: Vec<Value> = (0..6)
+            .map(|index| json!({"index": index, "data": {"content": format!("{index}:{}", "x".repeat(200))}}))
+            .collect();
+        let structured = json!({"results": rows});
+        let text = "y".repeat(2_000);
+        let mut request = ResponsePageOptions::default();
+        let mut seen = Vec::new();
+        for _ in 0..20 {
+            let prepared = pager
+                .prepare(
+                    ResponseInput {
+                        tool: "localFetch".into(),
+                        query: json!({"queries": [{"path": "a"}]}),
+                        structured: structured.clone(),
+                        rendered_text: Some(text.clone()),
+                        is_error: false,
+                        options: request.clone(),
+                    },
+                    &CancellationToken::new(),
+                )
+                .expect("an oversized response pages instead of failing");
+            let page = prepared.structured_content;
+            for row in page["results"].as_array().expect("rows") {
+                seen.push(row["index"].as_u64().expect("index"));
+            }
+            let text_len = prepared.content.iter().map(|c| c.text.len()).sum::<usize>();
+            assert!(text_len <= 2 * 600, "page text stays bounded: {text_len}");
+            let Some(next) = page["responsePagination"]["next"]["query"].as_object() else {
+                break;
+            };
+            assert_eq!(next["responseScope"], "rows", "{next:?}");
+            request = serde_json::from_value(Value::Object(next.clone())).expect("options");
+        }
+        assert_eq!(seen, vec![0, 1, 2, 3, 4, 5]);
+    }
+
+    /// M9: one row too large for any row page falls back to envelope
+    /// windows that concatenate back to the exact envelope JSON.
+    #[test]
+    fn oversized_single_row_falls_back_to_concatenable_windows() {
+        let pager = ResponsePager::new(ResponsePagerConfig {
+            max_rendered_bytes: 600,
+        });
+        let structured = json!({"results": [{"index": 0, "data": {"content": "z".repeat(2_000)}}]});
+        let mut request = ResponsePageOptions::default();
+        let mut joined = String::new();
+        for _ in 0..50 {
+            let prepared = pager
+                .prepare(
+                    ResponseInput {
+                        tool: "localFetch".into(),
+                        query: json!({"queries": [{"path": "a"}]}),
+                        structured: structured.clone(),
+                        rendered_text: Some("y".repeat(2_000)),
+                        is_error: false,
+                        options: request.clone(),
+                    },
+                    &CancellationToken::new(),
+                )
+                .expect("pages");
+            let page = prepared.structured_content;
+            joined.push_str(page["responseWindow"].as_str().expect("window"));
+            let Some(next) = page["responsePagination"]["next"]["query"].as_object() else {
+                break;
+            };
+            assert_eq!(next["responseScope"], "structured", "{next:?}");
+            request = serde_json::from_value(Value::Object(next.clone())).expect("options");
+        }
+        assert_eq!(
+            serde_json::from_str::<Value>(&joined).expect("windows join"),
+            structured
+        );
     }
 
     /// Cold call, then the copied continuation served from a warm cache: the

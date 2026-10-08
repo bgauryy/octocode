@@ -1,5 +1,0 @@
-# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec", "searchText": "ghp_[A-Za-z0-9]+", "resultView": "matchOnly"}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"warnings":["redactedMatches: 1 returned match value(s) had secret-shaped text replaced by [REDACTED…] placeholders; those values are not verbatim source."],"files":[{"path":"creds.ts","matches":[{"line":4,"column":24,"value":"[REDACTED-GITHUBTOKENS]"}]}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/sec"}

@@ -1,9 +1,5 @@
 //! Credentials supplied by the host; acquisition and storage stay with the host.
-use std::{future::Future, pin::Pin};
-
 use secrecy::{ExposeSecret, SecretString};
-
-use super::ProviderError;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CredentialSource {
@@ -39,53 +35,6 @@ impl std::fmt::Debug for ResolvedCredential {
             .field("secret", &"[REDACTED]")
             .field("source", &self.source)
             .finish()
-    }
-}
-
-#[derive(Clone)]
-pub struct CredentialRequest<'a> {
-    pub host: &'a str,
-    pub override_token: Option<&'a str>,
-}
-
-pub trait CredentialResolver: Send + Sync {
-    fn resolve<'a>(
-        &'a self,
-        request: CredentialRequest<'a>,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<ResolvedCredential>, ProviderError>> + Send + 'a>>;
-}
-
-#[derive(Clone, Default)]
-pub struct StaticCredentialResolver {
-    token: Option<ResolvedCredential>,
-}
-
-impl StaticCredentialResolver {
-    pub fn anonymous() -> Self {
-        Self::default()
-    }
-    pub fn new(token: impl Into<SecretString>, source: CredentialSource) -> Self {
-        Self {
-            token: Some(ResolvedCredential::new(token, source)),
-        }
-    }
-}
-
-impl CredentialResolver for StaticCredentialResolver {
-    fn resolve<'a>(
-        &'a self,
-        request: CredentialRequest<'a>,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<ResolvedCredential>, ProviderError>> + Send + 'a>>
-    {
-        Box::pin(async move {
-            if let Some(token) = request.override_token {
-                return Ok(Some(ResolvedCredential::new(
-                    token,
-                    CredentialSource::Override,
-                )));
-            }
-            Ok(self.token.clone())
-        })
     }
 }
 

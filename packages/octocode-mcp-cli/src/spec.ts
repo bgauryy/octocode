@@ -60,7 +60,7 @@ export interface CliCommand {
   annotations?: ToolAnnotations;
   mcpName?: string;
   fidelityNotes: readonly string[];
-  run: (input: Record<string, unknown>) => Promise<unknown> | unknown;
+  run: (input: Record<string, unknown>, context?: { signal?: AbortSignal }) => Promise<unknown> | unknown;
 }
 
 export interface CliSpec {
@@ -552,7 +552,7 @@ export function commandJsonSchema(command: CliCommand): JsonSchema {
     return command.inputSchema;
   }
   if (!command.schema) throw new Error(`Zod command ${command.name} has no schema`);
-  return z.toJSONSchema(command.schema) as JsonSchema;
+  return z.toJSONSchema(command.schema, { io: 'input' }) as JsonSchema;
 }
 
 function validatorFor(schema: JsonSchema): (data: unknown) => string | undefined {

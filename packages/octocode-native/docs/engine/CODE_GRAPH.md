@@ -4,31 +4,25 @@ The native `crates/engine` crate owns the reusable code graph model and algorith
 
 ## Evidence model
 
-`CodeGraphSnapshot` is an immutable, deterministic evidence snapshot. It doesn't claim that syntax and language-server observations are one infallible semantic truth.
+`CodeGraphSnapshot` is an immutable, deterministic syntax-evidence snapshot. `astTopology drift` builds one for the baseline and one for the head and diffs them with `diff_graphs`; no other operation builds it.
 
-- `CodeNode` uses domain IDs such as `file:…`, `symbol:…`, and `occurrence:…`. Raw tree-sitter nodes, opaque LSP `data`, and graph-library indexes aren't durable IDs.
-- `CodeEdge` links domain IDs and retains one or more `EvidenceId` values.
-- `EvidenceSource::Ast` and `EvidenceSource::Lsp` remain distinct. LSP evidence includes the method, server receipt, advertised capabilities, and synchronized document version.
-- `SnapshotMetadata` includes normalized source paths, content digests, the graph-fact schema, a generation, and a canonical snapshot digest.
-- `GraphCompleteness` and `CodeGraphDiagnostic` represent skipped files, unsupported syntax, unavailable semantic enrichment, and other incomplete states.
+- `CodeNode` uses domain IDs such as `file:…`, `symbol:…`, and `occurrence:…`. Raw tree-sitter nodes and graph-library indexes aren't durable IDs.
+- `CodeEdge` links domain IDs and retains one or more `EvidenceId` values. Every edge is AST evidence (`EvidenceSource::Ast`); relation identity is `(from, kind, to)`, so a line shift changes evidence, not relations.
+- `SnapshotMetadata` holds the scan root, the graph-fact schema, and each normalized source path with its content digest.
+- `GraphCompleteness` records whether the scan was complete and why not.
 
-The implementation is in `src/graph/model.rs`. Native graph-fact extraction crosses the Rust package boundary as `GraphFactsTypedScanResult`.
+The implementation is in `src/graph/model.rs` and `src/graph/diff.rs`. Native graph-fact extraction crosses the Rust package boundary as `GraphFactsTypedScanResult`.
 
 ## Ingestion flow
 
 1. AST extraction produces typed declarations, imports, exports, calls, modules, ranges, and source diagnostics for the canonical ten-language, 25-extension grammar registry.
 2. `CodeGraphBuilder::ingest_facts` adds syntax nodes and evidence.
 3. The native linker adds resolved file relations without replacing extraction evidence.
-4. A semantic orchestrator can add LSP relations only when its generation matches the source snapshot.
-5. `CodeGraphBuilder::finish` sorts diagnostics and computes the immutable snapshot digest.
-
-`NativeLspClient::graph_server_receipt` and `NativeLspClient::document_version` provide provenance for semantic ingestion. The client rejects unsupported position encodings, collects bounded LSP partial results, and rolls back document versions when synchronization fails.
+4. `CodeGraphBuilder::finish` returns the snapshot.
 
 ## Runtime integration status
 
-Native topology construction retains the AST snapshot in `BuiltGraph::code_graph`. `astSearch` remains AST-only because the canonical tool contract has no semantic-enrichment request or budget field. The runtime must not start language servers silently and change latency or availability semantics.
-
-A runtime that opts into enrichment through a future canonical contract must select bounded AST candidates, synchronize their source documents, verify capabilities, attach both the server receipt and the document version, and reject stale generations. It must then call either `mark_semantic_complete` or `mark_semantic_incomplete`. Until then, callers must combine `astSearch` candidates with explicit `lspSearch` proof. This keeps syntax candidates distinct from semantic claims.
+Native topology construction retains the AST snapshot in `BuiltGraph::code_graph` for `drift` only. `astSearch` and `astTopology` remain AST-only: the canonical tool contract has no semantic-enrichment request or budget field, and the runtime must not start language servers silently and change latency or availability semantics. Callers combine `astSearch` candidates with explicit `lspSearch` proof, which keeps syntax candidates distinct from semantic claims.
 
 ## File topology algorithms
 
@@ -69,6 +63,10 @@ Reusable deterministic algorithms are in `src/graph/algorithms.rs`:
 - **`KEYX` / `NAMX`:** lookup permutations.
 - **`DIAG`, `FDIG`, `FCMP`, `ENTR`:** diagnostics, per-file digests,
   components, and entrypoints.
+- **`FSTM`** (optional): per-file size, mtime, ctime and inode, recorded only
+  for files untouched for 2 seconds before the scan. An unchanged-tree re-ingest
+  compares these stamps before hashing a source; a file without a stamp, or with
+  a different one, is hashed.
 - **Adjacency:** both CSR directions are rebuilt on load in O(V + E) instead
   of being stored.
 
@@ -143,15 +141,33 @@ Not yet covered:
   locally evident stay unlinked rather than guessed. The answers that follow
   calls report `coverage.callInternalRecall` so agents can see the gap.
 - Incremental re-ingest of changed files (an unchanged tree is reused whole).
+- C/C++ unreachable-file precision stays low: headers reach the build through
+  `-I` roots and Kbuild/CMake rules, which ingest does not parse.
+- Rust call recall is capped by method chains and function return types;
+  receiver facts do not propagate return types.
 
 Symbols carry a test flag: symbols in test files, symbols inside Rust test
 modules (`mod tests`, `mod proptests`, …), and pytest `test_*` functions and
 `Test*` classes. `impact.testFunctions` lists the flagged symbols a change
 reaches.
 
+CLI graph queries page affected rows with `--limit` and `--offset`. Large
+`impact` summary arrays and `issues` baseline arrays show 100 entries in the
+initial response and provide one executable `nextLists` command per array.
+For example, `--list summary.testsToRun` returns the complete test list as
+ordinary paged `results`; follow its `next` command until it ends. A cycle
+larger than 50 nodes includes `nextNodes`, which pages every member through
+`--list cycleNodes`. Generated continuations retain an explicit `--workspace`
+and pin the graph snapshot ID.
+
+Snapshot reads are bounded at 512 MiB. Decode permits at most 64 sections,
+5 million items per table, 2 million edges, and 512 MiB of expanded string
+content. A snapshot beyond these limits fails with a narrow-scope or
+re-ingest error instead of exhausting memory.
+
 ## Evaluation
 
-Correctness gates cover canonical digests, stale semantic evidence, typed-fact fidelity, reverse-graph invariants, SCC partitioning, and native response parity. Run:
+Correctness gates cover typed-fact fidelity, structural diff identity, reverse-graph invariants, SCC partitioning, and native response parity. Run:
 
 ```bash
 cargo test --manifest-path packages/octocode-native/Cargo.toml -p octocode-engine --no-default-features graph::

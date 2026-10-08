@@ -59,7 +59,8 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
       const instructions = JSON.parse(main.stdout).instructions as string;
       expect(instructions.length).toBeGreaterThan(0);
       expect(JSON.parse(schema.stdout).instructions).toBe(instructions);
-      expect(/\bclasify\b/i.test(instructions)).toBe(Boolean(key));
+      // One prompt with or without a key: it says clasify needs one.
+      expect(instructions).toContain('<clasify>Needs a provider key. ');
     }
   );
 

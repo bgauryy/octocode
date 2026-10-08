@@ -2,6 +2,7 @@ use crate::lsp::commands::{command_resolves_to_executable, is_executable_path, i
 use crate::lsp::grammar::grammar_for_file;
 use crate::lsp::managed::{platform_id, resolve_cached_server};
 use crate::lsp::types::JsLanguageServerConfig;
+use crate::text::file_extension::{JS_TS_EXTENSIONS, extension_of};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
@@ -128,7 +129,7 @@ pub fn rust_analyzer_headless_options() -> Value {
 /// clangd flags that keep it read-only and quiet: no background index (it
 /// writes `.cache/clangd/` into the repository), no clang-tidy, errors-only
 /// logging, and precompiled preambles in memory rather than temp files.
-pub const CLANGD_HEADLESS_ARGS: &[&str] = &[
+pub(crate) const CLANGD_HEADLESS_ARGS: &[&str] = &[
     "--background-index=false",
     "--clang-tidy=false",
     "--log=error",
@@ -138,7 +139,7 @@ pub const CLANGD_HEADLESS_ARGS: &[&str] = &[
 /// jdtls settings (sent as `initializationOptions.settings`): no automatic
 /// workspace build, and Eclipse metadata (`.project`, `.classpath`,
 /// `.settings/`) kept in the `-data` directory, not the project root.
-pub fn jdtls_headless_options() -> Value {
+pub(crate) fn jdtls_headless_options() -> Value {
     json!({
         "settings": {
             "java": {
@@ -151,7 +152,7 @@ pub fn jdtls_headless_options() -> Value {
 
 /// Metals `initializationOptions`: no HTTP server (no listening port) and no
 /// status-bar traffic.
-pub fn metals_headless_options() -> Value {
+pub(crate) fn metals_headless_options() -> Value {
     json!({
         "isHttpEnabled": false,
         "statusBarProvider": "off"
@@ -160,11 +161,10 @@ pub fn metals_headless_options() -> Value {
 
 /// The per-workspace jdtls data directory, outside the repository:
 /// `<octocode home>/lsp-workspaces/jdtls/<sha256(workspace root)[..16]>`.
-pub fn jdtls_data_dir(octocode_home: &Path, workspace_root: &str) -> PathBuf {
-    use sha2::{Digest, Sha256};
-    let home = octocode_home;
-    let digest = hex::encode(Sha256::digest(workspace_root.as_bytes()));
-    home.join("lsp-workspaces")
+pub(crate) fn jdtls_data_dir(octocode_home: &Path, workspace_root: &str) -> PathBuf {
+    let digest = crate::digest::sha256(workspace_root.as_bytes());
+    octocode_home
+        .join("lsp-workspaces")
         .join("jdtls")
         .join(&digest[..16])
 }
@@ -179,7 +179,7 @@ pub fn jdtls_data_dir(octocode_home: &Path, workspace_root: &str) -> PathBuf {
 /// before any `=`) is not added again. A non-object user value is left
 /// untouched. Idempotent. Without `octocode_home` (a launch outside
 /// discovery) jdtls gets no `-data` directory.
-pub fn apply_server_default_options(
+pub(crate) fn apply_server_default_options(
     config: &mut JsLanguageServerConfig,
     octocode_home: Option<&Path>,
 ) {
@@ -349,7 +349,7 @@ pub fn workspace_root_languages(workspace_root: &str) -> Vec<&'static str> {
 pub fn representative_source_for(workspace_root: &str, extension: &str) -> Option<String> {
     let root = Path::new(workspace_root);
     let family: &[&str] = match extension {
-        ".ts" | ".js" => &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"],
+        ".ts" | ".js" => JS_TS_EXTENSIONS,
         ".rs" => &["rs"],
         ".go" => &["go"],
         ".py" => &["py"],
@@ -410,10 +410,7 @@ fn first_source_under(start: &Path, family: &[&str]) -> Option<String> {
     // routinely real, reviewable source.
     const SKIPPED_DIRS: &[&str] = &["node_modules", "target", "dist", "build", "out", "vendor"];
     let is_source = |name: &str| {
-        !name.ends_with(".d.ts")
-            && Path::new(name)
-                .extension()
-                .is_some_and(|ext| family.contains(&ext.to_string_lossy().as_ref()))
+        !name.ends_with(".d.ts") && family.contains(&extension_of(name, true, "").as_str())
     };
     if start.is_file() {
         let name = start.file_name()?.to_string_lossy();
@@ -533,7 +530,7 @@ fn resolve_pyright_family(
 
 /// Upper bound for an availability probe that must execute the command (a
 /// rustup proxy can otherwise block for minutes installing a toolchain).
-pub const COMMAND_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+pub(crate) const COMMAND_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
 
 /// Run `command args..` with null stdio and report whether it exited
 /// successfully within `timeout`. On timeout the child is killed and reaped and
@@ -742,9 +739,8 @@ fn spec_for_file(file_path: &str) -> Option<ServerSpec> {
 }
 
 fn extension_key(file_path: &str) -> Option<String> {
-    Path::new(file_path)
-        .extension()
-        .map(|ext| format!(".{}", ext.to_string_lossy().to_ascii_lowercase()))
+    let extension = extension_of(file_path, true, "");
+    (!extension.is_empty()).then(|| format!(".{extension}"))
 }
 
 fn spec_for_extension(extension: &str) -> Option<ServerSpec> {
@@ -1121,11 +1117,14 @@ fn find_python_user_script(script_name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        LspDiscoveryOptions, command_resolves_to_executable, current_node_command,
-        default_server_for_file, default_server_for_workspace_root, detect_language_id,
-        is_command_available, is_node_executable, is_rust_analyzer_command,
-        resolve_known_server_command, resolve_server_invocation,
-        resolve_server_invocation_with_environment, workspace_root_representative_source,
+        LspDiscoveryOptions, default_server_for_file, default_server_for_workspace_root,
+        detect_language_id, is_node_executable, is_rust_analyzer_command,
+        resolve_known_server_command, workspace_root_representative_source,
+    };
+    #[cfg(unix)]
+    use super::{
+        command_resolves_to_executable, current_node_command, is_command_available,
+        resolve_server_invocation, resolve_server_invocation_with_environment,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -2147,8 +2146,15 @@ mod tests {
         std::fs::write(&bin, b"managed").expect("binary");
         std::fs::write(
             crate::lsp::managed::marker_path(&bin),
-            json!({"binarySha256": crate::lsp::managed::sha256_hex(b"managed"), "size": 7})
-                .to_string(),
+            json!({
+                "assetSha256": crate::lsp::managed::manifest()["rust-analyzer"].platforms
+                    [crate::lsp::managed::platform_id().as_str()]
+                .sha256
+                .expect("pinned asset"),
+                "binarySha256": crate::digest::sha256(b"managed"),
+                "size": 7,
+            })
+            .to_string(),
         )
         .expect("marker");
         let mut options = LspDiscoveryOptions {

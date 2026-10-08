@@ -62,11 +62,7 @@ pub(super) async fn call(_tool: &str, _input: &Value, _json_out: bool) -> Option
 }
 
 #[cfg(unix)]
-async fn exchange(
-    stream: &mut tokio::net::UnixStream,
-    tool: &str,
-    input: &Value,
-) -> Option<Value> {
+async fn exchange(stream: &mut tokio::net::UnixStream, tool: &str, input: &Value) -> Option<Value> {
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
     let mut line = json!({"tool": tool, "input": input}).to_string();
     line.push('\n');
@@ -137,7 +133,13 @@ fn socket_path() -> Option<std::path::PathBuf> {
     let env: BTreeMap<String, String> = std::env::vars().collect();
     let cwd = std::env::current_dir().ok()?;
     let os_home = std::env::home_dir()?;
-    let input = acquire_config_input(env.clone(), cwd.clone(), os_home, false, RuntimeSurface::Cli);
+    let input = acquire_config_input(
+        env.clone(),
+        cwd.clone(),
+        os_home,
+        false,
+        RuntimeSurface::Cli,
+    );
     let config = resolve_config(&input);
     if !is_persistent_storage_enabled(&config.resolved) {
         return None;
@@ -190,7 +192,13 @@ fn server_key(
     let exe = std::env::current_exe().ok()?;
     let exe_meta = std::fs::metadata(&exe).ok()?;
     let mut identity = String::new();
-    let _ = writeln!(identity, "{}|{}|{}", exe.display(), exe_meta.len(), stamp(&exe));
+    let _ = writeln!(
+        identity,
+        "{}|{}|{}",
+        exe.display(),
+        exe_meta.len(),
+        stamp(&exe)
+    );
     let _ = writeln!(identity, "{}", cwd.display());
     for (name, value) in env {
         if name.starts_with("OCTOCODE_")
@@ -382,11 +390,20 @@ mod tests {
         let cwd = home.path().join("w");
         let key = super::server_key(&env, &cwd, home.path()).expect("key");
         assert_eq!(key.len(), 16);
-        assert_eq!(super::server_key(&env, &cwd, home.path()), Some(key.clone()));
+        assert_eq!(
+            super::server_key(&env, &cwd, home.path()),
+            Some(key.clone())
+        );
         env.insert("TERM_SESSION_ID".into(), "ignored".into());
-        assert_eq!(super::server_key(&env, &cwd, home.path()), Some(key.clone()));
+        assert_eq!(
+            super::server_key(&env, &cwd, home.path()),
+            Some(key.clone())
+        );
         env.insert("GITHUB_TOKEN".into(), "t".into());
-        assert_ne!(super::server_key(&env, &cwd, home.path()), Some(key.clone()));
+        assert_ne!(
+            super::server_key(&env, &cwd, home.path()),
+            Some(key.clone())
+        );
         assert_ne!(
             super::server_key(&BTreeMap::new(), &home.path().join("other"), home.path()),
             Some(key)

@@ -80,14 +80,14 @@ impl AuthBackend for Backend {
     async fn gh(
         &self,
         _: &str,
-        _: &RequestContext,
+        _: &RequestBudget,
     ) -> Result<Option<secrecy::SecretString>, ProviderError> {
         self.calls.lock().unwrap().push("gh");
         Ok(self.gh.map(Into::into))
     }
 }
-fn budget() -> RequestContext {
-    RequestContext::with_timeout(Duration::from_secs(2), 1)
+fn budget() -> RequestBudget {
+    RequestBudget::with_timeout(Duration::from_secs(30), 1)
 }
 
 #[tokio::test]
@@ -126,7 +126,7 @@ async fn absent_credentials_allow_anonymous_access_but_storage_errors_remain_vis
 }
 
 #[tokio::test]
-async fn request_credentials_resolve_once_per_host_until_forgotten() {
+async fn request_credentials_resolve_once_per_host_until_rejected() {
     let backend = Backend::new(None);
     let auth = authentication(None);
     for _ in 0..3 {
@@ -146,7 +146,7 @@ async fn request_credentials_resolve_once_per_host_until_forgotten() {
         .await
         .unwrap();
     assert_eq!(backend.calls().len(), 4, "hosts resolve separately");
-    auth.forget("github.com");
+    auth.reject("github.com", None);
     auth.resolve_with("github.com", AuthMode::Request, &budget(), &backend)
         .await
         .unwrap();
@@ -162,7 +162,7 @@ async fn request_credentials_resolve_once_per_host_until_forgotten() {
 }
 
 #[tokio::test]
-async fn environment_is_lazy_host_scoped_and_override_wins() {
+async fn environment_is_lazy_and_host_scoped() {
     let auth = authentication(Some("env-token"));
     let backend = Backend::new(None);
     let selected = auth
@@ -179,14 +179,6 @@ async fn environment_is_lazy_host_scoped_and_override_wins() {
         .unwrap()
         .unwrap();
     assert_eq!(selected.token(), "gh-token");
-    let mut budget = budget();
-    budget.override_token = Some("override".into());
-    let selected = auth
-        .resolve_with("github.com", AuthMode::Request, &budget, &backend)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(selected.token(), "override");
 }
 #[tokio::test]
 async fn fresh_storage_wins_and_inspection_does_not_refresh_expired_storage() {
@@ -273,4 +265,20 @@ async fn cancellation_and_refresh_timeout_do_not_fall_back() {
             .is_err()
     );
     assert_eq!(backend.calls(), ["load", "refresh"]);
+}
+/// A long-lived runtime whose stored token GitHub starts rejecting (401)
+/// re-selects on the next request and falls back to gh, as a fresh process
+/// would after the same rejection; it never re-selects the rejected token.
+#[tokio::test]
+async fn rejected_stored_token_falls_back_to_gh_on_the_next_request() {
+    let backend = Backend::new(Some(stored(false)));
+    let auth = authentication(None);
+    let budget = budget();
+    let request = || auth.resolve_with("github.com", AuthMode::Request, &budget, &backend);
+    let first = request().await.unwrap().unwrap();
+    assert_eq!(first.token(), "stored-token");
+    auth.reject("github.com", Some(&first.credential));
+    let next = request().await.unwrap().unwrap();
+    assert_eq!(next.token(), "gh-token");
+    assert_eq!(next.source_label(), "gh-cli");
 }

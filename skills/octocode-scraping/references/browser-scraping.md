@@ -24,3 +24,5 @@ Owner for the **cross-skill playbook** (chrome `SKILL.md` only points here). Liv
 Zero actionability rows → chrome `actionability-diagnostics`. Emit paths/counts — never cookies/tokens.
 
 Next: to search what process produced load `references/session-corpus.md`; if the page is still thin or blocked load `references/failure-recovery.md`.
+
+For an explicit `--provider cdp` fetch, native settings are the default. Use `--wait-for <selector>` and/or `--wait-text <text>` with `--cdp-wait-ms <deadline>` for content readiness. `--cdp-stealth` is an explicit emulation experiment. Temporary runner/body paths are unique per call; reused browsers remain owned by their launcher. Use Chrome's combined executor when the page needs clicks, event waits or adaptive decisions, then bridge the artifacts.

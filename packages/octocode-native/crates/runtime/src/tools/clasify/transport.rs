@@ -4,13 +4,12 @@
 //! `type`/`instructions`/`criteria`, and its answers map back to public
 //! verdicts. The vendor (`providers::classification`) frames the request body.
 use crate::providers::classification::gate::{GateDenied, GateLease, GatePermit};
-use crate::providers::{BudgetStop, RequestBudget};
+use crate::providers::{BudgetStop, RequestBudget, RuntimeClients, retry_after};
 use bytes::BytesMut;
 use futures_util::StreamExt;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{Map, Value, json};
 use std::future::Future;
-use std::sync::{Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant, SystemTime};
 use url::Url;
 
@@ -37,25 +36,15 @@ fn is_loopback_endpoint(endpoint: &Url) -> bool {
     }
 }
 
-/// One pooled client per Tokio runtime, shared by every classification
-/// request on that runtime (all threads, all tool calls).
-///
-/// A single process-global `reqwest::Client` is unsafe here: hyper drives
-/// each pooled connection from a task spawned on the runtime that opened it,
-/// so once that runtime shuts down (every `#[tokio::test]`, or a closed
-/// N-API `NativeRuntime`) the pooled connections are dead and reuse fails
-/// with "dispatch task is gone". Keying by [`tokio::runtime::Id`] keeps
-/// pooling across threads and calls within a runtime (a thread-local client
-/// did not: clasify fans out on fresh scoped threads, so every call got a
-/// cold pool) while never sharing connections across runtimes. The cache is
-/// small and LRU-evicted, so short-lived runtimes cannot grow it unbounded.
+/// The pooled client for the current Tokio runtime, shared by every
+/// classification request on it (all threads, all tool calls). A thread-local
+/// client would not pool: clasify fans out on fresh scoped threads.
 fn shared_client(endpoint: &Url) -> Result<reqwest::Client, ClassificationError> {
-    static CLIENTS: OnceLock<Mutex<Vec<(tokio::runtime::Id, bool, reqwest::Client)>>> =
-        OnceLock::new();
+    static CLIENTS: RuntimeClients<bool> = RuntimeClients::new(MAX_CACHED_CLIENTS);
     // A loopback provider is local to this machine. Avoid macOS system-proxy
     // discovery for it; remote providers still honor the user's proxy setup.
     let bypass_proxy = is_loopback_endpoint(endpoint);
-    let build = || {
+    CLIENTS.get(bypass_proxy, || {
         let builder = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .connect_timeout(CONNECT_TIMEOUT)
@@ -66,48 +55,17 @@ fn shared_client(endpoint: &Url) -> Result<reqwest::Client, ClassificationError>
             builder
         };
         builder.build().map_err(|_| transport_error())
-    };
-    let Ok(runtime) = tokio::runtime::Handle::try_current() else {
-        return build();
-    };
-    let id = runtime.id();
-    let mut clients = CLIENTS
-        .get_or_init(Mutex::default)
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
-    if let Some(index) = clients
-        .iter()
-        .position(|(cached, bypass, _)| *cached == id && *bypass == bypass_proxy)
-    {
-        let entry = clients.remove(index);
-        let client = entry.2.clone();
-        clients.push(entry);
-        return Ok(client);
-    }
-    let client = build()?;
-    if clients.len() >= MAX_CACHED_CLIENTS {
-        clients.remove(0);
-    }
-    clients.push((id, bypass_proxy, client.clone()));
-    Ok(client)
+    })
 }
 
 /// Error returned by the classification transport layer. `code` is a stable
 /// machine-readable identifier; `message` is human-readable prose; `hints`
-/// are actionable suggestions shown to the caller. `retry_after` and
-/// `provider_body` are internal metadata and are never rendered.
+/// are actionable suggestions shown to the caller.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ClassificationError {
     pub code: String,
     pub message: String,
     pub hints: Vec<String>,
-    /// Provider-requested (or gate-imposed) delay before a retry can succeed.
-    pub retry_after: Option<Duration>,
-    /// Parsed JSON body of a non-retried provider error response (e.g. HTTP
-    /// 400 `{"detail":{"error_type":"max_tokens_exceeded"}}`), kept so
-    /// callers can map vendor error details to distinct codes.
-    /// Boxed to keep the error small in `Result`s.
-    pub provider_body: Option<Box<Value>>,
     /// Failure kind of the delegated read behind a context error, so a call
     /// whose every read failed alike reports it like the read tool would.
     pub failure: Option<crate::tools::result::FailureKind>,
@@ -123,6 +81,15 @@ impl ClassificationError {
             hints: vec![hint.to_owned()],
             ..Self::default()
         }
+    }
+
+    /// The provider answered, but not in the shape the contract requires.
+    pub(crate) fn invalid_response(message: impl Into<String>) -> Self {
+        Self::new(
+            "invalidClassificationResponse",
+            message,
+            "Inspect provider compatibility before using the answer.",
+        )
     }
 }
 
@@ -355,68 +322,6 @@ async fn wait<T>(
     budget.wait(future).await.map_err(budget_error)
 }
 
-/// Parse an RFC 9110 IMF-fixdate (`Sun, 06 Nov 1994 08:49:37 GMT`).
-fn parse_http_date(value: &str) -> Option<SystemTime> {
-    let (_, rest) = value.trim().split_once(", ")?;
-    let mut parts = rest.split_ascii_whitespace();
-    let day = parts.next()?.parse::<i64>().ok()?;
-    let month = match parts.next()? {
-        "Jan" => 1,
-        "Feb" => 2,
-        "Mar" => 3,
-        "Apr" => 4,
-        "May" => 5,
-        "Jun" => 6,
-        "Jul" => 7,
-        "Aug" => 8,
-        "Sep" => 9,
-        "Oct" => 10,
-        "Nov" => 11,
-        "Dec" => 12,
-        _ => return None,
-    };
-    let year = parts.next()?.parse::<i64>().ok()?;
-    let mut clock = parts.next()?.split(':').map(str::parse::<i64>);
-    let (hour, minute, second) = (
-        clock.next()?.ok()?,
-        clock.next()?.ok()?,
-        clock.next()?.ok()?,
-    );
-    if parts.next()? != "GMT"
-        || parts.next().is_some()
-        || !(1..=31).contains(&day)
-        || !(0..24).contains(&hour)
-        || !(0..60).contains(&minute)
-        || !(0..=60).contains(&second)
-    {
-        return None;
-    }
-    let seconds = crate::civil_date::days_from_civil(year, month, day) * 86_400
-        + hour * 3600
-        + minute * 60
-        + second;
-    let seconds = u64::try_from(seconds).ok()?;
-    SystemTime::UNIX_EPOCH.checked_add(Duration::from_secs(seconds))
-}
-
-/// Provider-requested retry delay: `retry-after-ms`, then `Retry-After` as
-/// delta-seconds or an HTTP-date (relative to `now`).
-fn retry_after(headers: &reqwest::header::HeaderMap, now: SystemTime) -> Option<Duration> {
-    if let Some(delay) = octocode_github::retry_after_delay(headers, MAX_RETRY_AFTER) {
-        return Some(delay);
-    }
-    let date = headers
-        .get(reqwest::header::RETRY_AFTER)?
-        .to_str()
-        .ok()
-        .and_then(parse_http_date)?;
-    Some(
-        date.duration_since(now)
-            .unwrap_or(Duration::ZERO)
-            .min(MAX_RETRY_AFTER),
-    )
-}
-
 /// Full-jitter exponential backoff, floored at [`MIN_RETRY_DELAY`].
 fn backoff(attempt: u32) -> Duration {
     octocode_github::full_jitter(BACKOFF_BASE, attempt, BACKOFF_CAP).max(MIN_RETRY_DELAY)
@@ -463,10 +368,7 @@ fn rate_limited(
             )
         },
     );
-    ClassificationError {
-        retry_after,
-        ..ClassificationError::new("classificationRateLimited", message, &hint)
-    }
+    ClassificationError::new("classificationRateLimited", message, &hint)
 }
 
 fn denied(reason: GateDenied) -> ClassificationError {
@@ -483,17 +385,14 @@ fn denied(reason: GateDenied) -> ClassificationError {
         ),
         GateDenied::RateLimited { retry_after } => rate_limited(None, Some(retry_after), true),
         GateDenied::QuotaExhausted => quota_exhausted(),
-        GateDenied::CircuitOpen { retry_after } => ClassificationError {
-            retry_after: Some(retry_after),
-            ..ClassificationError::new(
-                "classificationProviderUnavailable",
-                format!(
-                    "Classification provider failed repeatedly; requests are paused for about {:.0}s.",
-                    retry_after.as_secs_f64().ceil().max(1.0)
-                ),
-                "Check provider availability and OCTOCODE_CLASSIFICATION_API_HOST, then retry.",
-            )
-        },
+        GateDenied::CircuitOpen { retry_after } => ClassificationError::new(
+            "classificationProviderUnavailable",
+            format!(
+                "Classification provider failed repeatedly; requests are paused for about {:.0}s.",
+                retry_after.as_secs_f64().ceil().max(1.0)
+            ),
+            "Check provider availability and OCTOCODE_CLASSIFICATION_API_HOST, then retry.",
+        ),
     }
 }
 
@@ -505,15 +404,11 @@ pub(crate) fn quota_exhausted() -> ClassificationError {
     )
 }
 
-fn status_error(
-    status: reqwest::StatusCode,
-    provider_body: Option<Box<Value>>,
-) -> ClassificationError {
+/// Maps a non-success status to its error; the provider body only picks
+/// the code (`max_tokens_exceeded`) and is never kept or rendered.
+fn status_error(status: reqwest::StatusCode, provider_body: Option<&Value>) -> ClassificationError {
     if status == reqwest::StatusCode::PAYMENT_REQUIRED {
-        return ClassificationError {
-            provider_body,
-            ..quota_exhausted()
-        };
+        return quota_exhausted();
     }
     let hint = match status.as_u16() {
         401 | 403 => "Check OCTOCODE_CLASSIFICATION_API and account access.",
@@ -521,7 +416,7 @@ fn status_error(
         300..=399 => "Redirects are disabled; check OCTOCODE_CLASSIFICATION_API_HOST.",
         _ => "Check provider availability and OCTOCODE_CLASSIFICATION_API_HOST.",
     };
-    let base = if error_type(provider_body.as_deref()) == Some("max_tokens_exceeded") {
+    if error_type(provider_body) == Some("max_tokens_exceeded") {
         ClassificationError::new(
             "classificationStateTooLarge",
             "One page exceeded the classification provider's context window.",
@@ -533,10 +428,6 @@ fn status_error(
             format!("Classification provider returned HTTP {status}; response body omitted."),
             hint,
         )
-    };
-    ClassificationError {
-        provider_body,
-        ..base
     }
 }
 
@@ -566,7 +457,7 @@ fn is_retryable_transport(error: &reqwest::Error) -> bool {
 }
 
 /// Read a bounded error body and keep it only when it parses as JSON.
-async fn error_body(response: reqwest::Response, budget: &RequestBudget) -> Option<Box<Value>> {
+async fn error_body(response: reqwest::Response, budget: &RequestBudget) -> Option<Value> {
     let mut body = BytesMut::new();
     let mut stream = response.bytes_stream();
     while let Ok(Some(Ok(chunk))) = wait(budget, stream.next()).await {
@@ -575,7 +466,7 @@ async fn error_body(response: reqwest::Response, budget: &RequestBudget) -> Opti
         }
         body.extend_from_slice(&chunk);
     }
-    serde_json::from_slice(&body).ok().map(Box::new)
+    serde_json::from_slice(&body).ok()
 }
 
 enum Attempt {
@@ -592,7 +483,7 @@ enum Attempt {
 
 async fn attempt(
     client: &reqwest::Client,
-    request: &Value,
+    body: &bytes::Bytes,
     key: &SecretString,
     endpoint: &Url,
     budget: &RequestBudget,
@@ -616,7 +507,8 @@ async fn attempt(
             .timeout(remaining)
             .bearer_auth(key.expose_secret())
             .header(reqwest::header::ACCEPT, "application/json")
-            .json(request)
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body.clone())
             .send(),
     )
     .await;
@@ -664,16 +556,13 @@ async fn failed_status(
         drop(permit);
         return Attempt::Done(Err(content_blocked()));
     }
-    let requested = retry_after(response.headers(), SystemTime::now());
+    let requested = retry_after(response.headers(), MAX_RETRY_AFTER, SystemTime::now());
     let body = error_body(response, budget).await;
-    if is_throttle(code) || is_overloaded(body.as_deref()) {
+    if is_throttle(code) || is_overloaded(body.as_ref()) {
         permit.throttled(requested);
         return Attempt::Retry {
             delay: retry_delay(requested, attempt),
-            error: ClassificationError {
-                provider_body: body,
-                ..rate_limited(Some(code), requested, false)
-            },
+            error: rate_limited(Some(code), requested, false),
             throttle: Some(code),
         };
     }
@@ -681,22 +570,19 @@ async fn failed_status(
         permit.failed();
         return Attempt::Retry {
             delay: retry_delay(requested, attempt),
-            error: ClassificationError {
-                retry_after: requested,
-                ..status_error(status, body)
-            },
+            error: status_error(status, body.as_ref()),
             throttle: None,
         };
     }
     // Not a provider-health signal (4xx/3xx, e.g. 400
     // `max_tokens_exceeded`): release neutrally, never retry, and keep the
-    // parsed body for vendor error mapping.
+    // parsed body only to pick the vendor error code.
     if status == reqwest::StatusCode::PAYMENT_REQUIRED {
         permit.quota_exhausted();
     } else {
         drop(permit);
     }
-    Attempt::Done(Err(status_error(status, body)))
+    Attempt::Done(Err(status_error(status, body.as_ref())))
 }
 
 /// A success response's JSON body, within the body budget.
@@ -734,11 +620,7 @@ async fn read_body(
     }
     permit.success();
     Attempt::Done(serde_json::from_slice(&body).map_err(|_| {
-        ClassificationError::new(
-            "invalidClassificationResponse",
-            "Classification provider returned invalid JSON.",
-            "Inspect provider compatibility before using the response.",
-        )
+        ClassificationError::invalid_response("Classification provider returned invalid JSON.")
     }))
 }
 
@@ -756,8 +638,11 @@ fn content_blocked() -> ClassificationError {
 /// Retry transient HTTP/transport failures within the deadline, preserving the
 /// payload. Content rejection is terminal: rewriting evidence or instructions
 /// would classify a different request without the caller's knowledge.
+/// POST the serialized request `body`. The caller measured these bytes
+/// against its size limit; every retry sends them again without
+/// re-serializing.
 pub(crate) async fn post(
-    request: &Value,
+    body: bytes::Bytes,
     key: &SecretString,
     endpoint: Url,
     budget: &RequestBudget,
@@ -772,7 +657,7 @@ pub(crate) async fn post(
             check_budget(budget)?;
             match attempt(
                 &client,
-                request,
+                &body,
                 key,
                 &endpoint,
                 budget,
@@ -827,7 +712,6 @@ pub fn budget(
 mod tests {
     use super::*;
     use crate::providers::classification::gate;
-    use reqwest::header::{HeaderMap, HeaderValue, RETRY_AFTER};
     use serde_json::json;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -877,6 +761,10 @@ mod tests {
 
     const OK_BODY: &str = r#"{"model":"m","answers":{},"usage":{}}"#;
 
+    fn body(request: &Value) -> bytes::Bytes {
+        serde_json::to_vec(request).unwrap().into()
+    }
+
     async fn send(
         server: &str,
         timeout: Duration,
@@ -884,7 +772,7 @@ mod tests {
         lease: &GateLease,
     ) -> Result<Value, ClassificationError> {
         post(
-            &json!({}),
+            body(&json!({})),
             &SecretString::from("test-key".to_owned()),
             endpoint(server, "v1/systemone").unwrap(),
             &test_budget(timeout),
@@ -912,7 +800,7 @@ mod tests {
             .mount(&server)
             .await;
         let error = post(
-            &request,
+            body(&request),
             &SecretString::from("test-key".to_owned()),
             endpoint(&server.uri(), "v1/systemone").unwrap(),
             &test_budget(Duration::from_secs(10)),
@@ -949,7 +837,7 @@ mod tests {
             let mut budget = test_budget(Duration::from_secs(30));
             budget.max_body_bytes = 64;
             let error = post(
-                &json!({}),
+                body(&json!({})),
                 &SecretString::from("test-key".to_owned()),
                 endpoint(&server.uri(), "v1/systemone").unwrap(),
                 &budget,
@@ -1009,7 +897,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bad_request_is_not_retried_and_keeps_the_provider_body() {
+    async fn bad_request_is_not_retried_and_maps_the_provider_error_type() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .respond_with(
@@ -1024,10 +912,6 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.code, "classificationStateTooLarge");
         assert!(error.hints[0].contains("maxChars"));
-        assert_eq!(
-            error.provider_body.as_ref().unwrap()["detail"]["error_type"],
-            "max_tokens_exceeded"
-        );
     }
 
     #[tokio::test]
@@ -1104,8 +988,7 @@ mod tests {
                 "overload is an AIMD signal"
             );
         }
-        // Retries exhausted: the overload surfaces as rate limiting with the
-        // provider body kept.
+        // Retries exhausted: the overload surfaces as rate limiting.
         let server = MockServer::start().await;
         Mock::given(method("POST"))
             .respond_with(
@@ -1119,10 +1002,7 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.code, "classificationRateLimited");
-        assert_eq!(
-            error.provider_body.unwrap()["detail"]["error_type"],
-            "system_overloaded"
-        );
+        assert!(error.message.contains("HTTP 503"), "{}", error.message);
     }
 
     #[tokio::test]
@@ -1138,8 +1018,13 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.code, "classificationRateLimited");
-        assert_eq!(error.retry_after, Some(Duration::from_secs(120)));
-        assert!(error.message.contains("exceeds the remaining deadline"));
+        assert!(
+            error
+                .message
+                .contains("retry delay of about 120s exceeds the remaining deadline"),
+            "{}",
+            error.message
+        );
         // The cooldown is shared: another call on the same endpoint fails fast
         // without reaching the provider (the mock expects exactly one request).
         let other = lease.fork();
@@ -1147,7 +1032,14 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.code, "classificationRateLimited");
-        assert!(error.retry_after.unwrap() > Duration::from_secs(100));
+        let seconds: u64 = error
+            .message
+            .split("about ")
+            .nth(1)
+            .and_then(|rest| rest.split('s').next())
+            .and_then(|n| n.parse().ok())
+            .expect("the shared cooldown names its delay");
+        assert!(seconds > 100, "{}", error.message);
     }
 
     #[test]
@@ -1159,7 +1051,7 @@ mod tests {
                 reqwest::header::HeaderValue::from_static("1e20"),
             );
             assert_eq!(
-                retry_after(&headers, SystemTime::now()),
+                retry_after(&headers, MAX_RETRY_AFTER, SystemTime::now()),
                 Some(MAX_RETRY_AFTER)
             );
         }
@@ -1170,7 +1062,7 @@ mod tests {
             reqwest::header::HeaderValue::from_static("Fri, 31 Dec 9999 23:59:59 GMT"),
         );
         assert_eq!(
-            retry_after(&date, SystemTime::UNIX_EPOCH),
+            retry_after(&date, MAX_RETRY_AFTER, SystemTime::UNIX_EPOCH),
             Some(MAX_RETRY_AFTER)
         );
     }
@@ -1308,47 +1200,6 @@ mod tests {
                 "should reject {bad}"
             );
         }
-    }
-
-    #[test]
-    fn retry_after_parses_milliseconds_seconds_and_http_dates() {
-        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(784_111_777); // Sun, 06 Nov 1994 08:49:37 GMT
-        let mut ms = HeaderMap::new();
-        ms.insert("retry-after-ms", HeaderValue::from_static("1500"));
-        ms.insert(RETRY_AFTER, HeaderValue::from_static("9"));
-        assert_eq!(retry_after(&ms, now), Some(Duration::from_millis(1500)));
-
-        let mut secs = HeaderMap::new();
-        secs.insert(RETRY_AFTER, HeaderValue::from_static("2"));
-        assert_eq!(retry_after(&secs, now), Some(Duration::from_secs(2)));
-
-        let mut date = HeaderMap::new();
-        date.insert(
-            RETRY_AFTER,
-            HeaderValue::from_static("Sun, 06 Nov 1994 08:50:07 GMT"),
-        );
-        assert_eq!(retry_after(&date, now), Some(Duration::from_secs(30)));
-        // A date in the past means "now".
-        date.insert(
-            RETRY_AFTER,
-            HeaderValue::from_static("Sat, 05 Nov 1994 08:49:37 GMT"),
-        );
-        assert_eq!(retry_after(&date, now), Some(Duration::ZERO));
-
-        for invalid in ["soon", "-1", "Sun, 06 Nov 1994 25:00:00 GMT", ""] {
-            let mut headers = HeaderMap::new();
-            headers.insert(RETRY_AFTER, HeaderValue::from_str(invalid).unwrap());
-            assert_eq!(retry_after(&headers, now), None, "{invalid}");
-        }
-        assert_eq!(retry_after(&HeaderMap::new(), now), None);
-        assert_eq!(
-            parse_http_date("Thu, 01 Jan 1970 00:00:00 GMT"),
-            Some(SystemTime::UNIX_EPOCH)
-        );
-        assert_eq!(
-            parse_http_date("Tue, 29 Feb 2028 12:00:00 GMT"),
-            Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1_835_438_400))
-        );
     }
 
     #[test]

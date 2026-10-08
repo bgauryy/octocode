@@ -6,9 +6,9 @@ mod deep_stack;
 /// and the runtime tools share this bound.
 pub const MAX_PARSE_SIZE: usize = 8 * 1024 * 1024;
 
-pub mod extractor;
+pub(crate) mod extractor;
 pub mod graph_facts;
-pub mod js_oxc;
+pub(crate) mod js_oxc;
 mod nodes;
 
 pub(crate) use deep_stack::run_on_deep_stack;
@@ -51,7 +51,7 @@ pub(crate) fn extract_graph_facts_with_metadata_inner(
 /// Flow-typed JavaScript is read with the TSX grammar: the JS grammar recovers
 /// Flow annotations as garbage declarations (`if` "functions").
 fn tree_sitter_graph_facts(content: &str, file_path: &str) -> Option<GraphFactsExtraction> {
-    let ext = get_extension_internal(file_path, true, "txt");
+    let ext = extension_of(file_path, true, "txt");
     let grammar = crate::text::file_extension::grammar_extension(content, &ext);
     graph_facts::extract_graph_facts_with_metadata_with_extension(content, file_path, grammar)
 }
@@ -109,9 +109,34 @@ pub fn extract_graph_facts_with_extension(
         .and_then(|extraction| serde_json::to_string(&extraction.facts).ok())
 }
 pub mod languages;
-pub mod renderer;
+pub(crate) mod renderer;
 
-use crate::text::file_extension::get_extension_internal;
+/// Every declaration kind the extractors emit: tree-sitter graph facts
+/// (`nodes::declaration_kind` and `nodes::declaration`) and the JS/TS oxc
+/// extractor (`js_oxc::symbol_kind_name`).
+pub const DECLARATION_KINDS: &[&str] = &[
+    "class",
+    "constant",
+    "constructor",
+    "enum",
+    "enumMember",
+    "function",
+    "impl",
+    "interface",
+    "label",
+    "macro",
+    "method",
+    "module",
+    "namespace",
+    "property",
+    "struct",
+    "symbol",
+    "trait",
+    "type",
+    "variable",
+];
+
+use crate::text::file_extension::extension_of;
 use extractor::LangExtractConfig;
 
 /// Extract a structural skeleton from `content`.
@@ -121,7 +146,7 @@ pub fn extract_signatures_inner(content: &str, file_path: &str) -> Option<String
         return None;
     }
     let skeleton = std::panic::catch_unwind(|| {
-        let ext = get_extension_internal(file_path, true, "txt");
+        let ext = extension_of(file_path, true, "txt");
         extract_by_ext(
             content,
             crate::text::file_extension::grammar_extension(content, &ext),

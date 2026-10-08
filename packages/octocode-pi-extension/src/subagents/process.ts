@@ -78,7 +78,7 @@ function selfExtensionPath(): string | undefined {
 export function buildAgentArgs(task: string, profile: AgentProfile | undefined, model: string | undefined, extension = selfExtensionPath()): string[] {
   const args = ['--mode', 'json', '--no-session'];
   // `--no-extensions` also turns off Pi's built-in MCP and tool-search extensions, which serve Octocode's research tools
-  // (its GitHub and npm tools are deferred behind `tool_search`): load them back unless the profile opts out of MCP.
+  // (its GitHub and package registry tools are deferred behind `tool_search`): load them back unless the profile opts out of MCP.
   if (extension) args.push('--no-extensions', '-e', extension, ...(profile?.mcp === false ? [] : ['-e', 'builtin:mcp', '-e', 'builtin:tool-search']));
   const chosenModel = model ?? profile?.model;
   if (chosenModel) args.push('--model', chosenModel);

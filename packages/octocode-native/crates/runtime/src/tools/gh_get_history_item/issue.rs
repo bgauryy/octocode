@@ -3,13 +3,12 @@
 use super::patch::auto_page;
 use super::promotion::promote_issue_continuations;
 use super::util::{
-    array, content_flag, history_body_view, map_comments, merge, paginate_text, str_at, string,
-    window_body,
+    array, content_flag, delivered_earlier, history_body_view, map_comments, merge, paginate_text,
+    str_at, string, window_body,
 };
 use super::{DEFAULT_PAGE_SIZE, HistoryItemRequest, MAX_COLLECTION_PAGE, fetch, validation};
 use crate::providers::github::{
-    CredentialResolver, GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason,
-    RequestContext,
+    GitHubTransport, ProviderError, ProviderErrorKind, ProviderErrorReason, RequestContext,
 };
 use crate::tools::id::ToolId;
 use crate::tools::result::{Continuation, remove_nulls};
@@ -18,8 +17,8 @@ use serde_json::{Map, Value, json};
 /// A pull-request read that 404ed: when the number is an issue, say so with
 /// a typed reason (the caller offers the issue read); otherwise keep the
 /// original not-found.
-pub(super) async fn name_issue_number<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+pub(super) async fn name_issue_number(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
     not_found: ProviderError,
@@ -44,8 +43,8 @@ pub(super) async fn name_issue_number<R: CredentialResolver>(
     }
 }
 
-pub(super) async fn issue<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+pub(super) async fn issue(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Result<Value, ProviderError> {
@@ -80,10 +79,17 @@ pub(super) async fn issue<R: CredentialResolver>(
         .and_then(Value::as_object);
     let want_comments = content_flag(comments, "discussion");
     let include_bots = content_flag(comments, "includeBots");
+    // A comment-body hop (`offset` > 0 with the discussion) continues the
+    // comment bodies of its first window. The issue body is not shown again
+    // (its own `continueBody` reads it at its own offset), but its first
+    // window still counts against the page, so the hop pages exactly the
+    // comments that window showed.
+    let comment_hop = want_comments && query.char_offset().is_some_and(|offset| offset > 0);
+    let show_body = want_body && !comment_hop;
     // A later comment page continues a read whose first page named the
     // issue: only the number is restated.
     let later_page = query.comment_page().unwrap_or(1) > 1;
-    let mut row = json!({
+    let header = json!({
         "number":raw["number"],"title":string(raw.get("title")),
         "state":str_at(&raw,"/state").unwrap_or("open"),"author":str_at(&raw,"/user/login").unwrap_or("unknown"),
         "labels":raw.get("labels").and_then(Value::as_array).into_iter().flatten().filter_map(|v|str_at(v,"/name").map(str::to_owned)).collect::<Vec<_>>(),
@@ -94,16 +100,22 @@ pub(super) async fn issue<R: CredentialResolver>(
         "updatedAt":(str_at(&raw,"/state").unwrap_or("open") == "open").then(|| string(raw.get("updated_at"))),
         "closedAt":raw.get("closed_at").filter(|v|!v.is_null())
     });
-    if later_page
-        && !want_body
-        && let Some(fields) = row.as_object_mut()
-    {
-        fields.retain(|key, _| key == "number");
-    }
+    let header_for = |body: bool| {
+        let mut row = header.clone();
+        if later_page
+            && !body
+            && let Some(fields) = row.as_object_mut()
+        {
+            fields.retain(|key, _| key == "number");
+        }
+        row
+    };
+    let body_view =
+        want_body.then(|| history_body_view(str_at(&raw, "/body").unwrap_or(""), query));
+    let mut row = header_for(show_body);
     let mut pagination = Map::new();
-    if want_body {
-        let body_view = history_body_view(str_at(&raw, "/body").unwrap_or(""), query);
-        let (body, page) = paginate_text(&body_view, query.char_offset(), query.char_length());
+    if let Some(body_view) = body_view.as_deref().filter(|_| show_body) {
+        let (body, page) = paginate_text(body_view, query.char_offset(), query.char_length());
         row["body"] = json!(body);
         if query.char_offset().is_some() || query.char_length().is_some() || page["hasMore"] == true
         {
@@ -114,8 +126,17 @@ pub(super) async fn issue<R: CredentialResolver>(
     if want_comments {
         // The comments fill what the header and body leave of the response
         // page (less a reserve for the row's cursors and leads), so one
-        // comment page is one response page.
-        let used = crate::tools::stream_page::json_chars(&row);
+        // comment page is one response page. A comment-body hop counts the
+        // row its first window showed.
+        let used = if comment_hop {
+            let mut first = header_for(want_body);
+            if let Some(body_view) = body_view.as_deref() {
+                first["body"] = json!(paginate_text(body_view, None, query.char_length()).0);
+            }
+            crate::tools::stream_page::json_chars(&first)
+        } else {
+            crate::tools::stream_page::json_chars(&row)
+        };
         let budget = auto_page(query.auto_page_chars)
             .saturating_sub(COMMENT_PAGE_RESERVE)
             .saturating_sub(used);
@@ -126,12 +147,11 @@ pub(super) async fn issue<R: CredentialResolver>(
             row["comments"] = Value::Array(page.comments);
         }
         // `raw.comments` is the issue's real comment count (bots included);
-        // the page count is `returnedComments`, and `remainingItems` counts
+        // the page holds the `comments` array, and `remainingItems` counts
         // the provider comments after this page.
         let mut comments = page.pagination;
         let total = raw.get("comments").and_then(Value::as_u64);
         comments["totalItems"] = json!(total);
-        comments["returnedComments"] = json!(row["comments"].as_array().map_or(0, Vec::len));
         if comments["hasMore"] == true
             && let Some(total) = total
         {
@@ -198,8 +218,8 @@ struct CommentPage {
 /// first unshown comment through a `commentPage`/`pageSize` pair that starts
 /// there ([`resume_page`]), so the comment cursor is the response's only
 /// cursor.
-async fn issue_comments<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn issue_comments(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
     issue_path: &[&str],
@@ -236,46 +256,20 @@ async fn issue_comments<R: CredentialResolver>(
             skip = 0;
         }
     }
-    // Each provider comment (a hidden bot's is `None`), shaped, in order.
-    let mut body_page = None;
+    // Each provider comment (a hidden bot's is `None`), in order.
     let fetched: Vec<Option<Value>> = raw_comments
         .into_iter()
-        .map(|raw| {
-            let comment = map_comments(vec![raw], "discussion", include_bots).pop()?;
-            let (body, page) = window_body(
-                str_at(&comment, "/body").unwrap_or(""),
-                query.char_offset(),
-                query,
-                &mut body_page,
-                // Issue text is never minified.
-                &mut false,
-            );
-            let mut c = merge(comment, json!({"body":body}));
-            // A whole body's window restates its length only.
-            if page["offset"] != 0 || page["hasMore"] == true {
-                c["bodyPagination"] = page;
-            }
-            if let Some(map) = c.as_object_mut() {
-                if let Some(author) = map.remove("author") {
-                    map.insert("user".into(), author);
-                }
-                // Every issue comment is a discussion comment, and an
-                // unedited one has one timestamp.
-                map.remove("commentType");
-                if map.get("updatedAt") == map.get("createdAt") {
-                    map.remove("updatedAt");
-                }
-            }
-            remove_nulls(&mut c);
-            Some(c)
-        })
+        .map(|raw| map_comments(vec![raw], "discussion", include_bots).pop())
         .collect();
     // Comments that fit the budget and the cap; at least the first shown
-    // one. Hidden bots ride free up to the stop.
+    // one. Hidden bots ride free up to the stop. Each comment costs its
+    // first window, so a body continuation (`offset` > 0) pages exactly the
+    // comments its first window showed.
     let (mut consumed, mut shown, mut used) = (0, 0, 0usize);
     for comment in &fetched {
         if let Some(comment) = comment {
-            let chars = crate::tools::stream_page::json_chars(comment) + 1;
+            let (first, _) = shape_issue_comment(comment, None, query, &mut None);
+            let chars = crate::tools::stream_page::json_chars(&first) + 1;
             if shown > 0 && (used + chars > budget || shown >= cap) {
                 break;
             }
@@ -286,6 +280,19 @@ async fn issue_comments<R: CredentialResolver>(
     }
     let more = consumed < fetched.len() || provider_more;
     let bots_hidden = fetched[..consumed].iter().filter(|c| c.is_none()).count();
+    // The page's bodies at the call's offset. A continuation lists only the
+    // bodies it continues: a body an earlier window delivered whole is not
+    // repeated as an empty row.
+    let mut body_page = None;
+    let comments = fetched[..consumed]
+        .iter()
+        .flatten()
+        .filter_map(|comment| {
+            let (shaped, page) =
+                shape_issue_comment(comment, query.char_offset(), query, &mut body_page);
+            (!delivered_earlier(query.char_offset(), &page)).then_some(shaped)
+        })
+        .collect();
     let mut pagination = json!({"hasMore": more});
     if more {
         let (page, size) = resume_page(start + consumed);
@@ -296,12 +303,45 @@ async fn issue_comments<R: CredentialResolver>(
         pagination["botsHidden"] = json!(bots_hidden);
     }
     Ok(CommentPage {
-        comments: fetched.into_iter().take(consumed).flatten().collect(),
+        comments,
         pagination,
         body: body_page,
         consumed: start + consumed,
         bots_hidden,
     })
+}
+
+/// One issue comment with its body windowed at `offset` (the window's page
+/// is returned beside it); `first_more` collects the page's body cursor.
+fn shape_issue_comment(
+    comment: &Value,
+    offset: Option<usize>,
+    query: &HistoryItemRequest,
+    first_more: &mut Option<Value>,
+) -> (Value, Value) {
+    let (body, page) = window_body(
+        str_at(comment, "/body").unwrap_or(""),
+        offset,
+        query,
+        first_more,
+        // Issue text is never minified.
+        &mut false,
+    );
+    let mut c = merge(comment.clone(), json!({"body":body}));
+    // A whole body's window restates its length only.
+    if page["offset"] != 0 || page["hasMore"] == true {
+        c["bodyPagination"] = page.clone();
+    }
+    if let Some(map) = c.as_object_mut() {
+        // Every issue comment is a discussion comment, and an unedited one
+        // has one timestamp.
+        map.remove("commentType");
+        if map.get("updatedAt") == map.get("createdAt") {
+            map.remove("updatedAt");
+        }
+    }
+    remove_nulls(&mut c);
+    (c, page)
 }
 
 /// Response chars an issue comment page leaves to the row's cursors,
@@ -370,7 +410,7 @@ fn mark_bounded_closing(out: &mut Value, listed: usize, total: u64, first_window
     out["partialReasons"] = Value::Array(reasons);
     out["warnings"] = json!([if first_window {
         format!(
-            "closedBy lists {listed} of {total} linked pull requests; readFixPullRequest is a candidate, not the complete fix set."
+            "closedBy lists {listed} of {total} linked pull requests; readPullRequest is a candidate, not the complete fix set."
         )
     } else {
         format!(
@@ -407,8 +447,8 @@ struct ClosingReferences {
 /// The pull requests whose merge closes (or closed) the issue, merged first:
 /// `{number, state, mergedAt?}`. `None` when GraphQL is unavailable or
 /// failed (the caller falls back to search); empty when none are linked.
-async fn closing_pull_requests<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn closing_pull_requests(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Option<ClosingReferences> {
@@ -441,14 +481,14 @@ async fn closing_pull_requests<R: CredentialResolver>(
 /// The issue's `closedByPullRequestsReferences` object that `document`
 /// selects (`first` sets its window size). `None` when GraphQL is
 /// unavailable or failed.
-async fn closed_by_references<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn closed_by_references(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
     document: &str,
     first: Option<usize>,
 ) -> Option<Value> {
-    if !transport.graphql_enabled || !transport.graphql_available(context).await {
+    if !transport.graphql_enabled || !transport.graphql_available(context) {
         return None;
     }
     let mut variables = json!({
@@ -471,8 +511,8 @@ async fn closed_by_references<R: CredentialResolver>(
 
 /// The closing-reference total for a window past the first: no rows, only
 /// whether the set the first window lists is bounded.
-async fn closing_reference_count<R: CredentialResolver>(
-    transport: &GitHubTransport<R>,
+async fn closing_reference_count(
+    transport: &GitHubTransport,
     query: &HistoryItemRequest,
     context: &RequestContext,
 ) -> Option<ClosingReferences> {
@@ -519,7 +559,7 @@ fn map_closing_pull_requests(nodes: &[Value]) -> Vec<ClosingPr> {
     prs
 }
 
-/// `next.readFixPullRequest` reads the first linked (merged-first) pull request;
+/// `next.readPullRequest` reads the first linked (merged-first) pull request;
 /// with no link information a closed issue offers the keyword search hop.
 fn attach_fix_pr(
     out: &mut Value,
@@ -545,14 +585,14 @@ fn attach_fix_pr(
                 read["include"] = json!(named);
             }
             (
-                "readFixPullRequest",
+                "readPullRequest",
                 Continuation::new(ToolId::GhGetHistoryItem, read)
                     .confidence(confidence)
                     .build(),
             )
         }
         None if closed && closed_by.is_none() => (
-            "findFixPullRequest",
+            "findPullRequest",
             Continuation::new(
                 ToolId::GhSearchHistory,
                 json!({"operation":"pullRequest","owner":query.owner(),"repo":query.repo(),
@@ -566,7 +606,11 @@ fn attach_fix_pr(
     if !out.get("next").is_some_and(Value::is_object) {
         out["next"] = json!({});
     }
-    out["next"][next.0] = next.1;
+    // The fix is new evidence: it leads the issue's own reads, so a
+    // one-lead answer offers it.
+    if let Some(leads) = out["next"].as_object_mut() {
+        leads.shift_insert(0, next.0.to_owned(), next.1);
+    }
 }
 
 /// Most goal-named files one fix-PR read narrows to.
@@ -635,11 +679,11 @@ mod tests {
         let mut out = json!({});
         attach_fix_pr(&mut out, &query, Some(&prs), true, false);
         assert_eq!(
-            out["next"]["readFixPullRequest"]["query"]["queries"][0]["number"],
+            out["next"]["readPullRequest"]["query"]["queries"][0]["number"],
             8
         );
         assert_eq!(
-            out["next"]["readFixPullRequest"]["query"]["queries"][0]["sections"],
+            out["next"]["readPullRequest"]["query"]["queries"][0]["sections"],
             json!(["patches"])
         );
         for node in [
@@ -655,12 +699,12 @@ mod tests {
                 false,
             );
             assert_eq!(
-                out["next"]["readFixPullRequest"]["query"]["queries"][0]["sections"],
+                out["next"]["readPullRequest"]["query"]["queries"][0]["sections"],
                 json!(["body", "files"])
             );
         }
         assert!(
-            out_for(&query, &prs)["next"]["readFixPullRequest"]["query"]["queries"][0]
+            out_for(&query, &prs)["next"]["readPullRequest"]["query"]["queries"][0]
                 .get("include")
                 .is_none()
         );
@@ -690,7 +734,7 @@ mod tests {
             &issue("Which PR fixed cli/cli#14404 and what did it change in merge.go?"),
             &large,
         );
-        let read = &out["next"]["readFixPullRequest"]["query"]["queries"][0];
+        let read = &out["next"]["readPullRequest"]["query"]["queries"][0];
         assert_eq!(read["include"], json!(["**/merge.go"]), "{read}");
         assert_eq!(read["sections"], json!(["patches"]), "{read}");
         let out = out_for(
@@ -698,7 +742,7 @@ mod tests {
             &large,
         );
         assert_eq!(
-            out["next"]["readFixPullRequest"]["query"]["queries"][0]["include"],
+            out["next"]["readPullRequest"]["query"]["queries"][0]["include"],
             json!(["**/pkg/cmd/pr/merge/merge.go", "**/README.md"])
         );
         for goal in [
@@ -706,7 +750,7 @@ mod tests {
             "Which PR fixed this issue?",
         ] {
             let read =
-                &out_for(&issue(goal), &large)["next"]["readFixPullRequest"]["query"]["queries"][0];
+                &out_for(&issue(goal), &large)["next"]["readPullRequest"]["query"]["queries"][0];
             assert!(read.get("include").is_none(), "{goal}: {read}");
             assert_eq!(read["sections"], json!(["body", "files"]), "{goal}");
         }

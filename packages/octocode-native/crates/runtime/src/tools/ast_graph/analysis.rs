@@ -2,6 +2,7 @@ use super::{algorithms::*, graph::normalize, liveness::*, page::*, types::*};
 use crate::tools::id::ToolId;
 use crate::tools::id::query_limits::ast_topology::{DIAGNOSTIC_PAGE_MAXIMUM, PAGE_MAXIMUM};
 use crate::tools::result::Continuation;
+use crate::tools::result::ToolError;
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
@@ -13,27 +14,22 @@ use std::{
 };
 
 pub(crate) fn analyze(
-    b: &mut BuiltGraph,
+    b: &BuiltGraph,
+    display_path: &str,
     q: &AstTopologyQuery,
     paths: &PathPolicy,
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
 ) -> AstGraphResult {
     let read = |path: &std::path::Path| super::aliases::read_config_text(paths, security, path);
-    cancel
-        .check()
-        .map_err(|e| AstGraphError::new("ast.cancelled", e))?;
-    let mut warnings = Vec::new();
-    if b.truncated {
-        warnings.push(format!(
-            "scan stopped at maxFiles ({}) — graph results are partial",
-            q.max_files().unwrap_or(20_000)
-        ))
-    }
+    cancel.check().map_err(ToolError::cancelled)?;
+    let cuts = ScanCuts::of(b);
+    let mut warnings = cuts.warnings(q);
     let mut base = Map::new();
     base.insert("operation".into(), json!("topology"));
-    base.insert("path".into(), json!(b.display_path));
+    base.insert("path".into(), json!(display_path));
     base.insert("filesScanned".into(), json!(b.facts.len()));
+    insert_supersedes(&mut base, q, &mut warnings);
     let (items, mut summary, extra_warnings, mut low) = match q.analysis() {
         GraphAnalysis::Dependencies | GraphAnalysis::Dependents => traversal(b, q)?,
         GraphAnalysis::Path => path_analysis(b, q)?,
@@ -41,7 +37,7 @@ pub(crate) fn analyze(
         GraphAnalysis::Reachability => reachability(b, q, &read),
         GraphAnalysis::DeadCode => dead_code(b, q, &read),
         GraphAnalysis::Drift => {
-            return Err(AstGraphError::new(
+            return Err(ToolError::new(
                 "invalidGraphQuery",
                 "drift is dispatched before analyze",
             ));
@@ -82,7 +78,7 @@ pub(crate) fn analyze(
         base.insert("confidence".into(), json!("low"));
     }
     let coverage_state = add_coverage(&mut base, b, q, &results_digest);
-    let result_page_limit = mark_scope_cuts(&mut base, b, q, coverage_state.changed);
+    let result_page_limit = mark_scope_cuts(&mut base, cuts, q, coverage_state.changed);
     // A diagnostic page reached from a lead (it carries the snapshot) shows
     // the diagnostics only: its results were delivered by the offering page.
     let diagnostics_only = q.diagnostic_rows_requested() && q.diagnostic_snapshot().is_some();
@@ -99,7 +95,7 @@ pub(crate) fn analyze(
             &mut base,
             q,
             &b.root,
-            b.truncated,
+            cuts.widenable() && !diagnostics_only,
             coverage_state.withheld.as_deref(),
         );
         if let Some(read) = read_lead(b, q, &base) {
@@ -117,12 +113,12 @@ pub(crate) fn analyze(
         "truncated"
     } else if base["pagination"]["hasMore"] == true {
         "pageable"
-    } else if b.truncated {
+    } else if cuts.graph_cut() {
         "truncated"
     } else {
         "complete"
     };
-    add_completeness(&mut base, b, result_state, &gaps.reasons());
+    add_completeness(&mut base, cuts.graph_cut(), result_state, &gaps.reasons());
     base.insert("operation".into(), json!(q.analysis().as_str()));
     Ok(Value::Object(base))
 }
@@ -183,23 +179,18 @@ impl CoverageGaps {
     }
 }
 
-/// Real scope cuts (result page ceiling, file-scan bound, skipped files):
+/// Real scope cuts (result page ceiling, file-scan bound, edge cap, skipped
+/// files):
 /// `isPartial` with `partialReasons`, and `terminalLimit` when no
 /// continuation can reach the rest. Returns whether the result page
 /// ceiling was hit.
 pub(super) fn mark_scope_cuts(
     base: &mut Map<String, Value>,
-    b: &BuiltGraph,
+    cuts: ScanCuts,
     q: &AstTopologyQuery,
     snapshot_changed: bool,
 ) -> bool {
-    let mut reasons = Vec::<String>::new();
-    if b.truncated {
-        reasons.push("maxFiles".into());
-    }
-    if b.files_skipped > 0 {
-        reasons.push("filesSkipped".into());
-    }
+    let mut reasons = cuts.reasons();
     let result_page_limit = !snapshot_changed
         && base["pagination"]["hasMore"] == true
         && q.page() as usize >= PAGE_MAXIMUM;
@@ -207,7 +198,7 @@ pub(super) fn mark_scope_cuts(
         && base["coverage"]["diagnosticPagination"]["hasMore"] == true
         && q.diagnostic_page() as usize >= DIAGNOSTIC_PAGE_MAXIMUM;
     if result_page_limit {
-        reasons.push("pageLimit".into());
+        reasons.push("pageLimit");
     }
     if diagnostic_page_limit {
         base["coverage"]["diagnosticPagination"]["terminalLimit"] = json!(true);
@@ -218,10 +209,7 @@ pub(super) fn mark_scope_cuts(
         base.insert("isPartial".into(), json!(true));
         base.insert("partialReasons".into(), json!(reasons));
     }
-    let terminal = result_page_limit
-        || diagnostic_page_limit
-        || b.files_skipped > 0
-        || q.max_files().is_some_and(|x| x >= 50_000) && b.truncated;
+    let terminal = result_page_limit || diagnostic_page_limit || cuts.terminal(q);
     if terminal {
         base.insert("terminalLimit".into(), json!(true));
     }
@@ -243,11 +231,11 @@ pub(super) fn keep_diagnostics_only(base: &mut Map<String, Value>) {
 /// a remaining page.
 pub(super) fn add_completeness(
     base: &mut Map<String, Value>,
-    b: &BuiltGraph,
+    graph_cut: bool,
     result_state: &str,
     gaps: &[&str],
 ) {
-    let graph_state = if b.truncated {
+    let graph_state = if graph_cut {
         "scan-truncated"
     } else if !gaps.is_empty() {
         "coverage-incomplete"
@@ -279,9 +267,9 @@ pub(super) fn add_completeness(
 pub(super) fn traversal(
     b: &BuiltGraph,
     q: &AstTopologyQuery,
-) -> Result<(Vec<Value>, Value, Vec<String>, bool), AstGraphError> {
+) -> Result<(Vec<Value>, Value, Vec<String>, bool), ToolError> {
     let raw = q.source().ok_or_else(|| {
-        AstGraphError::new(
+        ToolError::new(
             "invalidGraphQuery",
             format!("{} requires source", q.analysis().as_str()),
         )
@@ -435,23 +423,21 @@ pub(super) fn reexport_dependents(b: &BuiltGraph, target: &str) -> Vec<(String, 
 pub(super) fn path_analysis(
     b: &BuiltGraph,
     q: &AstTopologyQuery,
-) -> Result<(Vec<Value>, Value, Vec<String>, bool), AstGraphError> {
+) -> Result<(Vec<Value>, Value, Vec<String>, bool), ToolError> {
     let file = node_key(
-        q.source().ok_or_else(|| {
-            AstGraphError::new("invalidGraphQuery", "path requires file and target")
-        })?,
+        q.source()
+            .ok_or_else(|| ToolError::new("invalidGraphQuery", "path requires file and target"))?,
         &b.root,
         &b.nodes,
     );
     let target = node_key(
-        q.target().ok_or_else(|| {
-            AstGraphError::new("invalidGraphQuery", "path requires file and target")
-        })?,
+        q.target()
+            .ok_or_else(|| ToolError::new("invalidGraphQuery", "path requires file and target"))?,
         &b.root,
         &b.nodes,
     );
     if !b.nodes.contains_key(&file) || !b.nodes.contains_key(&target) {
-        return Err(AstGraphError::new(
+        return Err(ToolError::new(
             "invalidGraphQuery",
             "file and target must both be in the scanned graph",
         ));
@@ -569,8 +555,8 @@ pub(super) fn missing_file_error(
     q: &AstTopologyQuery,
     file: &str,
     nodes: &BTreeMap<String, Node>,
-) -> AstGraphError {
-    let mut error = AstGraphError::new("invalidGraphQuery", missing_file_message(file, nodes));
+) -> ToolError {
+    let mut error = ToolError::new("invalidGraphQuery", missing_file_message(file, nodes));
     if let Some(candidate) = suffix_candidate(file, nodes) {
         let mut query = clean_query(q);
         query["source"] = json!(candidate);

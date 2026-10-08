@@ -2,8 +2,7 @@
 //! structural analysis, minification, security, graph, and text
 //! utilities.
 //!
-//! The runtime, CLI, and runtime N-API adapter crates consume it as a plain
-//! Rust library.
+//! The runtime and CLI crates consume it as a plain Rust library.
 
 // Production code is held to the `expect_used`/`unwrap_used`/`panic` denials in
 // Cargo.toml `[lints]`. Test code is exempt: tests legitimately assert with

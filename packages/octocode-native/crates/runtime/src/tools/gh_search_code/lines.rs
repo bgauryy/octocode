@@ -3,9 +3,7 @@
 //! page is read (core API quota, through the contents cache) and its keyword
 //! lines are listed as `"<line>\t<text>"` (the numbered-line form), the way
 //! `grep -n` would: with several keywords, the lines holding all of them.
-use crate::providers::github::{
-    CredentialResolver, GitHubProvider, ProviderError, ProviderErrorKind, RequestContext,
-};
+use crate::providers::github::{GitHubProvider, ProviderError, ProviderErrorKind, RequestContext};
 use crate::security::scan::ContentScan;
 use std::path::Path;
 
@@ -47,11 +45,8 @@ pub(super) enum FileHits {
 }
 
 /// Resolve `reference` (`None`: the default branch HEAD) to a commit SHA.
-pub(super) async fn resolve_commit<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &GitHubProvider<R, C>,
+pub(super) async fn resolve_commit<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     owner: &str,
     repo: &str,
     reference: Option<&str>,
@@ -65,11 +60,8 @@ pub(super) async fn resolve_commit<
 /// Read each path at `sha` concurrently and list its keyword lines.
 /// Cancellation and auth/rate failures propagate as `Unavailable` for the
 /// file, except cancellation, which aborts.
-pub(super) async fn resolve_files<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &GitHubProvider<R, C>,
+pub(super) async fn resolve_files<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     owner: &str,
     repo: &str,
     sha: &str,

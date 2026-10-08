@@ -2,8 +2,8 @@
 //! are already small, so they stay raw (no minify): lines, spacing, and
 //! comments are the evidence, and each match keeps its own line offset.
 use crate::{
-    providers::github::{ProviderError, ProviderErrorKind, TextMatch},
-    security::scan::ContentScan,
+    providers::github::{ProviderError, TextMatch},
+    security::scan::{ContentScan, sanitize_provider_text},
 };
 use serde_json::{Value, json};
 use std::path::Path;
@@ -13,10 +13,7 @@ pub(super) fn project(
     path: &str,
     security: &impl ContentScan,
 ) -> Result<Option<Value>, ProviderError> {
-    let sanitized = security
-        .sanitize(&fragment.fragment, Path::new(path))
-        .map_err(|(message, _)| ProviderError::new(ProviderErrorKind::Validation, message))?
-        .0;
+    let sanitized = sanitize_provider_text(security, &fragment.fragment, Path::new(path))?;
     let anchors = positions(fragment, &sanitized);
     let text = sanitized;
     if text.is_empty() {

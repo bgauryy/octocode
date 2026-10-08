@@ -1,13 +1,13 @@
-use std::collections::HashMap;
-use std::path::Path;
-use std::sync::LazyLock;
 use tree_sitter::Language;
 
 use crate::signatures::languages;
+use crate::text::file_extension::extension_of;
 
-pub struct GrammarSpec {
-    pub language_id: &'static str,
-    language: Language,
+/// The grammar of a file with an LSP language id, read from the single
+/// language registry (`signatures::languages`).
+pub(crate) struct GrammarSpec {
+    pub(crate) language_id: &'static str,
+    language: &'static Language,
 }
 
 impl GrammarSpec {
@@ -16,45 +16,18 @@ impl GrammarSpec {
         content: &str,
         deadline: std::time::Instant,
     ) -> Option<tree_sitter::Tree> {
-        crate::signatures::extractor::parse_before(content, &self.language, deadline)
+        crate::signatures::extractor::parse_before(content, self.language, deadline)
     }
 }
 
-/// Grammars are pre-built once at first use and reused for every subsequent
-/// `grammar_for_file` call. `Language` is `Clone + Send + Sync`, so storing it
-/// in a `LazyLock<HashMap>` is safe and avoids repeated FFI calls per lookup.
-static GRAMMAR_MAP: LazyLock<HashMap<&'static str, GrammarSpec>> = LazyLock::new(init_grammar_map);
-
-pub fn grammar_for_file(file_path: &str) -> Option<&'static GrammarSpec> {
-    let ext = Path::new(file_path)
-        .extension()
-        .map(|e| e.to_string_lossy().to_ascii_lowercase())?;
-    GRAMMAR_MAP.get(ext.as_str())
-}
-
-/// Derived from the single language registry (`signatures::languages`): every
-/// entry carrying a `language_id` contributes its extensions + grammar. There is
-/// no second grammar table, so the LSP grammar map can never drift from the
-/// registry the signature/structural layers read.
-fn init_grammar_map() -> HashMap<&'static str, GrammarSpec> {
-    let mut map = HashMap::with_capacity(32);
-
-    for entry in languages::all_entries() {
-        let Some(language_id) = entry.language_id else {
-            continue;
-        };
-        for &ext in entry.extensions {
-            map.insert(
-                ext,
-                GrammarSpec {
-                    language_id,
-                    language: entry.language.clone(),
-                },
-            );
-        }
-    }
-
-    map
+/// The registry grammar for `file_path`'s extension; `None` when no entry
+/// owns the extension or the entry carries no LSP language id.
+pub(crate) fn grammar_for_file(file_path: &str) -> Option<GrammarSpec> {
+    let entry = languages::find_entry(&extension_of(file_path, true, ""))?;
+    Some(GrammarSpec {
+        language_id: entry.language_id?,
+        language: &entry.language,
+    })
 }
 
 #[cfg(test)]

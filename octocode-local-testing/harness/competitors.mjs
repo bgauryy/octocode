@@ -162,8 +162,10 @@ async function restart(ws) {
 
 async function mcp(ctx, tool, args) {
   const client = await clientFor(ctx.ws);
-  // Byte gate measure: the compact structuredContent JSON length (text length without it).
-  const e = await client.raw(tool, args, '', { keepRaw: true, bytes: (rawSc, text) => (rawSc ? JSON.stringify(rawSc).length : text.length) });
+  // Byte gate measure: the compact structuredContent JSON length (text length without it),
+  // the payload Claude Code gives the model. OCTOCODE_COMPETITOR_BYTES=text measures the text channel.
+  const textBytes = process.env.OCTOCODE_COMPETITOR_BYTES === 'text';
+  const e = await client.raw(tool, args, '', { keepRaw: true, bytes: (rawSc, text) => (rawSc && !textBytes ? JSON.stringify(rawSc).length : text.length) });
   return { surface: 'mcp', tool, args, ms: Math.round(e.ms), bytes: e.bytes, raw: e.raw, sc: e.sc, text: e.text, isError: e.isError, transport: e.transport };
 }
 
@@ -278,12 +280,14 @@ function octocodeEvidence(entry, ev, { unsearched = false } = {}) {
     if (typeof node.file === 'string') ev.files.add(node.file);
     if (node.from?.path && Array.isArray(node.fromRanges)) { for (const r of node.fromRanges) pair(node.from.path, r.startLine); return; }
     if (node.displayRange && typeof node.path === 'string') pair(node.path, node.displayRange.startLine);
-    if (typeof node.line === 'number') pair(here, node.line);
+    // lspSearch callers: the row `line` is the caller's declaration; `sites` are the call lines.
+    if (Array.isArray(node.sites)) { for (const site of node.sites) pair(here, site?.line); }
+    else if (typeof node.line === 'number') pair(here, node.line);
     if (typeof node.content === 'string') numbered(here, node.content);
     if (Array.isArray(node.lines) && node.lines.every(l => typeof l === 'string')) for (const l of node.lines) { const m = /^(\d+)\t/.exec(l); if (m) pair(here, +m[1]); }
     // Compact rows: symbols outline rows (grouped and merged, see outlineRows)
     // and lean structural matches "<line>[-<end>]\t<value>".
-    if (Array.isArray(node.symbols)) for (const decl of outlineRows(node.symbols.filter(row => typeof row === 'string'))) if (Number.isInteger(decl.line)) pair(here, decl.line);
+    if (Array.isArray(node.symbols)) for (const decl of outlineRows(node.symbols)) if (Number.isInteger(decl.line)) pair(here, decl.line);
     if (Array.isArray(node.matches)) for (const row of node.matches) {
       if (typeof row !== 'string') continue;
       // Grouped lspSearch callers: "<line>:<col>[,<line>:<col>…] in <kind> <name> …" lists call sites.
@@ -297,18 +301,20 @@ function octocodeEvidence(entry, ev, { unsearched = false } = {}) {
     } else if (entry.tool === 'structureSearch' && typeof node.dir === 'string' && Array.isArray(node.files)) {
       // Groups were collected with their row above.
     } else if (typeof node.dir === 'string' && Array.isArray(node.files)) {
-      // ghStructure dirs are relative to the requested path (the agent's own input).
-      const base = entry.tool === 'ghStructure' ? String(entry.args?.queries?.[0]?.path ?? '').replace(/^\.?\/?$/, '') : '';
+      // ghStructure `dir` is the repo path; files read "<name> (<bytes>[, <YYYY-MM-DD>])" (GS3).
       const rel = node.dir === '.' || node.dir === '' ? '' : node.dir.replace(/\/$/, '');
-      const joined = [base.replace(/\/$/, ''), rel].filter(Boolean).join('/');
-      const dir = joined ? `${joined}/` : '';
-      for (const name of node.files) if (typeof name === 'string') { ev.files.add(dir + name); ev.fileRows.push(dir + name); }
+      const dir = rel ? `${rel}/` : '';
+      for (const entryName of node.files) if (typeof entryName === 'string') {
+        const name = entry.tool === 'ghStructure' ? entryName.replace(/ \(\d+(?:, \d{4}-\d{2}-\d{2})?\)$/, '') : entryName;
+        ev.files.add(dir + name); ev.fileRows.push(dir + name);
+      }
     }
     for (const [key, child] of Object.entries(node)) {
       if (isHintKey(key)) continue;
       if (key === 'unsearchedFiles' && Array.isArray(child)) { if (unsearched) for (const s of child) { const m = /^!\w+ (.+)$/.exec(s); if (m) ev.files.add(m[1]); } continue; }
       if (key === 'files' && entry.tool === 'ghGetHistoryItem' && Array.isArray(child) && child.some(c => typeof c === 'string' || (c && !('path' in c)))) { for (const f of inventoryRows(child)) if (f.path) ev.files.add(f.path); continue; }
-      if (key === 'from' || key === 'displayRange') continue;
+      // `enclosing` names the declaration around a hit (X1/X2); its line is not a hit.
+      if (key === 'from' || key === 'displayRange' || key === 'enclosing') continue;
       walk(child, here, Array.isArray(child) ? true : false);
     }
   };
@@ -398,7 +404,7 @@ function maxNextEntries(node) {
   return max;
 }
 // A paging continuation (it reaches the rest of the same evidence), as
-// opposed to a lead to a different read (read, readFixPullRequest, viewRepo, …).
+// opposed to a lead to a different read (read, readPullRequest, viewRepo, …).
 const PAGING_NAME = /page|continue|more|expand|resume|pagination|clasify|^next$/i;
 const PAGING_KEYS = ['page', 'offset', 'matchPage', 'filePage', 'patchPage', 'responseOffset', 'after', 'resume'];
 // A core `pages` name (e.g. nextDiagnosticPage) pages its row whatever its spelling.

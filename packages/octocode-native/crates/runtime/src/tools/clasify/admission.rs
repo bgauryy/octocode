@@ -178,13 +178,13 @@ fn relations(query: &Value) -> Result<(), ContractValidationError> {
 
 #[cfg(test)]
 mod tests {
-    use crate::contracts::{ContractValidationError, PrepareOptions, prepare_many_and_validate};
+    use crate::contracts::{ContractValidationError, prepare_many_and_validate};
     use serde_json::{Value, json};
 
     /// The engine's clasify admission: contract validation, then the batch
     /// relation rules.
     fn admit(input: Value) -> Result<Vec<Value>, ContractValidationError> {
-        let queries = prepare_many_and_validate("clasify", input, PrepareOptions::default())?;
+        let queries = prepare_many_and_validate("clasify", input)?;
         super::check(&queries)?;
         Ok(queries)
     }

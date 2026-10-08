@@ -86,7 +86,7 @@ fn read_small(path: &Path) -> Option<String> {
 }
 
 /// A SHA-1 or SHA-256 object name.
-fn is_sha(value: &str) -> bool {
+pub(crate) fn is_sha(value: &str) -> bool {
     matches!(value.len(), 40 | 64) && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 

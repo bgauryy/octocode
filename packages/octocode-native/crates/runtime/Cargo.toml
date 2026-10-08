@@ -25,6 +25,7 @@ path = "tests/main.rs"
 # recompiled hyper → reqwest → this crate → cli under new hashes (47 extra units,
 # measured with `cargo --unit-graph`). Off in release: always-on cost +1.2% CLI
 # binary size. Keep in sync with test deps; napi's `noop` is deliberately excluded.
+# `node skills-dev/octocode-dev/scripts/dev.mjs check:dev-unify` reports drift.
 dev-unify = ["dep:hyper", "dep:hyper-util", "dep:bitflags", "dep:fastrand", "dep:slab", "tokio-util/codec"]
 
 [dependencies]
@@ -91,3 +92,8 @@ windows-native-keyring-store = "1"
 # stdout/stderr lint policy.
 [lints]
 workspace = true
+
+# `regress` backs the generated contract types (included code); the rest exist
+# only to unify features under `dev-unify`.
+[package.metadata.cargo-machete]
+ignored = ["regress", "hyper", "hyper-util", "bitflags", "fastrand", "slab"]

@@ -4,8 +4,12 @@
 /// set never drifts between modules.
 pub const JS_TS_EXTENSIONS: &[&str] = &["ts", "tsx", "mts", "cts", "js", "jsx", "mjs", "cjs"];
 
-/// Extract the file extension from a path, handling dotfiles correctly.
-pub fn get_extension_internal(file_path: &str, lowercase: bool, fallback: &str) -> String {
+/// The extension of the path's basename (after the last `/` or `\\`), the
+/// one extension helper for the crate. A dotfile names its own extension
+/// (`.bashrc` → `bashrc`); a dot in a directory name is never read; a name
+/// without a dot gives `fallback`. `lowercase` folds case so `.TS` matches
+/// `ts`.
+pub fn extension_of(file_path: &str, lowercase: bool, fallback: &str) -> String {
     let basename = file_path.rsplit(['/', '\\']).next().unwrap_or(file_path);
 
     let ext = if let Some(dotfile_ext) = basename.strip_prefix('.') {
@@ -120,36 +124,42 @@ mod tests {
 
     #[test]
     fn extension_returned_when_path_has_dot() {
-        assert_eq!(get_extension_internal("foo.ts", false, ""), "ts");
+        assert_eq!(extension_of("foo.ts", false, ""), "ts");
     }
 
     #[test]
     fn extension_lowercased_when_lowercase_requested() {
-        assert_eq!(get_extension_internal("Foo.TS", true, ""), "ts");
+        assert_eq!(extension_of("Foo.TS", true, ""), "ts");
     }
 
     #[test]
     fn dotfile_name_treated_as_extension() {
-        assert_eq!(get_extension_internal(".gitignore", true, ""), "gitignore");
+        assert_eq!(extension_of(".gitignore", true, ""), "gitignore");
     }
 
     #[test]
     fn fallback_returned_when_no_extension() {
-        assert_eq!(get_extension_internal("Makefile", false, "txt"), "txt");
+        assert_eq!(extension_of("Makefile", false, "txt"), "txt");
     }
 
     #[test]
     fn last_dot_wins_for_multi_dot_names() {
-        assert_eq!(get_extension_internal("archive.tar.gz", false, ""), "gz");
+        assert_eq!(extension_of("archive.tar.gz", false, ""), "gz");
     }
 
     #[test]
     fn last_dot_wins_for_multi_dot_dotfiles() {
-        assert_eq!(get_extension_internal(".env.local", false, ""), "local");
+        assert_eq!(extension_of(".env.local", false, ""), "local");
     }
 
     #[test]
     fn windows_path_basename_is_supported() {
-        assert_eq!(get_extension_internal(r"C:\tmp\Foo.TS", true, ""), "ts");
+        assert_eq!(extension_of(r"C:\tmp\Foo.TS", true, ""), "ts");
+    }
+
+    #[test]
+    fn dotted_directory_names_are_not_extensions() {
+        assert_eq!(extension_of("a.b/Makefile", true, ""), "");
+        assert_eq!(extension_of("lib.ts/README", true, "txt"), "txt");
     }
 }

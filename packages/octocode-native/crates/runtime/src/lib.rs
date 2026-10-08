@@ -1,5 +1,5 @@
-//! Native execution shared by the CLI and the MCP addon.
-//! Migration is incremental; an absent handler must never delegate to Node.
+//! Native execution shared by the CLI and the MCP addon. Every tool runs
+//! here; the interfaces have no execution fallback.
 
 // Production code is held to the `expect_used`/`unwrap_used`/`panic` denials in
 // Cargo.toml `[lints]`. Test code is exempt: tests legitimately assert with
@@ -10,10 +10,10 @@ pub mod cache;
 mod canonical_json;
 mod civil_date;
 pub mod config;
-pub mod content;
+pub(crate) mod content;
 pub mod contracts;
 mod digest;
-pub mod policy;
+pub(crate) mod policy;
 mod private_file;
 mod process_status;
 pub mod providers;
@@ -24,4 +24,4 @@ pub mod security;
 pub mod tools;
 
 /// Identifies the native boundary independently of generated tool contracts.
-pub const NATIVE_ABI_VERSION: u32 = 4;
+pub const NATIVE_ABI_VERSION: u32 = 5;

@@ -102,7 +102,7 @@ fn render_search_hits(mut response: Value, query: &Value, format: TextFormat) ->
                 &[
                     "path",
                     "matchCount",
-                    "totalMatchedLines",
+                    "matchedLineCount",
                     "totalMatchRows",
                     "returnedMatchRows",
                     "matches",
@@ -200,7 +200,7 @@ fn compact_path_rows(response: &mut Value) {
             let Some(path) = map.get("path").and_then(Value::as_str) else {
                 continue;
             };
-            let count = ["matchCount", "totalMatchedLines"]
+            let count = ["matchCount", "matchedLineCount"]
                 .iter()
                 .find_map(|key| map.get(*key).and_then(Value::as_u64));
             let compact = match (map.len(), count) {
@@ -465,14 +465,159 @@ fn order_fields(value: &mut Value, keys: &[&str]) {
     }
 }
 
-fn yaml(value: Value, keys: &[&str]) -> String {
-    octocode_engine::portable::json_to_yaml_string(
+fn yaml(mut value: Value, keys: &[&str]) -> String {
+    let mut rows = Vec::new();
+    let tag = flow_tag(&value);
+    flow_rows(&mut value, &mut rows, 0, &tag);
+    let text = octocode_engine::portable::json_to_yaml_string(
         value,
         Some(octocode_engine::types::YamlConversionConfig {
             sort_keys: Some(false),
             keys_priority: Some(keys.iter().map(|key| (*key).into()).collect()),
         }),
-    )
+    );
+    if rows.is_empty() {
+        return text;
+    }
+    // Each placeholder is a plain scalar on its own list item; the flow
+    // mapping replaces that whole item (X1: one line per row object). The
+    // tag never occurs in the value, so only placeholder items match.
+    let mut out = String::with_capacity(text.len() + rows.iter().map(String::len).sum::<usize>());
+    for line in text.split_inclusive('\n') {
+        let body = line.trim_end_matches('\n');
+        let indent = body.len() - body.trim_start().len();
+        let row = body[indent..]
+            .strip_prefix("- ")
+            .and_then(|item| item.strip_prefix(tag.as_str()))
+            .and_then(|item| item.strip_suffix("__"))
+            .and_then(|index| index.parse::<usize>().ok())
+            .and_then(|index| rows.get(index));
+        match row {
+            Some(row) => {
+                out.push_str(&body[..indent + 2]);
+                out.push_str(row);
+                out.push_str(&line[body.len()..]);
+            }
+            None => out.push_str(line),
+        }
+    }
+    out
+}
+
+/// The placeholder prefix for flow rows: the first candidate that no key or
+/// string in `value` contains, so rendered evidence never spells one.
+fn flow_tag(value: &Value) -> String {
+    let mut nonce = 0usize;
+    loop {
+        let tag = match nonce {
+            0 => "__octocode_flow_row_".to_owned(),
+            _ => format!("__octocode_flow{nonce}_row_"),
+        };
+        if !mentions(value, &tag) {
+            return tag;
+        }
+        nonce += 1;
+    }
+}
+
+fn mentions(value: &Value, needle: &str) -> bool {
+    match value {
+        Value::String(text) => text.contains(needle),
+        Value::Array(items) => items.iter().any(|item| mentions(item, needle)),
+        Value::Object(map) => map
+            .iter()
+            .any(|(key, child)| key.contains(needle) || mentions(child, needle)),
+        _ => false,
+    }
+}
+
+/// Rows of a list that render as one YAML flow mapping per line.
+const FLOW_MAX_KEYS: usize = 10;
+/// The longest nested list a flow row keeps inline.
+const FLOW_MAX_ITEMS: usize = 8;
+
+fn flow_placeholder(tag: &str, index: usize) -> String {
+    format!("{tag}{index}__")
+}
+
+/// A row object whose values are scalars, small scalar lists, or flat
+/// objects (an `enclosing`, a call `site`): it fits one readable line.
+fn is_flow_row(value: &Value) -> bool {
+    let flat = |value: &Value| match value {
+        Value::Object(map) => map.values().all(|v| !v.is_object() && !v.is_array()),
+        Value::Array(items) => {
+            items.len() <= FLOW_MAX_ITEMS
+                && items.iter().all(|item| match item {
+                    Value::Object(map) => map.values().all(|v| !v.is_object() && !v.is_array()),
+                    Value::Array(_) => false,
+                    _ => true,
+                })
+        }
+        _ => true,
+    };
+    value
+        .as_object()
+        .is_some_and(|map| !map.is_empty() && map.len() <= FLOW_MAX_KEYS && map.values().all(flat))
+}
+
+/// List keys whose rows are location rows (X1): hits, matches, declarations.
+const FLOW_KEYS: [&str; 2] = ["matches", "symbols"];
+
+/// Replace every item of a location-row list (see [`FLOW_KEYS`]) that is a
+/// flow row with a placeholder string and record its flow text.
+/// `next`/`hints` continuations stay block style: an agent copies them.
+fn flow_rows(value: &mut Value, rows: &mut Vec<String>, depth: usize, tag: &str) {
+    if depth > 12 {
+        return;
+    }
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                if matches!(key.as_str(), "next" | "hints" | "query") {
+                    continue;
+                }
+                match child {
+                    Value::Array(items)
+                        if FLOW_KEYS.contains(&key.as_str())
+                            && !items.is_empty()
+                            && items.iter().all(is_flow_row) =>
+                    {
+                        for item in items.iter_mut() {
+                            let text = flow_text(item);
+                            *item = Value::String(flow_placeholder(tag, rows.len()));
+                            rows.push(text);
+                        }
+                    }
+                    _ => flow_rows(child, rows, depth + 1, tag),
+                }
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                flow_rows(item, rows, depth + 1, tag);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// One value in YAML flow style; strings are JSON-quoted (a JSON string is
+/// a YAML double-quoted scalar).
+fn flow_text(value: &Value) -> String {
+    match value {
+        Value::Object(map) => format!(
+            "{{{}}}",
+            map.iter()
+                .map(|(key, child)| format!("{key}: {}", flow_text(child)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+        Value::Array(items) => format!(
+            "[{}]",
+            items.iter().map(flow_text).collect::<Vec<_>>().join(", ")
+        ),
+        other => other.to_string(),
+    }
 }
 
 pub fn render_local_fetch(response: &Value) -> String {
@@ -632,6 +777,37 @@ mod tests {
         assert_eq!(TextFormat::from_config("yaml"), TextFormat::Yaml);
     }
 
+    /// H2: a matched value that spells the internal flow-row placeholder is
+    /// evidence; it must render verbatim, never as another row's text.
+    #[test]
+    fn flow_placeholder_text_in_content_renders_verbatim() {
+        let response = json!({"results":[{"index":0,"data":{"files":[{"path":"a.txt","matches":[
+            {"line":1,"value":"alpha first"},
+            {"line":3,"value":"alpha __octocode_flow_row_0__ third"},
+            {"line":4,"value":"__octocode_flow_row_1__"}
+        ]}],"notes":["__octocode_flow_row_0__"]}}]});
+        let text = render_tool(
+            ToolId::from_name("localSearch").expect("known tool"),
+            &response,
+            &json!({}),
+            TextFormat::Yaml,
+        );
+        assert!(
+            text.contains(r#"{line: 3, value: "alpha __octocode_flow_row_0__ third"}"#),
+            "{text}"
+        );
+        assert!(
+            text.contains(r#"{line: 4, value: "__octocode_flow_row_1__"}"#),
+            "{text}"
+        );
+        assert!(
+            text.contains(r#"{line: 1, value: "alpha first"}"#),
+            "{text}"
+        );
+        assert_eq!(text.matches("alpha first").count(), 1, "{text}");
+        assert!(text.contains("- __octocode_flow_row_0__"), "{text}");
+    }
+
     #[test]
     fn search_hits_order_rows_before_the_structured_encoding() {
         let response = json!({"results":[{"index":0,"data":{"files":[{"matches":[],"path":"a.rs"}],
@@ -764,7 +940,7 @@ mod tests {
     fn local_fetch_numbers_each_line_with_a_bare_gutter_under_a_flat_header() {
         let row = |path: &str, start: u64| {
             json!({"data":{"path":path,"totalLines":900,"content":"fn a() {\n\n    @@ 1-2 @@\n",
-                "sourceLineRanges":[{"start":start,"end":start + 2}]}})
+                "sourceLineRanges":[{"line":start,"endLine":start + 2}]}})
         };
         let mut one = json!({"root":"/r","results":[row("a.rs", 279)]});
         one["results"][0]["index"] = json!(0);
@@ -793,7 +969,7 @@ mod tests {
     fn github_file_content_renders_numbered_after_the_metadata() {
         let file = |path: &str, start: u64| {
             json!({"path":path,"content":"def a():\n    \"x\"\n","totalLines":40,
-                "sourceLineRanges":[{"start":start,"end":start + 1}],"commitSha":"abc"})
+                "sourceLineRanges":[{"line":start,"endLine":start + 1}],"commitSha":"abc"})
         };
         let with = |owner_repo: Value, file: Value| {
             let mut data = owner_repo;
@@ -880,7 +1056,7 @@ mod tests {
         let response = json!({"results":[{"index":0,"data":{"files":[
             {"path":"a.rs"},
             {"path":"b.rs","matchCount":3},
-            {"path":"c.rs","totalMatchedLines":2},
+            {"path":"c.rs","matchedLineCount":2},
             {"path":"d.rs","matches":[{"line":1,"value":"x"}]}]}}]});
         let text = render_tool(ToolId::LocalSearch, &response, &json!({}), TextFormat::Yaml);
         assert!(

@@ -1,5 +1,0 @@
-# cmd: octocode astSearch {"goal": "g", "reasoning": "r", "operation": "symbols", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts"}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"declarations":[{"name":"alphaNeedle","kind":"function","line":3,"endLine":6,"exported":true},{"name":"Widget","kind":"class","line":8,"endLine":13,"exported":true},{"name":"run","kind":"method","line":9,"endLine":12,"parent":"Widget"}],"path":"a.ts","totalDeclarations":3}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

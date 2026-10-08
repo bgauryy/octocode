@@ -1,6 +1,6 @@
 # Data contract and extraction quality
 
-Load when inspecting returned values, scripts, or corpus files, or when turning fetched pages into facts, rows, or summaries. Stable file contracts let agents paginate and analyze deterministically; scraped data is noisy and must stay auditable.
+Load when inspecting returned values, scripts, or corpus files, or when turning fetched pages into facts, rows, or summaries. Stable file contracts let agents paginate and analyze deterministically; scraped data is noisy and must stay auditable. Why: retain complete evidence and identify transformed data.
 
 ## Stdout contract
 Compact JSON only: `ok`, `sessionId`, `sessionDir`, `route`, `status`, `pages`, `warnings`, `agentIndex`, `analysis`, `searchFirst`, `rawAudit`. Never include scraped content. Bridge helpers also emit compact JSON (never raw HAR/HTML):
@@ -24,3 +24,7 @@ Compact JSON only: `ok`, `sessionId`, `sessionDir`, `route`, `status`, `pages`, 
 Verification must cover compact stdout, no raw payload stdout, the agent index, graph v2, source evidence on graph nodes and edges, target-error warnings, and secret rejection without a stack trace. It must also cover cost capture, failure reports, and resource extraction that never carries a `workflowType`. The bridge path must verify thinHints, redacted HAR processing, and API-field proof from a local regex or script without live Chrome.
 
 Next: to walk the folder and search order load `references/session-corpus.md`.
+
+Downloaded raw bodies are retained in full unless `--no-raw` opts out. Clean text is chunked without clipping or changing UTF-8 characters. `--max-text-bytes` bounds each clean-text part together with `--chunk-bytes`; it does not discard remaining downloaded text. Direct/hosted HTTP retains the existing disclosed terminal network cap of max(raw limit, text limit, 64000). Increasing that cap changes collection size.
+
+Query lists use executable `next.*` commands, corpus fingerprints and bounded pages. `source-query.mjs` returns independently decodable base64 byte pages; concatenate decoded bytes before interpreting UTF-8 text. Regex scans report oversized/unreadable files explicitly and provide source continuations. Ranking scans all stored text parts and stores per-term counts instead of page bodies. Graph construction and query metadata still load graph/roster data in memory.

@@ -1,6 +1,6 @@
 use super::{CloneContext, CloneError, check_control, hash};
 use crate::cache::evictions::log_eviction;
-use crate::civil_date::{civil_from_days, days_from_civil};
+use crate::civil_date::{days_from_civil, iso8601_millis};
 use crate::private_file::write_atomic;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -62,8 +62,8 @@ impl CacheMeta {
     pub fn new(identity: &Identity<'_>, commit_sha: &str, ttl: Duration) -> Self {
         let now = now_millis();
         Self {
-            cloned_at: iso_millis(now),
-            expires_at: iso_millis(now.saturating_add(ttl.as_millis() as i64)),
+            cloned_at: iso8601_millis(now),
+            expires_at: iso8601_millis(now.saturating_add(ttl.as_millis() as i64)),
             owner: identity.owner.to_owned(),
             repo: identity.repo.to_owned(),
             branch: identity.branch.to_owned(),
@@ -85,7 +85,7 @@ impl CacheMeta {
     /// cache directory whose meta disagrees (hash collision, manual edit,
     /// layout drift) must be re-cloned rather than served.
     pub fn matches(&self, identity: &Identity<'_>) -> bool {
-        let branch_matches = if super::is_commit(identity.branch) {
+        let branch_matches = if octocode_github::is_full_sha(identity.branch) {
             self.branch.eq_ignore_ascii_case(identity.branch)
         } else {
             self.branch == identity.branch
@@ -147,7 +147,7 @@ pub(super) fn write_default_branch_alias(
     let path = alias_path(home, owner, repo, endpoint);
     let Ok(bytes) = serde_json::to_vec(&DefaultBranchAlias {
         branch: branch.to_owned(),
-        recorded_at: iso_millis(now_millis()),
+        recorded_at: iso8601_millis(now_millis()),
     }) else {
         return;
     };
@@ -174,7 +174,7 @@ pub(super) fn clone_dir(
     // Full commit SHAs are case-insensitive; key them lowercase so FOO and foo
     // share one checkout.
     let lowered;
-    let branch = if super::is_commit(branch) {
+    let branch = if octocode_github::is_full_sha(branch) {
         lowered = branch.to_ascii_lowercase();
         lowered.as_str()
     } else {
@@ -318,8 +318,7 @@ pub(super) fn valid_clone(path: &Path, ttl: Duration) -> Option<CacheMeta> {
         || meta.repo.trim().is_empty()
         || meta.branch.trim().is_empty()
         || meta.source != "clone"
-        || meta.commit_sha.len() != 40
-        || !meta.commit_sha.bytes().all(|byte| byte.is_ascii_hexdigit())
+        || !octocode_github::is_full_sha(&meta.commit_sha)
     {
         return None;
     }
@@ -342,7 +341,7 @@ impl CacheAge {
         let expires = parse_iso_millis(&meta.expires_at)?;
         Some(Self {
             cloned_at: meta.cloned_at.clone(),
-            expires_at: iso_millis(cloned.saturating_add(ttl.as_millis() as i64).min(expires)),
+            expires_at: iso8601_millis(cloned.saturating_add(ttl.as_millis() as i64).min(expires)),
         })
     }
 }
@@ -593,19 +592,6 @@ fn now_millis() -> i64 {
         .as_millis() as i64
 }
 
-fn iso_millis(ms: i64) -> String {
-    let days = ms.div_euclid(86_400_000);
-    let remainder = ms.rem_euclid(86_400_000);
-    let (year, month, day) = civil_from_days(days);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
-        remainder / 3_600_000,
-        remainder / 60_000 % 60,
-        remainder / 1_000 % 60,
-        remainder % 1_000
-    )
-}
-
 fn parse_iso_millis(value: &str) -> Option<i64> {
     if !value.is_ascii()
         || value.len() != 24
@@ -647,7 +633,7 @@ mod tests {
     #[test]
     fn timestamp_round_trip() {
         for value in [0, 1_700_000_000_123, 1_900_000_000_999] {
-            assert_eq!(parse_iso_millis(&iso_millis(value)), Some(value));
+            assert_eq!(parse_iso_millis(&iso8601_millis(value)), Some(value));
         }
         assert_eq!(parse_iso_millis("2024-01-01T00:00:00.00éZ"), None);
     }

@@ -56,6 +56,10 @@ pub(crate) fn finish(
     super::pages::disclose_remaining_pages(&mut structured, tool);
     // A batch with partial rows says so before its first row.
     super::pages::disclose_incomplete_rows(&mut structured);
+    // Hosts show agents this JSON: source reads carry their line numbers in
+    // `content` itself, and both text encodings render from it. Numbering
+    // precedes validation so an unpaged response is exactly what was checked.
+    crate::tools::numbered::number_read_rows(tool, &mut structured);
     // Validate the complete, sanitized rows before deriving text, error state,
     // or a pagination snapshot from them.
     match isolate_output_rows(tool.as_str(), &mut structured) {
@@ -64,9 +68,6 @@ pub(crate) fn finish(
         Err(error) => return Ok(Err(error)),
     }
     let all_failed = response_all_failed(&structured);
-    // Hosts show agents this JSON: source reads carry their line numbers in
-    // `content` itself, and both text encodings render from it.
-    crate::tools::numbered::number_read_rows(tool, &mut structured);
     // An explicitly paged text response hashes and windows the rendered
     // text, so transient telemetry must leave before rendering (row pages
     // keep per-call facts outside their snapshot; the pager handles both).
@@ -105,14 +106,17 @@ pub(crate) fn finish(
             &context.cancellation,
         )
         .map_err(response_failure)?;
-    let structured_content = prepared.structured_content;
+    let mut structured_content = prepared.structured_content;
     context.check()?;
     // Page shaping crosses the public contract as well; rows validated
     // above and left unpaged are not validated twice.
     let paged = reshaped
         || structured_content.get("responsePagination").is_some()
         || structured_content.get("responseWindow").is_some();
-    if paged && let Err(error) = contracts::validate_output(tool.as_str(), &structured_content) {
+    if paged
+        && let Err(error) =
+            contracts::validate_output_in_place(tool.as_str(), &mut structured_content)
+    {
         return Ok(Err(error));
     }
     Ok(Ok(ToolOutcome {
@@ -128,7 +132,6 @@ pub(crate) fn finish(
 fn response_failure(error: ResponseError) -> ExecutionError {
     match error {
         ResponseError::Cancelled => ExecutionError::Cancelled,
-        ResponseError::RenderedTextTooLarge => ExecutionError::ResponseTooLarge,
         ResponseError::StructuredContentMustBeObject | ResponseError::Unserializable => {
             ExecutionError::WorkerFailed
         }
@@ -141,7 +144,7 @@ pub(crate) fn isolate_output_rows(
     tool: &str,
     structured: &mut Value,
 ) -> Result<bool, ContractValidationError> {
-    let Err(error) = contracts::validate_output(tool, structured) else {
+    let Err(error) = contracts::validate_output_in_place(tool, structured) else {
         return Ok(false);
     };
     let Some(patched) = contracts::isolate_row_violations(tool, structured, &error) else {
@@ -187,9 +190,9 @@ mod tests {
         ExecutionContext {
             cancellation: CancellationToken::new(),
             deadline: Instant::now() + Duration::from_secs(30),
-            output_bytes: 1 << 20,
             walk_threads: None,
             response_window: None,
+            github_credential: None,
         }
     }
 
@@ -228,11 +231,13 @@ mod tests {
                 "query":{"queries":[{"path":"/tmp/a.txt","mainGoal": "test", "reasoning":"r","debug":false,"offset":1}]}}}}})
     }
 
+    /// M9: a rendered response past the 8 MiB ceiling pages (rows, else
+    /// envelope windows) with an executable continuation instead of failing.
     #[test]
-    fn oversized_responses_report_their_own_error_not_a_worker_failure() {
+    fn oversized_responses_page_by_rows_instead_of_failing() {
         let content = "x".repeat(9 * 1024 * 1024);
         let structured = json!({"results":[{"index":0,"data":{"path":"a.txt","content":content,"totalLines":1}}]});
-        let failure = finish(
+        let outcome = finish(
             StageInput {
                 tool: ToolId::LocalFetch,
                 structured,
@@ -247,8 +252,35 @@ mod tests {
             },
             &context(),
         )
-        .err();
-        assert_eq!(failure, Some(ExecutionError::ResponseTooLarge));
+        .expect("execution")
+        .expect("contract-valid page");
+        let page = &outcome.structured_content;
+        // One 9 MiB string row cannot split into row pages: it windows.
+        assert_eq!(page["responsePagination"]["scope"], "structuredContent");
+        assert_eq!(
+            page["responsePagination"]["next"]["query"]["responseScope"],
+            "structured"
+        );
+        let text: usize = outcome.content.iter().map(|c| c.text.len()).sum();
+        assert!(text <= 9 * 1024 * 1024, "page text is bounded: {text}");
+    }
+
+    /// A page that continues keeps every other lead its row carries: the
+    /// regex match-limit warning names next.textSearch beside next.continue.
+    #[test]
+    fn a_continuing_row_keeps_its_search_lead() {
+        let mut row = fetch_row(0);
+        row["data"]["next"]["textSearch"] = json!({"tool":"localSearch",
+            "query":{"queries":[{"path":"/tmp/a.txt","matchString":"hit"}]}});
+        for mcp in [false, true] {
+            let outcome = stage("localFetch", json!({"results":[row.clone()]}), mcp);
+            let data = &outcome.structured_content["results"][0]["data"];
+            let leads = [&data["next"]["textSearch"], &data["hints"]["textSearch"]];
+            assert!(
+                leads.iter().any(|lead| lead["tool"] == "localSearch"),
+                "mcp={mcp}: {data}"
+            );
+        }
     }
 
     #[test]
@@ -256,10 +288,6 @@ mod tests {
         assert_eq!(
             response_failure(ResponseError::Cancelled),
             ExecutionError::Cancelled
-        );
-        assert_eq!(
-            response_failure(ResponseError::RenderedTextTooLarge),
-            ExecutionError::ResponseTooLarge
         );
     }
 
@@ -305,7 +333,7 @@ mod tests {
     #[test]
     fn source_reads_carry_line_numbers_in_structured_content() {
         let row = json!({"index":0,"data":{"path":"a.txt","content":"one\ntwo\n","totalLines":9,
-            "sourceLineRanges":[{"start":4,"end":5}]}});
+            "sourceLineRanges":[{"line":4,"endLine":5}]}});
         for mcp in [false, true] {
             let outcome = stage("localFetch", json!({"results":[row.clone()]}), mcp);
             let data = &outcome.structured_content["results"][0]["data"];
@@ -318,7 +346,7 @@ mod tests {
         }
         let gh = json!({"results":[{"index":0,"data":{"owner":"o","repo":"r",
             "path":"a.py","content":"x\n","totalLines":3,"commitSha":"abc",
-             "sourceLineRanges":[{"start":2,"end":2}]}}]});
+             "sourceLineRanges":[{"line":2,"endLine":2}]}}]});
         let outcome = stage("ghGetFileContent", gh, false);
         assert_eq!(
             outcome.structured_content["results"][0]["data"]["content"],

@@ -5,7 +5,7 @@ use tree_sitter::Node;
 
 use crate::signatures::nodes::node_text;
 
-use super::{GraphAccumulator, LineIndex};
+use super::{GraphAccumulator, NodePositions};
 use crate::graph::GraphFactImport;
 
 /// Outer attributes that precede one item, folded as `(path, unsupported)`.
@@ -171,7 +171,7 @@ pub(super) fn collect_rust_imports(
     node: Node<'_>,
     module_scope: &[String],
     content: &str,
-    index: &LineIndex<'_>,
+    index: &NodePositions<'_>,
     acc: &mut GraphAccumulator,
     unsupported: bool,
     deadline: std::time::Instant,

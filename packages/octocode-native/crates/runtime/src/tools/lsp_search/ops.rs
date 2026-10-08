@@ -5,9 +5,10 @@
 use super::LspSearchQuery;
 use super::cancellable;
 use super::failure::{LspFailure, empty, empty_hint};
-use super::importers::{self, Importers};
+use super::importers::{self, Importers, WindowRequest};
 use super::locations::{
     RECOVERED_ALIAS, items_payload, locations, public_hover, public_range, public_workspace_symbol,
+    salted_locations, snapshot_changed,
 };
 use super::recovery::{get_locations, recover_aliases, resolve_definition_chain, snippet_identity};
 use super::render::as_array;
@@ -75,11 +76,13 @@ impl Operation<'_, '_> {
             }
             "hover" => self.hover().await,
             "documentSymbols" => {
-                let mut symbols = cancellable(
-                    self.cancel,
-                    self.client.get_document_symbols(self.path.to_owned()),
-                )
-                .await??;
+                let mut symbols = std::sync::Arc::unwrap_or_clone(
+                    cancellable(
+                        self.cancel,
+                        self.client.get_document_symbols(self.path.to_owned()),
+                    )
+                    .await??,
+                );
                 if self
                     .language_id
                     .is_some_and(|id| super::render::TS_LANGUAGE_IDS.contains(&id))
@@ -91,9 +94,7 @@ impl Operation<'_, '_> {
             }
             "workspaceSymbol" => self.workspace_symbol().await,
             "diagnostic" => self.diagnostic().await,
-            "callers" | "callees" | "callHierarchy" | "supertypes" | "subtypes" => {
-                self.hierarchy().await
-            }
+            "callers" | "callees" | "supertypes" | "subtypes" => self.hierarchy().await,
             other => Ok(empty(
                 query,
                 "unsupportedOperation",
@@ -125,7 +126,11 @@ impl Operation<'_, '_> {
     }
 
     /// References from the anchor, plus alias and verified-importer
-    /// recoveries, each recovered row labelled with its source.
+    /// recoveries, each recovered row labelled with its source. Importer
+    /// page 1 lists the anchor's answer and the first importer window; a
+    /// later page (`importerPage` > 1) lists only its window's recovered
+    /// rows. A recovered row in a candidate file belongs to that file's
+    /// window, so each row is listed once across importer pages.
     async fn references(mut self) -> Result<Value, LspFailure> {
         let query = self.query;
         let include_declaration = query.include_declaration().unwrap_or(true);
@@ -157,9 +162,13 @@ impl Operation<'_, '_> {
         let known_files = found
             .iter()
             .chain(&recovered)
-            .map(|snippet| canonical_path(&uri_to_path(&snippet.uri)))
+            .map(|snippet| super::scope::canonical(&uri_to_path(&snippet.uri)))
             .collect::<HashSet<_>>();
         let importers = self.importers(&known_files).await?;
+        if importers.as_ref().is_some_and(|importers| importers.stale) {
+            return Ok(snapshot_changed(query));
+        }
+        let later_window = query.importer_page() > 1;
         let mut from_importers = Vec::new();
         if let Some(importers) = &importers {
             for anchor in importers.per_file() {
@@ -179,11 +188,10 @@ impl Operation<'_, '_> {
                     self.cancel.check().map_err(LspFailure::cancelled)?;
                     continue;
                 };
-                from_importers.extend(
-                    extra
-                        .into_iter()
-                        .filter(|snippet| seen.insert(snippet_identity(snippet))),
-                );
+                from_importers.extend(extra.into_iter().filter(|snippet| {
+                    importers.owns(&super::scope::canonical(&uri_to_path(&snippet.uri)))
+                        && seen.insert(snippet_identity(snippet))
+                }));
             }
         }
         // Recovered references are not reported from the anchor:
@@ -209,26 +217,45 @@ impl Operation<'_, '_> {
                         .flat_map(Importers::per_file)
                         .map(|anchor| anchor.path.clone()),
                 )
-                .chain(importers.iter().flat_map(|found| found.rejected.clone())),
+                .chain(importers.iter().flat_map(|found| found.rejected.clone()))
+                .chain(
+                    importers
+                        .iter()
+                        .flat_map(|found| found.covered().iter().cloned()),
+                ),
         );
+        // A later importer page leaves out the anchor's answer (listed on
+        // importer page 1); it still deduplicates this window's rows.
+        if later_window {
+            found.clear();
+        }
+        let recovered = if later_window { Vec::new() } else { recovered };
         let found = found
             .drain(..)
             .map(|snippet| serde_json::to_value(snippet).unwrap_or(Value::Null))
             .chain(recovered.into_iter().map(labelled(RECOVERED_ALIAS)))
             .chain(from_importers.into_iter().map(labelled(RECOVERED_IMPORTER)))
             .collect::<Vec<_>>();
-        let mut row = locations(
+        let empty_window = later_window && found.is_empty();
+        let mut row = salted_locations(
             self.query,
             self.sources,
             "references",
             "referencesProvider",
             found,
+            importers.as_ref().and_then(Importers::digest),
         )
         .await;
-        if let Some(importers) = &importers {
-            importers.annotate(&mut row);
+        if empty_window {
+            row["payload"]["reason"] = json!(format!(
+                "No candidate in importer page {} verified as a reference to this symbol.",
+                query.importer_page()
+            ));
         }
-        if alias_scan_capped && row.pointer("/payload/coverage").is_some() {
+        if let Some(importers) = &importers {
+            importers.annotate(&mut row, query, self.scope);
+        }
+        if !later_window && alias_scan_capped && row.pointer("/payload/coverage").is_some() {
             if let Some(name) = query.symbol_name() {
                 self.scope
                     .text_files(name, self.sources.policy(), self.cancel)
@@ -263,12 +290,13 @@ impl Operation<'_, '_> {
 
     /// A call or type hierarchy walk; TS/JS incoming walks also verify the
     /// importers the server's level-1 answer does not cover.
-    async fn hierarchy(mut self) -> Result<Value, LspFailure> {
+    async fn hierarchy(self) -> Result<Value, LspFailure> {
         let query = self.query;
-        let recovery = match self.importer_symbol().await {
+        let recovery = match self.importer_symbol()? {
             Some(symbol) => Some(ImporterRecovery {
                 symbol,
                 snippet_policy: self.snippet_policy,
+                window: WindowRequest::of(query),
             }),
             None => None,
         };
@@ -283,26 +311,27 @@ impl Operation<'_, '_> {
         )
         .await?;
         if let Some(importers) = &importers {
-            importers.annotate(&mut row);
+            importers.annotate(&mut row, query, self.scope);
         }
         Ok(row)
     }
 
     /// The symbol whose importers recovery verifies, when the server may
-    /// have missed importers (TS/JS incoming operations).
-    async fn importer_symbol(&mut self) -> Option<String> {
+    /// have missed importers (TS/JS incoming operations). An `importerPage`
+    /// past the first names a window only importer recovery has.
+    fn importer_symbol(&self) -> Result<Option<String>, LspFailure> {
         let operation = self.query.operation();
-        if !importers::applies(self.language_id, &operation) || self.root_only {
-            return None;
+        let symbol = (importers::applies(self.language_id, &operation) && !self.root_only)
+            .then(|| self.query.symbol_name())
+            .flatten()
+            .filter(|name| !name.trim().is_empty())
+            .map(str::to_owned);
+        if symbol.is_none() && self.query.importer_page() > 1 {
+            return Err(LspFailure::invalid_query(
+                "importerPage pages TypeScript/JavaScript importer recovery for references and callers; copy it only from next.nextImporterPage.",
+            ));
         }
-        match self.query.symbol_name() {
-            Some(name) if !name.trim().is_empty() => Some(name.to_owned()),
-            _ => {
-                self.sources.get(self.path).await.and_then(|source| {
-                    importers::word_at(&source.content, self.line, self.character)
-                })
-            }
-        }
+        Ok(symbol)
     }
 
     /// Verified importer anchors when the server may have missed importers
@@ -311,7 +340,7 @@ impl Operation<'_, '_> {
         &mut self,
         known_files: &HashSet<String>,
     ) -> Result<Option<Importers>, LspFailure> {
-        let Some(symbol) = self.importer_symbol().await else {
+        let Some(symbol) = self.importer_symbol()? else {
             return Ok(None);
         };
         importers::verified_anchors(
@@ -325,6 +354,7 @@ impl Operation<'_, '_> {
             self.line,
             self.character,
             known_files,
+            WindowRequest::of(self.query),
         )
         .await
         .map(Some)
@@ -417,11 +447,11 @@ impl Operation<'_, '_> {
             }
             let hint = if others.is_empty() {
                 format!(
-                    "workspaceRoot-only search covered the {searched} project of one representative file; pass path for a source file in the project that should contain the symbol."
+                    "workspaceRoot-only search covered the {searched} project of one file; pass path for a source file in the symbol's project."
                 )
             } else {
                 format!(
-                    "workspaceRoot-only search used the {searched} language server; this root also holds {} projects it did not search: follow hints.search*.",
+                    "workspaceRoot-only search used the {searched} server; this root also holds {} unsearched projects: follow hints.search*.",
                     others.join(", ")
                 )
             };
@@ -584,12 +614,6 @@ fn capitalized(word: &str) -> String {
         .next()
         .map(|first| first.to_uppercase().chain(chars).collect())
         .unwrap_or_default()
-}
-
-fn canonical_path(path: &str) -> String {
-    std::fs::canonicalize(path)
-        .map(|path| path.to_string_lossy().into_owned())
-        .unwrap_or_else(|_| path.to_owned())
 }
 
 /// Bindings (variables, fields, properties) rank after declarations of the

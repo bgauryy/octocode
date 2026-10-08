@@ -1,4 +1,4 @@
-export type TerminationSignal = 'SIGINT' | 'SIGTERM';
+type TerminationSignal = 'SIGINT' | 'SIGTERM';
 
 interface TerminationDependencies {
   stderr: Pick<NodeJS.WriteStream, 'isTTY' | 'write'>;

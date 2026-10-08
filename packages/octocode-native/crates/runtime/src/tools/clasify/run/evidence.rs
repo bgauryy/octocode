@@ -48,13 +48,13 @@ pub(super) fn evidence_lines(data: &Value) -> Option<Value> {
     if let Some(ranges) = ranges.filter(|ranges| ranges.len() > 1) {
         let pairs = ranges
             .iter()
-            .map(|range| Some(json!([range.get("start")?, range.get("end")?])))
+            .map(|range| Some(json!([range.get("line")?, range.get("endLine")?])))
             .collect::<Option<Vec<_>>>()?;
         return Some(Value::Array(pairs));
     }
     let range = ranges.and_then(|ranges| ranges.first());
     if let Some(range) = range {
-        return Some(json!([range.get("start")?, range.get("end")?]));
+        return Some(json!([range.get("line")?, range.get("endLine")?]));
     }
     if let (Some(start), Some(end)) = (data.get("startLine"), data.get("endLine"))
         && data
@@ -129,8 +129,8 @@ pub(super) fn is_file_read(source: &Value) -> bool {
     tool_of(source).is_some_and(clasify::is_file_read_tool)
 }
 
-/// A direct file read's own call, pinned to the returned ref when the caller
-/// named none. Located pages and `best` rows narrow it to one exact
+/// A direct file read's own call, pinned to the returned ref (or, for a paged
+/// local file, its snapshot) when the caller named none. Located pages and `best` rows narrow it to one exact
 /// window; the receipt keeps it private (`fileRead`), never published whole.
 pub(super) fn file_read_template(source: &Value, receipt: &Value) -> Option<Value> {
     let tool = tool_of(source).filter(|tool| clasify::is_file_read_tool(*tool))?;
@@ -143,6 +143,21 @@ pub(super) fn file_read_template(source: &Value, receipt: &Value) -> Option<Valu
         && let Some(reference) = receipt.pointer("/source/ref").filter(|r| r.is_string())
     {
         query["ref"] = reference.clone();
+    }
+    // A paged local file names its version on the continuation; every page's
+    // read pins it, so a changed file fails the read instead of shifting lines.
+    if tool == ToolId::LocalFetch
+        && query.get("snapshot").is_none()
+        && let Some(snapshot) = receipt
+            .get("next")
+            .and_then(Value::as_object)
+            .and_then(|next| {
+                next.values()
+                    .find_map(|call| call.pointer("/query/snapshot"))
+            })
+            .filter(|snapshot| snapshot.is_string())
+    {
+        query["snapshot"] = snapshot.clone();
     }
     Some(json!({"tool":tool.as_str(),"query":query}))
 }
@@ -272,7 +287,7 @@ mod tests {
     fn disjoint_file_evidence_keeps_distinct_source_ranges() {
         let state = json!({"results":[{"data":{
             "path":"/tmp/example.rs","content":(0..100).map(|i| format!("line {i}\n")).collect::<String>(),
-            "sourceLineRanges":[{"start":4,"end":53},{"start":1000,"end":1049}]
+            "sourceLineRanges":[{"line":4,"endLine":53},{"line":1000,"endLine":1049}]
         }}]});
         let evidence = file_evidence(&state).expect("file evidence");
         assert_eq!(evidence["lines"], json!([[4, 53], [1000, 1049]]));
@@ -326,7 +341,7 @@ mod tests {
         );
         let code = json!({"tool":"ghSearchCode","query":{"owner":"o"}});
         let hit = json!({"results":[{"data":{"files":[{"owner":"o","repo":"r","path":"a.rs",
-            "matches":[{"value":"acquire(n)","matchIndices":[{"start":0,"end":7}]}]}],
+            "matches":[{"value":"acquire(n)","matchIndices":[{"line":0,"endLine":7}]}]}],
             "pagination":{"currentPage":1}}}]});
         assert_eq!(
             candidate_state(&code, hit),
@@ -338,7 +353,7 @@ mod tests {
     fn file_reads_reach_the_provider_as_evidence_only() {
         let local = json!({"root":"/abs/root","results":[{"data":{
             "path":"a.rs","content":"fn a() {}\n","totalLines":1,"modified":"2026",
-            "sourceLineRanges":[{"start":1,"end":1}],"sourceBytes":10,"fileType":"code",
+            "sourceLineRanges":[{"line":1,"endLine":1}],"sourceBytes":10,"fileType":"code",
             "next":{"continue":{}}}}]});
         let source = json!({"tool":"localFetch","query":{}});
         assert_eq!(

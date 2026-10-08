@@ -267,7 +267,7 @@ async fn replay_every_continuation(
 
 #[tokio::test]
 async fn clasify_sends_optional_briefs_on_the_provider_state() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -349,7 +349,7 @@ async fn clasify_sends_optional_briefs_on_the_provider_state() {
 
 #[tokio::test]
 async fn provider_byte_limit_forwards_reasoning_and_isolates_oversized_questions() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -471,7 +471,7 @@ fn clasify_catalog_entry(runtime: &octocode_native::runtime::ToolRuntime) -> ser
 
 #[tokio::test]
 async fn startup_probe_keeps_clasify_when_the_provider_answers() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(noul_response(0.9))
@@ -489,7 +489,7 @@ async fn startup_probe_keeps_clasify_when_the_provider_answers() {
 
 #[tokio::test]
 async fn startup_probe_disables_clasify_when_the_provider_rejects_it() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(401))
         .mount(&server)
@@ -538,7 +538,7 @@ async fn startup_probe_disables_clasify_when_the_provider_is_unreachable() {
 
 #[tokio::test]
 async fn startup_probe_keeps_clasify_when_only_rate_limited() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(429).insert_header("retry-after", "0"))
         .mount(&server)
@@ -565,7 +565,7 @@ async fn startup_probe_is_skipped_without_a_key() {
 
 #[tokio::test]
 async fn matrix_is_resource_major_without_agent_telemetry_or_duplicate_text() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -622,7 +622,7 @@ async fn matrix_is_resource_major_without_agent_telemetry_or_duplicate_text() {
 
 #[tokio::test]
 async fn independent_resource_assessments_are_dispatched_concurrently() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let arrivals = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -674,7 +674,7 @@ async fn independent_resource_assessments_are_dispatched_concurrently() {
 
 #[tokio::test]
 async fn classification_max_concurrency_bounds_provider_requests_in_flight() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let arrivals = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -743,7 +743,7 @@ async fn classification_max_concurrency_bounds_provider_requests_in_flight() {
 
 #[tokio::test]
 async fn independent_query_matrices_are_dispatched_concurrently() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let arrivals = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -797,7 +797,7 @@ async fn independent_query_matrices_are_dispatched_concurrently() {
 
 #[tokio::test]
 async fn oversized_first_page_is_not_classified_or_given_a_looping_continuation() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "model":"resolved",
@@ -832,7 +832,7 @@ async fn oversized_first_page_is_not_classified_or_given_a_looping_continuation(
 
 #[tokio::test]
 async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -894,7 +894,7 @@ async fn max_chars_budgets_sanitized_resource_payload_not_serialized_envelope() 
 
 #[tokio::test]
 async fn scout_expands_explicit_question_type_and_preserves_source_identity() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "model":"resolved", "answers":{"answer":{"type":"noul","noul":0.82}},
@@ -956,7 +956,7 @@ async fn search_rejects_removed_semantic_addon_without_calling_provider() {
 
 #[tokio::test]
 async fn page_budget_continuation_round_trips_through_the_public_contract() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "model":"resolved",
@@ -1001,12 +1001,8 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
         std::collections::BTreeSet::from(["id", "maxChars", "query", "tool"]),
         "{assess}"
     );
-    octocode_native::contracts::prepare_many_and_validate(
-        "clasify",
-        call(assess.clone()),
-        octocode_native::contracts::PrepareOptions::default(),
-    )
-    .expect("next.clasify must execute unchanged");
+    octocode_native::contracts::prepare_many_and_validate("clasify", call(assess.clone()))
+        .expect("next.clasify must execute unchanged");
     octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
         .expect("nested query-cell-page output");
     assert_eq!(assess["questions"][0]["type"], "relevant");
@@ -1041,7 +1037,7 @@ async fn page_budget_continuation_round_trips_through_the_public_contract() {
 
 #[tokio::test]
 async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -1068,12 +1064,8 @@ async fn payload_over_max_chars_returns_an_executable_clasify_continuation() {
         .await
         .unwrap();
     let assess = first.structured_content["queries"][0]["next"]["clasify"]["queries"][0].clone();
-    octocode_native::contracts::prepare_many_and_validate(
-        "clasify",
-        call(assess.clone()),
-        octocode_native::contracts::PrepareOptions::default(),
-    )
-    .expect("next.clasify must satisfy the public input contract");
+    octocode_native::contracts::prepare_many_and_validate("clasify", call(assess.clone()))
+        .expect("next.clasify must satisfy the public input contract");
 
     let resumed = runtime
         .execute("over-budget-resume".into(), "clasify".into(), call(assess))
@@ -1120,7 +1112,7 @@ async fn invalid_inner_query_is_rejected_with_the_exact_contract_field() {
 
 #[tokio::test]
 async fn search_resource_fans_out_candidates_from_only_the_requested_page() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -1206,7 +1198,7 @@ async fn search_resource_fans_out_candidates_from_only_the_requested_page() {
 /// same preparation and validation as caller input, and replays as-is.
 #[tokio::test]
 async fn emitted_next_clasify_is_schema_valid_input_and_replays() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -1245,20 +1237,17 @@ async fn emitted_next_clasify_is_schema_valid_input_and_replays() {
         next.clone(),
     ))
     .unwrap_or_else(|error| panic!("generated ClasifyInput: {error}: {next}"));
-    let prepared = octocode_native::contracts::prepare_many_and_validate(
-        "clasify",
-        call(next.clone()),
-        octocode_native::contracts::PrepareOptions::default(),
-    )
-    .unwrap_or_else(|error| {
-        panic!(
-            "clasify input contract: {:?}: {next}",
-            error
-                .issues
-                .first()
-                .map(|issue| (&issue.path, &issue.message))
-        )
-    });
+    let prepared =
+        octocode_native::contracts::prepare_many_and_validate("clasify", call(next.clone()))
+            .unwrap_or_else(|error| {
+                panic!(
+                    "clasify input contract: {:?}: {next}",
+                    error
+                        .issues
+                        .first()
+                        .map(|issue| (&issue.path, &issue.message))
+                )
+            });
     assert_eq!(prepared.len(), 1);
     let first_paths = first.structured_content["queries"][0]["resources"][0]["pages"]
         .as_array()
@@ -1287,7 +1276,7 @@ async fn emitted_next_clasify_is_schema_valid_input_and_replays() {
 
 #[tokio::test]
 async fn file_chunk_scout_judges_every_hit_cluster_of_a_clipped_file() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -1371,7 +1360,7 @@ async fn file_chunk_scout_judges_every_hit_cluster_of_a_clipped_file() {
 #[tokio::test]
 async fn file_chunk_scout_judges_near_clusters_of_one_file_in_one_call() {
     for (filler, calls) in [("filler line", 1u64), (&*"long filler ".repeat(9), 2)] {
-        let server = MockServer::start().await;
+        let server = MockServer::builder().start().await;
         Mock::given(method("POST"))
             .and(path("/v1/systemone"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -1451,7 +1440,7 @@ async fn file_chunk_scout_judges_near_clusters_of_one_file_in_one_call() {
 
 #[tokio::test]
 async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -1558,9 +1547,233 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
     runtime.close().await;
 }
 
+/// Every line span one rendered page covers: its judged `scope`, and each
+/// range its read names (one row or a `queries` batch).
+fn page_spans(page: &serde_json::Value) -> Vec<(u64, u64)> {
+    let mut spans = Vec::new();
+    if let (Some(start), Some(end)) = (
+        page.pointer("/scope/startLine")
+            .and_then(serde_json::Value::as_u64),
+        page.pointer("/scope/endLine")
+            .and_then(serde_json::Value::as_u64),
+    ) {
+        spans.push((start, end));
+    }
+    let rows = page
+        .pointer("/hints/read/query/queries")
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    for row in rows {
+        for range in row["ranges"].as_array().into_iter().flatten() {
+            if let Some((start, end)) = range.as_str().and_then(|range| range.split_once('-')) {
+                spans.push((start.parse().unwrap(), end.parse().unwrap()));
+            }
+        }
+    }
+    spans
+}
+
+/// D1 (CL5: a fileChunks walk over tools/clasify covered 242 of 296 hit
+/// lines): a file whose search page lists 10 rows and 24 more lines but only
+/// counts the other 26 (`moreLinesUnlisted`) still has every hit line reach
+/// a window, judged or unjudged with its read.
+#[tokio::test]
+async fn file_chunks_reach_hit_lines_the_search_page_only_counted() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.7}},
+            "usage":{"input_tokens":3,"output_tokens":1}
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    // Two hundred long hit lines, one every three lines: too large to show
+    // whole, so the page shows 10 rows, lists 24 more lines, and counts the
+    // rest.
+    let hits = (1..=200).map(|step| step * 3).collect::<Vec<u64>>();
+    let mut body = String::new();
+    for line in 1..=610 {
+        if hits.contains(&line) {
+            body.push_str(&format!("needle {line} {}\n", filler(900)));
+        } else {
+            body.push_str("filler\n");
+        }
+    }
+    workspace.write("src/many.txt", body);
+    let root = workspace
+        .workspace
+        .join("src")
+        .to_string_lossy()
+        .into_owned();
+    let runtime = provider_runtime(&workspace, &server);
+    let search = json!({"path":root,"matchString":"needle"});
+    let listed = runtime
+        .execute(
+            "unlisted-search".into(),
+            "localSearch".into(),
+            json!({"queries":[{"path":root,"matchString":"needle","pageSize":5}]}),
+        )
+        .await
+        .expect("search");
+    let file = &listed.structured_content["results"][0]["data"]["files"][0];
+    assert!(
+        file.pointer("/pagination/moreLinesUnlisted")
+            .and_then(serde_json::Value::as_u64)
+            .is_some_and(|unlisted| unlisted > 0),
+        "the fixture leaves hit lines unlisted: {}",
+        file["pagination"]
+    );
+    let input = json!({
+        "id":"unlisted","reasoning":"r","mainGoal":"Find the deciding line.",
+        "resources":[{"id":"hits","tool":"localSearch","candidateEvidence":"fileChunks","query":search}],
+        "questions":[{"id":"decides","type":"yesno","ask":"Does this source decide the answer?"}]
+    });
+    let outcome = runtime
+        .execute("unlisted".into(), "clasify".into(), verbose(input))
+        .await
+        .expect("clasify");
+    let query = &outcome.structured_content["queries"][0];
+    let spans = query["resources"][0]["pages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(page_spans)
+        .collect::<Vec<_>>();
+    let missing = hits
+        .iter()
+        .filter(|hit| {
+            !spans
+                .iter()
+                .any(|(start, end)| (*start..=*end).contains(*hit))
+        })
+        .collect::<Vec<_>>();
+    assert!(missing.is_empty(), "uncovered {missing:?}: {query}");
+    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
+        .expect("unlisted hits output contract");
+    runtime.close().await;
+}
+
+/// D3 (CL5 fc1.json: 64 identical error objects, 12.2 KB of 38 KB, each with
+/// a one-window read): hit windows a spent budget left unjudged state their
+/// error once per resource, and each file's unjudged windows share one read
+/// that names each window once; judged and unjudged together cover every hit.
+#[tokio::test]
+async fn unjudged_hit_windows_state_their_error_once_and_batch_per_file() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.7}},
+            "usage":{"input_tokens":3,"output_tokens":1}
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    // Five files with seven far hit clusters each: more windows than the
+    // page budget judges.
+    let hits = (0..7).map(|step| 10 + step * 400).collect::<Vec<u64>>();
+    for file in 0..5 {
+        let mut body = String::new();
+        for line in 1..=2500 {
+            body.push_str(if hits.contains(&line) {
+                "needle marker\n"
+            } else {
+                "filler line\n"
+            });
+        }
+        workspace.write(&format!("src/f{file}.txt"), body);
+    }
+    let root = workspace
+        .workspace
+        .join("src")
+        .to_string_lossy()
+        .into_owned();
+    let runtime = provider_runtime(&workspace, &server);
+    let input = json!({
+        "id":"spent","reasoning":"r","mainGoal":"Find the deciding line.",
+        "resources":[{"id":"hits","tool":"localSearch","candidateEvidence":"fileChunks",
+            "query":{"path":root,"matchString":"needle"}}],
+        "questions":[{"id":"a","type":"yesno","ask":"Does this source decide the answer?"}]
+    });
+    let outcome = runtime
+        .execute("spent".into(), "clasify".into(), call(input))
+        .await
+        .expect("clasify");
+    let query = &outcome.structured_content["queries"][0];
+    let resource = &query["resources"][0];
+    let pages = resource["pages"].as_array().cloned().unwrap_or_default();
+    let unjudged = pages
+        .iter()
+        .filter(|page| page.get("answers").is_none())
+        .collect::<Vec<_>>();
+    assert!(
+        !unjudged.is_empty(),
+        "the fixture spends the page budget: {query}"
+    );
+    assert_eq!(
+        resource["error"]["errorCode"], "classificationBudgetSpent",
+        "{query}"
+    );
+    assert_eq!(
+        outcome
+            .structured_content
+            .to_string()
+            .matches("classificationBudgetSpent")
+            .count(),
+        1,
+        "stated once: {query}"
+    );
+    let mut files = std::collections::HashSet::new();
+    for page in &unjudged {
+        assert!(page.get("error").is_none(), "{page}");
+        let rows = page
+            .pointer("/hints/read/query/queries")
+            .and_then(serde_json::Value::as_array)
+            .unwrap_or_else(|| panic!("a batched read: {page}"));
+        let path = rows[0]["path"].as_str().unwrap().to_owned();
+        assert!(files.insert(path), "one unjudged page per file: {query}");
+    }
+    // Judged pages name their window (`line`..`endLine`); together with the
+    // batched reads they cover every hit of every file.
+    for file in 0..5 {
+        let path = format!("src/f{file}.txt");
+        let mut spans = Vec::new();
+        for page in &pages {
+            let named = page["path"].as_str() == Some(path.as_str())
+                || page
+                    .pointer("/hints/read/query/queries/0/path")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(path.as_str());
+            if !named {
+                continue;
+            }
+            if let (Some(start), Some(end)) = (page["line"].as_u64(), page["endLine"].as_u64()) {
+                spans.push((start, end));
+            }
+            spans.extend(page_spans(page));
+        }
+        for hit in &hits {
+            assert!(
+                spans
+                    .iter()
+                    .any(|(start, end)| (*start..=*end).contains(hit)),
+                "{path}:{hit} unreached: {query}"
+            );
+        }
+    }
+    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
+        .expect("unjudged batch output contract");
+    runtime.close().await;
+}
+
 #[tokio::test]
 async fn expanded_cells_fail_before_any_provider_request() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(500))
         .expect(0)
@@ -1628,7 +1841,7 @@ async fn expanded_cells_fail_before_any_provider_request() {
 
 #[tokio::test]
 async fn empty_file_is_reported_without_a_provider_call() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(500))
         .expect(0)
@@ -1663,7 +1876,7 @@ async fn empty_file_is_reported_without_a_provider_call() {
 
 #[tokio::test]
 async fn empty_search_page_is_not_sent_to_the_provider() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(500))
         .expect(0)
@@ -1702,7 +1915,7 @@ async fn empty_search_page_is_not_sent_to_the_provider() {
 
 #[tokio::test]
 async fn disjoint_file_match_windows_return_real_ranges_without_a_focus() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "model":"resolved",
@@ -1750,7 +1963,7 @@ async fn disjoint_file_match_windows_return_real_ranges_without_a_focus() {
 
 #[tokio::test]
 async fn long_positive_scout_sends_only_authored_questions_and_preserves_probabilities() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "model":"resolved",
@@ -1848,7 +2061,7 @@ async fn long_positive_scout_sends_only_authored_questions_and_preserves_probabi
 
 #[tokio::test]
 async fn snippet_continuations_visit_every_file_and_match_page_before_completing() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -1923,7 +2136,7 @@ async fn snippet_continuations_visit_every_file_and_match_page_before_completing
 
 #[tokio::test]
 async fn clasify_locate_preflight_returns_a_typed_error_without_capture_or_provider_calls() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[
         ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
@@ -1964,7 +2177,7 @@ async fn clasify_locate_preflight_returns_a_typed_error_without_capture_or_provi
 
 #[tokio::test]
 async fn a_repeated_matrix_replays_its_judgment_without_a_second_provider_request() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -2002,7 +2215,7 @@ async fn a_repeated_matrix_replays_its_judgment_without_a_second_provider_reques
 
 #[tokio::test]
 async fn identical_pages_in_one_call_share_a_single_provider_request() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(noul_response(0.6).set_delay(Duration::from_millis(200)))
@@ -2046,7 +2259,7 @@ async fn identical_pages_in_one_call_share_a_single_provider_request() {
 
 #[tokio::test]
 async fn judgment_cache_ignores_correlation_ids_but_not_question_text() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(noul_response(0.4))
@@ -2094,7 +2307,7 @@ async fn judgment_cache_ignores_correlation_ids_but_not_question_text() {
 
 #[tokio::test]
 async fn prefilter_window_is_centered_on_the_hit_not_aligned_to_a_bucket() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(noul_response(0.9))
@@ -2147,7 +2360,7 @@ async fn prefilter_window_is_centered_on_the_hit_not_aligned_to_a_bucket() {
 
 #[tokio::test]
 async fn prefilter_hits_beyond_three_windows_resume_through_next_clasify() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(noul_response(0.9))
@@ -2269,7 +2482,7 @@ async fn prefilter_hits_beyond_three_windows_resume_through_next_clasify() {
 
 #[tokio::test]
 async fn partial_provider_answers_are_not_cached_and_a_failed_read_is_isolated() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     // First response drops answer_1 (partial); later responses are complete.
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -2336,7 +2549,7 @@ async fn partial_provider_answers_are_not_cached_and_a_failed_read_is_isolated()
 /// page must be judged like any other search resource.
 #[tokio::test]
 async fn gh_search_code_resource_is_judged_without_a_context_contract_violation() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -2398,7 +2611,7 @@ async fn gh_search_code_resource_is_judged_without_a_context_contract_violation(
 #[tokio::test]
 async fn a_lone_strong_locate_window_in_best_carries_an_exact_github_read() {
     use base64::Engine as _;
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(LocateTopPassage {
@@ -2469,23 +2682,26 @@ async fn a_lone_strong_locate_window_in_best_carries_an_exact_github_read() {
         // ghGetFileContent's published line-span spelling.
         assert_eq!(
             query["ranges"],
-            json!([format!("{}-{}", row["lines"][0], row["lines"][1])]),
+            json!([format!("{}-{}", row["line"], row["endLine"])]),
             "{row}"
         );
         assert!(query.get("fullContent").is_none(), "{row}");
     }
-    assert_eq!(rows[0]["lines"][0], 1, "{output}");
+    assert_eq!(rows[0]["line"], 1, "{output}");
     // A finished walk has no carry; nothing private leaks.
     assert!(no_continuation(&output["queries"][0]), "{output}");
     assert!(!output.to_string().contains("fileRead"), "{output}");
     runtime.close().await;
 }
 
-/// A locate target naming an identifier over a local file keeps its string
-/// hint and gains `next.localSearch`, a schema-valid literal search that runs.
+/// A matrix that also asks a described target runs locate; its literal
+/// target (one identifier in a lookup sentence) over a local file keeps its
+/// string hint and gains `hints.textSearch`, a schema-valid literal search
+/// that runs. The described target adds no hint. Two literals share one
+/// search that reaches both.
 #[tokio::test]
 async fn identifier_locate_target_emits_an_executable_local_search() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(LocateTopPassage {
@@ -2506,7 +2722,11 @@ async fn identifier_locate_target_emits_an_executable_local_search() {
         "resources":[{"id":"steps","tool":"localFetch","query":{
             "path":file,"fullContent":true
         }}],
-        "questions":[{"id":"t","type":"locate","ask":"Where is step_17 defined?"}]
+        "questions":[
+            {"id":"t","type":"locate","ask":"Where is step_17 defined?"},
+            {"id":"u","type":"locate","ask":"find step_23"},
+            {"id":"d","type":"locate","ask":"The step function that returns one."}
+        ]
     });
     let outcome = runtime
         .execute("locate-literal".into(), "clasify".into(), verbose(input))
@@ -2516,6 +2736,12 @@ async fn identifier_locate_target_emits_an_executable_local_search() {
     octocode_native::contracts::validate_output("clasify", output)
         .expect("literal search continuation output contract");
     let query = &output["queries"][0];
+    assert!(query["best"]["d"].is_array(), "locate ran: {query}");
+    assert_eq!(
+        query["hints"]["text"].as_array().map(Vec::len),
+        Some(2),
+        "one tip per literal target: {query}"
+    );
     assert!(
         query["hints"]["text"][0]
             .as_str()
@@ -2530,10 +2756,12 @@ async fn identifier_locate_target_emits_an_executable_local_search() {
         file.as_str(),
         "{search}"
     );
+    // One search reaches every literal: an alternation of both.
     assert_eq!(
-        search["query"]["queries"][0]["matchString"], "step_17",
+        search["query"]["queries"][0]["matchString"], "step_17|step_23",
         "{search}"
     );
+    assert_eq!(search["query"]["queries"][0]["regex"], "rust", "{search}");
     let found = runtime
         .execute(
             "literal-search".into(),
@@ -2544,6 +2772,7 @@ async fn identifier_locate_target_emits_an_executable_local_search() {
         .expect("next.localSearch executes");
     let rendered = found.structured_content.to_string();
     assert!(rendered.contains("fn step_17()"), "{rendered}");
+    assert!(rendered.contains("fn step_23()"), "{rendered}");
     assert!(
         !rendered.contains("fn step_1()"),
         "literal match only: {rendered}"
@@ -2557,7 +2786,7 @@ async fn identifier_locate_target_emits_an_executable_local_search() {
 /// the rows it already judged.
 #[tokio::test]
 async fn symbols_scout_judges_each_file_once_across_outline_pages() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -2628,7 +2857,7 @@ async fn symbols_scout_judges_each_file_once_across_outline_pages() {
 /// plus provider usage.
 #[tokio::test]
 async fn a_matrix_compacts_by_default_and_debug_returns_the_full_receipt() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -2666,7 +2895,7 @@ async fn a_matrix_compacts_by_default_and_debug_returns_the_full_receipt() {
         // The host never saw the delegated read: a positive verdict
         // carries the read of exactly the judged lines.
         json!({"id":"src","path":"trace.txt","totalLines":1,
-            "pages":[{"lines":[1,1],"answers":{"present":0.8,"kind":"runtime"},
+            "pages":[{"line":1,"endLine":1,"answers":{"present":0.8,"kind":"runtime"},
                 // A cross-tool lead starts its own step: no matrix brief.
                 "hints":{"read":{"tool":"localFetch","query":{"queries":[{
                     "path":"trace.txt","ranges":["1-1"]}]}}}}]}),
@@ -2696,7 +2925,7 @@ async fn a_matrix_compacts_by_default_and_debug_returns_the_full_receipt() {
 
 #[tokio::test]
 async fn search_candidates_above_max_chars_never_reach_the_provider() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(noul_response(0.7))
         .expect(0)
@@ -2740,7 +2969,7 @@ async fn search_candidates_above_max_chars_never_reach_the_provider() {
 
 #[tokio::test]
 async fn search_candidates_past_the_remaining_budget_resume_without_skips() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(noul_response(0.4))
         .mount(&server)
@@ -2780,7 +3009,6 @@ async fn search_candidates_past_the_remaining_budget_resume_without_skips() {
                 octocode_native::contracts::prepare_many_and_validate(
                     "clasify",
                     call(next.clone()),
-                    octocode_native::contracts::PrepareOptions::default(),
                 )
                 .expect("next.clasify replays unchanged");
                 input = next.clone();
@@ -2806,7 +3034,7 @@ async fn search_candidates_past_the_remaining_budget_resume_without_skips() {
 
 #[tokio::test]
 async fn list_items_above_max_chars_never_reach_the_provider() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(noul_response(0.7))
         .expect(0)
@@ -2843,7 +3071,7 @@ async fn list_items_above_max_chars_never_reach_the_provider() {
 
 #[tokio::test]
 async fn hydrated_candidates_share_one_max_chars_budget() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(noul_response(0.4))
         .mount(&server)
@@ -2903,7 +3131,7 @@ async fn hydrated_candidates_share_one_max_chars_budget() {
 
 #[tokio::test]
 async fn a_hydrated_window_cut_by_its_budget_still_contains_its_hit() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(noul_response(0.9))
         .mount(&server)
@@ -2962,7 +3190,7 @@ async fn a_hydrated_window_cut_by_its_budget_still_contains_its_hit() {
 
 #[tokio::test]
 async fn sufficient_unread_file_evidence_returns_a_bounded_verification_read() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(noul_response(0.95))
         .mount(&server)
@@ -3016,7 +3244,7 @@ async fn sufficient_unread_file_evidence_returns_a_bounded_verification_read() {
 
 #[tokio::test]
 async fn confident_negative_file_pages_add_no_read() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(noul_response(0.05))
         .mount(&server)
@@ -3043,7 +3271,7 @@ async fn confident_negative_file_pages_add_no_read() {
 
 #[tokio::test]
 async fn an_oversized_next_page_shrinks_and_the_replay_advances() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(noul_response(0.2))
         .mount(&server)
@@ -3101,9 +3329,70 @@ async fn an_oversized_next_page_shrinks_and_the_replay_advances() {
     runtime.close().await;
 }
 
+/// Leftover of QA P5: a `ranges` read larger than `maxChars` is judged in
+/// line windows that each fit, with `next.clasify` reading the rest of the
+/// range, instead of failing `classificationContextTooLarge` with no read.
+/// Every requested line is judged exactly once, and none outside the range.
+#[tokio::test]
+async fn an_oversized_ranges_read_is_judged_in_fitting_windows() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .respond_with(noul_response(0.2))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let file = workspace.write("uneven.txt", uneven_lines());
+    let runtime = provider_runtime(&workspace, &server);
+    let mut input = json!({
+        "id":"ranges","reasoning":"Judge one range in bounded pages.","mainGoal":"Decide the next read.",
+        "debug":true,
+        "resources":[{"id":"doc","maxChars":400,"tool":"localFetch","query":{
+            "path":file,"ranges":["3-22"]
+        }}],
+        "questions":[{"id":"q","type":"yesno","ask":"Is the marker stated?"}]
+    });
+    let mut covered = 2u64;
+    let mut calls = 0;
+    loop {
+        calls += 1;
+        assert!(calls <= 12, "the walk must terminate");
+        let outcome = runtime
+            .execute(
+                format!("ranges-{calls}"),
+                "clasify".into(),
+                call(input.clone()),
+            )
+            .await
+            .unwrap();
+        let query = &outcome.structured_content["queries"][0];
+        let resource = &query["resources"][0];
+        assert!(
+            resource.get("error").is_none(),
+            "an oversized range is split, not failed: {query}"
+        );
+        for page in resource["pages"].as_array().unwrap() {
+            assert!(page.get("error").is_none(), "{query}");
+            let scope = &page["scope"];
+            assert_eq!(
+                scope["startLine"].as_u64().unwrap(),
+                covered + 1,
+                "no line is skipped or repeated: {query}"
+            );
+            covered = scope["endLine"].as_u64().unwrap();
+        }
+        match query["next"].get("clasify") {
+            Some(next) => input = next.clone(),
+            None => break,
+        }
+    }
+    assert_eq!(covered, 22);
+    assert!(calls > 1, "the range did not fit one call");
+    runtime.close().await;
+}
+
 #[tokio::test]
 async fn an_oversized_whole_file_read_shrinks_into_line_chunks() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(noul_response(0.2))
         .mount(&server)
@@ -3161,7 +3450,7 @@ async fn an_oversized_whole_file_read_shrinks_into_line_chunks() {
 
 #[tokio::test]
 async fn a_line_larger_than_the_whole_budget_is_terminal_not_a_repeating_continuation() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(noul_response(0.2))
         .mount(&server)
@@ -3200,7 +3489,7 @@ async fn a_line_larger_than_the_whole_budget_is_terminal_not_a_repeating_continu
 
 #[tokio::test]
 async fn a_changed_source_is_rejected_on_replay_instead_of_mixing_versions() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(noul_response(0.2))
         .mount(&server)
@@ -3240,14 +3529,13 @@ async fn a_changed_source_is_rejected_on_replay_instead_of_mixing_versions() {
 }
 
 /// A located window on a walk that is still open is offered as `hints.read`
-/// ahead of the walk, which stays in `next.clasify`; no prose repeats it.
-/// Every clasify
-/// continuation kind (the walk, the top read, row and page reads, the
-/// literal search, chunk-page verification reads) runs exactly as emitted,
-/// with and without the caller's brief.
+/// ahead of the walk, which stays in `next.clasify`; no prose repeats the
+/// read. Every clasify continuation kind (the walk, the top read, row and
+/// page reads, the literal search, chunk-page verification reads) runs
+/// exactly as emitted, with and without the caller's brief.
 #[tokio::test]
 async fn every_clasify_continuation_kind_replays_verbatim() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(LocateTopPassage {
@@ -3266,8 +3554,8 @@ async fn every_clasify_continuation_kind_replays_verbatim() {
     let mut kinds = std::collections::BTreeSet::new();
     for (debug, briefed, ask) in [
         (false, false, "Where the walk sets its filler value"),
-        (true, false, "Where walk_filler_7 is set"),
-        (false, true, "Where walk_filler_7 is set"),
+        (true, false, "Where the walk sets its filler value"),
+        (false, true, "Where the walk sets its filler value"),
     ] {
         let mut input = json!({
             "resources":[{"id":"f","maxChars":20000,"tool":"localFetch","query":{"path":file}}],
@@ -3320,10 +3608,37 @@ async fn every_clasify_continuation_kind_replays_verbatim() {
         }
         assert!(calls >= 2, "{ask}: the file spans several calls");
     }
+    // A literal target routes straight to its literal search (no walk).
+    for (debug, briefed) in [(true, false), (false, true)] {
+        let mut input = json!({
+            "resources":[{"id":"f","maxChars":20000,"tool":"localFetch","query":{"path":file}}],
+            "questions":[{"id":"t","type":"locate","ask":"Where walk_filler_7 is set"}]
+        });
+        if debug {
+            input["debug"] = json!(true);
+        }
+        if briefed {
+            input["mainGoal"] = json!("Find where the walk sets its value.");
+            input["reasoning"] = json!("Read the deciding line.");
+        }
+        let outcome = runtime
+            .execute("literal".into(), "clasify".into(), call(input))
+            .await
+            .unwrap();
+        let output = &outcome.structured_content;
+        octocode_native::contracts::validate_output("clasify", output)
+            .expect("clasify output contract");
+        assert!(
+            replay_every_continuation(&runtime, output, briefed, &mut kinds)
+                .await
+                .is_none(),
+            "no walk: {output}"
+        );
+    }
 
     // Chunk pages of a yes/no screen offer verification reads of exactly
     // their judged lines.
-    let chunk_server = MockServer::start().await;
+    let chunk_server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .respond_with(noul_response(0.6))
         .mount(&chunk_server)
@@ -3381,7 +3696,7 @@ async fn every_clasify_continuation_kind_replays_verbatim() {
 
 #[tokio::test]
 async fn exhausted_provider_quota_fails_once_per_resource_and_is_remembered() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(402).set_body_json(json!({"detail":"no credit"})))
@@ -3527,7 +3842,7 @@ async fn exhausted_provider_quota_fails_once_per_resource_and_is_remembered() {
 /// counted, since a walk that judged nothing offers no next.clasify.
 #[tokio::test]
 async fn provider_refusal_is_stated_once_and_keeps_every_captured_read() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
         .respond_with(ResponseTemplate::new(402).set_body_json(json!({"detail":"no credit"})))
@@ -3612,5 +3927,388 @@ async fn provider_refusal_is_stated_once_and_keeps_every_captured_read() {
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
     octocode_native::contracts::validate_output("clasify", &out.structured_content)
         .expect("refusal output contract");
+    runtime.close().await;
+}
+
+/// GitHub repository search pages sliced by `page`/`per_page`, as GitHub
+/// serves them.
+#[derive(Clone)]
+struct RepoSearchPages {
+    repos: usize,
+}
+
+impl Respond for RepoSearchPages {
+    fn respond(&self, request: &Request) -> ResponseTemplate {
+        let param = |name: &str, default: usize| {
+            request
+                .url
+                .query_pairs()
+                .find(|(key, _)| key == name)
+                .and_then(|(_, value)| value.parse::<usize>().ok())
+                .unwrap_or(default)
+        };
+        let (page, per) = (param("page", 1).max(1), param("per_page", 30).max(1));
+        let items = ((page - 1) * per..(page * per).min(self.repos))
+            .map(|n| {
+                json!({"full_name": format!("o/repo{n}"), "name": format!("repo{n}"),
+                       "owner": {"login": "o"}, "html_url": "https://x", "default_branch": "main",
+                       "description": format!("Repository {n} {}", "detail ".repeat(20)),
+                       "archived": false})
+            })
+            .collect::<Vec<_>>();
+        ResponseTemplate::new(200).set_body_json(json!({
+            "total_count": self.repos, "incomplete_results": false, "items": items
+        }))
+    }
+}
+
+/// P3: a list resource whose `maxChars` fits only some candidates of a page
+/// defers the rest to `next.clasify`, which resumes at the first deferred
+/// candidate (a page that starts there), so the walk judges every
+/// candidate exactly once instead of skipping to the next page.
+#[tokio::test]
+async fn a_list_walk_rejudges_budget_deferred_candidates() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer":{"type":"noul","noul":0.6}},
+            "usage":{"input_tokens":2,"output_tokens":1}
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/repositories"))
+        .respond_with(RepoSearchPages { repos: 12 })
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("GITHUB_TOKEN", "clasify-list-budget-fixture".into()),
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let mut next = Some(json!({
+        "reasoning":"Judge the repositories.","mainGoal":"Which repository holds the parser.",
+        "resources":[{"id":"repos","tool":"ghSearchRepo","maxChars":500,
+            "query":{"keywords":["parser"],"pageSize":5}}],
+        "questions":[{"id":"a","type":"yesno","ask":"Does this repository hold the parser?"}]
+    }));
+    let mut judged = Vec::<String>::new();
+    let mut pages = Vec::<(u64, u64)>::new();
+    let mut calls = 0;
+    while let Some(input) = next.take() {
+        calls += 1;
+        let query = &input
+            .pointer("/queries/0/resources/0/query")
+            .unwrap_or(&input["resources"][0]["query"]);
+        pages.push((
+            query["page"].as_u64().unwrap_or(1),
+            query["pageSize"].as_u64().unwrap_or(0),
+        ));
+        assert!(calls <= 20, "walk did not finish");
+        let outcome = runtime
+            .execute(format!("list-{calls}"), "clasify".into(), verbose(input))
+            .await
+            .expect("clasify");
+        let row = &outcome.structured_content["queries"][0];
+        assert!(
+            !row.to_string().contains("classificationBudgetSpent"),
+            "call {calls}: a deferred candidate was left unjudged: {row}"
+        );
+        for page in row["resources"][0]["pages"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
+            if page.get("answers").is_some() {
+                let item = page
+                    .pointer("/source/item")
+                    .or_else(|| page.get("item"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_else(|| panic!("call {calls}: page names its item: {page}"));
+                judged.push(item.to_owned());
+            }
+        }
+        next = row.pointer("/next/clasify").cloned();
+    }
+    let mut sorted = judged.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(sorted.len(), judged.len(), "judged twice: {judged:?}");
+    let mut expected = (0..12).map(|n| format!("o/repo{n}")).collect::<Vec<_>>();
+    expected.sort();
+    assert_eq!(sorted, expected, "every candidate judged: {judged:?}");
+    // After a resume re-pages mid-page, the walk steps back to the
+    // original 5-row pages at the next aligned boundary.
+    assert_eq!(
+        pages,
+        vec![(1, 5), (2, 2), (5, 1), (2, 5), (8, 1), (5, 2), (3, 5)],
+        "{pages:?}"
+    );
+    runtime.close().await;
+}
+
+/// QA P5 was reproduced on a GitHub file: a `ghGetFileContent` `ranges` read
+/// larger than `maxChars` is judged in fitting line windows, with
+/// `next.clasify` reading the rest, every requested line exactly once.
+#[tokio::test]
+async fn an_oversized_github_ranges_read_is_judged_in_fitting_windows() {
+    use base64::Engine as _;
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .and(path("/v1/systemone"))
+        .respond_with(noul_response(0.2))
+        .mount(&server)
+        .await;
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"sha": sha})))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/commits"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .mount(&server)
+        .await;
+    let source = uneven_lines();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/o/r/contents/uneven.txt"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "type":"file","encoding":"base64",
+            "content": base64::engine::general_purpose::STANDARD.encode(&source),
+            "size": source.len(), "sha": "f".repeat(40), "path":"uneven.txt"
+        })))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("OCTOCODE_CLASSIFICATION_API", "secret".into()),
+        ("OCTOCODE_CLASSIFICATION_API_HOST", server.uri()),
+        ("GITHUB_TOKEN", "clasify-gh-ranges-fixture".into()),
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("REQUEST_TIMEOUT", MOCK_PROVIDER_TIMEOUT_MS.into()),
+    ]);
+    let mut input = json!({
+        "id":"ghranges","reasoning":"Judge one range in bounded pages.","mainGoal":"Decide the next read.",
+        "debug":true,
+        "resources":[{"id":"doc","maxChars":400,"tool":"ghGetFileContent","query":{
+            "owner":"o","repo":"r","path":"uneven.txt","ref":"main","ranges":["3-22"]
+        }}],
+        "questions":[{"id":"q","type":"yesno","ask":"Is the marker stated?"}]
+    });
+    let mut covered = 2u64;
+    let mut calls = 0;
+    loop {
+        calls += 1;
+        assert!(calls <= 12, "the walk must terminate");
+        let outcome = runtime
+            .execute(
+                format!("ghranges-{calls}"),
+                "clasify".into(),
+                call(input.clone()),
+            )
+            .await
+            .unwrap();
+        let query = &outcome.structured_content["queries"][0];
+        let resource = &query["resources"][0];
+        assert!(resource.get("error").is_none(), "{query}");
+        for page in resource["pages"].as_array().unwrap() {
+            assert!(page.get("error").is_none(), "{query}");
+            let scope = &page["scope"];
+            assert_eq!(
+                scope["startLine"].as_u64().unwrap(),
+                covered + 1,
+                "no line is skipped or repeated: {query}"
+            );
+            covered = scope["endLine"].as_u64().unwrap();
+        }
+        match query["next"].get("clasify") {
+            Some(next) => input = next.clone(),
+            None => break,
+        }
+    }
+    assert_eq!(covered, 22);
+    assert!(calls > 1, "the range did not fit one call");
+    runtime.close().await;
+}
+
+/// A single line inside a `ranges` read that alone exceeds `maxChars` cannot
+/// be judged, but stays reachable: its page carries an executable read, and
+/// the lines after it continue through `next.clasify`.
+#[tokio::test]
+async fn an_unsplittable_line_in_a_ranges_read_keeps_its_read_and_the_rest() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .respond_with(noul_response(0.2))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let file = workspace.write(
+        "wide.txt",
+        format!("short one\n{}\nshort three\nshort four\n", filler(500)),
+    );
+    let runtime = provider_runtime(&workspace, &server);
+    let input = json!({
+        "id":"wide","reasoning":"Judge one range in bounded pages.","mainGoal":"Decide the next read.",
+        "resources":[{"id":"doc","maxChars":100,"tool":"localFetch","query":{
+            "path":file,"ranges":["2-4"]
+        }}],
+        "questions":[{"id":"q","type":"yesno","ask":"Is the marker stated?"}]
+    });
+    let outcome = runtime
+        .execute("wide-range".into(), "clasify".into(), verbose(input))
+        .await
+        .unwrap();
+    let query = &outcome.structured_content["queries"][0];
+    let resource = &query["resources"][0];
+    let failed = resource["pages"]
+        .as_array()
+        .and_then(|pages| pages.iter().find(|page| page.get("error").is_some()))
+        .unwrap_or(resource);
+    assert_eq!(
+        failed["error"]["errorCode"], "classificationContextTooLarge",
+        "{query}"
+    );
+    let read = resource_read(resource)
+        .or_else(|| failed["hints"]["read"].as_object().cloned().map(Into::into))
+        .unwrap_or_else(|| panic!("the oversized line keeps an executable read: {query}"));
+    assert_eq!(read["tool"], "localFetch", "{query}");
+    assert_eq!(
+        lead_row(&read["query"])["ranges"],
+        json!(["2-2"]),
+        "{query}"
+    );
+    let next = &query["next"]["clasify"];
+    assert_eq!(
+        next["queries"][0]["resources"][0]["query"]["ranges"],
+        json!(["3-4"]),
+        "the lines after the oversized one continue: {query}"
+    );
+    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
+        .expect("output contract");
+    runtime.close().await;
+}
+
+/// A path list (structureSearch, ghStructure, astTopology) stays one page, so
+/// `relevant`/`sufficient` over it is one whole-list verdict. The verdict is
+/// kept and one tip routes the agent to `choice` over the paths; a `choice`
+/// matrix gets no tip.
+#[tokio::test]
+async fn whole_list_questions_over_a_path_list_hint_toward_choice() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .respond_with(noul_response(0.6))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    workspace.write("src/alpha.rs", "fn alpha() {}\n");
+    let file = workspace.write("src/bravo.rs", "fn bravo() {}\n");
+    let dir = file.parent().unwrap().to_path_buf();
+    let runtime = provider_runtime(&workspace, &server);
+    let matrix = |id: &str, question: serde_json::Value| {
+        json!({
+            "id":id,"reasoning":"Pick the file to read.","mainGoal":"Find the bravo handler.",
+            "resources":[{"id":"tree","tool":"structureSearch","query":{"operation":"files","path":dir}}],
+            "questions":[question]
+        })
+    };
+    let tip = |query: &serde_json::Value| {
+        query["hints"]["text"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(serde_json::Value::as_str)
+            .find(|hint| hint.contains("choice"))
+            .map(str::to_owned)
+    };
+    for kind in ["relevant", "sufficient"] {
+        let outcome = runtime
+            .execute(
+                format!("list-{kind}"),
+                "clasify".into(),
+                call(matrix(
+                    kind,
+                    json!({"id":"q","type":kind,"ask":"Which file defines bravo?"}),
+                )),
+            )
+            .await
+            .unwrap();
+        let query = &outcome.structured_content["queries"][0];
+        assert!(
+            compact_answer(&query["resources"][0], "q").is_number(),
+            "{query}"
+        );
+        let tip = tip(query).unwrap_or_else(|| panic!("no choice tip: {query}"));
+        assert!(tip.chars().count() <= 120, "{tip}");
+        octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
+            .expect("output contract");
+    }
+    let outcome = runtime
+        .execute(
+            "list-choice".into(),
+            "clasify".into(),
+            call(matrix(
+                "choice",
+                json!({"id":"q","type":"choice","ask":"Does this list name the bravo file?",
+                    "labels":{"yes":"Names it","no":"Does not"}}),
+            )),
+        )
+        .await
+        .unwrap();
+    assert!(
+        tip(&outcome.structured_content["queries"][0]).is_none(),
+        "{}",
+        outcome.structured_content
+    );
+    runtime.close().await;
+}
+
+/// Every page of a multi-page file read is pinned to the captured version:
+/// page 1's verification read carries the same `snapshot` as page 2's, so a
+/// changed file fails the read instead of returning other lines.
+#[tokio::test]
+async fn every_page_read_of_a_paged_file_pins_the_captured_snapshot() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("POST"))
+        .respond_with(noul_response(0.95))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let body = (1..=24).map(|n| format!("line {n}\n")).collect::<String>();
+    let file = workspace.write("doc.txt", body);
+    let runtime = provider_runtime(&workspace, &server);
+    let input = json!({
+        "id":"pinned","reasoning":"Walk the file in pages.","mainGoal":"Find the marker.",
+        "resources":[{"id":"doc","tool":"localFetch","query":{"path":file,"unit":"lines","length":8}}],
+        "questions":[{"id":"s","type":"sufficient","ask":"Is the marker stated?"}]
+    });
+    let outcome = runtime
+        .execute("pinned".into(), "clasify".into(), call(input))
+        .await
+        .unwrap();
+    let resource = &outcome.structured_content["queries"][0]["resources"][0];
+    let pages = resource["pages"]
+        .as_array()
+        .unwrap_or_else(|| panic!("{resource}"));
+    assert!(pages.len() >= 2, "{resource}");
+    let snapshots = pages
+        .iter()
+        .map(|page| lead_row(&page["hints"]["read"]["query"])["snapshot"].clone())
+        .collect::<Vec<_>>();
+    assert!(
+        snapshots[0].is_string(),
+        "page 1 read is pinned: {resource}"
+    );
+    assert!(
+        snapshots.iter().all(|snapshot| *snapshot == snapshots[0]),
+        "{resource}"
+    );
+    octocode_native::contracts::validate_output("clasify", &outcome.structured_content)
+        .expect("output contract");
     runtime.close().await;
 }

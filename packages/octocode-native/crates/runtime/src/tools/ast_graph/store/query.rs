@@ -5,7 +5,10 @@
 use super::format::{
     Confidence, EdgeKind, EdgeRec, FLAG_EXPORTED, GraphTables, NONE, NodeKind, decode,
 };
-use super::{GRAPH_FILE, GraphOutput, LATEST_FILE, MANIFEST_FILE, graph_home, list_snapshots};
+use super::{
+    GRAPH_FILE, GraphOutput, LATEST_FILE, MANIFEST_FILE, graph_home, list_snapshots,
+    read_graph_file,
+};
 use crate::policy::path::PathPolicy;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, VecDeque};
@@ -63,6 +66,8 @@ pub struct QueryOptions {
     pub confidence: Option<String>,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
+    /// Evidence list in `summary` or `baseline` to return as paged results.
+    pub list: Option<String>,
     /// `issues`: detectors to run (default all).
     pub detectors: Vec<String>,
     /// `issues`: snapshot to diff findings against (new / existing / resolved).
@@ -159,7 +164,7 @@ fn load(options: &QueryOptions, paths: &PathPolicy) -> Result<Graph, Failure> {
                 format!("{} has no readable manifest", dir.display()),
             )
         })?;
-    let bytes = std::fs::read(dir.join(GRAPH_FILE)).map_err(|error| {
+    let bytes = read_graph_file(&dir.join(GRAPH_FILE)).map_err(|error| {
         fail(
             5,
             "graph.corrupt",
@@ -401,12 +406,84 @@ struct Page {
     total: usize,
 }
 
+const LIST_PREVIEW: usize = 100;
+
+fn select_list(
+    options: &QueryOptions,
+    extra: &mut Map<String, Value>,
+) -> Result<Option<Page>, GraphOutput> {
+    let Some(list) = options.list.as_deref() else {
+        return Ok(None);
+    };
+    let Some((section, field)) = list.split_once('.') else {
+        return Err(GraphOutput::error(
+            2,
+            "graph.input",
+            "--list needs summary.<field> or baseline.<field>",
+        ));
+    };
+    if !matches!(section, "summary" | "baseline") {
+        return Err(GraphOutput::error(
+            2,
+            "graph.input",
+            "--list names a summary or baseline array",
+        ));
+    }
+    let Some(Value::Array(rows)) = extra
+        .get_mut(section)
+        .and_then(Value::as_object_mut)
+        .and_then(|object| object.remove(field))
+    else {
+        return Err(GraphOutput::error(
+            2,
+            "graph.input",
+            format!("unknown evidence list {list:?}"),
+        ));
+    };
+    let total = rows.len();
+    extra.insert("list".into(), json!(list));
+    Ok(Some(Page { rows, total }))
+}
+
+fn preview_extra_lists(options: &QueryOptions, id: &str, extra: &mut Map<String, Value>) {
+    let mut continuations = Map::new();
+    for section in ["summary", "baseline"] {
+        let Some(object) = extra.get_mut(section).and_then(Value::as_object_mut) else {
+            continue;
+        };
+        for (field, value) in object {
+            let Some(rows) = value.as_array_mut() else {
+                continue;
+            };
+            if rows.len() <= LIST_PREVIEW {
+                continue;
+            }
+            let list = format!("{section}.{field}");
+            let mut next = options.clone();
+            next.list = Some(list.clone());
+            rows.truncate(LIST_PREVIEW);
+            continuations.insert(list, json!(next_command(&next, id, 0)));
+        }
+    }
+    if !continuations.is_empty() {
+        extra.insert("nextLists".into(), Value::Object(continuations));
+    }
+}
+
 fn run_page(
     options: &QueryOptions,
     graph: &Graph,
-    extra: Map<String, Value>,
-    page: Page,
+    mut extra: Map<String, Value>,
+    mut page: Page,
 ) -> GraphOutput {
+    if options.list.as_deref() != Some("cycleNodes") {
+        match select_list(options, &mut extra) {
+            Ok(Some(selected)) => page = selected,
+            Ok(None) => {}
+            Err(error) => return error,
+        }
+    }
+    preview_extra_lists(options, &graph.id, &mut extra);
     let offset = options.offset.unwrap_or(0);
     let limit = options.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let total = page.total;
@@ -453,11 +530,135 @@ fn quote(arg: &str) -> String {
     }
 }
 
+#[cfg(test)]
+mod evidence_list_tests {
+    use super::*;
+
+    #[test]
+    fn nested_summary_list_has_a_lossless_paged_route() {
+        let mut extra = Map::new();
+        let values = (0..125)
+            .map(|i| json!(format!("test-{i}")))
+            .collect::<Vec<_>>();
+        extra.insert(
+            "summary".into(),
+            json!({"testsToRun":values,"testCount":125}),
+        );
+        let options = QueryOptions {
+            op: "impact".into(),
+            ..Default::default()
+        };
+        preview_extra_lists(&options, "snapshot-id", &mut extra);
+        assert_eq!(
+            extra["summary"]["testsToRun"].as_array().unwrap().len(),
+            100
+        );
+        assert!(
+            extra["nextLists"]["summary.testsToRun"]
+                .as_str()
+                .unwrap()
+                .contains("--list summary.testsToRun")
+        );
+
+        let mut complete = Map::new();
+        complete.insert(
+            "summary".into(),
+            json!({"testsToRun":(0..125).map(|i| format!("test-{i}")).collect::<Vec<_>>() }),
+        );
+        let list_options = QueryOptions {
+            list: Some("summary.testsToRun".into()),
+            ..options
+        };
+        let page = select_list(&list_options, &mut complete)
+            .expect("list")
+            .expect("rows");
+        assert_eq!(page.total, 125);
+        assert_eq!(page.rows[124], "test-124");
+    }
+
+    #[test]
+    fn large_cycle_preview_links_to_all_members() {
+        let keys = (0..51).map(|i| format!("node-{i}")).collect::<Vec<_>>();
+        let row = cycle_preview_row(
+            &QueryOptions {
+                op: "cycles".into(),
+                ..Default::default()
+            },
+            "snapshot-id",
+            &keys,
+        );
+        assert_eq!(row["nodes"].as_array().unwrap().len(), 50);
+        assert!(
+            row["nextNodes"]
+                .as_str()
+                .unwrap()
+                .contains("--list cycleNodes")
+        );
+        assert!(row["nextNodes"].as_str().unwrap().contains("node-0"));
+    }
+
+    #[test]
+    fn continuation_keeps_the_explicit_workspace() {
+        let options = QueryOptions {
+            op: "impact".into(),
+            workspace: Some(PathBuf::from("/tmp/graph-fixture")),
+            list: Some("summary.testsToRun".into()),
+            ..Default::default()
+        };
+        let next = next_command(&options, "snapshot-id", 50);
+        assert!(next.contains("--workspace /tmp/graph-fixture"), "{next}");
+    }
+
+    #[test]
+    fn resolved_findings_are_reachable_after_the_preview() {
+        let mut extra = Map::new();
+        extra.insert(
+            "baseline".into(),
+            json!({"resolvedFindings":(0..125).map(|i| json!({"id":format!("finding-{i}")})).collect::<Vec<_>>() }),
+        );
+        let options = QueryOptions {
+            op: "issues".into(),
+            ..Default::default()
+        };
+        preview_extra_lists(&options, "snapshot-id", &mut extra);
+        assert_eq!(
+            extra["baseline"]["resolvedFindings"]
+                .as_array()
+                .unwrap()
+                .len(),
+            100
+        );
+        assert!(
+            extra["nextLists"]["baseline.resolvedFindings"]
+                .as_str()
+                .unwrap()
+                .contains("--list baseline.resolvedFindings")
+        );
+        let list = QueryOptions {
+            list: Some("baseline.resolvedFindings".into()),
+            ..options
+        };
+        let mut complete = Map::new();
+        complete.insert("baseline".into(), json!({"resolvedFindings":(0..125).map(|i| json!({"id":format!("finding-{i}")})).collect::<Vec<_>>() }));
+        let page = select_list(&list, &mut complete)
+            .expect("list")
+            .expect("page");
+        assert_eq!(page.total, 125);
+        assert_eq!(page.rows[124]["id"], "finding-124");
+    }
+}
+
 fn next_command(options: &QueryOptions, id: &str, offset: usize) -> String {
     let mut parts = vec!["octocode graph query".to_owned(), quote(&options.op)];
     parts.extend(options.target.iter().map(|t| quote(t)));
     parts.extend(options.to.iter().map(|t| quote(t)));
     parts.push(format!("--graph {}", quote(id)));
+    if let Some(workspace) = &options.workspace {
+        parts.push(format!(
+            "--workspace {}",
+            quote(&workspace.to_string_lossy())
+        ));
+    }
     if !options.edges.is_empty() {
         parts.push(format!("--edge {}", quote(&options.edges.join(","))));
     }
@@ -466,6 +667,7 @@ fn next_command(options: &QueryOptions, id: &str, offset: usize) -> String {
         ("--direction", options.direction.clone()),
         ("--depth", options.depth.map(|d| d.to_string())),
         ("--confidence", options.confidence.clone()),
+        ("--list", options.list.clone()),
         ("--limit", options.limit.map(|l| l.to_string())),
         (
             "--detector",
@@ -499,12 +701,23 @@ fn git_changed(root: &Path, rev: &str) -> Result<Vec<String>, String> {
         return Err(format!("invalid revision {rev:?}"));
     }
     let run = |args: &[&str]| -> Result<Vec<String>, String> {
-        let output = std::process::Command::new("git")
+        let mut command = std::process::Command::new("git");
+        // The repository's own config must not run programs: an fsmonitor
+        // hook executes on every index read. No prompts, no index rewrites.
+        command
             .arg("-C")
             .arg(root)
+            .args(["-c", "core.fsmonitor=false"])
             .args(args)
-            .output()
-            .map_err(|error| format!("cannot run git: {error}"))?;
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_OPTIONAL_LOCKS", "0");
+        let output = crate::tools::bounded_process::run_bounded(
+            command,
+            "git",
+            std::time::Duration::from_secs(30),
+            32 * 1024 * 1024,
+            &crate::tools::cancel::NeverCancel,
+        )?;
         if !output.status.success() {
             return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
         }
@@ -572,8 +785,13 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
         "path" => query.path(),
         "cycles" => {
             let filter = query.filter(&[EdgeKind::Imports]);
-            let page = cycles(g, &filter);
-            Ok(run_page(options, g, edges_extra(&filter), page))
+            let page = cycles(g, &filter, options)?;
+            let mut extra = edges_extra(&filter);
+            if options.list.as_deref() == Some("cycleNodes") {
+                extra.insert("list".into(), json!("cycleNodes"));
+                extra.insert("cycle".into(), json!(options.target));
+            }
+            Ok(run_page(options, g, extra, page))
         }
         "hubs" => query.hubs(),
         "diagnostics" => Ok(run_page(
@@ -843,12 +1061,7 @@ impl Query<'_> {
             extra.insert("coverage".into(), g.coverage(*first));
         }
         if !unmapped.is_empty() {
-            summary["unmapped"] = json!(
-                unmapped
-                    .into_iter()
-                    .take(MAX_CANDIDATES * 5)
-                    .collect::<Vec<_>>()
-            );
+            summary["unmapped"] = json!(unmapped);
         }
         extra.insert("summary".into(), summary);
         let rows = impact.rows;
@@ -967,7 +1180,7 @@ impl Query<'_> {
             "new": status.values().filter(|s| **s == "new").count(),
             "existing": status.values().filter(|s| **s == "existing").count(),
             "resolved": resolved.len(),
-            "resolvedFindings": resolved.into_iter().take(MAX_CANDIDATES * 5).collect::<Vec<_>>(),
+            "resolvedFindings": resolved,
         }))
     }
 }
@@ -1229,7 +1442,23 @@ fn path(g: &Graph, from: u32, to: u32, direction: Direction, filter: &EdgeFilter
 
 /// Iterative Tarjan over the filtered subgraph. Components are returned
 /// largest first, then by their smallest key.
-fn cycles(g: &Graph, filter: &EdgeFilter) -> Page {
+fn cycle_preview_row(options: &QueryOptions, id: &str, keys: &[String]) -> Value {
+    let mut row = json!({
+        "size": keys.len(),
+        "nodes": keys.iter().take(MAX_CYCLE_MEMBERS).collect::<Vec<_>>(),
+    });
+    if keys.len() > MAX_CYCLE_MEMBERS {
+        let mut detail = options.clone();
+        detail.target = keys.first().cloned();
+        detail.to = None;
+        detail.list = Some("cycleNodes".into());
+        row["nodesTruncated"] = json!(true);
+        row["nextNodes"] = json!(next_command(&detail, id, 0));
+    }
+    row
+}
+
+fn cycles(g: &Graph, filter: &EdgeFilter, options: &QueryOptions) -> Result<Page, GraphOutput> {
     let n = g.t.nodes.len();
     let successors = |id: u32| {
         g.t.out(id)
@@ -1250,23 +1479,47 @@ fn cycles(g: &Graph, filter: &EdgeFilter) -> Page {
             .cmp(&a.len())
             .then_with(|| g.key(a[0]).cmp(g.key(b[0])))
     });
+    if options.list.as_deref() == Some("cycleNodes") {
+        let Some(target) = options.target.as_deref() else {
+            return Err(GraphOutput::error(
+                2,
+                "graph.input",
+                "cycleNodes needs a cycle member",
+            ));
+        };
+        let Some(component) = components
+            .iter()
+            .find(|component| component.iter().any(|id| g.key(*id) == target))
+        else {
+            return Err(GraphOutput::error(
+                2,
+                "graph.input",
+                format!("no cycle contains {target:?}"),
+            ));
+        };
+        let rows = component
+            .iter()
+            .map(|id| json!(g.key(*id)))
+            .collect::<Vec<_>>();
+        return Ok(Page {
+            total: rows.len(),
+            rows,
+        });
+    }
     let rows = components
         .iter()
         .map(|component| {
-            let mut row = json!({
-                "size": component.len(),
-                "nodes": component.iter().take(MAX_CYCLE_MEMBERS).map(|id| g.key(*id)).collect::<Vec<_>>(),
-            });
-            if component.len() > MAX_CYCLE_MEMBERS {
-                row["nodesTruncated"] = json!(true);
-            }
-            row
+            let keys = component
+                .iter()
+                .map(|id| g.key(*id).to_owned())
+                .collect::<Vec<_>>();
+            cycle_preview_row(options, &g.id, &keys)
         })
         .collect::<Vec<_>>();
-    Page {
+    Ok(Page {
         total: rows.len(),
         rows,
-    }
+    })
 }
 
 fn hubs(g: &Graph, filter: &EdgeFilter, kind: Option<NodeKind>, rank_by: Direction) -> Page {
@@ -1361,19 +1614,15 @@ fn diagnostics(g: &Graph, filter: Option<&str>) -> Page {
 fn stale(g: &Graph) -> (Map<String, Value>, Page) {
     let root = PathBuf::from(g.manifest["root"].as_str().unwrap_or_default());
     let mut rows = Vec::new();
+    let stamps = g.t.stamps_by_node();
     for (node, digest) in &g.t.digests {
         let file = g.key(*node);
-        let status = match std::fs::read(root.join(file)) {
-            Err(_) => "missing",
-            Ok(bytes) => {
-                let current = octocode_engine::digest::sha256(&bytes);
-                if current == g.t.str(*digest) {
-                    continue;
-                } else {
-                    "changed"
-                }
-            }
-        };
+        let status =
+            match super::source_matches(&root.join(file), g.t.str(*digest), stamps.get(node)) {
+                None => "missing",
+                Some(true) => continue,
+                Some(false) => "changed",
+            };
         rows.push(json!({"file": file, "status": status}));
     }
     let mut extra = Map::new();

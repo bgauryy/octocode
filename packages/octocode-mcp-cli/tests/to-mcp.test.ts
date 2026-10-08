@@ -47,7 +47,7 @@ describe('cliToMcp', () => {
     const exported = cliToMcp(spec);
     expect(exported.instructions).toBe(spec.instructions);
     expect(exported.tools.map(tool => tool.description)).toEqual(['Search issues', 'Add a note', 'Quiet']);
-    expect(exported.tools[0]?.inputSchema).toEqual(z.toJSONSchema(schema));
+    expect(exported.tools[0]?.inputSchema).toEqual(z.toJSONSchema(schema, { io: 'input' }));
     expect(exported.tools[1]?.inputSchema).toBe(inputSchema);
     expect(exported.tools[1]?.name).toBe('notes.add');
     expect(exported.tools[1]).toMatchObject({
@@ -136,5 +136,48 @@ describe('cliToMcp', () => {
       await client.close();
       await server.close();
     }
+  });
+});
+
+describe('request cancellation', () => {
+  it('passes an MCP cancellation signal to the command without hiding its partial result', async () => {
+    let received: AbortSignal | undefined;
+    let started!: () => void;
+    let cancelled!: () => void;
+    const ready = new Promise<void>(resolve => {started = resolve;});
+    const stopped = new Promise<void>(resolve => {cancelled = resolve;});
+    const local = defineCli({name:'cancel-test', instructions:'', commands:[defineCommand({name:'wait', description:'Wait', schema:z.object({}), run: async (_input, context) => {
+      received = context?.signal;
+      started();
+      await new Promise<void>(resolve => received?.addEventListener('abort', () => {cancelled(); resolve();}, {once:true}));
+      return {ok:false,cancelled:true};
+    }})]});
+    const server = new McpServer({name:'cancel-test',version:'1.0.0'},mcpServerOptions(local));
+    registerOn(server as unknown as ToolRegistrar,local);
+    const client = new Client({name:'cancel-client',version:'1.0.0'});
+    const [a,b] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(a),client.connect(b)]);
+    try {
+      const controller = new AbortController();
+      const request = client.callTool({name:'wait',arguments:{}}, undefined, {signal:controller.signal}).catch(error => error);
+      await ready;
+      expect(received).toBeDefined();
+      controller.abort();
+      await stopped;
+      expect(received?.aborted).toBe(true);
+      await request;
+    } finally {await client.close();await server.close();}
+  });
+});
+
+
+describe('authored MCP input JSON Schema', () => {
+  it('exports optional defaults and transformation inputs without altering imported schemas', () => {
+    const command = defineCommand({ name: 'defaults', description: 'Defaults', schema: z.object({ query: z.string(), args: z.array(z.string()).default([]), length: z.string() }), run: input => input });
+    const tools = cliToMcp(defineCli({ name: 'defaults', instructions: '', commands: [command] })).tools;
+    expect(tools[0]?.inputSchema.required).toEqual(['query', 'length']);
+    expect(tools[0]?.inputSchema.properties).toMatchObject({ args: { default: [] }, length: { type: 'string' } });
+    const transformed = defineCommand({ name: 'transform', description: 'Transform', schema: z.object({ length: z.string().transform(value => value.length) }), run: input => input });
+    expect(cliToMcp(defineCli({ name: 'transform', instructions: '', commands: [transformed] })).tools[0]?.inputSchema.properties).toMatchObject({ length: { type: 'string' } });
   });
 });

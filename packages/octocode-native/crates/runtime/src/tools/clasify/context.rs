@@ -3,7 +3,7 @@ use crate::response::rows;
 use crate::runtime::{ExecutionContext, domain_dispatch::DomainDispatcher};
 use crate::tools::id::ToolId;
 use crate::{
-    contracts::{self, PrepareOptions},
+    contracts,
     tools::clasify::{is_context_tool, transport::ClassificationError},
 };
 use serde_json::{Map, Value, json};
@@ -105,36 +105,32 @@ pub(super) fn prepare(tool: &str, query: &Value) -> Result<Value, Classification
             "Clasify context cannot materialize a repository tree; use ghStructure directly when files are needed locally.",
         ));
     }
-    let mut queries = contracts::prepare_many_and_validate(
-        tool,
-        json!({"queries":[query]}),
-        PrepareOptions::default(),
-    )
-    .map_err(|validation_error| {
-        let detail = validation_error
-            .issues
-            .iter()
-            .map(|issue| {
-                if issue.path.is_empty() {
-                    issue.message.clone()
+    let mut queries = contracts::prepare_many_and_validate(tool, json!({"queries":[query]}))
+        .map_err(|validation_error| {
+            let detail = validation_error
+                .issues
+                .iter()
+                .map(|issue| {
+                    if issue.path.is_empty() {
+                        issue.message.clone()
+                    } else {
+                        format!("{}: {}", issue.path.join("."), issue.message)
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("; ");
+            error(
+                "invalidClassificationContext",
+                if detail.is_empty() {
+                    format!("Context query does not satisfy the {tool} input contract.")
                 } else {
-                    format!("{}: {}", issue.path.join("."), issue.message)
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
-        error(
-            "invalidClassificationContext",
-            if detail.is_empty() {
-                format!("Context query does not satisfy the {tool} input contract.")
-            } else {
-                format!(
-                    "Context query does not satisfy the {tool} input contract: {}.",
-                    detail.trim_end_matches('.')
-                )
-            },
-        )
-    })?;
+                    format!(
+                        "Context query does not satisfy the {tool} input contract: {}.",
+                        detail.trim_end_matches('.')
+                    )
+                },
+            )
+        })?;
     if queries.len() != 1 {
         return Err(error(
             "invalidClassificationContext",
@@ -227,17 +223,22 @@ pub(super) fn resolve(
     let read = run_read(id, &prepared, dispatcher, context)?;
     let operation = prepared.get("operation").and_then(Value::as_str);
     if read.empty {
+        let mut empty = error(
+            "classificationContextEmpty",
+            format!("Context tool {tool} returned no evidence; classification was not called."),
+        );
+        let hints = tool_hints(&read.state, &prepared);
+        if !hints.is_empty() {
+            empty.hints = hints;
+        }
         return Err(ContextFailure {
-            error: error(
-                "classificationContextEmpty",
-                format!("Context tool {tool} returned no evidence; classification was not called."),
-            ),
+            error: empty,
             receipt: Some(receipt_with_evaluation(tool, &read.state, true, operation)),
         });
     }
     if read.failed {
         return Err(ContextFailure {
-            error: read_error(tool, &read),
+            error: read_error(tool, &read, &prepared),
             receipt: Some(failed_receipt(tool, &read.state, operation)),
         });
     }
@@ -357,30 +358,88 @@ fn run_read(
 /// A failed read as clasify's error: the read tool's own (already
 /// sanitized) code, reason, and repair hints; a bare "returned an error"
 /// hides e.g. a sandbox refusal.
-fn read_error(tool: &str, read: &Read) -> ClassificationError {
+fn read_error(tool: &str, read: &Read, query: &Value) -> ClassificationError {
     let data = |field: &str| read.state.pointer(&format!("/results/0/data/{field}"));
     let code = data("errorCode")
         .and_then(Value::as_str)
         .unwrap_or("classificationContextFailed");
     let reason = data("error")
         .and_then(Value::as_str)
-        .map_or_else(String::new, |reason| format!(": {reason}"));
+        .map_or_else(String::new, |reason| {
+            format!(": {}", reason.trim_end_matches('.'))
+        });
     let mut failure = error(
         code,
         format!("Context tool {tool} failed{reason}; classification was not called."),
     );
     failure.failure = read.failure;
-    let hints = data("hints")
-        .and_then(Value::as_array)
+    let hints = tool_hints(&read.state, query);
+    if !hints.is_empty() {
+        failure.hints = hints;
+    }
+    failure
+}
+
+/// The read tool's own recovery for a failed or empty read: its prose hints,
+/// then each lead it offered (`next.<name>`) as the exact call to run. An
+/// error's `hints` carry text only, so a lead is rendered as text, as the agent
+/// would send it ([`agent_lead`]) against the read clasify ran (`query`).
+fn tool_hints(state: &Value, query: &Value) -> Vec<String> {
+    let Some(data) = state.pointer("/results/0/data") else {
+        return Vec::new();
+    };
+    let prose = match data.get("hints") {
+        Some(Value::Array(items)) => Some(items),
+        Some(Value::Object(hints)) => hints.get("text").and_then(Value::as_array),
+        _ => None,
+    };
+    let mut hints = prose
         .into_iter()
         .flatten()
         .filter_map(Value::as_str)
         .map(str::to_owned)
         .collect::<Vec<_>>();
-    if !hints.is_empty() {
-        failure.hints = hints;
+    let leads = [data.get("next"), state.pointer("/results/0/next")];
+    for (name, lead) in leads
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_object)
+        .flatten()
+    {
+        if let (Some(tool), Some(lead)) =
+            (lead.get("tool").and_then(Value::as_str), lead.get("query"))
+        {
+            let lead = agent_lead(lead, query);
+            hints.push(format!("next.{name}: run {tool} {lead}"));
+        }
     }
-    failure
+    hints
+}
+
+/// A lead's query without what the read inherited from clasify: the default
+/// `debug:false`, the brief (`mainGoal`, `reasoning`), and the run's
+/// `pageSize`, which clasify may have lowered to its candidate budget. A
+/// paging lead (`page`) keeps its size: its offset depends on it.
+fn agent_lead(lead: &Value, run: &Value) -> Value {
+    let mut lead = lead.clone();
+    let rows = match lead.get_mut("queries").and_then(Value::as_array_mut) {
+        Some(rows) => rows.iter_mut().collect::<Vec<_>>(),
+        None => vec![&mut lead],
+    };
+    for row in rows.into_iter().filter_map(Value::as_object_mut) {
+        row.remove("mainGoal");
+        row.remove("reasoning");
+        if row.get("debug") == Some(&Value::Bool(false)) {
+            row.remove("debug");
+        }
+        if !row.contains_key("page")
+            && run.get("pageSize").is_some()
+            && row.get("pageSize") == run.get("pageSize")
+        {
+            row.remove("pageSize");
+        }
+    }
+    lead
 }
 
 fn attach_requested_reference(request: &Value, receipt: &mut Value) {
@@ -433,8 +492,8 @@ fn page_scope(state: &Value) -> Option<Value> {
             .iter()
             .map(|range| {
                 Some(json!({
-                    "startLine":range.get("start")?.as_u64()?,
-                    "endLine":range.get("end")?.as_u64()?
+                    "startLine":range.get("line")?.as_u64()?,
+                    "endLine":range.get("endLine")?.as_u64()?
                 }))
             })
             .collect::<Option<Vec<_>>>()?;
@@ -448,7 +507,7 @@ fn page_scope(state: &Value) -> Option<Value> {
             .and_then(Value::as_array)
             .and_then(|r| r.first())
             .and_then(Value::as_object)
-            .and_then(|r| Some((r.get("start")?.as_u64()?, r.get("end")?.as_u64()?)))
+            .and_then(|r| Some((r.get("line")?.as_u64()?, r.get("endLine")?.as_u64()?)))
     };
     // Reads omit `pagination` when one page covers the whole view, and omit
     // view totals when they equal the source totals.
@@ -651,6 +710,7 @@ fn receipt_with_evaluation(
 ) -> Value {
     let mut next = Map::new();
     let mut dropped = Vec::new();
+    let mut reruns = Vec::new();
     let mut terminal = false;
     let mut partial = crate::response::pages::is_partial(state);
     let operation = operation.or_else(|| {
@@ -665,6 +725,7 @@ fn receipt_with_evaluation(
         &mut Inspection {
             next: &mut next,
             dropped: &mut dropped,
+            reruns: &mut reruns,
             partial: &mut partial,
             terminal: &mut terminal,
         },
@@ -701,6 +762,15 @@ fn receipt_with_evaluation(
             &format!(
                 "The context tool offered continuations that fail input validation, so they were not kept: {}.",
                 dropped.join(", ")
+            ),
+        );
+    }
+    if !reruns.is_empty() {
+        append_limitation(
+            &mut receipt,
+            &format!(
+                "Not followed: {} (a rerun of this read with wider analysis repeats the judged candidates); run the ordinary {tool} read and follow it, or send that rerun as its own resource.",
+                reruns.join(", ")
             ),
         );
     }
@@ -761,6 +831,12 @@ fn value_receipt(state: &Value) -> Value {
 /// outer continuation, so following the inner axis first visits every branch;
 /// following the outer axis first drops the remaining inner pages for good.
 const INNER_PAGE_AXES: &[&str] = &["nextMatchPage"];
+
+/// Pages that re-run the shown page with wider analysis instead of reading
+/// past it (lspSearch `expandFeatures`: every Cargo feature; astSearch
+/// `expandCaptures`: whole captures). Their result repeats every candidate
+/// already judged, so clasify discloses them and never follows one.
+const RERUN_PAGE_AXES: &[&str] = &["expandFeatures", "expandCaptures"];
 
 /// Select the canonical same-resource continuation from a body-free receipt:
 /// an inner page axis first, else the first entry. Map iteration is stable,
@@ -832,6 +908,8 @@ struct Inspection<'a> {
     next: &'a mut Map<String, Value>,
     /// `next.<name>` of same-resource continuations that fail it.
     dropped: &'a mut Vec<String>,
+    /// `next.<name>` of overlapping reruns ([`RERUN_PAGE_AXES`]), not followed.
+    reruns: &'a mut Vec<String>,
     partial: &'a mut bool,
     terminal: &'a mut bool,
 }
@@ -858,16 +936,28 @@ fn inspect(
             }
             if let Some(candidates) = object.get("next").and_then(Value::as_object) {
                 for (name, candidate) in candidates {
-                    let Some(tool) = candidate
+                    let Some((tool, id)) = candidate
                         .get("tool")
                         .and_then(Value::as_str)
-                        .filter(|tool| {
-                            *tool == source_tool
-                                && ToolId::from_name(tool).is_some_and(is_context_tool)
-                        })
+                        .filter(|tool| *tool == source_tool)
+                        .and_then(|tool| Some((tool, ToolId::from_name(tool)?)))
+                        .filter(|(_, id)| is_context_tool(*id))
                     else {
                         continue;
                     };
+                    // A lead is an optional follow-up, not more of this
+                    // result (contract `continuationChannels`); history menus
+                    // keep their own rule (`is_history_expansion`).
+                    if id != ToolId::GhGetHistoryItem
+                        && crate::tools::id::channel(id, name) == crate::tools::id::Channel::Lead
+                    {
+                        continue;
+                    }
+                    if RERUN_PAGE_AXES.contains(&crate::tools::id::kind(name)) {
+                        found.reruns.push(format!("next.{name}"));
+                        *found.partial = true;
+                        continue;
+                    }
                     // A tool's continuation is a complete input; a clasify
                     // receipt walks its one row as a resource read.
                     let Some(query) = crate::tools::result::continuation_row(candidate) else {
@@ -952,7 +1042,7 @@ mod tests {
         let state = json!({"results":[{"data":{
             "path":"/tmp/example.rs","content":"first\nsecond\n",
             "totalLines":80,
-            "sourceLineRanges":[{"start":4,"end":4},{"start":63,"end":63}]
+            "sourceLineRanges":[{"line":4,"endLine":4},{"line":63,"endLine":63}]
         }}]});
         assert_eq!(
             page_scope(&state),
@@ -1018,7 +1108,7 @@ mod tests {
         let state = json!({"results":[{"data":{
             "path":"Server.md", "content":"x\n", "contentView":"standard",
             "totalLines":2458, "returnedLines":1,
-            "sourceLineRanges":[{"start":641,"end":680}]
+            "sourceLineRanges":[{"line":641,"endLine":680}]
         }}]});
         assert_eq!(
             page_scope(&state),
@@ -1034,7 +1124,7 @@ mod tests {
         let state = json!({"results":[{"data":{
             "owner":"expressjs","repo":"express","files":[{
                 "path":"lib/application.js","totalLines":631,
-                "sourceLineRanges":[{"start":1,"end":100}],
+                "sourceLineRanges":[{"line":1,"endLine":100}],
                 "pagination":{"unit":"lines","offset":0,"length":100,"hasMore":true}
             }]
         }}]});
@@ -1115,7 +1205,7 @@ mod tests {
 
     #[test]
     fn artifact_pages_are_valid_context_and_receipt_continuations() {
-        let artifact = json!({"type":"npm","keywords":["parser"],"mainGoal": "test", "reasoning":"Find packages","page":2,"pageSize":2});
+        let artifact = json!({"ecosystem":"npm","keywords":["parser"],"mainGoal": "test", "reasoning":"Find packages","page":2,"pageSize":2});
         assert!(prepare("artifactSearch", &artifact).is_ok());
         let receipt = receipt(
             "artifactSearch",
@@ -1145,7 +1235,7 @@ mod tests {
     #[test]
     fn an_invalid_same_resource_continuation_is_named_not_silently_dropped() {
         let state = json!({"results":[{"index":0,"data":{"content":"x","next":{
-            "brokenPage":{"tool":"localFetch","query":{"queries":[{}]}}
+            "continue":{"tool":"localFetch","query":{"queries":[{}]}}
         }}}]});
         let receipt = receipt("localFetch", &state);
         assert_eq!(receipt["coverage"], "partial", "{receipt}");
@@ -1155,9 +1245,145 @@ mod tests {
                 .as_array()
                 .is_some_and(|limitations| limitations.iter().any(|limitation| limitation
                     .as_str()
-                    .is_some_and(|text| text.contains("next.brokenPage")))),
+                    .is_some_and(|text| text.contains("next.continue")))),
             "{receipt}"
         );
+    }
+
+    /// A lead (contract `continuationChannels`) is an optional follow-up the
+    /// response stage moves to `hints`, not more of this result: following
+    /// it re-judged the same candidates (astTopology `readDiagnostics`
+    /// re-ran the dependents page with diagnostic rows).
+    #[test]
+    fn leads_are_not_same_resource_continuations() {
+        let rerun = json!({"operation":"dependents","path":"/repo","source":"/repo/a.rs",
+            "diagnosticPage":1,"diagnosticSnapshot":"a".repeat(64)});
+        assert!(prepare("astTopology", &rerun).is_ok());
+        let state = json!({"results":[{"index":0,"data":{
+            "results":[{"file":"b.rs","importLine":3,"via":"a.rs"}],
+            "next":{"readDiagnostics":{"tool":"astTopology","query":{"queries":[rerun]}}}
+        }}]});
+        let receipt = receipt("astTopology", &state);
+        assert!(receipt.get("next").is_none(), "{receipt}");
+        assert!(continuation(&receipt).is_none(), "{receipt}");
+        assert_eq!(receipt["coverage"], "bounded", "{receipt}");
+    }
+
+    /// A page that re-runs the shown page with wider analysis (lspSearch
+    /// `expandFeatures`) repeats every judged candidate: Scout would judge
+    /// them twice. It is disclosed, never followed; a real page still is.
+    #[test]
+    fn overlapping_reruns_are_disclosed_not_followed() {
+        let row =
+            json!({"path":"/repo/a.rs","operation":"references","symbolName":"f","lineHint":3});
+        let mut rerun = row.clone();
+        rerun["rustContext"] = json!({"features":"all"});
+        assert!(prepare("lspSearch", &rerun).is_ok());
+        let state = json!({"results":[{"index":0,"data":{"isPartial":true,
+            "payload":{"kind":"references","files":[{"path":"b.rs","matches":[{"line":4}]}]},
+            "next":{"expandFeatures":{"tool":"lspSearch","query":{"queries":[rerun]}}}
+        }}]});
+        let first = receipt("lspSearch", &state);
+        assert!(continuation(&first).is_none(), "{first}");
+        assert_eq!(first["coverage"], "partial", "{first}");
+        assert!(
+            first["limitations"]
+                .to_string()
+                .contains("next.expandFeatures"),
+            "{first}"
+        );
+        let mut paged = state.clone();
+        let mut page = row;
+        page["importerPage"] = json!(2);
+        paged["results"][0]["data"]["next"] = json!({
+            "expandFeatures": state["results"][0]["data"]["next"]["expandFeatures"].clone(),
+            "nextImporterPage": {"tool":"lspSearch","query":{"queries":[page.clone()]}}
+        });
+        let receipt = receipt("lspSearch", &paged);
+        assert_eq!(
+            continuation(&receipt),
+            Some(json!({"tool":"lspSearch","query":page})),
+            "{receipt}"
+        );
+    }
+
+    /// A failed or empty read keeps the read tool's own recovery: its prose
+    /// hints and each lead it offered, as the exact call to run.
+    #[test]
+    fn failed_and_empty_reads_keep_the_tool_recovery_hints() {
+        let tree = json!({"tool":"structureSearch","query":{"queries":[{"operation":"tree","path":"repo"}]}});
+        let failed = Read {
+            state: json!({"results":[{"index":0,"status":"error","data":{
+                "error":"Path does not exist: repo/nope","errorCode":"pathNotFound",
+                "next":{"viewTree":tree}
+            }}]}),
+            failed: true,
+            empty: false,
+            failure: None,
+        };
+        let error = read_error("localSearch", &failed, &json!({}));
+        assert_eq!(error.code, "pathNotFound");
+        assert!(
+            error
+                .hints
+                .iter()
+                .any(|hint| hint.contains("next.viewTree") && hint.contains("structureSearch")),
+            "{:?}",
+            error.hints
+        );
+        let empty = json!({"results":[{"index":0,"status":"empty","data":{
+            "pullRequests":[],"hints":["Try fewer keywords."],
+            "next":{"broadenSearch":{"tool":"ghSearchHistory","query":{"queries":[{"operation":"pullRequest","owner":"o","repo":"r"}]}}}
+        }}]});
+        let hints = tool_hints(&empty, &json!({}));
+        assert_eq!(hints[0], "Try fewer keywords.", "{hints:?}");
+        assert!(
+            hints[1].starts_with("next.broadenSearch: run ghSearchHistory "),
+            "{hints:?}"
+        );
+        assert!(tool_hints(&json!({"results":[{"data":{}}]}), &json!({})).is_empty());
+    }
+
+    /// A lead in an error hint reads as the agent would send it: no
+    /// `debug:false`, no brief, and not the page size clasify ran the read
+    /// with. A paging lead keeps its size (its page offset depends on it).
+    /// Each rendered lead still passes its tool's input contract.
+    #[test]
+    fn error_leads_render_without_clasify_internal_fields() {
+        let run = json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["zz"],
+            "pageSize":12,"debug":false,"mainGoal":"g","reasoning":"why"});
+        let broaden = json!({"operation":"pullRequest","debug":false,"pageSize":12,
+            "mainGoal":"g","reasoning":"why","owner":"o","repo":"r"});
+        let paged = json!({"operation":"pullRequest","owner":"o","repo":"r","keywords":["zz"],
+            "page":2,"pageSize":12,"debug":false});
+        let state = json!({"results":[{"index":0,"status":"empty","data":{"pullRequests":[],"next":{
+            "broadenSearch":{"tool":"ghSearchHistory","query":{"queries":[broaden]}},
+            "nextPage":{"tool":"ghSearchHistory","query":{"queries":[paged]}}
+        }}}]});
+        let hints = tool_hints(&state, &run);
+        let lead = |name: &str| -> Value {
+            let prefix = format!("next.{name}: run ghSearchHistory ");
+            let hint = hints
+                .iter()
+                .find_map(|hint| hint.strip_prefix(&prefix))
+                .unwrap_or_else(|| panic!("{name}: {hints:?}"));
+            serde_json::from_str(hint).expect("lead query is JSON")
+        };
+        assert_eq!(
+            lead("broadenSearch"),
+            json!({"queries":[{"operation":"pullRequest","owner":"o","repo":"r"}]}),
+            "{hints:?}"
+        );
+        assert_eq!(
+            lead("nextPage"),
+            json!({"queries":[{"operation":"pullRequest","owner":"o","repo":"r",
+                "keywords":["zz"],"page":2,"pageSize":12}]}),
+            "{hints:?}"
+        );
+        for name in ["broadenSearch", "nextPage"] {
+            contracts::prepare_many_and_validate("ghSearchHistory", lead(name))
+                .unwrap_or_else(|error| panic!("{name}: {:?}", error.issues));
+        }
     }
 
     #[test]
@@ -1188,7 +1414,7 @@ mod tests {
     fn an_oversized_receipt_keeps_its_main_continuation() {
         let state = json!({"results":[{"index":0,"data":{"isPartial":true,"next":{
             "continue":{"tool":"localFetch","query":{"queries":[{"path":"/tmp/f","mainGoal":"test","reasoning":"Read","offset":2}]},"confidence":"exact"},
-            "readOther":{"tool":"localFetch","query":{"queries":[{"path":format!("/tmp/{}", "a".repeat(MAX_RECEIPT_BYTES)),"mainGoal":"test","reasoning":"Read"}]}}
+            "readBoundedLines":{"tool":"localFetch","query":{"queries":[{"path":format!("/tmp/{}", "a".repeat(MAX_RECEIPT_BYTES)),"mainGoal":"test","reasoning":"Read"}]}}
         }}}]});
         let receipt = receipt("localFetch", &state);
         assert!(receipt.to_string().len() <= MAX_RECEIPT_BYTES);
@@ -1242,7 +1468,7 @@ mod tests {
     #[test]
     fn empty_code_search_does_not_replay_tree_discovery_as_a_continuation() {
         let state = json!({"results":[{"status":"empty","data":{"next":{
-            "viewStructure":{"tool":"ghStructure","confidence":"exact","query":{"queries":[{
+            "viewTree":{"tool":"ghStructure","confidence":"exact","query":{"queries":[{
                 "mainGoal": "test", "reasoning":"Verify the repository scope","owner":"fastify",
                 "repo":"fastify","path":"","pageSize":100
             }]}}
@@ -1390,7 +1616,7 @@ mod tests {
                     "hasMore": true,
                     "nextOffset": next_offset
                 },
-                "sourceLineRanges": [{"start": start, "end": end}],
+                "sourceLineRanges": [{"line":start,"endLine":end}],
                 "next": {"continue": {"tool": "localFetch",
                     "query": {"path": "/tmp/f", "mainGoal": "test", "reasoning": "R", "offset": next_offset, "length": length}
                 }}
@@ -1419,7 +1645,7 @@ mod tests {
                     "hasMore": has_more,
                     "nextOffset": next_offset
                 },
-                "sourceLineRanges": [{"start": 1, "end": 1}],
+                "sourceLineRanges": [{"line":1,"endLine":1}],
                 "next": if has_more { json!({"continue": {"tool": "localFetch",
                     "query": {"path": "/tmp/f", "mainGoal": "test", "reasoning": "R",
                         "offset": offset + length, "length": length}
@@ -1448,7 +1674,7 @@ mod tests {
                         "hasMore": true,
                         "nextOffset": 150
                     },
-                    "sourceLineRanges": [{"start": 101, "end": 150}]
+                    "sourceLineRanges": [{"line":101,"endLine":150}]
                 }]
             }}]
         });
@@ -1476,7 +1702,7 @@ mod tests {
     fn selected_line_window_scope_uses_the_full_source_total() {
         let state = json!({"results":[{"data":{
             "totalLines":763,
-            "sourceLineRanges":[{"start":111,"end":240}],
+            "sourceLineRanges":[{"line":111,"endLine":240}],
             "pagination":{
                 "unit":"lines",
                 "offset":0,
@@ -1498,7 +1724,7 @@ mod tests {
             "totalLines":481,
             "startLine":230,
             "endLine":350,
-            "sourceLineRanges":[{"start":230,"end":294}],
+            "sourceLineRanges":[{"line":230,"endLine":294}],
             "pagination":{
                 "unit":"bytes",
                 "offset":0,
@@ -1518,7 +1744,7 @@ mod tests {
     fn byte_page_without_byte_totals_is_scoped_by_source_lines() {
         let state = json!({"results":[{"data":{
             "totalLines":481,
-            "sourceLineRanges":[{"start":1,"end":93}],
+            "sourceLineRanges":[{"line":1,"endLine":93}],
             "pagination":{
                 "unit":"bytes",
                 "offset":0,
@@ -1582,7 +1808,7 @@ mod tests {
         );
         // A complete bounded read (no pagination emitted) still reports its window.
         let window = json!({"results": [{"data": {
-            "content": "x", "totalLines": 132, "sourceLineRanges": [{"start": 25, "end": 31}]
+            "content": "x", "totalLines": 132, "sourceLineRanges": [{"line":25,"endLine":31}]
         }}]});
         assert_eq!(
             receipt("localFetch", &window)["scope"],

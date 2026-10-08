@@ -1,10 +1,7 @@
 //! Vendor-agnostic batch scheduling: group N questions over the same state
 //! into one provider request when size limits allow, reducing round-trips.
 //! The per-vendor wire format is delegated to [`ClassificationProvider`].
-use super::{
-    request_error,
-    transport::{ClassificationError, check_budget, check_key, endpoint, post, project},
-};
+use super::transport::{ClassificationError, check_budget, check_key, endpoint, post, project};
 use crate::providers::RequestBudget;
 use crate::providers::classification::gate::GateLease;
 use secrecy::SecretString;
@@ -24,18 +21,55 @@ fn request(
     provider.build_batch_request(state, questions, model)
 }
 
-pub(crate) fn fits(
+/// A group request within the batching headroom, serialized once: the
+/// size check and every POST attempt use the same bytes.
+pub(crate) struct Prepared {
+    request: Value,
+    body: bytes::Bytes,
+}
+
+/// The serialized length of `value`, counted without building the text.
+fn json_len(value: &Value) -> usize {
+    struct Count(usize);
+    impl std::io::Write for Count {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0 += bytes.len();
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut count = Count(0);
+    let _ = serde_json::to_writer(&mut count, value);
+    count.0
+}
+
+/// The group request when each question alone and the whole group fit the
+/// headroom policy; `None` sends the questions one by one.
+pub(crate) fn prepare(
     state: &Value,
     questions: &[(usize, &Value)],
     model: &str,
     provider: &dyn crate::providers::classification::ClassificationProvider,
-) -> bool {
-    questions.iter().all(|question| {
-        request(state, std::slice::from_ref(question), model, provider)
-            .to_string()
-            .len()
-            <= MAX_STATE_AND_QUESTION_BYTES
-    }) && request(state, questions, model, provider).to_string().len() <= MAX_GROUP_BYTES
+) -> Option<Prepared> {
+    let each_fits = questions.iter().all(|question| {
+        json_len(&request(
+            state,
+            std::slice::from_ref(question),
+            model,
+            provider,
+        )) <= MAX_STATE_AND_QUESTION_BYTES
+    });
+    if !each_fits {
+        return None;
+    }
+    let request = request(state, questions, model, provider);
+    let body = serde_json::to_vec(&request).ok()?;
+    (body.len() <= MAX_GROUP_BYTES).then(|| Prepared {
+        request,
+        body: body.into(),
+    })
 }
 
 pub(crate) struct GroupResponse {
@@ -43,19 +77,10 @@ pub(crate) struct GroupResponse {
     pub usage: Value,
 }
 
-fn response_error(message: impl Into<String>) -> ClassificationError {
-    ClassificationError {
-        code: "invalidClassificationResponse".into(),
-        message: message.into(),
-        hints: vec!["Inspect provider compatibility before using the answer.".into()],
-        ..Default::default()
-    }
-}
-
 /// Judge several provider questions over one state with a single request.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn judge(
-    state: &Value,
+    prepared: Prepared,
     questions: &[(usize, &Value)],
     key: &SecretString,
     base_url: &str,
@@ -67,15 +92,10 @@ pub(crate) async fn judge(
     gate: &GateLease,
 ) -> Result<GroupResponse, ClassificationError> {
     check_budget(budget)?;
-    if !fits(state, questions, model, provider) {
-        return Err(request_error(
-            "Shared classification request exceeds the batching headroom policy.",
-        ));
-    }
     check_key(key)?;
-    let req = request(state, questions, model, provider);
+    let Prepared { request: req, body } = prepared;
     let (response, provider_calls) = post(
-        &req,
+        body,
         key,
         endpoint(base_url, endpoint_path)?,
         budget,
@@ -99,15 +119,17 @@ fn project_response(
     model: &str,
     provider: &dyn crate::providers::classification::ClassificationProvider,
 ) -> Result<GroupResponse, ClassificationError> {
-    let answers = response["answers"]
-        .as_object()
-        .ok_or_else(|| response_error("response.answers must be an object"))?;
+    let answers = response["answers"].as_object().ok_or_else(|| {
+        ClassificationError::invalid_response("response.answers must be an object")
+    })?;
     // All answer IDs in the response must correspond to requested questions.
     if answers
         .keys()
         .any(|id| request["questions"].get(id).is_none())
     {
-        return Err(response_error("Response contains unexpected answer IDs."));
+        return Err(ClassificationError::invalid_response(
+            "Response contains unexpected answer IDs.",
+        ));
     }
     // Validate shared metadata without letting one malformed answer poison siblings.
     let metadata_request = json!({"questions":{}});
@@ -115,7 +137,7 @@ fn project_response(
     metadata_response["answers"] = json!({});
     provider
         .validate_response(&metadata_request, &metadata_response)
-        .map_err(|error| response_error(error.message))?;
+        .map_err(|error| ClassificationError::invalid_response(error.message))?;
     let projected = questions
         .iter()
         .map(|(index, question)| {
@@ -129,7 +151,7 @@ fn project_response(
                 .map_or_else(|| json!({}), |answer| json!({&id:answer}));
             provider
                 .validate_response(&row_request, &row_response)
-                .map_err(|error| response_error(error.message))?;
+                .map_err(|error| ClassificationError::invalid_response(error.message))?;
             project(
                 question,
                 &answers[&id],
@@ -158,20 +180,32 @@ mod tests {
         let provider = jev_provider();
         let question = json!({"type":"noul","instructions":"Assess"});
         let questions = [(0, &question), (1, &question)];
-        assert!(fits(&json!({"x":1}), &questions, "m", provider));
-        assert!(!fits(
-            &json!("x".repeat(MAX_STATE_AND_QUESTION_BYTES)),
-            &questions,
-            "m",
-            provider,
-        ));
+        let prepared = prepare(&json!({"x":1}), &questions, "m", provider).expect("fits");
+        assert_eq!(
+            prepared.body,
+            serde_json::to_vec(&prepared.request).unwrap(),
+            "the POST body is the measured request"
+        );
+        assert!(
+            prepare(
+                &json!("x".repeat(MAX_STATE_AND_QUESTION_BYTES)),
+                &questions,
+                "m",
+                provider,
+            )
+            .is_none()
+        );
         let wide = json!({"type":"noul","instructions":"x".repeat(30*1024)});
-        assert!(!fits(
-            &Value::Null,
-            &[(0, &wide), (1, &wide), (2, &wide), (3, &wide), (4, &wide)],
-            "m",
-            provider,
-        ));
+        assert!(
+            prepare(
+                &Value::Null,
+                &[(0, &wide), (1, &wide), (2, &wide), (3, &wide), (4, &wide)],
+                "m",
+                provider,
+            )
+            .is_none()
+        );
+        assert_eq!(json_len(&wide), wide.to_string().len());
     }
 
     #[test]

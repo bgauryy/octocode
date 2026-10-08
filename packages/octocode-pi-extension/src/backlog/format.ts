@@ -66,10 +66,10 @@ export function boardText(store: BacklogStore, self?: string): string {
   return sections.join('\n');
 }
 
-/** Footer counts: `▶1 ☐4 ⧗2` (ongoing, todo, awaiting triage); empty when there is nothing open. */
+/** Footer counts: `backlog 1 ongoing · 4 todo · 2 to triage · /backlog`; empty when there is nothing open. */
 export function countsText(counts: Record<State, number>): string {
-  const parts = [counts.ongoing ? `▶${counts.ongoing}` : '', counts.todo ? `☐${counts.todo}` : '', counts.backlog ? `⧗${counts.backlog}` : ''].filter(Boolean);
-  return parts.length ? `backlog ${parts.join(' ')}` : '';
+  const parts = [counts.ongoing ? `${counts.ongoing} ongoing` : '', counts.todo ? `${counts.todo} todo` : '', counts.backlog ? `${counts.backlog} to triage` : ''].filter(Boolean);
+  return parts.length ? `backlog ${parts.join(' · ')} · /backlog` : '';
 }
 
 /** Markdown snapshot of the whole board with every note, for `<repo>/.octocode/backlog.md`. Nothing reads it back. */

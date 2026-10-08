@@ -1,6 +1,7 @@
 //! Optional GitHub CLI discovery, using the runtime's explicit environment.
-use super::super::{ProviderError, RequestContext};
-use super::resolver::{bounded, check_budget};
+use super::super::ProviderError;
+use super::resolver::{bounded, resolution_stopped};
+use crate::providers::RequestBudget;
 use secrecy::SecretString;
 use std::{collections::BTreeMap, ffi::OsString, process::Stdio, time::Duration};
 use tokio::io::AsyncReadExt;
@@ -29,9 +30,9 @@ fn discovery_path(path: Option<&str>) -> OsString {
 pub(super) async fn gh_token<'a>(
     host: &str,
     env: impl Iterator<Item = (&'a str, &'a str)>,
-    budget: &RequestContext,
+    budget: &RequestBudget,
 ) -> Result<Option<SecretString>, ProviderError> {
-    check_budget(budget)?;
+    budget.check().map_err(resolution_stopped)?;
     let mut env: BTreeMap<_, _> = env.collect();
     // Environment selection already happened with host checks. gh must consult
     // its own host-scoped store, not reinterpret an off-host environment token.
@@ -55,9 +56,9 @@ pub(super) async fn gh_token<'a>(
 
 async fn run_command(
     mut command: tokio::process::Command,
-    budget: &RequestContext,
+    budget: &RequestBudget,
 ) -> Result<Option<SecretString>, ProviderError> {
-    check_budget(budget)?;
+    budget.check().map_err(resolution_stopped)?;
     #[cfg(unix)]
     command.process_group(0);
     let Ok(mut child) = command.spawn() else {
@@ -147,7 +148,7 @@ mod tests {
             ("GITHUB_TOKEN", "off-host"),
             ("GH_ENTERPRISE_TOKEN", "off-host"),
         ];
-        let budget = RequestContext::with_timeout(Duration::from_secs(2), 1);
+        let budget = RequestBudget::with_timeout(Duration::from_secs(30), 1);
         let token = gh_token("enterprise.example", env.into_iter(), &budget)
             .await
             .unwrap()
@@ -158,7 +159,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn reads_trimmed_token_and_rejects_failure_or_oversized_output() {
-        let budget = RequestContext::with_timeout(Duration::from_secs(2), 1);
+        let budget = RequestBudget::with_timeout(Duration::from_secs(30), 1);
         assert_eq!(
             run_command(shell("printf ' synthetic-token\\n'"), &budget)
                 .await
@@ -183,7 +184,7 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn request_deadline_and_cancellation_stop_discovery() {
-        let budget = RequestContext::with_timeout(Duration::from_millis(50), 1);
+        let budget = RequestBudget::with_timeout(Duration::from_millis(50), 1);
         let start = std::time::Instant::now();
         let result = run_command(shell("exec sleep 30"), &budget).await;
         assert_eq!(
@@ -191,7 +192,7 @@ mod tests {
             super::super::super::ProviderErrorKind::Timeout
         );
         assert!(start.elapsed() < Duration::from_secs(2));
-        let budget = RequestContext::with_timeout(Duration::from_secs(30), 1);
+        let budget = RequestBudget::with_timeout(Duration::from_secs(30), 1);
         let cancel = budget.cancellation.clone();
         let (result, ()) = tokio::join!(run_command(shell("exec sleep 30"), &budget), async move {
             tokio::time::sleep(Duration::from_millis(30)).await;

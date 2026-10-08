@@ -14,7 +14,9 @@ export function usageLines(tool: SchemaJsonObject): string[] {
   const forms = schemaUsageForms(tool.querySchema);
   return [
     `octocode ${name} '{"queries":[ … ]}'`,
-    ...(forms.length > 0 ? forms : [`see: octocode schema ${name} --view query`]),
+    ...(forms.length > 0
+      ? forms
+      : [`see: octocode schema ${name} --view query`]),
   ];
 }
 

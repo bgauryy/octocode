@@ -240,4 +240,4 @@ async function main() {
 }
 
 if (require.main === module) main();
-else module.exports = { hostsCommand, stageFile, targetDir };
+else module.exports = { hostsCommand, targetDir };

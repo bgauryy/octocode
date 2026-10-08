@@ -11,7 +11,7 @@ Status: **proposed**. Nothing here is built yet. The feature docs ([FEATURES](..
 | 03 | [Agent wait and context](03-agent-wait-and-context.md) | P2 | `coordinate wait` (all/any, timeout, reports inline, no extra wake); `agent` `context: fresh \| summary \| fork` | — |
 | 04 | [`/agents` view](04-agents-view.md) | P2 | Overlay with child list and live transcript; message, interrupt, stop, merge; persisted child sessions | 03 (shares fork session files) |
 | 05 | [Fan-out batches](05-fan-out-batches.md) | P2 | `agent` `items[]` + `/batch`: 5–30 worktree children, queued dispatch, independent verify, merge queue on an integration ref, resumable journal | 01, 03, 04 |
-| 06 | [Token budget](06-token-budget.md) | P3 | Measured baseline; per-profile `mcpTools:` and `skills:`; graph tool deferred; upstream octocode-mcp schema merge (−27K chars) | — (05 multiplies its savings) |
+| 06 | [Token budget](06-token-budget.md) | P3 | Measured baseline; per-profile `mcpTools:` and `skills:`; structure/AST tools deferred; upstream octocode-mcp schema merge (−27K chars) | — (05 multiplies its savings) |
 
 ## Order
 
@@ -49,7 +49,7 @@ The six documents agree on these names. Change them in every document at the sam
 | Context | `agent` `context: fresh\|summary\|fork`; fan-out uses `summary`, never `fork` | 03, 05 |
 | Team message kinds | `interrupt` (04) and `permission-request` (01 M4) | 01, 04 |
 | MCP exposure | `OCTOCODE_MCP_EXPOSURE=default\|direct\|codemode` (replaces `OCTOCODE_MCP_DIRECT`), `OCTOCODE_MCP_TOOLS` (per tool) | 06 |
-| Agent database | schema v5: team message `kind` column | 01, 04 |
+| Agent database | schema v2: team message `kind` column | 01, 04 |
 
 ## Settled decisions
 

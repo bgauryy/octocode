@@ -96,14 +96,14 @@ for (const [label, query] of [
   const first = await call('localSearch', { path: TARGETS.checkerTs, matchString: 'function ', matchPageSize: 100, matchContentLength: 80, debug: true /* exact stats totals */ }, {}, 'grep checker');
   bounded(first, 'localSearch checker page 1');
   const d = rowData(first);
-  const total = d?.stats?.totalMatches;
+  const total = d?.stats?.matchCount;
   const pages = await walk(client, first, 'nextMatchPage', 60, { label: 'grep checker' });
   const seen = pages.reduce((sum, p) => sum + collect(rowData(p), o => typeof o.line === 'number' && typeof o.value === 'string').length, 0);
-  check(`localSearch checker 'function ': ${pages.length} match pages reach every hit`, seen >= (d?.stats?.totalMatchedLines ?? Infinity), `seen=${seen} totalMatchedLines=${d?.stats?.totalMatchedLines} totalMatches=${total}`);
+  check(`localSearch checker 'function ': ${pages.length} match pages reach every hit`, seen >= (d?.stats?.matchedLineCount ?? Infinity), `seen=${seen} matchedLineCount=${d?.stats?.matchedLineCount} matchCount=${total}`);
 }
 {
   const e = await call('localSearch', { path: bigLog, matchString: 'level=ERROR', resultView: 'countMatches' }, {}, 'grep log count');
-  const count = rowData(e)?.stats?.totalMatches ?? collect(rowData(e), o => typeof o.matchCount === 'number')[0]?.matchCount;
+  const count = rowData(e)?.stats?.matchCount ?? collect(rowData(e), o => typeof o.matchCount === 'number')[0]?.matchCount;
   check('localSearch 400k-line log: countMatches exact', count === Math.floor(400_000 / 97), `count=${count} expected=${Math.floor(400_000 / 97)} ${e.ms}ms`);
 }
 {
@@ -112,15 +112,15 @@ for (const [label, query] of [
   check('localSearch 1.9MB single line: hit clipped to window', values.length === 1 && values[0].value.length <= 400, `len=${values[0]?.value.length} ${e.bytes}B`);
 }
 {
-  const first = await call('localSearch', { path: REPOS, matchString: 'TODO', resultView: 'files', pageSize: 10, noIgnore: true, include: ['rust/tokio/src/**/*.rs'], exclude: ['.git', 'node_modules', 'target', 'build', 'dist', 'out'], debug: true /* filesMatched */ }, {}, 'grep repos files');
+  const first = await call('localSearch', { path: REPOS, matchString: 'TODO', resultView: 'files', pageSize: 10, noIgnore: true, include: ['rust/tokio/src/**/*.rs'], exclude: ['.git', 'node_modules', 'target', 'build', 'dist', 'out'], debug: true /* fileCount */ }, {}, 'grep repos files');
   bounded(first, 'localSearch ignored Rust corpus source files page 1');
   const pages = await walk(client, first, 'nextPage', 200, { label: 'grep repos files' });
   const files = pages.flatMap(p => (rowData(p)?.files ?? []).map(o => rootPath(p, o.path)));
   const unique = new Set(files);
-  const reported = collect(rowData(first), o => typeof o.filesMatched === 'number')[0]?.filesMatched;
+  const reported = collect(rowData(first), o => typeof o.fileCount === 'number')[0]?.fileCount;
   const known = R('rust/tokio/src/fs/file/tests.rs');
   const complete = pages.length >= 2 && files.length > 0 && unique.has(known) && unique.size === files.length && files.length === reported && pages.every(p => !p.isError && !p.rowErrors) && !findHint(pages.at(-1).sc, 'nextPage') && rowData(first)?.stats?.capped === false;
-  check(`localSearch ignored Rust corpus source: ${pages.length} pages, complete and duplicate-free`, complete, `known=${unique.has(known)} files=${files.length} unique=${unique.size} filesMatched=${reported} ${first.ms}ms`);
+  check(`localSearch ignored Rust corpus source: ${pages.length} pages, complete and duplicate-free`, complete, `known=${unique.has(known)} files=${files.length} unique=${unique.size} fileCount=${reported} ${first.ms}ms`);
 }
 
 // ── astSearch on huge files ────────────────────────────────────────────────
@@ -138,10 +138,10 @@ for (const [label, query] of [
   check(`astSearch symbols 20,001 functions: ${pages.length} pages, all unique`, names.length === 20_001 && new Set(names).size === names.length, `names=${names.length}`);
 }
 {
-  const first = await call('astSearch', { operation: 'match', path: TARGETS.checkerTs, language: 'TypeScript', pattern: 'isTypeAssignableTo($A, $B)', matchPageSize: 50, captureText: true, debug: true /* stats.totalMatches */ }, {}, 'match checker');
+  const first = await call('astSearch', { operation: 'match', path: TARGETS.checkerTs, language: 'TypeScript', pattern: 'isTypeAssignableTo($A, $B)', matchPageSize: 50, captureText: true, debug: true /* stats.matchCount */ }, {}, 'match checker');
   bounded(first, 'astSearch match checker');
   const d = rowData(first);
-  const total = d?.stats?.totalMatches;
+  const total = d?.stats?.matchCount;
   const pages = await walk(client, first, 'nextMatchPage', 100, { label: 'match checker' });
   const seen = pages.reduce((sum, p) => sum + collect(rowData(p), o => typeof o.value === 'string' && typeof o.column === 'number' && o.metavarRanges).length, 0);
   check(`astSearch match in 3MB file: ${pages.length} pages reach all ${total} matches`, seen === total, `seen=${seen} total=${total} ${first.ms}ms`);
@@ -153,8 +153,8 @@ for (const [label, query] of [
   check(`astSearch syntaxTree 1.2MB header: paged (${pages.length} pages sampled)`, !first.isError && (pages.length > 1 || !!findHint(first.sc, 'nextPage')), `${first.ms}ms ${first.bytes}B keys=${nextHints(first.sc).map(h => h.path).join(',').slice(0, 120)}`);
 }
 {
-  const e = await call('astSearch', { operation: 'match', path: minified, language: 'JavaScript', pattern: 'function $F($A) { return $$$B }', resultView: 'countMatches', debug: true /* stats.totalMatches */ }, {}, 'match minified');
-  const total = rowData(e)?.stats?.totalMatches;
+  const e = await call('astSearch', { operation: 'match', path: minified, language: 'JavaScript', pattern: 'function $F($A) { return $$$B }', resultView: 'countMatches', debug: true /* stats.matchCount */ }, {}, 'match minified');
+  const total = rowData(e)?.stats?.matchCount;
   check('astSearch match 60k functions on one line', total === 60_000, JSON.stringify({ total, ms: e.ms, data: rowData(e) }));
 }
 

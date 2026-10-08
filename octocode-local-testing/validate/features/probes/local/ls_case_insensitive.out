@@ -1,5 +1,0 @@
-# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src", "searchText": "WIDGET", "caseMode": "insensitive", "resultView": "countMatches"}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"files":[{"path":"a.ts","totalOccurrences":1},{"path":"index.ts","totalOccurrences":2}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

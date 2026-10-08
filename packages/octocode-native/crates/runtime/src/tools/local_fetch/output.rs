@@ -10,10 +10,7 @@ impl ToolOutput for Output {
     }
     fn error_hint(&self, code: &str) -> Option<&'static str> {
         match code {
-            crate::policy::PATH_POLICY_DENIED => Some(crate::policy::discovery::WITHHELD_HINT),
-            "fileAccessFailed" => Some(
-                "Verify the path with structureSearch operation:\"files\", then retry the exact path.",
-            ),
+            "fileAccessFailed" => Some(crate::tools::output::LIST_FILES_HINT),
             "notAFile" => Some("Read a file inside it; hints.viewTree lists its entries."),
             _ => None,
         }

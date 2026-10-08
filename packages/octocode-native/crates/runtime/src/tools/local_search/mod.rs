@@ -11,7 +11,6 @@ pub(crate) use output::Output;
 mod types;
 mod verify;
 pub use executor::execute_local_search;
-pub use types::LocalSearchError;
 pub use types::*;
 
 #[cfg(test)]

@@ -1,11 +1,5 @@
+import { listSkills, getSkill } from '../registry.js';
 import {
-  listSkills,
-  getSkill,
-  retiredHint,
-  RETIRED_SKILLS,
-} from '../registry.js';
-import {
-  checkSkill,
   checkSkills,
   overallStatus,
   SCAN_PLATFORMS,
@@ -19,17 +13,17 @@ import {
   envParamRows,
 } from '../env-params.js';
 import {
+  getCanonicalSkillsDir,
+  installBundledSkills,
   parseSkillPlatforms,
   type SkillPlatform,
 } from '@octocodeai/octocode-skill-installer';
-import { getSkillsHome } from '../home.js';
-import { installSkill } from '../installer.js';
-import { runRemove } from './remove.js';
 import { reportFailure } from './fail.js';
+import { EXIT } from '../../../exit-codes.js';
 import { bold, c, dim } from '../../../../utils/colors.js';
 import { statusIcon } from './list.js';
 
-export interface CheckOptions {
+interface CheckOptions {
   names: string[];
   platform: string | null;
   workspace: boolean;
@@ -51,14 +45,15 @@ const needsRepair = (location: CheckedLocation): boolean =>
  * Repair only what is already there: refresh the canonical copy and relink
  * broken or stale locations. Never add platforms or a workspace the user did
  * not install into, and never replace a fresh link (e.g. a dev symlink).
+ * Returns the errors of a repair that did not complete.
  */
 function fixSkill(
   result: SkillCheckResult,
   workspace: boolean,
   dryRun: boolean
-): void {
+): string[] {
   const skill = getSkill(result.skillName);
-  if (!skill) return;
+  if (!skill) return [];
   const platforms = result.platforms
     .filter(needsRepair)
     .map(location => location.label as SkillPlatform);
@@ -72,20 +67,47 @@ function fixSkill(
     console.log(
       `  ${dim('dry-run:')} would re-install ${result.skillName} (${overallStatus(result)}) → ${where}`
     );
-    return;
+    return [];
   }
-  installSkill({
-    sourcePath: skill.dir,
-    skillName: skill.folder,
-    platforms,
-    workspace: repairWorkspace,
-    canonicalSkillsDir: getSkillsHome(),
-    customPath: null,
+  const repair = installBundledSkills({
+    skills: [{ name: skill.folder, sourcePath: skill.dir }],
+    canonicalSkillsDir: getCanonicalSkillsDir(),
+    targets: [
+      ...platforms.map(platform => ({ platform, scope: 'global' as const })),
+      ...(repairWorkspace
+        ? [
+            {
+              platform: 'codex' as const,
+              scope: 'project' as const,
+              projectDir: process.cwd(),
+            },
+          ]
+        : []),
+    ],
     mode: 'symlink',
     force: true,
-    dryRun: false,
   });
+  if (repair.ok) return [];
+  const outcome = repair.skills[0];
+  const errors = [
+    outcome?.canonicalError,
+    ...(outcome?.destinations ?? []).map(destination =>
+      destination.error
+        ? `${destination.destination}: ${destination.error}`
+        : destination.status === 'failed' || destination.status === 'conflict'
+          ? `${destination.destination}: ${destination.status}`
+          : undefined
+    ),
+  ].filter((error): error is string => Boolean(error));
+  return errors.length > 0 ? errors : ['repair did not complete'];
 }
+
+const locationJson = (location: CheckedLocation) => ({
+  path: location.path,
+  status: location.status,
+  ...(location.linkTarget ? { linkTarget: location.linkTarget } : {}),
+  ...(location.content ? { content: location.content } : {}),
+});
 
 export function runCheck(opts: CheckOptions): void {
   const skillNames =
@@ -93,10 +115,7 @@ export function runCheck(opts: CheckOptions): void {
       ? opts.names
       : listSkills().map(skill => skill.folder);
   const missing = skillNames.find(name => !getSkill(name));
-  if (missing)
-    return fail(
-      `Skill not found: "${missing}".${retiredHint(missing)}`,
-      opts.json);
+  if (missing) return fail(`Skill not found: "${missing}".`, opts.json);
 
   let platforms: SkillPlatform[] = SCAN_PLATFORMS;
   if (opts.platform) {
@@ -106,36 +125,16 @@ export function runCheck(opts: CheckOptions): void {
   }
 
   let results = checkSkills(skillNames, platforms);
+  const repairFailures: Array<{ name: string; errors: string[] }> = [];
   if (opts.fix && !opts.json) {
     for (const result of results) {
       if (overallStatus(result) !== 'ok') {
-        fixSkill(result, opts.workspace, opts.dryRun);
+        const errors = fixSkill(result, opts.workspace, opts.dryRun);
+        if (errors.length > 0)
+          repairFailures.push({ name: result.skillName, errors });
       }
     }
     if (!opts.dryRun) results = checkSkills(skillNames, platforms);
-  }
-
-  // A full check also finds installs of retired skills (real copies or links,
-  // including links left dangling by the removal) and removes them on --fix.
-  const findRetired = () =>
-    opts.names.length > 0
-      ? []
-      : Object.entries(RETIRED_SKILLS)
-          .map(([name, replacement]) => {
-            const result = checkSkill(name, platforms);
-            const paths = [result.home, ...result.platforms, result.workspace]
-              .filter(location => location.status !== 'missing')
-              .map(location => location.path);
-            return { name, replacement, paths };
-          })
-          .filter(entry => entry.paths.length > 0);
-  let retired = findRetired();
-  if (opts.fix && !opts.json && retired.length > 0) {
-    runRemove(
-      retired.map(entry => entry.name),
-      { all: false, platform: null, dryRun: opts.dryRun, json: false }
-    );
-    if (!opts.dryRun) retired = findRetired();
   }
 
   const envStatuses = opts.noEnv ? [] : getSkillsEnvStatus(skillNames);
@@ -145,7 +144,9 @@ export function runCheck(opts: CheckOptions): void {
   const envCount = (readiness: string) =>
     envStatuses.filter(value => value.readiness === readiness).length;
   const installOk =
-    count('broken') === 0 && count('stale') === 0 && retired.length === 0;
+    count('broken') === 0 &&
+    count('stale') === 0 &&
+    repairFailures.length === 0;
   const envOk = opts.noEnv || envCount('needs-config') === 0;
   const success = installOk && envOk;
 
@@ -154,31 +155,12 @@ export function runCheck(opts: CheckOptions): void {
     return {
       name: result.skillName,
       installStatus: overallStatus(result),
-      home: {
-        path: result.home.path,
-        status: result.home.status,
-        ...(result.home.linkTarget
-          ? { linkTarget: result.home.linkTarget }
-          : {}),
-        ...(result.home.content ? { content: result.home.content } : {}),
-      },
+      home: locationJson(result.home),
       platforms: result.platforms.map(location => ({
         label: location.label,
-        path: location.path,
-        status: location.status,
-        ...(location.linkTarget ? { linkTarget: location.linkTarget } : {}),
-        ...(location.content ? { content: location.content } : {}),
+        ...locationJson(location),
       })),
-      workspace: {
-        path: result.workspace.path,
-        status: result.workspace.status,
-        ...(result.workspace.linkTarget
-          ? { linkTarget: result.workspace.linkTarget }
-          : {}),
-        ...(result.workspace.content
-          ? { content: result.workspace.content }
-          : {}),
-      },
+      workspace: locationJson(result.workspace),
       env: {
         readiness: env.readiness,
         params: envParamRows(env),
@@ -192,7 +174,6 @@ export function runCheck(opts: CheckOptions): void {
       broken: count('broken'),
       stale: count('stale'),
       notInstalled: count('not-installed'),
-      retired: retired.length,
       total: results.length,
     },
     env: opts.noEnv
@@ -211,7 +192,7 @@ export function runCheck(opts: CheckOptions): void {
   };
 
   if (opts.json) {
-    console.log(JSON.stringify({ success, skills, retired, summary }, null, 2));
+    console.log(JSON.stringify({ success, skills, summary }, null, 2));
   } else {
     console.log(bold('Skill check'));
     const width = Math.max(0, ...skills.map(skill => skill.name.length));
@@ -221,17 +202,19 @@ export function runCheck(opts: CheckOptions): void {
         `${statusIcon(skill.installStatus)} ${skill.name.padEnd(width)} ${skill.installStatus}${dim(env)}`
       );
     }
-    for (const entry of retired) {
-      console.log(
-        `${c('red', '✗')} ${entry.name} retired → merged into ${entry.replacement} ${dim(entry.paths.join(', '))}`
+    for (const failure of repairFailures) {
+      console.error(
+        `${c('red', '✗')} ${failure.name} repair failed: ${failure.errors.join('; ')}`
       );
     }
     console.log(
-      `${summary.install.ok} ok, ${summary.install.notInstalled} not installed, ${summary.install.stale} stale, ${summary.install.broken} broken, ${summary.install.retired} retired · env: ${summary.env.needsConfig} need config, ${summary.env.partial} optional missing`
+      `${summary.install.ok} ok, ${summary.install.notInstalled} not installed, ${summary.install.stale} stale, ${summary.install.broken} broken · env: ${summary.env.needsConfig} need config, ${summary.env.partial} optional missing`
     );
     if (!installOk && !opts.fix) {
-      console.log(`${dim('Repair:')} ${c('cyan', 'octocode skill check --fix')}`);
+      console.log(
+        `${dim('Repair:')} ${c('cyan', 'octocode skill check --fix')}`
+      );
     }
   }
-  if (!success) process.exitCode = 1;
+  if (!success) process.exitCode = EXIT.GENERAL;
 }

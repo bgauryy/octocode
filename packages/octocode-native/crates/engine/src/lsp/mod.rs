@@ -1,7 +1,7 @@
 pub mod client;
 mod commands;
 pub mod config;
-pub mod grammar;
+pub(crate) mod grammar;
 pub mod managed;
 pub mod pool;
 mod process_tree;
@@ -10,7 +10,7 @@ mod spawn_limits;
 pub(crate) mod transport;
 pub mod types;
 pub mod uri;
-pub mod validation;
+pub(crate) mod validation;
 pub mod workspace;
 
 /// Worst configured cold-start path before process-start and transport

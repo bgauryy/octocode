@@ -1721,23 +1721,10 @@ fn health(v: &View) -> Value {
     })
 }
 
-/// Runs the selected detectors (all when `only` is empty), dedupes by
-/// subject, and ranks by score.
-/// Directories never scanned for text mentions (build output, deps, VCS).
-const MENTION_SKIP_DIRS: &[&str] = &[
-    "node_modules",
-    "dist",
-    "build",
-    "out",
-    "coverage",
-    "target",
-    ".next",
-    ".cache",
-    ".git",
-    "venv",
-    "__pycache__",
-    "vendor",
-];
+/// Directories the text-mention scan skips on top of the shared
+/// syntax-visible prune (build output, deps, VCS, credential stores):
+/// vendored and virtualenv copies would mention every name.
+const MENTION_EXTRA_SKIP_DIRS: &[&str] = &["venv", "vendor"];
 const MENTION_MAX_FILE: u64 = 2 << 20;
 const MENTION_MAX_TOTAL: u64 = 512 << 20;
 
@@ -1758,7 +1745,8 @@ fn scan_mentions(
     // deterministic whatever order the parallel walk visits files in.
     type Hits = BTreeMap<String, BTreeSet<String>>;
     let found = Mutex::new((Hits::new(), Hits::new()));
-    let budget = AtomicU64::new(MENTION_MAX_TOTAL);
+    // Bytes read so far; a file that would pass the total ends the scan.
+    let spent = AtomicU64::new(0);
     let truncated = AtomicBool::new(false);
     let keep = |map: &mut Hits, key: &str, file: &str| {
         let files = map.entry(key.to_owned()).or_default();
@@ -1767,18 +1755,12 @@ fn scan_mentions(
             files.pop_last();
         }
     };
-    let walker = ignore::WalkBuilder::new(root)
-        .hidden(true)
-        .git_ignore(true)
-        .parents(true)
-        .filter_entry(|entry| {
-            !entry.file_type().is_some_and(|kind| kind.is_dir())
-                || !MENTION_SKIP_DIRS.contains(&entry.file_name().to_string_lossy().as_ref())
-        })
-        .build_parallel();
+    let walker =
+        crate::tools::pruned_walk(root, crate::tools::syntax_prune(MENTION_EXTRA_SKIP_DIRS))
+            .build_parallel();
     walker.run(|| {
         let found = &found;
-        let budget = &budget;
+        let spent = &spent;
         let truncated = &truncated;
         Box::new(move |entry| {
             let Ok(entry) = entry else {
@@ -1791,11 +1773,10 @@ fn scan_mentions(
             if size > MENTION_MAX_FILE {
                 return ignore::WalkState::Continue;
             }
-            if budget
-                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
-                    left.checked_sub(size)
-                })
-                .is_err()
+            if spent
+                .fetch_add(size, Ordering::Relaxed)
+                .saturating_add(size)
+                > MENTION_MAX_TOTAL
             {
                 truncated.store(true, Ordering::Relaxed);
                 return ignore::WalkState::Quit;
@@ -1940,8 +1921,6 @@ fn tier_dead_code(findings: &mut [Finding], root: &std::path::Path, notes: &mut 
     }
 }
 
-/// Runs the selected detectors (all when `only` is empty) and ranks them.
-/// With `root`, dead-code findings are re-tiered by a repo-wide mention scan.
 /// Dedupe by subject: the strongest finding leads, others corroborate it.
 fn corroborate(mut findings: Vec<Finding>) -> Vec<Finding> {
     findings.sort_by(|a, b| b.score.total_cmp(&a.score).then_with(|| a.id.cmp(&b.id)));
@@ -1968,6 +1947,8 @@ fn corroborate(mut findings: Vec<Finding>) -> Vec<Finding> {
     merged
 }
 
+/// Runs the selected detectors (all when `only` is empty) and ranks them.
+/// With `root`, dead-code findings are re-tiered by a repo-wide mention scan.
 pub(crate) fn run(
     t: &GraphTables,
     only: &[String],

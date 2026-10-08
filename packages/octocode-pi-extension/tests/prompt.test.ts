@@ -5,18 +5,18 @@ describe('prompt', () => {
   it('prefers Octocode MCP for research without contradicting Pi read/bash guidance or naming its tools', () => {
     const root = octocodePrompt({ octocode: true, profiles: [{ name: 'researcher', description: 'Reads code' }], canDelegate: true });
     expect(root).toContain('Prefer Octocode MCP (`mcp__octocode__*`) for code search and research');
-    expect(root).toContain('GitHub repositories, PRs and history, npm packages');
+    expect(root).toContain('GitHub repositories, PRs and history, package registries');
     expect(root).toContain('`read` and bash stay right for known paths');
     // Octocode wins over Pi's generic "Use bash for file operations like ls, rg, find" for code search.
     expect(root).toContain('takes precedence over the generic rule to use bash for ls, rg or find');
     expect(root).not.toContain('tool_search');
-    expect(octocodePrompt({ octocode: true, octocodeDeferred: true, profiles: [], canDelegate: true })).toContain('Load its GitHub and npm tools with `tool_search`');
+    expect(octocodePrompt({ octocode: true, octocodeDeferred: true, profiles: [], canDelegate: true })).toContain('Load its GitHub and package registry tools with `tool_search`');
     expect(root).not.toMatch(/instead of bash|instead of `read`/);
     // Pi's base prompt owns the identity and the skills rule.
     expect(root).not.toContain('You are Octocode');
     expect(root).not.toContain('SKILL.md');
     // Which Octocode tool does what is the server's business: no tool or parameter names.
-    for (const coupled of ['localGetFileContent', 'localSearch', 'ghSearch', 'lspGetSemantics', 'npmSearch', 'resultView', 'concise']) expect(root).not.toContain(coupled);
+    for (const coupled of ['localFetch', 'localSearch', 'structureSearch', 'astSearch', 'ghSearchCode', 'ghStructure', 'lspSearch', 'artifactSearch', 'resultView', 'concise']) expect(root).not.toContain(coupled);
     expect(root).not.toMatch(/(?<!mcp__)octocode_/);
     expect(root).not.toContain('github.com');
     expect(root).toContain('- researcher: Reads code');
@@ -30,7 +30,7 @@ describe('prompt', () => {
     expect(browsing).toContain('- webLive: Drives Chrome');
     const child = octocodePrompt({ octocode: false, profiles: [], canDelegate: false });
     expect(child).toContain('You are a subagent');
-    expect(child).toContain('Use `web` (or the `gh` CLI in bash when available) for GitHub and npm lookups');
+    expect(child).toContain('Use `web` (or the `gh` CLI in bash when available) for GitHub and package registry lookups');
     expect(child).not.toContain('Octocode MCP');
     expect(child).toContain('You cannot ask the user');
     expect(child).not.toContain('askUser');

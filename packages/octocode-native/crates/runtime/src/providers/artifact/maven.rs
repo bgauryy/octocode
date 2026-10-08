@@ -62,7 +62,7 @@ pub(crate) async fn maven(
     let url = endpoint(
         "https://central.sonatype.com/solrsearch/select",
         &[
-            ("q", Some(query.terms())),
+            ("q", Some(solr_terms(&query.terms()))),
             ("rows", Some(size.to_string())),
             ("start", Some(offset.to_string())),
             ("wt", Some("json".into())),
@@ -118,6 +118,19 @@ pub(crate) async fn maven(
     })
 }
 
+/// Keyword terms as a Central search query: each word ANDed (the keywords'
+/// documented meaning; the endpoint rejects bare whitespace with HTTP 400).
+/// Query-syntax characters (field `:`, quotes, groups, wildcards, operators)
+/// separate words rather than reach the endpoint, which answers them with
+/// 400/404; `-`, `.` and `_` stay, as artifact names use them.
+fn solr_terms(terms: &str) -> String {
+    terms
+        .split(|c: char| c.is_whitespace() || "+&|!(){}[]^\"~*?:\\/".contains(c))
+        .filter(|word| !word.is_empty())
+        .collect::<Vec<_>>()
+        .join(" AND ")
+}
+
 async fn exact(
     package_name: &str,
     version: Option<&str>,
@@ -127,7 +140,7 @@ async fn exact(
     let valid = patterns::valid_coordinate();
     if parts.len() != 2 || parts.iter().any(|part| !valid.is_match(part)) {
         return Err(ArtifactError::new(
-            "invalid_query",
+            "invalidInput",
             "Maven packageName must be groupId:artifactId.",
         ));
     }
@@ -202,13 +215,7 @@ async fn exact(
             artifact.source_tag = artifact.source_ref.is_some();
         }
     }
-    Ok(ArtifactProviderPage {
-        artifacts: vec![artifact],
-        next_state: None,
-        total: Some(1),
-        terminal_limit: None,
-        registry: None,
-    })
+    Ok(ArtifactProviderPage::single(artifact))
 }
 
 /// The release a Maven version names without its variant classifier:
@@ -314,7 +321,7 @@ mod tests {
 
     fn guava_query() -> ArtifactSearchQuery {
         artifact_query(
-            serde_json::json!({"type": ArtifactType::Maven, "packageName": "com.google.guava:guava".to_string()}),
+            serde_json::json!({"ecosystem": ArtifactType::Maven, "packageName": "com.google.guava:guava".to_string()}),
             None,
         )
     }
@@ -328,6 +335,65 @@ mod tests {
             .expect("maven exact");
         assert_eq!(page.artifacts.len(), 1);
         page.artifacts.into_iter().next().expect("one artifact")
+    }
+
+    /// Records each request URL and answers with an empty search page.
+    struct CaptureMock(std::sync::Mutex<Vec<Url>>);
+
+    impl ArtifactHttp for CaptureMock {
+        fn get<'a>(
+            &'a self,
+            req: ArtifactHttpRequest,
+            _budget: &'a RequestBudget,
+        ) -> ArtifactHttpFuture<'a> {
+            if let Ok(mut urls) = self.0.lock() {
+                urls.push(req.url.clone());
+            }
+            Box::pin(async move {
+                Ok(ArtifactHttpResponse {
+                    status: 200,
+                    body: br#"{"response":{"numFound":0,"docs":[]}}"#.to_vec(),
+                })
+            })
+        }
+    }
+
+    /// QA2: Maven Central's Solr search answers HTTP 400 to whitespace-
+    /// separated terms ("markdown parser"), which surfaced as an
+    /// `invalidInput` row for a schema-valid query. Terms are ANDed (the
+    /// documented keyword semantics); query-syntax characters split words.
+    #[tokio::test]
+    async fn maven_discovery_ands_terms_and_splits_query_syntax() {
+        for (keywords, expected) in [
+            (
+                serde_json::json!(["markdown parser"]),
+                "markdown AND parser",
+            ),
+            (
+                serde_json::json!(["markdown", "parser"]),
+                "markdown AND parser",
+            ),
+            (serde_json::json!(["a:b (c)"]), "a AND b AND c"),
+            (serde_json::json!(["spring-boot"]), "spring-boot"),
+            (serde_json::json!(["guava"]), "guava"),
+        ] {
+            let http = CaptureMock(std::sync::Mutex::new(Vec::new()));
+            let b = test_budget();
+            let client = RegistryClient::uncached(&http, &b);
+            let query = artifact_query(
+                serde_json::json!({"ecosystem": ArtifactType::Maven, "keywords": keywords}),
+                None,
+            );
+            maven(&query, &ArtifactProviderState::default(), &client)
+                .await
+                .expect("maven search");
+            let urls = http.0.lock().expect("urls");
+            let q = urls[0]
+                .query_pairs()
+                .find(|(key, _)| key == "q")
+                .map(|(_, value)| value.into_owned());
+            assert_eq!(q.as_deref(), Some(expected), "{keywords}");
+        }
     }
 
     #[tokio::test]
@@ -386,7 +452,7 @@ mod tests {
         let b = test_budget();
         let client = RegistryClient::uncached(&http, &b);
         let q = artifact_query(
-            serde_json::json!({"type": ArtifactType::Maven, "packageName": "com.fasterxml.jackson.core:jackson-databind".to_string()}),
+            serde_json::json!({"ecosystem": ArtifactType::Maven, "packageName": "com.fasterxml.jackson.core:jackson-databind".to_string()}),
             None,
         );
         let page = maven(&q, &ArtifactProviderState::default(), &client)
@@ -430,7 +496,7 @@ mod tests {
         );
         let pom = "<project><url>https://github.com/google/guava</url></project>";
         let query = artifact_query(
-            serde_json::json!({"type": ArtifactType::Maven,
+            serde_json::json!({"ecosystem": ArtifactType::Maven,
                 "packageName": "com.google.guava:guava".to_string(), "version": "33.0.0-jre"}),
             None,
         );
@@ -452,7 +518,7 @@ mod tests {
         assert!(item.source_tag);
 
         let missing = artifact_query(
-            serde_json::json!({"type": ArtifactType::Maven,
+            serde_json::json!({"ecosystem": ArtifactType::Maven,
                 "packageName": "com.google.guava:guava".to_string(), "version": "33.0.1-jre"}),
             None,
         );
@@ -472,12 +538,12 @@ mod tests {
         let b = test_budget();
         let client = RegistryClient::uncached(&http, &b);
         let q = artifact_query(
-            serde_json::json!({"type": ArtifactType::Maven, "packageName": "not-a-maven-coordinate".to_string()}),
+            serde_json::json!({"ecosystem": ArtifactType::Maven, "packageName": "not-a-maven-coordinate".to_string()}),
             None,
         );
         let err = maven(&q, &ArtifactProviderState::default(), &client)
             .await
             .expect_err("invalid maven coordinate");
-        assert_eq!(err.code, "invalid_query");
+        assert_eq!(err.code, "invalidInput");
     }
 }

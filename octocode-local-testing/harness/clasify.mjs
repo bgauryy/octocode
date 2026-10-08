@@ -2,14 +2,16 @@
 // from rg, never from the model), negative targets, multi-target matrices,
 // Scout over search results, Judge on held state, and error handling.
 // Measures host-visible bytes (clasify output + verification read) against a
-// direct read of the file.
+// direct read of the file. Scout flows (every scoutTools list/fetch resource:
+// candidate mapping, next.clasify, hints.read, errors) run in `scoutFlows`;
+// OCTOCODE_CLASIFY_ONLY=scout runs only them.
 import fs from 'node:fs';
 import path from 'node:path';
 import { REPOS, checks, collect, rowData, startServer, writeResults } from './mcp-client.mjs';
 
-const { check, summary } = checks('clasify');
+const { check, skip, summary } = checks('clasify');
 const client = await startServer();
-const { raw, call } = client;
+const { raw, call, follow } = client;
 const MAX_CALLS = 45;
 // Required on every clasify matrix; sent with each question and the evidence state.
 const GOAL = 'Find the source that answers the harness target so the host reads only that range.';
@@ -23,8 +25,8 @@ function groundTruth(dir, file, regex) {
   return index < 0 ? null : { file: full, line: index + 1 };
 }
 
-/** A locate row with its window as `startLine`/`endLine` (the row carries `lines`). */
-const row = r => r && (r.lines ? { ...r, startLine: r.lines[0], endLine: r.lines[1] } : r);
+/** A locate row with its window as `startLine`/`endLine` (the row carries `line`/`endLine`). */
+const row = r => r && (r.line ? { ...r, startLine: r.line } : r);
 /** Ranked locate rows of one question in a query result (server order). */
 const bestRows = (q, id) => (q?.best?.[id] ?? []).map(row);
 /** A page's answer to question `id`: compact bare value or the debug object. */
@@ -80,6 +82,117 @@ const LOCATE = [
   { name: 'elasticsearch InternalEngine.index', dir: 'huge-java', glob: 'server/src/main/java/org/elasticsearch/index/engine/InternalEngine.java', regex: 'public IndexResult index\\(Index index\\)', target: 'The engine method that indexes one document operation.' },
   { name: 'pytorch autograd Engine::execute', dir: 'huge-cpp', glob: 'torch/csrc/autograd/engine.cpp', regex: '^auto Engine::execute\\(', target: 'The autograd engine method that executes the backward graph from given root edges.' },
 ];
+
+/** One Scout page's candidate identity: file path or list item. */
+const pageId = (resource, page) => page.path ?? page.source?.item ?? page.source?.path ?? resource.path ?? '';
+/** A clasify call's first matrix and first resource. */
+const firstResource = out => out.sc?.queries?.[0]?.resources?.[0];
+
+/**
+ * Scout flows over every scoutTools resource: a list's candidates each become
+ * exactly one page (no drop, no repeat across next.clasify), every page's
+ * hints.read runs verbatim on that candidate, path lists stay one page for a
+ * choice, fetches judge with `sufficient`, and each misuse fails with a clear
+ * errorCode plus the read tool's own recovery.
+ */
+async function scoutFlows() {
+  const tokio = path.join(REPOS, 'rust/tokio');
+  if (!fs.existsSync(tokio)) { skip('scout flows', `missing ${tokio}`); return; }
+  const listed = name => client.tools.some(tool => tool.name === name);
+  const github = listed('ghSearchRepo') && process.env.OCTOCODE_TEST_SCOUT_GITHUB !== '0';
+  const ask = 'Where an idle blocking-pool thread exits after its keep-alive timeout';
+  const screen = [{ id: 'rel', type: 'relevant', ask }, { id: 'suf', type: 'sufficient', ask }];
+  const scout = (tool, query, questions = screen, extra = {}) => raw('clasify', { queries: [{ mainGoal: GOAL, resources: [{ id: 'r', tool, query, ...extra }], questions }] });
+  // Candidate identities of a direct list page, as Scout names them.
+  const LISTS = [
+    { tool: 'localSearch', query: { path: path.join(tokio, 'src'), matchString: 'keep_alive', pageSize: 5 }, ids: d => d.files?.map(f => f.path) },
+    { tool: 'astSearch', query: { path: path.join(tokio, 'src/runtime'), operation: 'match', pattern: 'Duration::from_secs($A)', language: 'rust', pageSize: 10 }, ids: d => d.files?.map(f => f.path) },
+    { tool: 'astSearch', query: { path: path.join(tokio, 'src/runtime/blocking'), operation: 'symbols' }, ids: d => d.files?.map(f => f.path) },
+    { tool: 'lspSearch', query: { path: path.join(tokio, 'src/runtime/blocking/pool.rs'), operation: 'references', symbolName: 'spawn_blocking', lineHint: 238 }, ids: d => d.payload?.files?.map(f => f.path) },
+    ...(github ? [
+      { tool: 'ghSearchCode', query: { owner: 'tokio-rs', repo: 'tokio', keywords: ['keep_alive', 'blocking'], pageSize: 5 }, ids: d => d.files?.map(f => f.path) },
+      { tool: 'ghSearchRepo', query: { keywords: ['tokio', 'runtime'], pageSize: 5 }, ids: d => d.repositories?.map(r => `${r.owner}/${r.repo}`), questions: [{ id: 'is', type: 'yesno', ask: 'This repository is the tokio async runtime itself' }] },
+      { tool: 'ghSearchHistory', query: { operation: 'pullRequest', owner: 'tokio-rs', repo: 'tokio', keywords: ['blocking', 'keep_alive'], pageSize: 5 }, ids: d => d.pullRequests?.map(p => `#${p.number}`) },
+      { tool: 'artifactSearch', query: { ecosystem: 'npm', keywords: ['json', 'schema', 'validator'], pageSize: 5 }, ids: d => d.artifacts?.map(a => `:${a.name}`) },
+    ] : []),
+  ];
+  for (const t of LISTS) {
+    const label = `scout ${t.tool}${t.query.operation ? ` ${t.query.operation}` : ''}`;
+    // A cold language server answers `timeout` with next.retry: follow it as an agent would.
+    let direct = await call(t.tool, t.query);
+    for (let tries = 0; tries < 4 && rowData(direct)?.errorCode === 'timeout' && rowData(direct)?.next?.retry; tries += 1) {
+      direct = await follow(rowData(direct).next.retry);
+    }
+    const want = t.ids(rowData(direct) ?? {}) ?? [];
+    if (!check(`${label}: direct list has candidates`, !direct.isError && want.length > 0, direct.text.slice(0, 160))) continue;
+    const first = await scout(t.tool, t.query, t.questions);
+    const resource = firstResource(first);
+    const pages = resource?.pages ?? [];
+    const got = pages.map(p => pageId(resource, p));
+    check(`${label}: executes with answers and hints.read on every page`, !first.isError && pages.length > 0 && pages.every(p => p.answers && p.hints?.read), first.text.slice(0, 200));
+    const mapped = want.map(id => got.filter(g => g.endsWith(id)).length);
+    check(`${label}: each direct candidate is exactly one page`, mapped.every(n => n === 1) && got.length === want.length, JSON.stringify({ want, got }).slice(0, 220));
+    // Continuations reach new candidates only: none of call 1 repeats.
+    const next = first.sc?.queries?.[0]?.next?.clasify;
+    if (next && t.tool !== 'localSearch') {
+      const second = await raw('clasify', next);
+      const again = (firstResource(second)?.pages ?? []).map(p => pageId(firstResource(second), p)).filter(id => got.includes(id));
+      check(`${label}: next.clasify judges no candidate twice`, !second.isError && again.length === 0, JSON.stringify(again).slice(0, 200));
+    }
+    let reads = 0;
+    for (const p of pages.slice(0, 3)) {
+      const read = await raw(p.hints.read.tool, p.hints.read.query);
+      const id = pageId(resource, p).split(/[/#@:]/).pop();
+      if (!read.isError && read.text.includes(id)) reads += 1;
+    }
+    check(`${label}: hints.read runs verbatim on its candidate`, reads === Math.min(3, pages.length), `${reads}/${Math.min(3, pages.length)}`);
+  }
+  // Path lists stay one page and suit a choice over the listed paths.
+  const pick = [{ id: 'pick', type: 'choice', ask: 'Which listed file implements the blocking thread pool?', labels: { pool: 'pool.rs', other: 'another listed file', insufficient: 'not listed' } }];
+  const PATHS = [
+    ['structureSearch', { path: path.join(tokio, 'src/runtime/blocking'), operation: 'files' }],
+    ...(github ? [['ghStructure', { owner: 'tokio-rs', repo: 'tokio', path: 'tokio/src/runtime/blocking' }]] : []),
+  ];
+  for (const [tool, query] of PATHS) {
+    const out = await scout(tool, query, pick);
+    const resource = firstResource(out);
+    const choice = resource?.answers?.pick ?? resource?.pages?.[0]?.answers?.pick;
+    check(`scout ${tool}: a path list is one page judged by choice`, !out.isError && (resource?.pages?.length ?? 1) === 1 && (choice === 'pool' || choice?.choice === 'pool'), out.text.slice(0, 200));
+  }
+  // Fetch resources: `sufficient` before a large fetch, each page with its bounded read.
+  const FETCHES = [
+    ['localFetch', { path: path.join(tokio, 'src/runtime/blocking/pool.rs') }],
+    ...(github ? [
+      ['ghGetFileContent', { owner: 'tokio-rs', repo: 'tokio', path: 'tokio/src/runtime/blocking/pool.rs' }],
+      ['ghGetHistoryItem', { owner: 'tokio-rs', repo: 'tokio', operation: 'pullRequest', number: 2809 }],
+    ] : []),
+  ];
+  for (const [tool, query] of FETCHES) {
+    const out = await scout(tool, query);
+    const pages = firstResource(out)?.pages ?? [];
+    const top = pages.reduce((best, p) => ((p.answers?.suf ?? 0) > (best?.answers?.suf ?? -1) ? p : best), null);
+    const read = top?.hints?.read && await raw(top.hints.read.tool, top.hints.read.query);
+    check(`scout ${tool}: fetch judged with sufficient; its best page's hints.read runs`, !out.isError && pages.length > 0 && read && !read.isError, out.text.slice(0, 200));
+  }
+  // Misuse: each fails with a clear errorCode and the read tool's recovery.
+  const errorOf = out => firstResource(out)?.error ?? {};
+  const unsupported = await scout('ghCloneRepo', { owner: 'tokio-rs', repo: 'tokio' });
+  check('scout error: a non-scout tool is rejected with the allowed list', unsupported.isError && /allowed/.test(unsupported.text) && /localSearch/.test(unsupported.text), unsupported.text.slice(0, 200));
+  const locate = await scout('astSearch', LISTS[2].query, [{ id: 'l', type: 'locate', ask }]);
+  check('scout error: locate over a list is classificationLocateUnsupported with a repair', errorOf(locate).errorCode === 'classificationLocateUnsupported' && errorOf(locate).hints?.text?.length > 0, locate.text.slice(0, 200));
+  const empty = await scout('localSearch', { path: path.join(tokio, 'src'), matchString: 'zzz_no_such_token_octocode' });
+  check('scout error: an empty list is classificationContextEmpty with the tool\'s own hint', errorOf(empty).errorCode === 'classificationContextEmpty' && !(errorOf(empty).hints?.text ?? []).some(h => h.startsWith('Run the ordinary context tool')), JSON.stringify(errorOf(empty)).slice(0, 220));
+  const failed = await scout('localSearch', { path: path.join(tokio, 'no-such-dir'), matchString: 'x' });
+  check('scout error: a failed read keeps its errorCode and executable recovery lead', errorOf(failed).errorCode === 'pathNotFound' && (errorOf(failed).hints?.text ?? []).some(h => h.includes('structureSearch')), JSON.stringify(errorOf(failed)).slice(0, 220));
+}
+
+if (process.env.OCTOCODE_CLASIFY_ONLY === 'scout') {
+  await scoutFlows();
+  const result = summary();
+  writeResults('clasify-scout', result);
+  client.close();
+  process.exit(result.failed.length ? 1 : 0);
+}
 
 const table = [];
 for (const t of LOCATE) {
@@ -277,6 +390,8 @@ let prefilterQuality;
     check('scout: schedule_one.go ranks first among search hits', ranked[0]?.path.endsWith('schedule_one.go'), ranked.slice(0, 3).map(r => `${path.basename(r.path)}=${r.p}`).join(', '));
   }
 }
+
+await scoutFlows();
 
 // Judge: held snippets with known answers.
 {

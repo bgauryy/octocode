@@ -106,7 +106,7 @@ export class ReportQueue {
 }
 
 /**
- * Report files the parent has read (`read`/`localGetFileContent` of `<scratch>/report.md`), by agent id, with the time.
+ * Report files the parent has read (`read`/`localFetch` of `<scratch>/report.md`), by agent id, with the time.
  * A report whose file was read after its last change reaches the parent without starting a turn.
  */
 export class ReadReports {
@@ -118,7 +118,7 @@ export class ReadReports {
   }
 
   observe(toolName: string, input: Record<string, unknown>, cwd: string): void {
-    const paths = toolName === 'read' ? [input['path']] : toolName.endsWith('localGetFileContent') && Array.isArray(input['queries']) ? input['queries'].map((query: unknown) => (query && typeof query === 'object' ? (query as Record<string, unknown>)['path'] : undefined)) : [];
+    const paths = toolName === 'read' ? [input['path']] : toolName.endsWith('localFetch') && Array.isArray(input['queries']) ? input['queries'].map((query: unknown) => (query && typeof query === 'object' ? (query as Record<string, unknown>)['path'] : undefined)) : [];
     for (const file of paths) {
       if (typeof file !== 'string' || !file) continue;
       const id = this.scratch.get(path.resolve(cwd, file.replace(/^@/, '')));

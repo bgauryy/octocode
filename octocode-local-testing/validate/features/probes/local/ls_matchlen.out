@@ -1,5 +1,0 @@
-# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/big.txt", "searchText": "row 0001", "matchContentLength": 10}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"warnings":["Some match values were truncated to matchContentLength; originalChars and returnedChars describe each shortened value. Counts and row pagination are unchanged. Use localFetch at the returned path/line anchors for full source."],"files":[{"path":"big.txt","matches":[{"line":1,"value":"row 000...","truncated":true,"originalChars":69,"returnedChars":10}]}]}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

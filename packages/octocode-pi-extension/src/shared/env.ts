@@ -9,7 +9,7 @@ export const HOOKS_ENV = 'OCTOCODE_HOOKS';
 /** `0` keeps the Octocode MCP server unregistered (set for a profile with `mcp: false`, e.g. the browser subagents). */
 export const MCP_ENV = 'OCTOCODE_MCP';
 
-/** `1` declares every Octocode MCP tool directly; by default its GitHub and npm tools wait for `tool_search`. */
+/** `1` declares every Octocode MCP tool directly; by default its GitHub and package registry tools wait for `tool_search`. */
 export const MCP_DIRECT_ENV = 'OCTOCODE_MCP_DIRECT';
 
 /** `0` turns automatic memory injection off for this process (`/octocode memory auto off` turns it off everywhere). */

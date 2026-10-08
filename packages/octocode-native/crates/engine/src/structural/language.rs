@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use tree_sitter::Language as TSLanguage;
 
 use crate::signatures::languages::LanguageEntry;
+use crate::text::file_extension::JS_TS_EXTENSIONS;
 
 /// Stand-in identifier character substituted for a `$`-sigil metavar so the
 /// selected Tree-sitter grammar accepts the pattern as valid source.
@@ -103,7 +104,7 @@ fn terminated_fragment_kind_for_ext(ext: &str) -> Option<&'static str> {
 /// Assembly grammar uses `Q`; other grammars use `µ`.
 pub(super) fn primary_expando_for_ext(ext: &str) -> char {
     match ext {
-        "ts" | "tsx" | "mts" | "cts" | "js" | "jsx" | "mjs" | "cjs" | "java" => '$',
+        ext if ext == "java" || JS_TS_EXTENSIONS.contains(&ext) => '$',
         "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" | "cu" | "cuh" => '\u{10000}',
         "asm" | "assembly" | "s" => 'Q',
         _ => '\u{00b5}',

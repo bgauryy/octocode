@@ -178,9 +178,12 @@ try {
         row.name
       );
       if (!row.enabled) {
+        // One prompt for every surface: it says clasify needs a provider key.
         assert.ok(
-          !/\bclasify\b/i.test(client.getInstructions() ?? ''),
-          `${row.name}: disabled tool in instructions`
+          (client.getInstructions() ?? '').includes(
+            '<clasify>Needs a provider key. '
+          ),
+          `${row.name}: clasify key requirement in instructions`
         );
         assert.ok(
           catalog.tools.every(t => !/\bclasify\b/i.test(t.description ?? '')),

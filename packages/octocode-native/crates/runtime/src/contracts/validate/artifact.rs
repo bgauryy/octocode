@@ -40,12 +40,12 @@ pub(super) fn validate_artifact_queries(input: &Value) -> Result<(), ContractVal
                 "pageSize and page apply only to keyword discovery",
             ));
         }
-        if let Some(registry) = query.get("registry").and_then(Value::as_str) {
-            if query.get("type").and_then(Value::as_str) != Some("npm") {
+        if let Some(registry) = query.get("registryUrl").and_then(Value::as_str) {
+            if query.get("ecosystem").and_then(Value::as_str) != Some("npm") {
                 return Err(issue(
                     "artifact.registry-type",
                     prefix,
-                    "registry is supported only for type:npm",
+                    "registryUrl is supported only for ecosystem:npm",
                 ));
             }
             let parsed = Url::parse(registry).map_err(|_| {

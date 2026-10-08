@@ -1,4 +1,15 @@
 use super::*;
+
+#[test]
+fn oversized_snapshot_is_rejected_before_allocation() {
+    let dir = tempfile::tempdir().expect("root");
+    let file = dir.path().join(GRAPH_FILE);
+    std::fs::File::create(&file)
+        .expect("file")
+        .set_len(MAX_GRAPH_BYTES as u64 + 1)
+        .expect("sparse fixture");
+    assert!(read_graph_file(&file).is_err());
+}
 use crate::tools::ast_graph::test_support::write_files;
 use crate::tools::cancel::NeverCancel;
 
@@ -694,6 +705,55 @@ fn impact_since_reads_git_and_widens_on_config_changes() {
     );
 }
 
+/// L1: `--since` runs git on a repository the caller controls; its config
+/// must not run programs (an fsmonitor hook executes on every index read).
+#[cfg(unix)]
+#[test]
+fn impact_since_does_not_run_repository_fsmonitor_hooks() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = issues_fixture();
+    let app = dir.path().join("app");
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .arg("-C")
+            .arg(&app)
+            .args(args)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    };
+    if !git(&["init", "-q"]) {
+        return; // git unavailable in this environment
+    }
+    let identity = ["-c", "user.email=t@t", "-c", "user.name=t"];
+    assert!(git(&[&identity[..], &["add", "-A"]].concat()));
+    assert!(git(&[&identity[..], &["commit", "-qm", "base"]].concat()));
+    assert_eq!(ingest_fixture(dir.path(), None).exit, 0);
+    let marker = dir.path().join("hook-ran");
+    let hook = dir.path().join("fsmonitor.sh");
+    std::fs::write(&hook, format!("#!/bin/sh\ntouch '{}'\n", marker.display())).expect("hook");
+    std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    assert!(git(&[
+        "config",
+        "core.fsmonitor",
+        hook.to_str().expect("utf-8 path")
+    ]));
+    std::fs::write(
+        app.join("src/fmt.ts"),
+        "export const fmt = (s: string) => s;\n",
+    )
+    .expect("edit");
+    let out = ask(dir.path(), "impact", None, |o| {
+        o.since = Some("HEAD".into())
+    });
+    assert!(
+        impacted(&out).contains(&("src/fmt.ts".into(), 0)),
+        "{}",
+        out.value
+    );
+    assert!(!marker.exists(), "the repository fsmonitor hook ran");
+}
+
 #[test]
 fn oversized_and_minified_files_stay_visible_without_noise() {
     let dir = fixture();
@@ -788,7 +848,7 @@ fn impact_lists_inline_rust_test_functions() {
     assert_eq!(out.value["summary"]["testsToRun"], json!(["src/lib.rs"]));
 }
 
-// ── Quality plan acceptance tests (CODE_GRAPH_QUALITY_PLAN.md) ─────────────
+// ── Graph quality acceptance tests (docs/engine/CODE_GRAPH.md § Validation) ─
 
 /// A repository root (a `.git` marker) holding `files` under `app/`.
 fn git_app(files: &[(&str, &str)]) -> tempfile::TempDir {
@@ -1039,6 +1099,66 @@ fn plan_9_unchanged_tree_reuses_the_latest_snapshot() {
         None,
     );
     assert_ne!(forced.value["reused"], true);
+}
+
+/// A settled file records its stamp, an equal stamp proves the bytes
+/// without a read, and a same-size rewrite (new times) still rebuilds.
+#[test]
+fn settled_sources_reuse_by_stamp_and_a_same_size_edit_still_rebuilds() {
+    use octocode_engine::graph::SourceStamp;
+    let dir = fixture();
+    std::thread::sleep(SourceStamp::SETTLE + std::time::Duration::from_millis(200));
+    let first = ingest_fixture(dir.path(), None);
+    assert_eq!(first.exit, 0, "{}", first.value);
+    let graph_dir = PathBuf::from(first.value["dir"].as_str().expect("dir"));
+    let bytes = std::fs::read(graph_dir.join(GRAPH_FILE)).expect("graph.bin");
+    let (tables, _) = format::decode(&bytes).expect("decode");
+    assert_eq!(tables.digests.len(), 4);
+    assert_eq!(tables.stamps.len(), 4, "every settled source is stamped");
+    // The unchanged-tree check decodes only the file index, the same one.
+    let (files, files_digest) = format::decode_files(&bytes).expect("decode files");
+    assert_eq!(files_digest, first.value["sha256"].as_str().expect("sha"));
+    assert_eq!(files.strings, tables.strings);
+    assert_eq!(files.digests, tables.digests);
+    assert_eq!(files.stamps, tables.stamps);
+    assert_eq!(files.nodes.len(), tables.nodes.len());
+    assert!(files.edges.is_empty() && !tables.edges.is_empty());
+    let (node, stamp) = tables
+        .stamps
+        .iter()
+        .find(|(node, _)| tables.str(tables.nodes[*node as usize].key) == "src/a.ts")
+        .expect("a.ts stamp");
+    let a = dir.path().join("app/src/a.ts");
+    // An equal stamp is trusted without reading: even a wrong digest passes.
+    assert_eq!(
+        source_matches(&a, "not-the-digest", Some(stamp)),
+        Some(true)
+    );
+    let digest = tables
+        .digests
+        .iter()
+        .find(|(id, _)| id == node)
+        .map(|(_, digest)| tables.str(*digest))
+        .expect("a.ts digest");
+    assert_eq!(source_matches(&a, digest, None), Some(true));
+    assert_eq!(
+        source_matches(&dir.path().join("gone.ts"), digest, Some(stamp)),
+        None
+    );
+
+    let second = ingest_fixture(dir.path(), None);
+    assert_eq!(second.value["reused"], true, "{}", second.value);
+    // Same length, new content: the stamp moves, so the hash decides.
+    let before = std::fs::read_to_string(&a).expect("a.ts");
+    let after = before.replace("b()", "c()");
+    assert_eq!(before.len(), after.len());
+    std::fs::write(&a, after).expect("edit");
+    assert_eq!(source_matches(&a, digest, Some(stamp)), Some(false));
+    let third = ingest_fixture(dir.path(), None);
+    assert_eq!(third.exit, 0, "{}", third.value);
+    assert_ne!(third.value["reused"], true, "{}", third.value);
+    let stale = ask(dir.path(), "stale", None, |_| {});
+    assert_eq!(stale.value["fresh"], true, "{}", stale.value);
 }
 
 #[test]

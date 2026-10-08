@@ -53,11 +53,10 @@ fn frozen_graph_correctness_receipt_is_stable() {
                 .expect("relation");
         }
     }
-    let (snapshot, receipt) = builder.finish_with_receipt();
-    assert_eq!(snapshot.snapshot.digest, receipt.snapshot_digest);
-    assert_eq!(receipt.metrics.files, 500);
-    assert_eq!(receipt.metrics.edges, 1_494);
-    assert_eq!(receipt.metrics.ast_relations, 1_494);
+    let snapshot = builder.finish();
+    assert_eq!(snapshot.snapshot.files.len(), 500);
+    assert_eq!(snapshot.edges.len(), 1_494);
+    assert_eq!(snapshot.evidence.len(), 1_494);
 }
 
 /// Manual, repeatable sensor rather than a CI timing gate. Run with:
@@ -93,7 +92,7 @@ fn measure_frozen_graph_baseline() {
                 .expect("relation");
         }
     }
-    let (_, snapshot_receipt) = builder.finish_with_receipt();
+    let snapshot = builder.finish();
     let snapshot_build_ms = snapshot_started.elapsed().as_secs_f64() * 1_000.0;
 
     let query_started = Instant::now();
@@ -104,7 +103,7 @@ fn measure_frozen_graph_baseline() {
 
     let report = format!(
         "{{\"implementation\":\"btree\",\"files\":{files},\"edges\":{estimated_edge_count},\"reachable\":{reachable_count},\"components\":{components},\"buildMs\":{build_ms:.3},\"snapshotBuildMs\":{snapshot_build_ms:.3},\"snapshotEdges\":{},\"queryMs\":{query_ms:.3}}}",
-        snapshot_receipt.metrics.edges
+        snapshot.edges.len()
     );
     let report_path = std::env::var_os("OCTOCODE_GRAPH_BENCH_REPORT")
         .map(std::path::PathBuf::from)

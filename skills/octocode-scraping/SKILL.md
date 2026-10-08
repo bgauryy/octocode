@@ -1,6 +1,6 @@
 ---
 name: octocode-scraping
-description: "Use when fetching public URLs or crawling a site into a local corpus for repeated queries: docs, pricing tables, link maps, or content extraction. Verify facts in source text. Not for JS-rendered content or live interaction — use octocode-chrome-devtools."
+description: "Use when fetching public URLs or crawling a site into a local corpus for repeated queries: docs, pricing tables, link maps, or content extraction. Not for JS-rendered content or live interaction — use octocode-chrome-devtools."
 ---
 
 # Octocode Scraping
@@ -34,7 +34,7 @@ flowchart LR
 ```
 Caption: search before refetching; escalate to a browser only on evidence; stop at the first hard stop; dotted edges load a page in `references/` or `docs/`.
 
-Frame URL/domain, goal, depth, and output before fetching. Default to one public URL, `--mode html`, no explicit provider (bounded direct HTTP), `.octocode/tmp/scrape/{sessionId}`, and compact stdout. **CDP escalation:** when the result has `next.route: octocode-chrome-devtools` (blocked or thin application shell), or target text stays absent after checking wording and extraction quality, load `octocode-chrome-devtools`, render that URL once with `open-browser + page-snapshot + dom-operations-check`, then bridge with `scripts/har-ingest.mjs --session-dir <existing-session> --from-cdp-dir <run>`. Do not start a new scrape session. Live interaction belongs to `octocode-chrome-devtools`.
+Verify facts in retained source text. Frame URL/domain, goal, depth, and output before fetching. Default to one public URL, `--mode html`, no explicit provider (bounded direct HTTP), `.octocode/tmp/scrape/{sessionId}`, and compact stdout. **CDP escalation:** when the result has `next.route: octocode-chrome-devtools` (blocked or thin application shell), or target text stays absent after checking wording and extraction quality, load `octocode-chrome-devtools`, render that URL once with Chrome's executor or snapshot/action helpers, then bridge with `scripts/har-ingest.mjs --session-dir <existing-session> --from-cdp-dir <run>`. Do not start a new scrape session. Live interaction belongs to `octocode-chrome-devtools`.
 
 **Context gate:** query metadata and exact text first. When an unread saved artifact needs semantic location and a small direct read does not decide, use `references/clasify-screen.md`; the `octocode-research` clasify gate owns admission and result rules.
 
@@ -47,6 +47,8 @@ Ask before auth, cookie/profile transfer, hosted spend, anti-bot escalation, cra
 - When fetching/crawling/extracting, run `scripts/fetch.mjs --url <u> [--mode html] [--crawl --same-domain --max-pages <n>] [--no-raw]`; when a brief is also needed, run `scripts/fetch-and-brief.mjs --url <u>`.
 - Before routing/spend → `scripts/provider-check.mjs [--provider <p>]`; credit status → `scripts/provider-usage.mjs`. Both sanitize secrets.
 - When navigating a saved session, run `scripts/corpus-inspect.mjs --session-dir <d> [--page <n>]`; for bounded text search, run `scripts/corpus-find.mjs --session-dir <d> --query <t>`. Retrieve the smallest sufficient source span.
+- Choose navigation candidates from observed labels, destination URLs, scores and source evidence. Read the deciding source, then fetch the selected allowed URL or hand interaction to Chrome. After each transition, update the graph from fresh evidence; ranking is a hint, not permission to submit a form.
+- When a query has more results, follow each executable `next.*` query continuation; `scripts/source-query.mjs` pages original JSON, text or binary bytes. Oversized query values carry full-value continuations.
 - When querying static DOM/assets/paths, run `scripts/dom-find.mjs`, `scripts/resource-list.mjs`, or `scripts/graph-navigate.mjs` with `--session-dir <d>`.
 - Local field proof → `scripts/corpus-run.mjs --session-dir <d> --roots cdp,extracts --regex <re>` or `--script <file>`.
 - When handing a corpus to a live browser, run `scripts/har-ingest.mjs --session-dir <d> --export-packet`.
@@ -55,7 +57,7 @@ Ask before auth, cookie/profile transfer, hosted spend, anti-bot escalation, cra
 
 Every runnable script accepts `--help`. Before changing scripts or providers, read `scripts/README.md`; shared modules live in `scripts/lib/`, vendored env resolution in `scripts/octocode-config.mjs`, and JSON contracts in `scripts/schemas/`.
 
-After corpus-search changes, run `node --test scripts/tests/corpus-find.test.mjs`; after fetch/session changes, run `node --test scripts/tests/fetch-session.test.mjs`; after robots/pacing/body-cap changes, run `node --test scripts/tests/http-policy.test.mjs`; after CDP client changes, run `node --test scripts/tests/cdp-client.test.mjs`. These finite local regressions need no browser or hosted provider; they do not replace a live browser check for CDP integration changes.
+After corpus-search changes, run `node --test scripts/tests/corpus-find.test.mjs`; after fetch/session changes, run `node --test scripts/tests/fetch-session.test.mjs`; after robots/pacing/body-cap changes, run `node --test scripts/tests/http-policy.test.mjs`; after navigation/pagination changes, run `node --test scripts/tests/navigation-pagination.test.mjs`; after CDP client changes, run `node --test scripts/tests/cdp-client.test.mjs`. These finite local regressions need no browser or hosted provider; they do not replace a live browser check for CDP integration changes.
 
 ## Output
 One answer in chat, with the cited path. A fetch writes one session under `<output>/tmp/scrape/`.

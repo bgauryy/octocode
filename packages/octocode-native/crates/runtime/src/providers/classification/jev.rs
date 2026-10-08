@@ -13,10 +13,6 @@ pub struct Jev;
 pub static JEV: Jev = Jev;
 
 impl ClassificationProvider for Jev {
-    fn id(&self) -> &'static str {
-        "jev"
-    }
-
     fn default_host(&self) -> &'static str {
         "https://api.typesafe.ai"
     }

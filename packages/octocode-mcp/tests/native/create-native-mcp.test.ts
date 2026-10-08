@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/server';
 import { INTERACTIVE_EXECUTION_TIMEOUT_SECS } from '@octocodeai/config';
+import { buildMcpInstructions } from '@octocodeai/config/mcp';
 import {
   getNativeContractFingerprint,
   isCliOnlyTool,
@@ -286,7 +287,8 @@ describe('createNativeMcp registration + execution', () => {
 
     const list = await client.listTools();
     expect(list.tools.map(t => t.name)).toEqual(['localFetch']);
-    expect(client.getInstructions()).not.toContain(TOOL_NAMES.CLASIFY);
+    // One prompt for every surface: it says clasify needs a provider key.
+    expect(client.getInstructions()).toBe(buildMcpInstructions());
     expect(stderr).toHaveBeenCalledWith(
       expect.stringContaining(
         'clasify disabled: provider check failed (classificationProviderError)'
@@ -425,10 +427,7 @@ describe('createNativeMcp registration + execution', () => {
     const list = await client.listTools();
     expect(list.tools.map(t => t.name)).toEqual(['localFetch']);
     expect(list.tools.every(t => !Object.hasOwn(t, 'outputSchema'))).toBe(true);
-    const instructions = client.getInstructions();
-    expect(instructions).toContain('localFetch');
-    expect(instructions).not.toContain('ghSearchCode');
-    expect(instructions).not.toContain('astTopology');
+    expect(client.getInstructions()).toBe(buildMcpInstructions());
 
     // Calling the tool drives the registered async callback → runtime.executeMcp.
     // The adapter does not advertise an output schema, so assert on the recorded
@@ -572,8 +571,7 @@ describe('createNativeMcp registration + execution', () => {
       client.connect(clientTransport),
     ]);
     expect(client.getInstructions()).not.toContain('Runtime grammar inventory');
-    expect(client.getInstructions()).toContain('astSearch');
-    expect(client.getInstructions()).not.toContain('astTopology');
+    expect(client.getInstructions()).toBe(buildMcpInstructions());
     expect(client.getInstructions()!.length).toBeLessThanOrEqual(2_000);
     await client.close();
     await instance.close();
@@ -618,6 +616,24 @@ describe('createNativeMcp registration + execution', () => {
       },
     };
     await expect(createNativeMcp({ env: {}, binding })).rejects.toThrow(/ABI/);
+    expect(FakeRuntime.last!.closed).toBe(true);
+  });
+
+  it('fails closed on the previous ABI (an addon without per-request options)', async () => {
+    const binding = {
+      NativeRuntime: class extends FakeRuntime {
+        readonly abiVersion = NATIVE_ABI_VERSION - 1;
+        constructor() {
+          super(() => ({
+            fingerprint: getNativeContractFingerprint(),
+            tools: [tool('localFetch', true)],
+          }));
+        }
+      },
+    };
+    await expect(createNativeMcp({ env: {}, binding })).rejects.toThrow(
+      `Native addon ABI ${NATIVE_ABI_VERSION - 1} does not match expected ${NATIVE_ABI_VERSION}`
+    );
     expect(FakeRuntime.last!.closed).toBe(true);
   });
 

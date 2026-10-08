@@ -330,8 +330,8 @@ export function selfTest() {
   assert(hintEntries(envelopeContainer(withHints)).length === 1 && hintEntries(envelopeContainer(withNext)).length === 1, 'envelope continuation read from responsePagination.next (or .hints)');
   assert(allHintEntries({ results: [{ status: 'error', data: { hints: ['Verify the path exists'] } }] }).length === 0, 'error-row prose hints are not continuations');
   // Legacy streams: leads inside `next`, prose `hints`. Current contract: pages in `next`, leads + text in `hints`.
-  const today = { next: { nextPage: hint('localSearch', { page: 2 }), readFixPullRequest: hint('ghGetHistoryItem', { number: 1 }), viewRepo: hint('ghStructure', { repo: 'r' }) }, hints: ['prose'] };
-  const after = { next: { nextPage: hint('localSearch', { page: 2 }) }, hints: { text: ['prose'], readFixPullRequest: hint('ghGetHistoryItem', { number: 1 }), viewRepo: hint('ghStructure', { repo: 'r' }) } };
+  const today = { next: { nextPage: hint('localSearch', { page: 2 }), readPullRequest: hint('ghGetHistoryItem', { number: 1 }), viewRepo: hint('ghStructure', { repo: 'r' }) }, hints: ['prose'] };
+  const after = { next: { nextPage: hint('localSearch', { page: 2 }) }, hints: { text: ['prose'], readPullRequest: hint('ghGetHistoryItem', { number: 1 }), viewRepo: hint('ghStructure', { repo: 'r' }) } };
   assert(leadEntries(today).length === 2 && leadEntries(after).length === 2 && maxLeadEntries({ results: [{ data: after }] }) === 2, 'leads counted the same in both shapes (pages uncapped)');
   assert(pageEntries({ results: [{ data: today }] }).length === 1 && pageEntries({ results: [{ data: after }], responsePagination: { next: hint('x', { responseOffset: 9 }) } }).length === 2, 'page continuations read from next only (+ envelope)');
   assert(leadBytes(today) === leadBytes(after) && leadBytes(today) > 0, 'lead bytes comparable across the move');

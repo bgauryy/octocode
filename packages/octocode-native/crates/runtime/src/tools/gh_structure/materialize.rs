@@ -5,11 +5,8 @@ use std::path::PathBuf;
 /// Write this page's files under `location.localPath` (the listed
 /// directory) and return where a continuation resumes, if anywhere.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn materialize_page<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &GitHubProvider<R, C>,
+pub(super) async fn materialize_page<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     query: &GhStructureQuery,
     scope: &Scope,
     commit_sha: &str,
@@ -286,11 +283,8 @@ pub(super) async fn checkout_root(
 /// walk. A file the manifest records at its listed size and that is still on
 /// disk at that size is reused, not fetched again. `location.localPath` is the
 /// listed directory.
-pub(super) async fn materialize_tree<
-    R: CredentialResolver,
-    C: crate::providers::github::ConditionalCache,
->(
-    provider: &GitHubProvider<R, C>,
+pub(super) async fn materialize_tree<C: crate::providers::github::ConditionalCache>(
+    provider: &GitHubProvider<C>,
     snapshot: &Snapshot<'_>,
     entries: &[TreeEntry],
     offset: usize,

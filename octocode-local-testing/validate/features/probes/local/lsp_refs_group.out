@@ -1,5 +1,0 @@
-# cmd: octocode lspSearch {"goal": "g", "reasoning": "r", "operation": "references", "uri": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/b.ts", "symbolName": "helper", "lineHint": 1, "groupByFile": true}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"resolvedSymbol":{"name":"helper","foundAtLine":1,"foundAtCharacter":17},"payload":{"kind":"references","byFile":[{"path":"a.ts","references":2,"lines":[1,4]},{"path":"b.ts","references":1,"lines":[1]}],"totalReferences":3,"totalFiles":2,"coverage":{"scope":"languageServer","exhaustive":false,"importerScan":"complete","verifiedImporterFiles":1}},"path":"b.ts"}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

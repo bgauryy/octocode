@@ -9,27 +9,22 @@ use serde_json::json;
 
 /// Use the same credential hostname for status, login, and logout.
 fn configured_github_host(runtime: &ToolRuntime) -> String {
-    runtime
-        .config()
-        .resolved
-        .github
-        .api_url
-        .parse::<url::Url>()
-        .ok()
-        .and_then(|url| {
-            url.host_str()
-                .map(|host| octocode_native::providers::github::credential_host(host).to_owned())
-        })
-        .unwrap_or_else(|| "github.com".into())
+    octocode_native::providers::github::configured_credential_host(
+        &runtime.config().resolved.github.api_url,
+    )
+    .unwrap_or_else(|| "github.com".into())
 }
 
 async fn resolve_auth(
     runtime: &ToolRuntime,
     host: &str,
 ) -> Option<octocode_native::providers::github::AuthSelection> {
-    use octocode_native::providers::github::{AuthMode, Authentication, RequestContext};
+    use octocode_native::providers::{
+        RequestBudget,
+        github::{AuthMode, Authentication},
+    };
     let auth = Authentication::new(std::sync::Arc::new(runtime.config().clone()));
-    let budget = RequestContext::with_timeout(std::time::Duration::from_secs(5), 0);
+    let budget = RequestBudget::with_timeout(std::time::Duration::from_secs(5), 0);
     auth.resolve(host, AuthMode::Inspect, &budget)
         .await
         .ok()
@@ -307,9 +302,10 @@ fn logout_with(
     }
 }
 
-pub fn cache(runtime: &ToolRuntime, action: &str) -> u8 {
+pub(super) fn cache(runtime: &ToolRuntime, action: super::commands::CacheAction) -> u8 {
+    use super::commands::CacheAction;
     match action {
-        "status" => {
+        CacheAction::Status => {
             let view = runtime.inspect_config();
             println!("cache home: {}", view.home.join("tmp").display());
             let (recent, log_bytes) =
@@ -328,15 +324,10 @@ pub fn cache(runtime: &ToolRuntime, action: &str) -> u8 {
             }
             0
         }
-        "clear" => {
+        CacheAction::Clear => {
             runtime.clear_github_cache();
             println!("cleared GitHub content cache");
             0
-        }
-        other => {
-            eprintln!("Usage: octocode cache <status|clear>");
-            let _ = other;
-            2
         }
     }
 }

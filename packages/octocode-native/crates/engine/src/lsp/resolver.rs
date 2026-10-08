@@ -2,7 +2,7 @@ use crate::error::{Error, Result};
 use crate::lsp::grammar::grammar_for_file;
 use crate::lsp::types::{JsExactPosition, JsFuzzyPosition, JsResolvedSymbol};
 use crate::signatures::extractor::AST_EXECUTION_TIMEOUT;
-use crate::text::utf8_offsets::{byte_to_char_offset_inner, hide_bom_in_line};
+use crate::text::utf8_offsets::{byte_to_utf16_offset, hide_bom_in_line};
 use std::time::Instant;
 use tree_sitter::Node;
 
@@ -132,104 +132,10 @@ fn resolve_position_from_lines(
     }
 }
 
+use crate::text::LineIndex;
+
 fn normalized_lines(content: &str) -> Vec<&str> {
     LineIndex::new(content).lines(content)
-}
-
-/// Line spans of a text under the LSP definition of a line break: `\r\n`,
-/// `\n`, and a lone `\r` each end a line. Built once per text so every lookup
-/// (resolver candidates, snippet slices) agrees with the line numbers the
-/// server computes, and repeated slices never re-split the text.
-///
-/// A text ending in a line break has a final empty line, as in LSP.
-///
-/// Public so the runtime's line counting and position bounds use the same
-/// line-break rule as the resolver and snippet reads.
-#[derive(Debug)]
-pub struct LineIndex {
-    /// Byte range of each line, excluding its terminator.
-    spans: Vec<(usize, usize)>,
-    /// `true` when the text ends with a line break (the last span is empty
-    /// and holds no content).
-    ends_with_break: bool,
-}
-
-impl LineIndex {
-    pub fn new(content: &str) -> Self {
-        let bytes = content.as_bytes();
-        let mut spans = Vec::new();
-        let mut start = 0;
-        let mut index = 0;
-        while index < bytes.len() {
-            match bytes[index] {
-                b'\n' => {
-                    spans.push((start, index));
-                    index += 1;
-                    start = index;
-                }
-                b'\r' => {
-                    spans.push((start, index));
-                    index += if bytes.get(index + 1) == Some(&b'\n') {
-                        2
-                    } else {
-                        1
-                    };
-                    start = index;
-                }
-                _ => index += 1,
-            }
-        }
-        spans.push((start, bytes.len()));
-        Self {
-            spans,
-            ends_with_break: !bytes.is_empty() && start == bytes.len(),
-        }
-    }
-
-    /// Number of lines, including the empty last line after a final break.
-    pub fn len(&self) -> usize {
-        self.spans.len()
-    }
-
-    /// Never true: even an empty text has one (empty) line.
-    pub fn is_empty(&self) -> bool {
-        self.spans.is_empty()
-    }
-
-    /// Byte offset where `line` starts, or `None` past the last line.
-    pub fn line_start(&self, line: usize) -> Option<usize> {
-        self.spans.get(line).map(|&(start, _)| start)
-    }
-
-    /// Number of lines that hold content: the final empty line after a
-    /// trailing break is not counted (matches `str::lines`).
-    pub fn content_len(&self) -> usize {
-        self.spans.len() - usize::from(self.ends_with_break)
-    }
-
-    /// Text of `line`, without its terminator.
-    pub fn line<'a>(&self, content: &'a str, line: usize) -> Option<&'a str> {
-        self.spans
-            .get(line)
-            .and_then(|&(start, end)| content.get(start..end))
-    }
-
-    pub fn lines<'a>(&self, content: &'a str) -> Vec<&'a str> {
-        (0..self.len())
-            .map(|line| self.line(content, line).unwrap_or_default())
-            .collect()
-    }
-
-    /// `(line, byte column)` of a byte offset. An offset inside a `\r\n`
-    /// terminator maps to the end of its line.
-    pub fn position_of(&self, byte: usize) -> (usize, usize) {
-        let line = self
-            .spans
-            .partition_point(|&(start, _)| start <= byte)
-            .saturating_sub(1);
-        let (start, end) = self.spans[line];
-        (line, byte.min(end) - start)
-    }
 }
 
 fn resolve_position_with_grammar(
@@ -601,7 +507,7 @@ fn hit_for(line: &str, line_index: usize, character: usize, line_offset: i32) ->
             // columns and `str::find`/`match_indices` are byte-based). LSP
             // `character` is UTF-16 code units, so convert — otherwise any line
             // with non-ASCII before the symbol mis-positions the cursor.
-            character: byte_to_char_offset_inner(line, character) as u32,
+            character: byte_to_utf16_offset(line, character) as u32,
         },
         found_at_line: line_index as u32 + 1,
         line_offset,

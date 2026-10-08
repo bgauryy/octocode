@@ -1,0 +1,873 @@
+{
+  "$comment": "D1 retired-name deny-list: names removed by a hard cutover. Test/lint data only, never read by the runtime; no new names and no old-to-new mapping (the strict unknown-field error names the replacement). scope: field = output key, lead = next/hints key, input = query field, code = errorCode. tools limits an entry to those tools' outputs and inputs. Prose scan (docs-verify): text:true scans for the whole word; pattern (a regex) scans for that context instead, for common words; allow lists path prefixes where the text keeps another meaning.",
+  "names": [
+    {
+      "name": "commitId",
+      "scope": "field",
+      "slice": "S-b X4b",
+      "tools": [
+        "ghGetHistoryItem"
+      ],
+      "text": true
+    },
+    {
+      "name": "user",
+      "scope": "field",
+      "slice": "S-b X5",
+      "tools": [
+        "ghGetHistoryItem"
+      ]
+    },
+    {
+      "name": "type",
+      "scope": "input",
+      "slice": "S-b AR3",
+      "tools": [
+        "artifactSearch"
+      ],
+      "pattern": "([\"']type[\"']|\\btype)\\s*:\\s*[\"']?(npm|pypi|crates|maven|nuget|go|packagist|rubygems)\\b"
+    },
+    {
+      "name": "type",
+      "scope": "field",
+      "slice": "S-b AR3",
+      "tools": [
+        "artifactSearch"
+      ]
+    },
+    {
+      "name": "registry",
+      "scope": "input",
+      "slice": "S-b AR3",
+      "tools": [
+        "artifactSearch"
+      ],
+      "pattern": "[\"']?\\bregistry[\"']?\\s*:\\s*([\"']https?:|server|registry\\b)",
+      "allow": [
+        "packages/octocode-benchmark/compare/unified/questions/"
+      ]
+    },
+    {
+      "name": "totalMatches",
+      "scope": "field",
+      "slice": "S-c X6",
+      "text": true,
+      "allow": [
+        "skills/octocode-scraping/"
+      ]
+    },
+    {
+      "name": "totalMatchedLines",
+      "scope": "field",
+      "slice": "S-c X6",
+      "text": true
+    },
+    {
+      "name": "filesMatched",
+      "scope": "field",
+      "slice": "S-c X6",
+      "text": true,
+      "allow": [
+        "skills/octocode-scraping/"
+      ]
+    },
+    {
+      "name": "matchLines",
+      "scope": "field",
+      "slice": "S-c X6",
+      "text": true
+    },
+    {
+      "name": "totalComments",
+      "scope": "field",
+      "slice": "S-c X6",
+      "tools": [
+        "ghGetHistoryItem"
+      ],
+      "text": true
+    },
+    {
+      "name": "returnedComments",
+      "scope": "field",
+      "slice": "S-c X6",
+      "tools": [
+        "ghGetHistoryItem"
+      ],
+      "text": true
+    },
+    {
+      "name": "position",
+      "scope": "input",
+      "slice": "S-d LP1",
+      "tools": [
+        "lspSearch"
+      ],
+      "pattern": "[\"']?\\bposition[\"']?\\s*:\\s*\\{\\s*[\"']?line"
+    },
+    {
+      "name": "callHierarchy",
+      "scope": "input",
+      "slice": "S-d LP3",
+      "tools": [
+        "lspSearch"
+      ],
+      "text": true
+    },
+    {
+      "name": "in",
+      "scope": "field",
+      "slice": "S-e X2",
+      "tools": [
+        "localSearch"
+      ]
+    },
+    {
+      "name": "entries",
+      "scope": "field",
+      "slice": "S-e SS4",
+      "tools": [
+        "structureSearch"
+      ]
+    },
+    {
+      "name": "definitionLines",
+      "scope": "field",
+      "slice": "S-e LP4",
+      "tools": [
+        "lspSearch"
+      ],
+      "text": true
+    },
+    {
+      "name": "recovered",
+      "scope": "field",
+      "slice": "S-e LP4",
+      "tools": [
+        "lspSearch"
+      ]
+    },
+    {
+      "name": "verifyReferences",
+      "scope": "lead",
+      "slice": "S-f X10",
+      "text": true
+    },
+    {
+      "name": "readTopMatch",
+      "scope": "lead",
+      "slice": "S-f X10",
+      "text": true
+    },
+    {
+      "name": "findFixPullRequest",
+      "scope": "lead",
+      "slice": "S-f X10",
+      "text": true
+    },
+    {
+      "name": "readFixPullRequest",
+      "scope": "lead",
+      "slice": "S-f X10",
+      "text": true
+    },
+    {
+      "name": "viewStructure",
+      "scope": "lead",
+      "slice": "S-f X10",
+      "text": true
+    },
+    {
+      "name": "searchContent",
+      "scope": "lead",
+      "slice": "S-f X10",
+      "text": true
+    },
+    {
+      "name": "ast.language.unsupported",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.language.required",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.language.mismatch",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.language.fileRequired",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.language.directoryRequired",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.language.invalidGlob",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.source.limit",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.symbols.input.invalid",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.symbols.unsupported",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.input.invalid",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.path.invalid",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.cancelled",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.execution.cancelled",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.execution.failed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.execution.io",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.graph.internal",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.graph.modelFailed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.graph.scanFailed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.graph.scopeTooBroad",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "structure.execution.cancelled",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "structure.execution.failed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.apply_disabled",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.broken_syntax",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.cancelled",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.encoding_unsupported",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.execution_failed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.expected_hash_invalid",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.expected_hash_missing",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.expected_hash_set_mismatch",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.expected_hashes_required",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.file_limit",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.hash_mismatch",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.input.invalid",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.io",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.language_required",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.lock_timeout",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.lock_unavailable",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.match_limit",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.overlap",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.patch_limit",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.path_escape",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.postcondition_execution_failed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.postcondition_failed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.recovery_failed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.root_invalid",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.root_unavailable",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.selection_invalid",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.snapshot_required",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.source_mismatch",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.symlink_target",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.target_unavailable",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "ast.rewrite.transaction_failed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "lsp.cancelled",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "lsp.timeout",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "lsp.serverUnavailable",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "lsp.serverCrashed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "lsp.requestFailed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "lsp.capabilityUnavailable",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "lsp.documentReadFailed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "lsp.documentSyncFailed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "lsp.documentTooLarge",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "lsp.workspaceRootInvalid",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "invalid_query",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "provider_error",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "unsupported_capability",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "rate_limit",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "toolExecutionFailed",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "invalidQuery",
+      "scope": "code",
+      "slice": "S-g X13b",
+      "text": true
+    },
+    {
+      "name": "allFeatures",
+      "scope": "lead",
+      "slice": "F1 CHAIN",
+      "tools": [
+        "lspSearch"
+      ],
+      "text": true
+    },
+    {
+      "name": "goal",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "uri",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "searchText",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "langType",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "maxMatchesPerFile",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "branch",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "sparsePath",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "names",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "pathPattern",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "pathRegex",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "nodeOffset",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "nodeLimit",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "analysis",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "cursor",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "chunkType",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "chunkSize",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "startLine",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "endLine",
+      "scope": "input",
+      "slice": "flow edges",
+      "tools": [
+        "ghSearchRepo",
+        "ghSearchCode",
+        "ghStructure",
+        "ghGetFileContent",
+        "ghSearchHistory",
+        "ghGetHistoryItem",
+        "artifactSearch",
+        "ghCloneRepo",
+        "localSearch",
+        "structureSearch",
+        "astSearch",
+        "astTopology",
+        "astRewrite",
+        "localFetch",
+        "lspSearch"
+      ]
+    },
+    {
+      "name": "matchStringIsRegex",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "matchStringCaseSensitive",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "responseCharOffset",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "responseCharLength",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "extension",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "charOffset",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "charLength",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "matchContext",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "commentBodyOffset",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "includeDiff",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "fileFilter",
+      "scope": "input",
+      "slice": "flow edges"
+    },
+    {
+      "name": "content",
+      "scope": "input",
+      "slice": "flow edges",
+      "tools": [
+        "ghGetHistoryItem"
+      ]
+    },
+    {
+      "name": "readFile",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "readPr",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "findFixPr",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "readFixPr",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "getChangedFiles",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "getAllPatches",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "reviewPatches",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "getBody",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "getDiscussion",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "getMergeCommit",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "nextChangedFilesPage",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "nextPatchFiles",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "nextFilePathsPage",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "nextCommentsPage",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "nextReviewsPage",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "nextCommitsPage",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "nextDiagnostics",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "expandLimit",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "localSearch",
+      "scope": "lead",
+      "slice": "flow edges"
+    },
+    {
+      "name": "includeDiff",
+      "scope": "lead",
+      "slice": "flow edges"
+    }
+  ]
+}

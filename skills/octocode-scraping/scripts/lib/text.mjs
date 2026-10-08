@@ -7,17 +7,17 @@ export function truncate(text, maxBytes) {
 }
 
 export function chunkTextByBytes(text, maxBytes) {
-  const chunks = [];
-  let rest = text || '';
-  while (Buffer.byteLength(rest) > maxBytes) {
-    let slice = Buffer.from(rest).subarray(0, maxBytes).toString('utf8');
-    const boundary = Math.max(slice.lastIndexOf('\n\n'), slice.lastIndexOf('\n'), slice.lastIndexOf(' '));
-    if (boundary > Math.floor(maxBytes * 0.6)) slice = slice.slice(0, boundary);
-    chunks.push(slice);
-    rest = rest.slice(slice.length).replace(/^\s+/, '');
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 4) throw new Error('chunk byte size must be an integer >= 4');
+  const data = Buffer.from(text || ''), chunks = []; let at = 0;
+  while (at < data.length) {
+    let end = Math.min(data.length, at + maxBytes);
+    while (end < data.length && (data[end] & 0xc0) === 0x80) end--;
+    const part = data.subarray(at, end).toString('utf8');
+    const boundary = Math.max(part.lastIndexOf('\n\n'), part.lastIndexOf('\n'), part.lastIndexOf(' '));
+    if (end < data.length && boundary > Math.floor(part.length * 0.6)) end = at + Buffer.byteLength(part.slice(0, boundary + 1));
+    chunks.push(data.subarray(at, end).toString('utf8')); at = end;
   }
-  chunks.push(rest);
-  return chunks;
+  return chunks.length ? chunks : [''];
 }
 
 export function decodeEntities(s) {

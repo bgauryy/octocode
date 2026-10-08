@@ -18,7 +18,7 @@ pub const SEPARATOR: char = '\t';
 /// `ranges`, in order, with one line-omission marker between non-adjacent
 /// windows. `None` when the content does not map onto the ranges.
 #[must_use]
-pub fn number_lines(content: &str, ranges: &[(u64, u64)]) -> Option<String> {
+fn number_lines(content: &str, ranges: &[(u64, u64)]) -> Option<String> {
     if ranges.is_empty() {
         return None;
     }
@@ -87,7 +87,7 @@ fn gap_run_span(record: &str) -> Option<(u64, u64, u64)> {
 /// (`... [N gaps in lines A-B not requested] ...`). Every line keeps its number,
 /// so each gap is still exactly the span between two numbers.
 #[must_use]
-pub fn collapse_gap_runs(numbered: &str) -> String {
+fn collapse_gap_runs(numbered: &str) -> String {
     let records: Vec<&str> = numbered.split_inclusive('\n').collect();
     let mut output = String::with_capacity(numbered.len());
     let mut index = 0;
@@ -130,7 +130,7 @@ pub fn collapse_gap_runs(numbered: &str) -> String {
 /// lines it names, or gap-run markers whose lines jump exactly N times
 /// inside the named span.
 #[must_use]
-pub fn is_numbered(content: &str) -> bool {
+fn is_numbered(content: &str) -> bool {
     let mut expected: Option<u64> = None;
     let mut numbered = 0usize;
     // An open gap run: gaps left to see, and the last omitted line.
@@ -185,7 +185,12 @@ fn ranges_of(value: &Value) -> Option<Vec<(u64, u64)>> {
     value
         .as_array()?
         .iter()
-        .map(|range| Some((range.get("start")?.as_u64()?, range.get("end")?.as_u64()?)))
+        .map(|range| {
+            Some((
+                range.get("line")?.as_u64()?,
+                range.get("endLine")?.as_u64()?,
+            ))
+        })
         .collect()
 }
 
@@ -216,7 +221,7 @@ pub fn numbered_view(data: &Value) -> Option<String> {
 /// Number one file-read row in place. The numbers state the source range, so
 /// `sourceLineRanges` leaves the row; `matchedLines` leaves when every
 /// returned line matched (a grep-style map).
-pub fn number_file_row(data: &mut Value) -> bool {
+fn number_file_row(data: &mut Value) -> bool {
     if is_transformed(data) {
         return false;
     }
@@ -569,7 +574,7 @@ mod tests {
         let mut local = json!({"results":[{"index":0,"data":{
             "path":"a.rs",
             "content":"c\n... [lines 4-9 not requested] ...\nj\n... [lines 11-19 not requested] ...\nt\n",
-            "sourceLineRanges":[{"start":3,"end":3},{"start":10,"end":10},{"start":20,"end":20}],
+            "sourceLineRanges":[{"line":3,"endLine":3},{"line":10,"endLine":10},{"line":20,"endLine":20}],
             "matchedLines":[3,10,20]}}]});
         number_read_rows(ToolId::LocalFetch, &mut local);
         let content = local["results"][0]["data"]["content"]
@@ -591,7 +596,7 @@ mod tests {
     #[test]
     fn numbers_local_and_github_rows_and_drops_redundant_anchors() {
         let mut local = json!({"results":[{"index":0,"data":{
-            "path":"a.rs","content":"x\ny\n","sourceLineRanges":[{"start":7,"end":8}],
+            "path":"a.rs","content":"x\ny\n","sourceLineRanges":[{"line":7,"endLine":8}],
             "matchedLines":[7,8]}}]});
         number_read_rows(ToolId::LocalFetch, &mut local);
         assert_eq!(
@@ -599,13 +604,13 @@ mod tests {
             json!({"path":"a.rs","content":"7\tx\n8\ty\n"})
         );
         let mut window = json!({"results":[{"index":0,"data":{
-            "content":"x\ny\n","sourceLineRanges":[{"start":7,"end":8}],"matchedLines":[8]}}]});
+            "content":"x\ny\n","sourceLineRanges":[{"line":7,"endLine":8}],"matchedLines":[8]}}]});
         number_read_rows(ToolId::LocalFetch, &mut window);
         assert_eq!(window["results"][0]["data"]["matchedLines"], json!([8]));
         // Two windows: the gutter states the first, last and returned lines.
         let mut windows = json!({"results":[{"index":0,"data":{
             "content":"x\n... [lines 8-9 not requested] ...\ny\n",
-            "sourceLineRanges":[{"start":7,"end":7},{"start":10,"end":10}],
+            "sourceLineRanges":[{"line":7,"endLine":7},{"line":10,"endLine":10}],
             "startLine":7,"endLine":10,"returnedLines":3,"totalLines":12}}]});
         number_read_rows(ToolId::LocalFetch, &mut windows);
         assert_eq!(
@@ -614,7 +619,7 @@ mod tests {
         );
         let mut remote = json!({"results":[
             {"index":0,"data":{"owner":"o","repo":"r","path":"a.py","content":"x\n",
-             "sourceLineRanges":[{"start":3,"end":3}],"startLine":3,"endLine":3,"returnedLines":1}},
+             "sourceLineRanges":[{"line":3,"endLine":3}],"startLine":3,"endLine":3,"returnedLines":1}},
             {"index":1,"data":{"path":"b.py","content":"def a\n","contentView":"symbols"}}]});
         number_read_rows(ToolId::GhGetFileContent, &mut remote);
         assert_eq!(
@@ -628,7 +633,7 @@ mod tests {
         );
         // Byte pages stay verbatim: their offsets count the returned text.
         let mut bytes = json!({"results":[{"index":0,"data":{"content":"x\n",
-            "sourceLineRanges":[{"start":1,"end":1}],
+            "sourceLineRanges":[{"line":1,"endLine":1}],
             "pagination":{"unit":"bytes","offset":0,"length":2,"hasMore":true}}}]});
         number_read_rows(ToolId::LocalFetch, &mut bytes);
         assert_eq!(bytes["results"][0]["data"]["content"], "x\n");

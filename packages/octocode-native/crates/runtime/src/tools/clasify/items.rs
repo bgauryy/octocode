@@ -129,32 +129,41 @@ pub(crate) fn read(tool: ToolId, query: serde_json::Map<String, Value>) -> Value
     json!({"tool":tool.as_str(),"confidence":"high","query":query})
 }
 
-/// A local read around the densest run of anchor lines, or the whole file
-/// when the item carries no line.
+/// A local read of a window around every cluster of anchor lines (the rows
+/// the candidate was judged on), or the whole file when the item carries no
+/// line.
 pub(crate) fn local_read(path: &str, lines: Vec<u64>) -> Value {
     let mut query = serde_json::Map::new();
     query.insert("path".into(), json!(path));
-    if let Some(center) = super::run::densest_match_line(lines) {
-        let radius = super::run::HYDRATED_LINE_RADIUS;
-        let start = center.saturating_sub(radius).max(1);
-        let end = center.saturating_add(radius);
-        query.insert("ranges".into(), json!([format!("{start}-{end}")]));
+    let windows = super::run::judged_line_windows(lines);
+    if !windows.is_empty() {
+        let ranges = windows
+            .iter()
+            .map(|(start, end)| format!("{start}-{end}"))
+            .collect::<Vec<_>>();
+        query.insert("ranges".into(), json!(ranges));
     }
     read(ToolId::LocalFetch, query)
 }
 
 /// The 1-based line a result row names: a bare number (`lines` lists), the
-/// leading number of a compact string row (symbols outline `"<line>[-<end>]
-/// kind name"`, structural match `"<line>[-<end>]\t<value>"`, reference
-/// `"<line>:<col> <text>"`, caller `"<line>:<col> in …"`), or an object
-/// row's `key`. Every row reader here goes through this accessor, so either
-/// row shape yields the same candidate lines.
+/// leading number of a compact string row (structural match
+/// `"<line>[-<end>]\t<value>"`, reference `"<line>:<col> <text>"`, caller
+/// `"<line>:<col> in …"`), a symbols outline entry's first field
+/// (`"<symbolName> (<line>[-<end>], …)"`), or an object row's `key`. Every
+/// row reader here goes through this accessor, so either row shape yields
+/// the same candidate lines.
 pub(crate) fn line(value: &Value, key: &str) -> Option<u64> {
     if let Some(line) = value.as_u64() {
         return Some(line);
     }
     if let Some(text) = value.as_str() {
         let text = text.trim_start();
+        if !text.starts_with(|c: char| c.is_ascii_digit()) {
+            return crate::tools::symbol_outline::parse_entry(text)?
+                .get("line")?
+                .as_u64();
+        }
         let end = text
             .find(|c: char| !c.is_ascii_digit())
             .unwrap_or(text.len());
@@ -356,35 +365,70 @@ mod tests {
         items
     }
 
+    /// A candidate's read covers every row it was judged on: a match far
+    /// from the densest cluster gets its own window (measured: tokio
+    /// `h2_histogram.rs` matched at 8 and 323, and the read covered only
+    /// 263-383).
     #[test]
-    fn compact_string_rows_yield_the_same_candidates_as_object_rows() {
-        // Outline rows (directory and single file), lean match rows, compact
-        // references and direct callers all name their line first.
+    fn a_candidate_read_covers_every_judged_cluster() {
+        let source =
+            json!({"tool":"astSearch","query":{"operation":"match","pattern":"$X","path":"/repo"}});
+        let state = wrap(json!({"files":[{"path":"a.rs","matches":[
+            {"line":323,"value":"b"},{"line":8,"value":"a"}
+        ]}]}));
+        let items = split(&source, &state).expect("match split");
+        assert_eq!(
+            items[0].read.as_ref().unwrap()["query"]["ranges"],
+            json!(["1-68", "263-383"])
+        );
+        let refs = json!({"tool":"lspSearch","query":{"operation":"references","path":"/repo/a.rs","symbolName":"a","lineHint":1}});
+        let state = wrap(json!({"payload":{"kind":"references","files":[
+            {"path":"b.rs","matches":[{"line":900,"value":"x"},{"line":10,"value":"y"},{"line":905,"value":"z"}]}
+        ]}}));
+        let items = split(&refs, &state).expect("refs split");
+        assert_eq!(
+            items[0].read.as_ref().unwrap()["query"]["ranges"],
+            json!(["1-70", "842-962"])
+        );
+    }
+
+    #[test]
+    fn location_rows_yield_candidates_at_their_lines() {
+        // Declaration rows (directory and single file), match rows, compact
+        // references and direct callers all name their line.
         let symbols = json!({"tool":"astSearch","query":{"operation":"symbols","path":"/repo"}});
+        // Outline rows (P1): entry strings, and containers as objects.
         let grouped = wrap(json!({"files":[
-            {"path":"x.rs","symbols":["10-12 struct A +","  11 function a"]},
-            {"path":"y.rs","symbols":["300 function b doc"]}
+            {"path":"x.rs","symbols":[
+                {"symbolName":"A","kind":"struct","line":10,"endLine":12,"exported":true,
+                 "members":["a (11, function)"]}
+            ]},
+            {"path":"y.rs","symbols":["b (300, function, doc 299)"]}
         ]}));
         let items = split(&symbols, &grouped).expect("grouped outline split");
         assert_eq!(items.len(), 2);
         assert_eq!(first_line(&items[0]), 1);
         assert_eq!(first_line(&items[1]), 240);
-        let items = single_outline(json!(["400 function a"]));
+        let items = single_outline(json!(["a (400, function)"]));
+        assert_eq!(first_line(&items[0]), 340);
+        // A name holding " (" still reads its own line.
+        let items = single_outline(json!(["operator() (400-402, method)"]));
         assert_eq!(first_line(&items[0]), 340);
 
         let matches =
             json!({"tool":"astSearch","query":{"operation":"match","pattern":"$X","path":"/repo"}});
-        let state = wrap(
-            json!({"files":[{"path":"a.rs","matches":["400\tx.unwrap()","402-410\tfn f() …"]}]}),
-        );
+        let state = wrap(json!({"files":[{"path":"a.rs","matches":[
+            {"line":400,"column":1,"value":"x.unwrap()"},
+            {"line":402,"column":1,"endLine":410,"value":"fn f() …"}
+        ]}]}));
         let items = split(&matches, &state).expect("lean match split");
         // Centered between lines 400 and 402.
         assert_eq!(first_line(&items[0]), 341);
 
         let refs = json!({"tool":"lspSearch","query":{"operation":"references","path":"/repo/a.rs","symbolName":"a","lineHint":1}});
         let state = wrap(json!({"payload":{"kind":"references","files":[
-            {"path":"a.rs","matches":["281:20 fn try_read_output("]},
-            {"path":"b.rs","matches":["368:14 harness.try_read_output(out, waker);"]}
+            {"path":"a.rs","matches":[{"line":281,"column":20,"value":"fn try_read_output("}]},
+            {"path":"b.rs","matches":[{"line":368,"column":14,"value":"harness.try_read_output(out, waker);"}]}
         ]}}));
         let items = split(&refs, &state).expect("compact refs split");
         assert_eq!(items.len(), 2);
@@ -398,7 +442,7 @@ mod tests {
         );
         let callers = json!({"tool":"lspSearch","query":{"operation":"callers","path":"/repo/a.rs","symbolName":"a","lineHint":1}});
         let state = wrap(json!({"payload":{"kind":"callers","files":[
-            {"path":"c.ts","matches":["359:38 in function render 97-848"]}
+            {"path":"c.ts","matches":[{"symbolName":"render","kind":"function","line":97,"endLine":848,"sites":[{"line":359,"column":38}]}]}
         ]}}));
         let items = split(&callers, &state).expect("callers split");
         assert_eq!(items[0].path.as_deref(), Some("/repo/c.ts"));
@@ -444,15 +488,17 @@ mod tests {
             "no repository: no invented read"
         );
 
-        let packages = json!({"tool":"artifactSearch","query":{"type":"npm","keywords":["x"]}});
-        let state = json!({"results":[{"data":{"artifacts":[{"type":"npm","name":"ajv"}]}}]});
+        let packages =
+            json!({"tool":"artifactSearch","query":{"ecosystem":"npm","keywords":["x"]}});
+        let state = json!({"results":[{"data":{"artifacts":[{"ecosystem":"npm","name":"ajv"}]}}]});
         let items = split(&packages, &state).unwrap();
         assert_eq!(items[0].item.as_deref(), Some("npm:ajv"));
         assert_eq!(
             items[0].read.as_ref().unwrap()["query"]["packageName"],
             "ajv"
         );
-        let exact = json!({"tool":"artifactSearch","query":{"type":"npm","packageName":"ajv"}});
+        let exact =
+            json!({"tool":"artifactSearch","query":{"ecosystem":"npm","packageName":"ajv"}});
         assert!(
             split(&exact, &state).is_none(),
             "an exact lookup is already one item"
@@ -492,7 +538,8 @@ mod tests {
             items[0].read.as_ref().unwrap()["query"],
             json!({"owner":"microsoft","repo":"TypeScript"})
         );
-        let packages = json!({"tool":"artifactSearch","query":{"type":"npm","keywords":["yaml"]}});
+        let packages =
+            json!({"tool":"artifactSearch","query":{"ecosystem":"npm","keywords":["yaml"]}});
         let state =
             wrap(json!({"artifacts":[{"name":"yaml-eslint-parser"},{"name":"yamlparser"}]}));
         let items = split(&packages, &state).expect("compact packages split");
@@ -500,7 +547,7 @@ mod tests {
         assert_eq!(items[0].item.as_deref(), Some("npm:yaml-eslint-parser"));
         assert_eq!(
             items[1].read.as_ref().unwrap()["query"],
-            json!({"type":"npm","packageName":"yamlparser"})
+            json!({"ecosystem":"npm","packageName":"yamlparser"})
         );
     }
 }

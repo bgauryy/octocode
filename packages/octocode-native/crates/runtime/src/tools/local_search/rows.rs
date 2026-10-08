@@ -29,7 +29,7 @@ pub(super) fn project_match(
     if let Some((byte, chars)) = cut {
         return SearchMatch {
             line: matched.line,
-            column: Some(matched.column),
+            column: Some(crate::tools::num::one_based_column(matched.column)),
             value: matched.value[..byte].into(),
             match_lines: None,
             count: matched.count,
@@ -46,7 +46,7 @@ pub(super) fn project_match(
     let truncated = matched.original_chars.is_some();
     SearchMatch {
         line: matched.line,
-        column: Some(matched.column),
+        column: Some(crate::tools::num::one_based_column(matched.column)),
         value: matched.value.clone(),
         match_lines: None,
         count: matched.count,
@@ -77,7 +77,7 @@ pub(super) fn context_window(matched: &SearchMatch, context: u32) -> Option<(u32
 
 /// Merge rows whose context windows overlap or touch into one block, so each
 /// source line is emitted once, numbered. A merged block keeps the first row's
-/// `line`/`column`, and `matchLines` lists every matched line it holds. Rows
+/// `line`/`column`, and `matchedLines` lists every matched line it holds. Rows
 /// merge only when both windows are plain and their shared lines are
 /// byte-identical, so a clipped or redacted window is never spliced.
 /// Merges overlapping windows while the joined block stays within the

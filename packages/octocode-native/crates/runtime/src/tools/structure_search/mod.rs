@@ -88,25 +88,7 @@ fn page_ranges(
 }
 
 pub use crate::contracts::tool_types::StructureSearchQuery;
-use crate::policy::PolicyError;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct StructureError {
-    pub code: String,
-    pub message: String,
-    /// Leads out of the error, e.g. a missing path's nearest existing parent.
-    pub next: Option<Value>,
-}
-
-impl StructureError {
-    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            code: code.into(),
-            message: message.into(),
-            next: None,
-        }
-    }
-}
+use crate::tools::result::ToolError;
 
 /// The policy error for `requested`; a missing path also leads to a tree of
 /// its nearest existing parent, so the agent sees what is there instead.
@@ -116,21 +98,21 @@ fn validated_root(
     requested: &str,
     paths: &crate::policy::path::PathPolicy,
     cancel: &dyn crate::tools::cancel::CancellationCheck,
-) -> Result<crate::policy::path::ValidatedPath, StructureError> {
-    cancel.check().map_err(cancelled)?;
+) -> Result<crate::policy::path::ValidatedPath, ToolError> {
+    cancel.check().map_err(ToolError::cancelled)?;
     paths
         .validate(requested)
-        .map_err(|error| path_error(error, requested, paths))
+        .map_err(|error| ToolError::root_policy(error, requested, paths, "pathValidationFailed"))
 }
 
 /// A file named as a tree root (`files` lists a file root as itself): say
 /// so with its workspace-relative name and lead to its outline, the read an
 /// agent wanted from it.
-fn file_root(file: &std::path::Path, paths: &crate::policy::path::PathPolicy) -> StructureError {
+fn file_root(file: &std::path::Path, paths: &crate::policy::path::PathPolicy) -> ToolError {
     let name = paths
         .workspace_relative(file)
         .unwrap_or_else(|| file.to_string_lossy().into_owned());
-    let mut out = StructureError::new(
+    let mut out = ToolError::new(
         "notADirectory",
         format!("{name} is a file, not a directory; read it with localFetch or list its parent."),
     );
@@ -139,57 +121,21 @@ fn file_root(file: &std::path::Path, paths: &crate::policy::path::PathPolicy) ->
         json!({"path": name, "minify": "symbols"}),
     )
     .build();
-    out.next = Some(json!({ "read": lead }));
+    out.next = Some(Box::new(json!({ "read": lead })));
     out
 }
 
-fn path_error(
-    error: PolicyError,
-    requested: &str,
-    paths: &crate::policy::path::PathPolicy,
-) -> StructureError {
-    let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
-    let mut out = StructureError::from(error);
-    if missing && let Some(parent) = paths.nearest_existing_dir(requested) {
-        let lead = crate::tools::result::Continuation::new(
-            crate::tools::id::ToolId::StructureSearch,
-            json!({"operation": "tree", "path": parent}),
-        )
-        .build();
-        out.next = Some(json!({ "viewTree": lead }));
-    }
-    out
-}
-
-impl From<PolicyError> for StructureError {
-    fn from(error: PolicyError) -> Self {
-        if let Some(code) = error.shared_code() {
-            return Self::new(code, error.message);
-        }
-        // PolicyErrorCode serializes camelCase: `structure.policy.io`.
-        let suffix = serde_json::to_value(error.code)
-            .ok()
-            .and_then(|code| code.as_str().map(str::to_owned))
-            .unwrap_or_else(|| "io".to_owned());
-        Self::new(format!("structure.policy.{suffix}"), error.message)
-    }
-}
-
-pub type StructureResult = Result<Value, StructureError>;
-
-fn cancelled(error: String) -> StructureError {
-    StructureError::new("structure.execution.cancelled", error)
-}
+pub type StructureResult = Result<Value, ToolError>;
 
 /// A failed walk of `requested`: a vanished root reads like any other
 /// missing path.
-fn walk_error(error: impl ToString, requested: &str) -> StructureError {
+fn walk_error(error: impl ToString, requested: &str) -> ToolError {
     let message = error.to_string();
     let lower = message.to_ascii_lowercase();
     let code = if message.starts_with("[structure.execution.cancelled]") {
-        "structure.execution.cancelled"
+        "cancelled"
     } else if lower.contains("no such file") || lower.contains("not found") {
-        return StructureError::new(
+        return ToolError::new(
             crate::policy::PATH_NOT_FOUND,
             format!("Path does not exist: {requested}"),
         );
@@ -202,20 +148,21 @@ fn walk_error(error: impl ToString, requested: &str) -> StructureError {
         // before walking: caller input, like the typed time-filter checks.
         "invalidInput"
     } else {
-        "structure.execution.failed"
+        "executionFailed"
     };
-    StructureError::new(code, message)
+    ToolError::new(code, message)
 }
 
 fn allow_discovery(
     path: &std::path::Path,
+    file_type: Option<std::fs::FileType>,
     discovery: &crate::policy::path::DiscoveryWalk<'_>,
     cancel: &dyn crate::tools::cancel::CancellationCheck,
 ) -> Result<bool, String> {
     cancel
         .check()
         .map_err(|message| format!("[structure.execution.cancelled] {message}"))?;
-    Ok(discovery.permits(path))
+    Ok(discovery.permits_entry(path, file_type))
 }
 
 /// A continuation page whose walk no longer hashes to its `snapshot`: the
@@ -381,6 +328,11 @@ struct Cut {
     /// bound of the total is known.
     early_exit: bool,
     total_discovered: usize,
+    /// Listing rows earlier windows listed (`scanOffset`).
+    scan_offset: usize,
+    /// Listing rows before this window's end: the next window's
+    /// `scanOffset`.
+    covered: usize,
     snapshot: String,
 }
 
@@ -442,14 +394,18 @@ impl Cut {
             ));
             out["next"]["narrowScope"] = narrow_scope(query);
         }
-        if self.can_expand() {
+        // The widened walk resumes after this window: offered on its last
+        // page, it lists only rows no page of this window showed.
+        if self.can_expand() && !self.has_more() {
             let wider = self
                 .requested
                 .saturating_mul(2)
                 .max(self.requested + 1)
                 .min(max_walk() as usize);
-            out["next"]["expandScan"] =
-                continuation(query, json!({"maxEntries": wider, "page": 1}));
+            out["next"]["expandScan"] = continuation(
+                query,
+                json!({"maxEntries": wider, "scanOffset": self.covered, "page": 1, "snapshot": null}),
+            );
         }
         if self.terminal() {
             out["terminalLimit"] = json!(true);
@@ -462,7 +418,7 @@ impl Cut {
             out["truncated"] = json!(true);
             out["partialReasons"] = json!(reasons);
             if self.early_exit {
-                out["atLeast"] = json!(self.total + 1);
+                out["atLeast"] = json!(self.scan_offset + self.total + 1);
             } else {
                 out["totalAvailable"] = json!(self.total_discovered.max(self.available));
             }
@@ -481,33 +437,53 @@ fn group_dirs<'a>(dirs: impl Iterator<Item = &'a String>) -> std::collections::H
     dirs.filter(|dir| !dir.is_empty()).cloned().collect()
 }
 
-/// `path`'s own entries stay bare strings; consecutive entries of one
-/// subdirectory share a `{dir, <key>}` group (`dir` relative to `path`), so
-/// no prefix repeats. A page that continues a group repeats its `dir`.
+/// The directory of a listed row as the response names it: relative to the
+/// workspace root (SS2), `prefix` being the listed path's own spelling.
+pub(super) fn group_dir(prefix: &str, dir: &str) -> String {
+    match (prefix, dir) {
+        (_, "") => prefix.to_owned(),
+        (".", _) => dir.to_owned(),
+        _ => format!("{prefix}/{dir}"),
+    }
+}
+
+/// The listed directory (a file root: its directory) spelled like a row path: workspace-relative inside
+/// the workspace, absolute outside it.
+pub(super) fn listing_prefix(
+    paths: &crate::policy::path::PathPolicy,
+    root: &std::path::Path,
+) -> String {
+    // A file root lists itself under its directory.
+    let dir = if root.is_file() {
+        root.parent().unwrap_or(root)
+    } else {
+        root
+    };
+    paths
+        .workspace_relative(dir)
+        .unwrap_or_else(|| dir.to_string_lossy().into_owned())
+}
+
+/// One listing shape for `tree` and `files` (SS2/SS4): consecutive entries
+/// of one directory become a `{dir, files}` group, `dir` workspace-relative
+/// (the listed path's own entries included), so `dir + "/" + name` is a
+/// path a local tool takes.
 fn dir_groups<R>(
     rows: &[R],
     dir_entry: impl Fn(&R) -> (&String, &String),
-    key: &str,
+    prefix: &str,
 ) -> Vec<Value> {
     let mut out: Vec<Value> = Vec::new();
     for row in rows {
         let (dir, entry) = dir_entry(row);
-        if dir.is_empty() {
-            out.push(json!(entry));
-            continue;
-        }
+        let dir = group_dir(prefix, dir);
         match out.last_mut() {
-            Some(group) if group.get("dir").and_then(Value::as_str) == Some(dir) => {
-                if let Some(items) = group[key].as_array_mut() {
+            Some(group) if group.get("dir").and_then(Value::as_str) == Some(dir.as_str()) => {
+                if let Some(items) = group["files"].as_array_mut() {
                     items.push(json!(entry));
                 }
             }
-            _ => {
-                let mut group = serde_json::Map::new();
-                group.insert("dir".into(), json!(dir));
-                group.insert(key.into(), json!([entry]));
-                out.push(Value::Object(group));
-            }
+            _ => out.push(json!({"dir": dir, "files": [entry]})),
         }
     }
     out
@@ -519,8 +495,8 @@ fn walked<T: std::any::Any + Send + Sync>(
     page: usize,
     snapshot: Option<&str>,
     policy: &str,
-    walk: impl FnOnce() -> Result<T, StructureError>,
-) -> Result<(std::sync::Arc<T>, bool), StructureError> {
+    walk: impl FnOnce() -> Result<T, ToolError>,
+) -> Result<(std::sync::Arc<T>, bool), ToolError> {
     if page > 1
         && let Some(snapshot) = snapshot
         && let Some(stored) = memo::get::<T>(snapshot, policy)

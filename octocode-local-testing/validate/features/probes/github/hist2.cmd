@@ -1,1 +1,0 @@
-ghSearchHistory {"goal":"validate feature","reasoning":"live probe of documented claim","operation":"pullRequest","owner":"facebook","repo":"react","keywords":["Fizz"],"match":["title"],"state":"merged","pageSize":5}

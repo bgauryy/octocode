@@ -1,12 +1,14 @@
 //! One lazy selection flow for tool requests and read-only auth inspection.
-use super::super::{ProviderError, ProviderErrorKind, RequestContext, login};
+use super::super::{ProviderError, ProviderErrorKind, login};
 use super::{
     CredentialSource, ResolvedCredential, StoredCredentials, configured_credential_host,
     normalize_host,
 };
 use crate::config::ConfigOutput;
+use crate::providers::{BudgetStop, RequestBudget};
+use secrecy::ExposeSecret;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     future::Future,
     sync::{Arc, Mutex, Once},
     time::{Duration, Instant},
@@ -53,20 +55,39 @@ pub struct Authentication {
     /// Request credentials resolve once per host per process: a `gh` spawn or
     /// a store read per query row is pure overhead.
     memo: Mutex<HashMap<String, Remembered>>,
+    /// Digests of the host-scoped tokens GitHub rejected in this process. A
+    /// rejected stored or `gh` token is skipped, so the next request falls
+    /// back as a fresh selection would instead of sending it again.
+    rejected: Mutex<HashSet<[u8; 32]>>,
 }
 impl Authentication {
     pub fn new(config: Arc<ConfigOutput>) -> Self {
         Self {
             config,
             memo: Mutex::default(),
+            rejected: Mutex::default(),
         }
     }
-    /// Drop the remembered credential for `host` (GitHub rejected it).
-    pub fn forget(&self, host: &str) {
+    /// GitHub rejected `credential` for `host` (HTTP 401): drop the
+    /// remembered selection so the next request selects again, skipping it.
+    pub fn reject(&self, host: &str, credential: Option<&ResolvedCredential>) {
+        let host = normalize_host(host);
+        if let Some(credential) = credential {
+            self.rejected
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(token_digest(&host, credential.expose_secret()));
+        }
         self.memo
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(&normalize_host(host));
+            .remove(&host);
+    }
+    fn is_rejected(&self, host: &str, token: &str) -> bool {
+        self.rejected
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .contains(&token_digest(host, token))
     }
     fn remembered(&self, host: &str) -> Option<Option<AuthSelection>> {
         let memo = self
@@ -93,7 +114,7 @@ impl Authentication {
         &self,
         host: &str,
         mode: AuthMode,
-        budget: &RequestContext,
+        budget: &RequestBudget,
     ) -> Result<Option<AuthSelection>, ProviderError> {
         self.resolve_with(
             host,
@@ -109,20 +130,11 @@ impl Authentication {
         &self,
         host: &str,
         mode: AuthMode,
-        budget: &RequestContext,
+        budget: &RequestBudget,
         backend: &impl AuthBackend,
     ) -> Result<Option<AuthSelection>, ProviderError> {
-        check_budget(budget)?;
+        budget.check().map_err(resolution_stopped)?;
         let host = normalize_host(host);
-        if let Some(token) = budget.override_token.as_ref() {
-            use secrecy::ExposeSecret;
-            if !token.expose_secret().trim().is_empty() {
-                return Ok(Some(AuthSelection {
-                    credential: ResolvedCredential::new(token.clone(), CredentialSource::Override),
-                    username: None,
-                }));
-            }
-        }
         if let Some(token) = self.config.token.as_ref()
             && configured_credential_host(&self.config.resolved.github.api_url)
                 .is_some_and(|configured| configured == host)
@@ -147,14 +159,21 @@ impl Authentication {
         &self,
         host: &str,
         mode: AuthMode,
-        budget: &RequestContext,
+        budget: &RequestBudget,
         backend: &impl AuthBackend,
     ) -> Result<Option<AuthSelection>, ProviderError> {
         let host = host.to_owned();
         // Keychain calls are blocking OS operations. Await their worker to completion,
         // then check the budget before starting any further I/O.
-        let stored = backend.load(&host).await;
-        check_budget(budget)?;
+        let stored = match backend.load(&host).await {
+            Ok(Some((stored, _)))
+                if mode == AuthMode::Request && self.is_rejected(&host, &stored.token.token) =>
+            {
+                Ok(None)
+            }
+            stored => stored,
+        };
+        budget.check().map_err(resolution_stopped)?;
         let mut storage_error = None;
         match stored {
             Ok(Some((stored, source)))
@@ -163,12 +182,11 @@ impl Authentication {
                 return Ok(Some(from_stored(stored, source)));
             }
             Ok(Some((_, source))) => {
-                let client_id = self
-                    .config
-                    .env_value("OCTOCODE_GITHUB_CLIENT_ID")
-                    .map(str::trim)
-                    .filter(|v| !v.is_empty())
-                    .or((host == "github.com").then_some(login::GITHUB_APP_CLIENT_ID));
+                let client_id = Some(login::client_id_for_host(
+                    &host,
+                    self.config.env_value("OCTOCODE_GITHUB_CLIENT_ID"),
+                ))
+                .filter(|id| !id.is_empty());
                 let refreshed = match client_id {
                     Some(client_id) => {
                         bounded(budget, backend.refresh(&host, client_id, source)).await
@@ -188,8 +206,10 @@ impl Authentication {
             Ok(None) => {}
             Err(error) => storage_error = Some(error),
         }
-        check_budget(budget)?;
-        if let Some(token) = backend.gh(&host, budget).await? {
+        budget.check().map_err(resolution_stopped)?;
+        if let Some(token) = backend.gh(&host, budget).await?
+            && !(mode == AuthMode::Request && self.is_rejected(&host, token.expose_secret()))
+        {
             return Ok(Some(AuthSelection {
                 credential: ResolvedCredential::new(token, CredentialSource::GhCli),
                 username: None,
@@ -219,6 +239,14 @@ fn warn_anonymous(host: &str) {
         );
     });
 }
+fn token_digest(host: &str, token: &str) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut digest = Sha256::new();
+    digest.update(host.as_bytes());
+    digest.update([0]);
+    digest.update(token.as_bytes());
+    digest.finalize().into()
+}
 fn from_stored(stored: StoredCredentials, source: CredentialSource) -> AuthSelection {
     AuthSelection {
         credential: ResolvedCredential::new(stored.token.token, source),
@@ -240,7 +268,7 @@ trait AuthBackend {
     async fn gh(
         &self,
         host: &str,
-        budget: &RequestContext,
+        budget: &RequestBudget,
     ) -> Result<Option<secrecy::SecretString>, ProviderError>;
 }
 struct SystemBackend<'a> {
@@ -279,25 +307,23 @@ impl AuthBackend for SystemBackend<'_> {
     async fn gh(
         &self,
         host: &str,
-        budget: &RequestContext,
+        budget: &RequestBudget,
     ) -> Result<Option<secrecy::SecretString>, ProviderError> {
         super::discovery::gh_token(host, self.config.effective_env(), budget).await
     }
 }
-pub(super) fn check_budget(budget: &RequestContext) -> Result<(), ProviderError> {
-    if budget.cancellation.is_cancelled() {
-        return Err(ProviderError::new(
+/// A budget stop met while resolving a credential.
+pub(super) fn resolution_stopped(stop: BudgetStop) -> ProviderError {
+    match stop {
+        BudgetStop::Cancelled => ProviderError::new(
             ProviderErrorKind::Cancelled,
             "GitHub credential resolution cancelled",
-        ));
-    }
-    if Instant::now() >= budget.deadline {
-        return Err(ProviderError::new(
+        ),
+        BudgetStop::Deadline => ProviderError::new(
             ProviderErrorKind::Timeout,
             "GitHub credential resolution exceeded the request budget",
-        ));
+        ),
     }
-    Ok(())
 }
 fn is_budget_error(error: &ProviderError) -> bool {
     matches!(
@@ -305,17 +331,12 @@ fn is_budget_error(error: &ProviderError) -> bool {
         ProviderErrorKind::Cancelled | ProviderErrorKind::Timeout
     )
 }
+/// `operation`'s result, unless `budget` stops it first.
 pub(super) async fn bounded<T>(
-    budget: &RequestContext,
+    budget: &RequestBudget,
     operation: impl Future<Output = Result<T, ProviderError>>,
 ) -> Result<T, ProviderError> {
-    check_budget(budget)?;
-    tokio::select! {
-        biased;
-        _ = budget.cancellation.cancelled() => Err(ProviderError::new(ProviderErrorKind::Cancelled, "GitHub credential resolution cancelled")),
-        _ = tokio::time::sleep_until(budget.deadline.into()) => Err(ProviderError::new(ProviderErrorKind::Timeout, "GitHub credential resolution exceeded the request budget")),
-        result = operation => result,
-    }
+    budget.wait(operation).await.map_err(resolution_stopped)?
 }
 
 #[cfg(test)]

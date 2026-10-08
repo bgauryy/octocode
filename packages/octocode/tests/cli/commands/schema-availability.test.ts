@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getNativeContractFingerprint } from '@octocodeai/config/schema';
+import { buildCliInstructions } from '@octocodeai/config/mcp';
 import { runSchema } from '../../../src/cli/commands/schema.js';
 
 const machine = vi.hoisted(() => ({
@@ -7,7 +8,10 @@ const machine = vi.hoisted(() => ({
   tools: [] as Array<{ name: string; availability: { enabled: boolean } }>,
 }));
 
-vi.mock('../../../src/cli/native-delegate.js', () => ({
+vi.mock('../../../src/cli/native-delegate.js', async importOriginal => ({
+  ...(await importOriginal<
+    typeof import('../../../src/cli/native-delegate.js')
+  >()),
   resolveNativeBin: () => '/test/octocode',
 }));
 vi.mock('node:child_process', async () => {
@@ -121,7 +125,7 @@ describe('schema availability-scoped guidance', () => {
 
 describe('catalog instructions', () => {
   it.each([false, true])(
-    'name clasify only when it is enabled (enabled=%s)',
+    'serve one prompt whether clasify is enabled or not (enabled=%s)',
     async enabled => {
       machine.fingerprint = getNativeContractFingerprint();
       machine.tools = ['localSearch', 'localFetch', 'clasify'].map(name => ({
@@ -129,9 +133,9 @@ describe('catalog instructions', () => {
         availability: { enabled: name !== 'clasify' || enabled },
       }));
       const output = vi.spyOn(console, 'log').mockImplementation(() => {});
-      expect(await runSchema({ command: 'schema', args: [], options: {} })).toBe(
-        0
-      );
+      expect(
+        await runSchema({ command: 'schema', args: [], options: {} })
+      ).toBe(0);
       const catalog = JSON.parse(String(output.mock.calls[0]?.[0]));
       expect(catalog.commands).toEqual({
         run: "octocode <tool> '<json>' (or --input FILE|-)",
@@ -139,7 +143,8 @@ describe('catalog instructions', () => {
         variants: 'octocode schema <tool> --view variants',
         full: 'octocode schema <tool>',
       });
-      expect(catalog.instructions.includes('clasify')).toBe(enabled);
+      // The prompt says in plain words that clasify needs a key.
+      expect(catalog.instructions).toBe(buildCliInstructions());
     }
   );
 
@@ -154,9 +159,11 @@ describe('catalog instructions', () => {
       const output = vi.spyOn(console, 'log').mockImplementation(() => {});
       vi.spyOn(console, 'error').mockImplementation(() => {});
       await runSchema({ command: 'schema', args: [], options: {} });
-      const printed = String(output.mock.calls[0]?.[0]);
-      expect(printed.includes('clasify')).toBe(enabled);
-      expect(JSON.parse(printed).toolCount).toBe(enabled ? 3 : 2);
+      const printed = JSON.parse(String(output.mock.calls[0]?.[0]));
+      expect(
+        printed.tools.some((tool: { name: string }) => tool.name === 'clasify')
+      ).toBe(enabled);
+      expect(printed.toolCount).toBe(enabled ? 3 : 2);
       output.mockClear();
       // Not a terminal: the error is the JSON envelope on stdout.
       await runSchema({ command: 'schema', args: ['nope'], options: {} });

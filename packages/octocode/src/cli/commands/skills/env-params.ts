@@ -11,9 +11,7 @@
  * overall `required` level.
  */
 
-import { existsSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import {
   applyOctocodeEnv,
   configFieldEnvNames,
@@ -21,12 +19,13 @@ import {
   getOctocodeHome,
   loadOctocodeEnv,
 } from '@octocodeai/config';
+import { nativeCommand, resolveNativeBin } from '../../native-delegate.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type EnvRequirement = 'required' | 'recommended' | 'optional';
+type EnvRequirement = 'required' | 'recommended' | 'optional';
 
-export interface EnvParam {
+interface EnvParam {
   /** Environment variable name, e.g. "TAVILY_API_KEY" */
   key: string;
   /** Short human-readable description */
@@ -42,14 +41,14 @@ export interface EnvParam {
   link?: string;
 }
 
-export type EnvStatus = 'set' | 'missing';
+type EnvStatus = 'set' | 'missing';
 
-export interface EnvParamStatus {
+interface EnvParamStatus {
   param: EnvParam;
   status: EnvStatus;
 }
 
-export interface SkillEnvStatus {
+interface SkillEnvStatus {
   skillName: string;
   params: EnvParamStatus[];
   /**
@@ -130,35 +129,72 @@ export const SKILL_ENV_PARAMS: Record<string, EnvParam[]> = {
 
 // ─── Runtime status check ─────────────────────────────────────────────────────
 
+type EnvMap = Record<string, string | undefined>;
+
 /**
- * Check whether a single env var is set, with the layers and trust rules
- * Octocode itself applies: process env, then the workspace and home `.env`
- * (a workspace file cannot supply protected keys such as tokens).
+ * The environment with the layers and trust rules Octocode itself applies:
+ * process env, then the workspace and home `.env`.
  */
-export function isEnvSet(key: string): boolean {
-  const effective: Record<string, string | undefined> = { ...process.env };
+function effectiveEnv(): EnvMap {
+  const effective: EnvMap = { ...process.env };
   const { map, sources } = loadOctocodeEnv({
     home: getOctocodeHome(),
     cwd: process.cwd(),
   });
   applyOctocodeEnv(map, { env: effective, sources });
-  const val = effective[key];
-  return typeof val === 'string' && val.trim().length > 0;
+  return effective;
 }
 
+function isSetIn(env: EnvMap, key: string): boolean {
+  const value = env[key];
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+/** Check whether a single env var is set in the effective environment. */
+export function isEnvSet(key: string): boolean {
+  return isSetIn(effectiveEnv(), key);
+}
+
+const githubTokenSources = new Map<string, string | null>();
+
 /**
- * A group a credential outside the environment satisfies: the GitHub token
- * group by a stored `octocode auth login` or a `gh` CLI login (file
- * presence only; `octocode auth status` verifies the token).
+ * The source of the GitHub token the native runtime would use (a stored
+ * `octocode auth login`, a `gh` login, ...), from `octocode config check`
+ * without verifying it; null when there is none or the runtime is
+ * unavailable. Native owns credential discovery; one probe per binary.
  */
+function nativeGithubTokenSource(): string | null {
+  const bin = resolveNativeBin();
+  if (!bin) return null;
+  const cached = githubTokenSources.get(bin);
+  if (cached !== undefined) return cached;
+  const [command, args] = nativeCommand(bin, [
+    'config',
+    'check',
+    ENV_TOKEN_VARS[0]!,
+    '--json',
+  ]);
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    timeout: 10_000,
+  });
+  let source: string | null = null;
+  try {
+    const parsed = JSON.parse(result.stdout ?? '') as {
+      githubTokenSource?: unknown;
+    };
+    if (typeof parsed.githubTokenSource === 'string')
+      source = parsed.githubTokenSource;
+  } catch {
+    source = null;
+  }
+  githubTokenSources.set(bin, source);
+  return source;
+}
+
+/** A group a credential outside the environment satisfies: the GitHub token. */
 function satisfiedOutsideEnv(group: string | undefined): boolean {
-  if (group !== 'github-token') return false;
-  const ghConfig =
-    process.env.GH_CONFIG_DIR?.trim() || join(homedir(), '.config', 'gh');
-  return (
-    existsSync(join(getOctocodeHome(), 'credentials.json')) ||
-    existsSync(join(ghConfig, 'hosts.yml'))
-  );
+  return group === 'github-token' && nativeGithubTokenSource() !== null;
 }
 
 /** Get env status for all params of a skill. */
@@ -169,9 +205,10 @@ export function getSkillEnvStatus(skillName: string): SkillEnvStatus {
     return { skillName, params: [], readiness: 'ok' };
   }
 
+  const env = effectiveEnv();
   const paramStatuses: EnvParamStatus[] = params.map(p => ({
     param: p,
-    status: isEnvSet(p.key) ? 'set' : 'missing',
+    status: isSetIn(env, p.key) ? 'set' : 'missing',
   }));
 
   // Evaluate group satisfication

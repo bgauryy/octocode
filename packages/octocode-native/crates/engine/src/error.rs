@@ -64,7 +64,7 @@ impl RpcError {
 
     /// `true` when the request may be re-sent as-is: ContentModified always;
     /// ServerCancelled only when the server set `data.retriggerRequest`.
-    pub fn is_retryable(&self) -> bool {
+    pub(crate) fn is_retryable(&self) -> bool {
         match self.code {
             ErrorCode::ContentModified => true,
             ErrorCode::ServerCancelled => self
@@ -97,7 +97,7 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
-    pub fn from_i64(code: i64) -> Self {
+    pub(crate) fn from_i64(code: i64) -> Self {
         match code {
             -32700 => Self::ParseError,
             -32600 => Self::InvalidRequest,
@@ -181,7 +181,7 @@ impl Error {
     }
 
     /// The typed JSON-RPC error, when the peer returned one.
-    pub fn rpc_error(&self) -> Option<&RpcError> {
+    pub(crate) fn rpc_error(&self) -> Option<&RpcError> {
         match &self.kind {
             ErrorKind::Rpc(error) => Some(error),
             _ => None,

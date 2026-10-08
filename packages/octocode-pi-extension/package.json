@@ -35,6 +35,7 @@
     "themes/**",
     "subagents/**",
     "docs/**",
+    "!docs/roadmap/**",
     "README.md",
     "LICENSE"
   ],
@@ -64,6 +65,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "node ../../node_modules/eslint/bin/eslint.js . --config eslint.config.mjs --no-warn-ignored && tsc --noEmit -p tsconfig.json",
     "test": "node ../../node_modules/vitest/vitest.mjs run",
+    "verify": "yarn lint && yarn test && yarn build",
     "prepack": "yarn build"
   },
   "pi": {

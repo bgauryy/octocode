@@ -2,6 +2,7 @@
 
 use super::{page::*, types::*};
 use crate::tools::id::query_limits::ast_topology::PAGE_MAXIMUM;
+use crate::tools::result::ToolError;
 use crate::{
     policy::path::PathPolicy, security::ContentSecurity, tools::cancel::CancellationCheck,
 };
@@ -16,18 +17,16 @@ pub(crate) fn drift(
     security: &ContentSecurity,
     cancel: &dyn CancellationCheck,
     extras: &super::graph::BuildExtras,
-) -> AstGraphResult {
+) -> Result<Value, ToolError> {
     let head = super::graph::build_graph_with(q, paths, security, cancel, extras)?;
     let baseline_root = q
         .baseline()
         .map(str::to_owned)
-        .ok_or_else(|| AstGraphError::new("invalidGraphQuery", "drift requires baseline"))?;
+        .ok_or_else(|| ToolError::new("invalidGraphQuery", "drift requires baseline"))?;
     let mut base_query = q.clone();
     base_query.set_path(baseline_root);
     let mut base = super::graph::build_graph_with(&base_query, paths, security, cancel, extras)?;
-    cancel
-        .check()
-        .map_err(|e| AstGraphError::new("ast.cancelled", e))?;
+    cancel.check().map_err(ToolError::cancelled)?;
 
     // The native scanner keys every node on a path relative to its own scan
     // root, so two-root drift shares identity across differing absolute roots.
@@ -62,7 +61,9 @@ pub(crate) fn drift(
     }
     let (page, pagination) = paginate(items, q);
     let has_more = pagination["hasMore"] == json!(true);
-    let mut warnings = Vec::new();
+    let cuts = ScanCuts::of(&head).union(ScanCuts::of(&base));
+    let mut warnings = cuts.warnings(q);
+    insert_supersedes(&mut base_map, q, &mut warnings);
     if !diff.comparable {
         base_map.insert("confidence".into(), json!("low"));
         warnings.push("graphs are not comparable — see summary.incompatibilities".to_owned());
@@ -75,30 +76,34 @@ pub(crate) fn drift(
         base_map.insert("warnings".into(), json!(warnings));
     }
 
-    let mut reasons: Vec<&str> = Vec::new();
-    if head.truncated || base.truncated {
-        reasons.push("maxFiles");
-    }
-    if head.files_skipped > 0 || base.files_skipped > 0 {
-        reasons.push("filesSkipped");
+    // A diff of two cut graphs is never complete: a file-scan cut offers
+    // the widened rebuild; any other cut is a terminal limit.
+    let page_limit = has_more && q.page() as usize >= PAGE_MAXIMUM;
+    let mut reasons = cuts.reasons();
+    if page_limit {
+        reasons.push("pageLimit");
     }
     if !reasons.is_empty() {
         base_map.insert("isPartial".into(), json!(true));
         base_map.insert("partialReasons".into(), json!(reasons));
     }
-    let results_state = if has_more {
+    if page_limit || cuts.terminal(q) {
+        base_map.insert("terminalLimit".into(), json!(true));
+    }
+    let results_state = if page_limit {
+        "truncated"
+    } else if has_more {
         "pageable"
     } else if reasons.is_empty() {
         "complete"
     } else {
         "truncated"
     };
-    let graph_state =
-        if head.truncated || base.truncated || head.files_skipped > 0 || base.files_skipped > 0 {
-            "scan-truncated"
-        } else {
-            "complete"
-        };
+    let graph_state = if cuts.graph_cut() || cuts.files_skipped {
+        "scan-truncated"
+    } else {
+        "complete"
+    };
     let mut completeness = Map::new();
     for (key, state) in [("results", results_state), ("graph", graph_state)] {
         if state != "complete" {
@@ -108,16 +113,26 @@ pub(crate) fn drift(
     if !completeness.is_empty() {
         base_map.insert("completeness".into(), Value::Object(completeness));
     }
-    if has_more && (q.page() as usize) < PAGE_MAXIMUM {
-        let next = continuation(
-            q,
-            Some(q.page() + 1),
-            None,
-            Some(json!(snapshot)),
-            "Continue topology drift results.",
+    let mut next = Map::new();
+    if has_more && !page_limit {
+        next.insert(
+            "nextPage".into(),
+            continuation(
+                q,
+                Some(q.page() + 1),
+                None,
+                Some(json!(snapshot)),
+                "Continue topology drift results.",
+            ),
         );
         base_map["pagination"]["resultId"] = json!(snapshot);
-        base_map.insert("next".into(), json!({ "nextPage": next }));
+    } else if cuts.widenable()
+        && let Some(widen) = expand_scan(q)
+    {
+        next.insert("expandScan".into(), widen);
+    }
+    if !next.is_empty() {
+        base_map.insert("next".into(), Value::Object(next));
     }
     Ok(Value::Object(base_map))
 }

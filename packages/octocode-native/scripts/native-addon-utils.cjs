@@ -21,14 +21,6 @@ function adHocSignDarwinAddon(artifactPath, platform, identifier = basename(arti
   }
 }
 
-/**
- * Copy `source` to `destination` by replacing the inode, never overwriting it.
- * An in-place overwrite of a Mach-O that a running process has mapped (the CLI,
- * or a `.node` addon loaded by a live MCP server) can crash that process or
- * leave a stale kernel code-signature cache that SIGKILLs later launches.
- * Darwin artifacts are ad-hoc signed before the rename, so the final path never
- * holds an unsigned file.
- */
 function sameFileBytes(left, right, size) {
   const leftFd = openSync(left, 'r');
   let rightFd;
@@ -51,6 +43,14 @@ function sameFileBytes(left, right, size) {
   }
 }
 
+/**
+ * Copy `source` to `destination` by replacing the inode, never overwriting it.
+ * An in-place overwrite of a Mach-O that a running process has mapped (the CLI,
+ * or a `.node` addon loaded by a live MCP server) can crash that process or
+ * leave a stale kernel code-signature cache that SIGKILLs later launches.
+ * Darwin artifacts are ad-hoc signed before the rename, so the final path never
+ * holds an unsigned file.
+ */
 function stageFile(source, destination, { platform, executable = false } = {}) {
   const staged = `${destination}.${randomUUID()}.tmp`;
   try {
@@ -92,4 +92,4 @@ function verifyBinaryRuns(binaryPath) {
   }
 }
 
-module.exports = { SMOKE_TIMEOUT_MS, adHocSignDarwinAddon, stageFile, verifyAddonLoads, verifyBinaryRuns };
+module.exports = { SMOKE_TIMEOUT_MS, stageFile, verifyAddonLoads, verifyBinaryRuns };

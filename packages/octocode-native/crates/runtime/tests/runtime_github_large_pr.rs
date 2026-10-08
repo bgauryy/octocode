@@ -148,7 +148,7 @@ async fn run_status(server: &MockServer, query: Value) -> (String, Value) {
 
 #[tokio::test]
 async fn large_pr_inventory_flags_patchless_files_and_keeps_rename_origin() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 5).await;
     let mut renamed = rest_file("src/new_name.rs", None, 0, 0);
     renamed["status"] = json!("renamed");
@@ -184,7 +184,7 @@ async fn large_pr_inventory_flags_patchless_files_and_keeps_rename_origin() {
 
 #[tokio::test]
 async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 250).await;
     mount_file_batches(
         &server,
@@ -249,7 +249,7 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
 /// the every-patch read beside it.
 #[tokio::test]
 async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 5).await;
     let hunk = Some("@@ -1 +1 @@\n-a\n+b");
     mount_file_batches(
@@ -285,7 +285,7 @@ async fn pr_inventory_picks_the_largest_source_patch_and_keeps_all_patches() {
 
 #[tokio::test]
 async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 250).await;
     let mut batches = vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)];
     batches[1][7] = rest_file("docs/guide.md", Some("@@ -1 +1 @@\n-a\n+b"), 30, 2);
@@ -319,7 +319,7 @@ async fn pr_file_filter_narrows_the_inventory_and_its_counts() {
 
 #[tokio::test]
 async fn pure_rename_patch_is_empty_not_a_provider_omission() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 2).await;
     let mut renamed = rest_file("src/new_name.rs", None, 0, 0);
     renamed["status"] = json!("renamed");
@@ -347,7 +347,7 @@ async fn pure_rename_patch_is_empty_not_a_provider_omission() {
 async fn pr_file_list_stopped_by_the_provider_cap_is_not_complete() {
     // GitHub lists at most 3000 files: the last listable page has no `next`
     // link although the PR reports more changed files.
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 3500).await;
     mount_file_batches(&server, vec![numbered(1, 100)], Duration::ZERO).await;
     let data = run(
@@ -368,7 +368,7 @@ async fn pr_file_list_stopped_by_the_provider_cap_is_not_complete() {
 
 #[tokio::test]
 async fn pr_inventory_page_reports_the_provider_total() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 250).await;
     mount_file_batches(
         &server,
@@ -390,7 +390,7 @@ async fn pr_inventory_page_reports_the_provider_total() {
 
 #[tokio::test]
 async fn pr_continuation_reads_carry_only_the_identity_header() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 250).await;
     mount_file_batches(
         &server,
@@ -451,7 +451,7 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
 
 #[tokio::test]
 async fn patch_window_does_not_repeat_the_file_cursor_in_content_pagination() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 2).await;
     let big = format!("@@ -1,2000 +1,2000 @@\n{}", "+line\n".repeat(12_000));
     mount_file_batches(
@@ -484,7 +484,7 @@ async fn patch_window_does_not_repeat_the_file_cursor_in_content_pagination() {
 async fn selected_patch_scan_reads_file_batches_concurrently() {
     // A selected late file must not cost one sequential round trip per
     // provider batch before it: six 300 ms batches read in parallel.
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 600).await;
     let mut batches = (1..=6).map(|b| numbered(b, 100)).collect::<Vec<_>>();
     batches[5][99] = rest_file("src/late.rs", Some("@@ -1 +1 @@\n-a\n+late"), 1, 1);
@@ -508,7 +508,7 @@ async fn selected_patch_scan_reads_file_batches_concurrently() {
 
 #[tokio::test]
 async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 2).await;
     let body = (1..=200)
         .map(|n| format!(" line {n}\n"))
@@ -618,7 +618,7 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
 /// numbered on the new side.
 #[tokio::test]
 async fn minified_pr_views_carry_lossless_raw_reads() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let raw_body = "Fixes the cache.\n<!-- reviewer checklist: perf tested -->\nDetails here.";
     let mut meta = pr(2);
     meta["body"] = json!(raw_body);
@@ -691,7 +691,7 @@ async fn minified_pr_views_carry_lossless_raw_reads() {
 /// `include`) instead of silently returning only the summary.
 #[tokio::test]
 async fn match_string_without_content_searches_the_filtered_patches() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 3).await;
     mount_file_batches(
         &server,
@@ -732,7 +732,7 @@ async fn match_string_without_content_searches_the_filtered_patches() {
 /// the PR head.
 #[tokio::test]
 async fn match_string_lists_the_patchless_files_it_could_not_search() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 4).await;
     mount_file_batches(
         &server,
@@ -780,7 +780,7 @@ async fn match_string_lists_the_patchless_files_it_could_not_search() {
 /// page also keeps the labels.
 #[tokio::test]
 async fn merged_pr_rows_keep_merge_state_on_every_read() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 250).await;
     let mut batches = vec![numbered(1, 100), numbered(2, 100), numbered(3, 50)];
     batches[0][0] = rest_file("src/hit.rs", Some("@@ -1 +1 @@\n-a\n+needle"), 1, 1);
@@ -833,7 +833,7 @@ async fn merged_pr_rows_keep_merge_state_on_every_read() {
 /// pagination; each row keeps its own exact `continuePatch`.
 #[tokio::test]
 async fn patch_rows_in_one_call_share_one_budget() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 2).await;
     let big = |tag: &str| {
         format!(
@@ -894,7 +894,7 @@ async fn patch_rows_in_one_call_share_one_budget() {
 /// runs unchanged.
 #[tokio::test]
 async fn explicit_response_page_sizes_patch_walk_windows() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 2).await;
     let patch = |tag: &str| {
         format!(
@@ -1033,7 +1033,7 @@ async fn explicit_response_page_sizes_patch_walk_windows() {
 /// files a page) and returns hit lines only, so its bytes track the hits.
 #[tokio::test]
 async fn match_string_covers_every_file_page_in_one_call() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 136).await;
     let hit = |i: usize| {
         rest_file(
@@ -1077,7 +1077,7 @@ async fn match_string_covers_every_file_page_in_one_call() {
 /// through the full runtime.
 #[tokio::test]
 async fn include_scopes_a_body_and_patch_read() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 3).await;
     mount_file_batches(
         &server,
@@ -1112,7 +1112,7 @@ async fn include_scopes_a_body_and_patch_read() {
 /// wrong path and got a silent empty row).
 #[tokio::test]
 async fn files_scope_matching_nothing_is_an_empty_row_with_a_hint() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 1).await;
     mount_file_batches(
         &server,
@@ -1156,7 +1156,7 @@ async fn files_scope_matching_nothing_is_an_empty_row_with_a_hint() {
 /// file list, not only of the window shown.
 #[tokio::test]
 async fn read_at_merge_picks_the_code_file_of_the_whole_pr_not_the_first_window() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 5).await;
     let test_patch = format!(
         "@@ -0,0 +1,3000 @@\n{}",
@@ -1211,7 +1211,7 @@ async fn read_at_merge_picks_the_code_file_of_the_whole_pr_not_the_first_window(
 /// never a silent summary.
 #[tokio::test]
 async fn match_string_with_zero_hits_says_so() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 2).await;
     mount_file_batches(
         &server,
@@ -1251,7 +1251,7 @@ async fn match_string_with_zero_hits_says_so() {
 /// batches load at once, and the page holds exactly its comments.
 #[tokio::test]
 async fn later_review_comment_pages_load_provider_batches_concurrently() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let mut raw = pr(1);
     raw["review_comments"] = json!(600);
     // The clock starts at the first provider request: building the HTTP
@@ -1336,7 +1336,7 @@ fn hunk_at_53() -> (String, String) {
 #[tokio::test]
 async fn match_context_past_the_hunk_reads_the_head_text() {
     use base64::Engine as _;
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 1).await;
     let (patch, head) = hunk_at_53();
     mount_file_batches(
@@ -1378,7 +1378,7 @@ async fn match_context_past_the_hunk_reads_the_head_text() {
 /// is flagged and `next.expandContext` reads the wanted lines at sourceSha.
 #[tokio::test]
 async fn match_context_clipped_by_the_hunk_is_flagged_with_a_head_read() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 1).await;
     let (patch, _) = hunk_at_53();
     mount_file_batches(
@@ -1418,7 +1418,7 @@ async fn match_context_clipped_by_the_hunk_is_flagged_with_a_head_read() {
 /// budget, or the row splits into a part with an empty `files` array.
 #[tokio::test]
 async fn default_large_pr_patch_walk_reaches_every_patch_once() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 115).await;
     let file = |index: usize| {
         let dir = [
@@ -1531,7 +1531,7 @@ async fn default_large_pr_patch_walk_reaches_every_patch_once() {
 /// numbers hold) and no `readAtMerge` (a targeted answer already).
 #[tokio::test]
 async fn history_b_merged_match_string_read_offers_the_source_side_only() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 2).await;
     mount_file_batches(
         &server,
@@ -1578,7 +1578,7 @@ async fn history_b_merged_match_string_read_offers_the_source_side_only() {
 /// to line ends; the numbered view is ~10% larger than the raw patches).
 #[tokio::test]
 async fn history_b_large_pr_lead_walk_is_lossless_in_half_the_calls() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_pr(&server, 115).await;
     // A few large patches and a long tail of small ones (~560k chars).
     let size = |i: usize| match i {
@@ -1678,5 +1678,130 @@ async fn history_b_large_pr_lead_walk_is_lossless_in_half_the_calls() {
         );
     }
     assert!(calls <= 21, "{calls} calls");
+    runtime.close().await;
+}
+
+/// P2: a patch-walk hop that outgrows the page it asks for pages its
+/// response by whole rows (`responseScope:"rows"`), never by text windows
+/// that empty the structured `results` and bury the walk's `next.*`. File
+/// page 2 lists 96 patch-less files with long names beside a few patches:
+/// the first window's metadata rows and summary alone exceed the hop's 40k
+/// page, so the row splits into structured `rowPart`s. Following
+/// `responsePagination.next` first, then `continuePatch`/`nextFilePage`,
+/// every call keeps its rows, every patch arrives exactly once, and every
+/// patch-less file is listed exactly once: the walk's cursor rides the last
+/// part, so no part is skipped.
+#[tokio::test]
+async fn overflowing_patch_hop_pages_by_rows_and_loses_nothing() {
+    let server = MockServer::builder().start().await;
+    mount_pr(&server, 200).await;
+    let long = |i: usize| {
+        format!(
+            "src/generated/{}_{i:03}.ts",
+            "very_long_generated_name".repeat(10)
+        )
+    };
+    let mut second = (0..96)
+        .map(|i| rest_file(&long(i), None, 0, 0))
+        .collect::<Vec<_>>();
+    second.extend((0..4).map(|i| {
+        let patch = format!(
+            "@@ -1,150 +1,150 @@ fn big{i}\n{}",
+            (0..150)
+                .map(|line| format!("+let changed_{i}_{line} = compute({line}); // padding\n"))
+                .collect::<String>()
+                .trim_end()
+        );
+        rest_file(&format!("src/big{i}.rs"), Some(&patch), 150, 0)
+    }));
+    let first = numbered(0, 100);
+    let expected = first
+        .iter()
+        .chain(&second)
+        .filter_map(|file| {
+            Some((
+                file["filename"].as_str()?.to_owned(),
+                file["patch"].as_str()?.to_owned(),
+            ))
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+    mount_file_batches(&server, vec![first, second], Duration::ZERO).await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH", "20000".into()),
+    ]);
+    let mut envelope = json!({"queries": [{"operation": "pullRequest", "owner": "a",
+        "repo": "b", "number": 9, "sections": ["patches"]}]});
+    let mut read = std::collections::BTreeMap::<String, String>::new();
+    let mut listed = std::collections::BTreeMap::<String, usize>::new();
+    let (mut calls, mut split_parts) = (0, 0);
+    loop {
+        calls += 1;
+        assert!(calls <= 40, "walk did not finish");
+        let outcome = runtime
+            .execute(
+                format!("walk-{calls}"),
+                "ghGetHistoryItem".into(),
+                envelope.clone(),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("call {calls} failed: {error:?}\n{envelope}"));
+        let content = &outcome.structured_content;
+        let pagination = &content["responsePagination"];
+        if pagination.is_object() {
+            assert_eq!(pagination["scope"], "rows", "call {calls}: {pagination}");
+        }
+        let row = &content["results"][0];
+        if row.get("rowPart").is_some() {
+            split_parts += 1;
+        }
+        let data = &row["data"];
+        let files = data["pullRequests"][0]["files"]
+            .as_array()
+            .unwrap_or_else(|| {
+                panic!("call {calls}: rows hidden from structuredContent: {content}")
+            });
+        for file in files {
+            let path = file["path"].as_str().expect("path").to_owned();
+            match file["patch"].as_str() {
+                Some(patch) => {
+                    let text = read.entry(path).or_default();
+                    let offset = file["patchPagination"]["offset"].as_u64().unwrap_or(0);
+                    assert_eq!(
+                        offset as usize,
+                        text.chars().count(),
+                        "call {calls}: {file}"
+                    );
+                    text.push_str(patch);
+                }
+                None => *listed.entry(path).or_default() += 1,
+            }
+        }
+        let next = pagination["next"]["query"]
+            .as_object()
+            .or_else(|| data["next"]["continuePatch"]["query"].as_object())
+            .or_else(|| data["next"]["nextFilePage"]["query"].as_object());
+        match next {
+            Some(next) => envelope = Value::Object(next.clone()),
+            None => break,
+        }
+    }
+    assert!(split_parts >= 2, "the hop never overflowed its page");
+    assert_eq!(
+        read.len(),
+        expected.len(),
+        "patches reached: {}",
+        read.len()
+    );
+    for (path, patch) in &expected {
+        assert_eq!(
+            read.get(path).map(|view| raw_patch(view)).as_ref(),
+            Some(patch),
+            "{path}"
+        );
+    }
+    assert_eq!(listed.len(), 96, "{listed:?}");
+    assert!(listed.values().all(|count| *count == 1), "{listed:?}");
     runtime.close().await;
 }

@@ -16,7 +16,7 @@ pub(crate) async fn pypi(
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let Some(package_name) = query.bare_package_name() else {
         return Err(ArtifactError::new(
-            "unsupported_capability",
+            "capabilityUnavailable",
             "PyPI does not provide keyword search. Use type:\"pypi\" with an exact packageName.",
         )
         .with_hint("Use type:pypi with packageName for exact Python package lookup."));
@@ -90,7 +90,7 @@ pub(crate) async fn pypi(
         artifact.manifest =
             super::release_ref::pypi_sdist_manifest(&artifact.name, &version, files, client).await;
     }
-    Ok(single(artifact))
+    Ok(ArtifactProviderPage::single(artifact))
 }
 
 /// The PyPI release document for `version` (none: the latest release; a
@@ -350,7 +350,7 @@ pub(crate) async fn crates(
             && let Some(mut artifact) = crate_release(name, &version, client).await?
         {
             crate_release_facts(&mut artifact, client).await;
-            return Ok(single(artifact));
+            return Ok(ArtifactProviderPage::single(artifact));
         }
         let url = parse_url(&format!(
             "https://crates.io/api/v1/crates/{}",
@@ -409,7 +409,7 @@ pub(crate) async fn crates(
             apply_crate_version(&mut artifact, entry);
         }
         crate_release_facts(&mut artifact, client).await;
-        return Ok(single(artifact));
+        return Ok(ArtifactProviderPage::single(artifact));
     }
     let page = state.page.unwrap_or(1);
     let size = query.page_size().unwrap_or(10);
@@ -529,7 +529,7 @@ async fn go_exact(
             }
         }
     }
-    Ok(single(artifact))
+    Ok(ArtifactProviderPage::single(artifact))
 }
 
 pub(crate) async fn go(
@@ -626,7 +626,7 @@ fn go_version(requested: Option<&str>) -> Result<Option<String>, ArtifactError> 
         Some(VersionSpec::Tag(tag)) if tag == "latest" => Ok(None),
         Some(VersionSpec::Exact(version)) => Ok(Some(format!("v{version}"))),
         Some(VersionSpec::Tag(spec) | VersionSpec::Range(spec)) => Err(ArtifactError::new(
-            "unsupported_capability",
+            "capabilityUnavailable",
             format!("Go lookups take an exact version or latest, not \"{spec}\"."),
         )
         .with_hint("Pass an exact module version, e.g. v1.2.3.")),
@@ -719,7 +719,7 @@ pub(crate) async fn packagist(
             entries = packagist_entries(response.as_ref(), &name)?;
         }
         return if let Some(first) = entries.first() {
-            Ok(single(composer(object_for(
+            Ok(ArtifactProviderPage::single(composer(object_for(
                 first,
                 ArtifactType::Packagist,
             )?)?))
@@ -797,7 +797,10 @@ pub(crate) async fn rubygems(
         let Some(response) = client.json(ArtifactType::Rubygems, url, true, None).await? else {
             return Ok(ArtifactProviderPage::empty(Some(0)));
         };
-        return Ok(single(gem(object_for(&response, ArtifactType::Rubygems)?)?));
+        return Ok(ArtifactProviderPage::single(gem(object_for(
+            &response,
+            ArtifactType::Rubygems,
+        )?)?));
     }
     // rubygems.org ignores per-page sizing (a fixed number of rows per API
     // page), so the item offset picks the API page and the rows within it,
@@ -889,16 +892,6 @@ async fn keyword_rows(
         .map(|row| item(object_for(row, artifact_type)?))
         .collect::<Result<Vec<_>, _>>()?;
     Ok((data, artifacts))
-}
-
-fn single(artifact: ArtifactItem) -> ArtifactProviderPage {
-    ArtifactProviderPage {
-        artifacts: vec![artifact],
-        next_state: None,
-        total: Some(1),
-        terminal_limit: None,
-        registry: None,
-    }
 }
 
 fn terms(query: &ArtifactSearchQuery) -> String {
@@ -1030,7 +1023,7 @@ mod tests {
 
     fn versioned(artifact_type: ArtifactType, name: &str, version: &str) -> ArtifactSearchQuery {
         artifact_query(
-            json!({"type": artifact_type, "packageName": name, "version": version}),
+            json!({"ecosystem": artifact_type, "packageName": name, "version": version}),
             None,
         )
     }
@@ -1391,7 +1384,7 @@ mod tests {
 
     fn exact_query(artifact_type: ArtifactType, name: &str) -> ArtifactSearchQuery {
         artifact_query(
-            serde_json::json!({"type": artifact_type, "packageName": name.to_string()}),
+            serde_json::json!({"ecosystem": artifact_type, "packageName": name.to_string()}),
             None,
         )
     }
@@ -1548,8 +1541,7 @@ mod tests {
         let b = test_budget();
         let client = RegistryClient::uncached(&http, &b);
         let lookup = |version: Option<&str>| {
-            let mut fields =
-                json!({"type":"go","packageName":"github.com/open-telemetry/opentelemetry-go"});
+            let mut fields = json!({"ecosystem":"go","packageName":"github.com/open-telemetry/opentelemetry-go"});
             if let Some(version) = version {
                 fields["version"] = json!(version);
             }
@@ -1576,7 +1568,7 @@ mod tests {
         let range = go(&lookup(Some("^0.71")), &state, &client)
             .await
             .expect_err("range");
-        assert_eq!(range.code, "unsupported_capability");
+        assert_eq!(range.code, "capabilityUnavailable");
     }
 
     /// A vanity module path names neither its repository directory nor its
@@ -1599,7 +1591,7 @@ mod tests {
         let b = test_budget();
         let client = RegistryClient::uncached(&http, &b);
         let query = artifact_query(
-            json!({"type":"go","packageName":"go.opentelemetry.io/otel/sdk","version":"v1.30.0"}),
+            json!({"ecosystem":"go","packageName":"go.opentelemetry.io/otel/sdk","version":"v1.30.0"}),
             None,
         );
         let page = go(&query, &ArtifactProviderState::default(), &client)

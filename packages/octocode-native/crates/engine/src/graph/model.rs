@@ -159,10 +159,83 @@ pub struct GraphFactsDocument {
     pub rust_root_unsupported: Option<bool>,
 }
 
+/// A source file's size and change times when its content was hashed. A
+/// later read compares these before hashing again; equal stamps prove the
+/// bytes are unchanged without reading them.
+///
+/// Git's stat cache carries the same race: a file rewritten within the clock
+/// tick of the read keeps its time. [`SourceStamp::settled`] therefore
+/// records a stamp only for a file untouched for [`SourceStamp::SETTLE`], so
+/// any later write moves its time past the stored one. On Unix the status
+/// change time and inode also change on a write that restores the old
+/// modification time, or on a replace by rename.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct SourceStamp {
+    pub size: u64,
+    /// Modification time, nanoseconds since the Unix epoch.
+    pub modified_ns: u64,
+    /// Status change time in nanoseconds (Unix), else 0.
+    pub changed_ns: u64,
+    /// Inode number (Unix), else 0.
+    pub inode: u64,
+}
+
+impl SourceStamp {
+    /// How long a file must be untouched before its stamp can stand in for
+    /// its content: two clock ticks of the coarsest common file time (FAT).
+    pub const SETTLE: std::time::Duration = std::time::Duration::from_secs(2);
+
+    /// The stamp of `meta`, or `None` when the platform reports no
+    /// modification time after the epoch.
+    #[must_use]
+    pub fn of(meta: &std::fs::Metadata) -> Option<Self> {
+        let nanos = |time: std::time::SystemTime| {
+            time.duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .and_then(|elapsed| u64::try_from(elapsed.as_nanos()).ok())
+        };
+        let modified_ns = nanos(meta.modified().ok()?)?;
+        #[cfg(unix)]
+        let (changed_ns, inode) = {
+            use std::os::unix::fs::MetadataExt as _;
+            let changed = u64::try_from(meta.ctime())
+                .ok()
+                .zip(u64::try_from(meta.ctime_nsec()).ok())
+                .and_then(|(secs, nanos)| secs.checked_mul(1_000_000_000)?.checked_add(nanos));
+            (changed?, meta.ino())
+        };
+        #[cfg(not(unix))]
+        let (changed_ns, inode) = (0, 0);
+        Some(Self {
+            size: meta.len(),
+            modified_ns,
+            changed_ns,
+            inode,
+        })
+    }
+
+    /// [`SourceStamp::of`] when the file was last written at least
+    /// [`SourceStamp::SETTLE`] before `now`; `None` keeps the content hash as
+    /// the only proof (a racily clean or future-dated file).
+    #[must_use]
+    pub fn settled(meta: &std::fs::Metadata, now: std::time::SystemTime) -> Option<Self> {
+        let stamp = Self::of(meta)?;
+        let now_ns = now
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .and_then(|elapsed| u64::try_from(elapsed.as_nanos()).ok())?;
+        let settle = u64::try_from(Self::SETTLE.as_nanos()).unwrap_or(u64::MAX);
+        let last_write = stamp.modified_ns.max(stamp.changed_ns);
+        (last_write.saturating_add(settle) <= now_ns).then_some(stamp)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct GraphFactsTypedEntry {
     pub relative_path: String,
     pub content_digest: String,
+    /// The stamp of the bytes `content_digest` hashed, when settled.
+    pub source_stamp: Option<SourceStamp>,
     pub facts: GraphFactsDocument,
     pub reference_counts: Vec<crate::types::GraphReferenceCount>,
 }
@@ -172,7 +245,6 @@ pub struct GraphFactsTypedScanResult {
     pub schema_version: u32,
     pub entries: Vec<GraphFactsTypedEntry>,
     pub skipped: Vec<crate::types::GraphFactsScanDiagnostic>,
-    pub candidate_paths: Vec<String>,
     pub files_skipped: u32,
     pub truncated: bool,
 }
@@ -184,10 +256,6 @@ pub struct NodeId(pub String);
 impl NodeId {
     pub fn file(path: impl AsRef<str>) -> Self {
         Self(format!("file:{}", normalize_path(path.as_ref())))
-    }
-
-    pub fn external(symbol: impl AsRef<str>) -> Self {
-        Self(format!("external:{}", symbol.as_ref()))
     }
 
     /// File-local declaration identity supplied by the syntax producer. This is
@@ -211,25 +279,15 @@ pub enum NodeKind {
     File,
     Symbol,
     Occurrence,
-    Module,
-    Package,
-    ExternalSymbol,
     UnresolvedTarget,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub enum EdgeKind {
-    Contains,
     Declares,
     Imports,
     Reexports,
-    Calls,
-    References,
-    Defines,
-    Implements,
-    TypeDefinition,
-    Extends,
     DynamicImport,
     Syntactic(String),
 }
@@ -244,32 +302,10 @@ pub struct CodeNode {
     pub range: Option<GraphRange>,
 }
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct ServerReceipt {
-    pub family: String,
-    pub version: Option<String>,
-    pub configuration_digest: String,
-    pub capabilities: BTreeSet<String>,
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum EvidenceSource {
-    Ast {
-        extractor: String,
-        relation: String,
-    },
-    Lsp {
-        method: String,
-        server_family: String,
-        server_version: Option<String>,
-        configuration_digest: String,
-        capabilities: BTreeSet<String>,
-        document_version: Option<i64>,
-    },
-    CargoMetadata,
-    PackageMetadata,
+    Ast { extractor: String, relation: String },
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
@@ -295,17 +331,7 @@ pub struct CodeEdge {
 #[serde(rename_all = "camelCase")]
 pub struct GraphCompleteness {
     pub scan_complete: bool,
-    /// Whole-graph semantic completeness. Only set when every semantic
-    /// candidate has been enriched by a complete provider scope. A single
-    /// successful relation must never imply this flag.
-    pub semantic_complete: bool,
-    pub skipped_files: u32,
     pub reasons: BTreeSet<String>,
-    /// Scope-aware finalization: names of candidate scopes (e.g. `deadCode`,
-    /// `impact`) that were completed for their selected candidates. Distinct
-    /// from `semantic_complete`, which is whole-graph.
-    #[serde(default)]
-    pub semantic_scopes_complete: BTreeSet<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
@@ -313,163 +339,41 @@ pub struct GraphCompleteness {
 pub struct SnapshotMetadata {
     pub root: String,
     pub facts_schema_version: u32,
-    /// Source snapshot identity (root, facts schema, file content digests).
-    /// Not a configured-project cache key: parser choices, manifests, provider
-    /// configuration and semantic observations are outside this identity.
-    pub generation: String,
-    pub digest: String,
+    /// Relative path → content digest of every scanned file.
     pub files: BTreeMap<String, String>,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
-#[serde(rename_all = "camelCase")]
-pub struct CodeGraphDiagnostic {
-    pub code: String,
-    pub message: String,
-    pub file: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct CodeGraphSnapshot {
-    pub schema_version: u32,
     pub snapshot: SnapshotMetadata,
     pub nodes: BTreeMap<NodeId, CodeNode>,
     pub edges: BTreeMap<String, CodeEdge>,
     pub evidence: BTreeMap<EvidenceId, Evidence>,
-    /// Semantic observations, including negative evidence (zero-result or
-    /// unavailable queries with provenance). Stored separately from graph
-    /// edges so an absence claim is never encoded as a positive relation.
-    #[serde(default)]
-    pub observations: BTreeMap<String, SemanticObservation>,
     pub completeness: GraphCompleteness,
-    pub diagnostics: Vec<CodeGraphDiagnostic>,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphBuildMetrics {
-    pub files: u64,
-    pub nodes: u64,
-    pub edges: u64,
-    pub evidence: u64,
-    pub ast_relations: u64,
-    pub semantic_relations: u64,
-    pub semantic_observations: u64,
-}
-
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct GraphBuildReceipt {
-    pub snapshot_digest: String,
-    pub metrics: GraphBuildMetrics,
-}
-
-/// The provider operation that produced a semantic observation.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
-#[serde(rename_all = "camelCase")]
-pub enum SemanticOperation {
-    Definition,
-    References,
-    Callers,
-    Callees,
-    Implementations,
-    TypeDefinition,
-    Supertypes,
-    Subtypes,
-}
-
-/// The classification a provider assigned to a semantic candidate. Negative
-/// outcomes (`NoResult`, `Unresolved`, `Unavailable`, `Truncated`) never prove
-/// absence on their own; only a `complete` provider scope can support that.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
-#[serde(rename_all = "camelCase")]
-pub enum SemanticOutcome {
-    /// External semantic evidence corroborates the syntactic candidate.
-    Corroborated,
-    /// Semantic evidence contradicts the syntactic candidate.
-    Contradicted,
-    /// The provider completed and returned zero results.
-    NoResult,
-    /// Identity could not be resolved (ambiguous or not indexed).
-    Unresolved,
-    /// The capability was unavailable for this provider/configuration.
-    Unavailable,
-    /// Results were truncated by a budget or provider bound.
-    Truncated,
-}
-
-/// A source location anchoring a semantic candidate to a definition site.
-#[derive(Clone, Debug, Default, Deserialize, Serialize, Eq, PartialEq, Ord, PartialOrd)]
-#[serde(rename_all = "camelCase")]
-pub struct SymbolAnchor {
-    pub file: String,
-    pub range: GraphRange,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-}
-
-/// A recorded semantic observation with provenance, including negative
-/// evidence. Stored separately from graph edges.
-#[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq)]
-#[serde(rename_all = "camelCase")]
-pub struct SemanticObservation {
-    pub id: String,
-    pub generation: String,
-    pub candidate: NodeId,
-    pub provider: ServerReceipt,
-    pub operation: SemanticOperation,
-    pub anchor: SymbolAnchor,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub document_version: Option<i64>,
-    pub outcome: SemanticOutcome,
-    pub result_count: u64,
-    /// Whether the provider scope for this query was complete. Required before
-    /// any `NoResult` observation can support an absence claim downstream.
-    pub complete: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub truncation_reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct CodeGraphBuilder {
     graph: CodeGraphSnapshot,
-    metrics: GraphBuildMetrics,
 }
 
 impl CodeGraphBuilder {
     pub fn new(root: impl AsRef<str>, facts_schema_version: u32) -> Self {
-        let root = normalize_path(root.as_ref());
-        let generation = generation_digest(&root, facts_schema_version, &BTreeMap::new());
         Self {
             graph: CodeGraphSnapshot {
-                schema_version: 1,
                 snapshot: SnapshotMetadata {
-                    root,
+                    root: normalize_path(root.as_ref()),
                     facts_schema_version,
-                    generation,
                     ..Default::default()
                 },
                 completeness: GraphCompleteness {
                     scan_complete: true,
-                    semantic_complete: false,
-                    reasons: BTreeSet::from(["semantic-incomplete".to_owned()]),
                     ..Default::default()
                 },
                 ..Default::default()
             },
-            metrics: GraphBuildMetrics::default(),
         }
-    }
-
-    /// Identifies source contents only. Consumers must separately validate the
-    /// producer/configuration before reusing semantic evidence across builders.
-    pub fn generation(&self) -> String {
-        generation_digest(
-            &self.graph.snapshot.root,
-            self.graph.snapshot.facts_schema_version,
-            &self.graph.snapshot.files,
-        )
     }
 
     pub fn add_file(
@@ -493,7 +397,6 @@ impl CodeGraphBuilder {
                 file: Some(path),
                 range: None,
             });
-        self.refresh_counts();
         Ok(id)
     }
 
@@ -557,14 +460,6 @@ impl CodeGraphBuilder {
                 None,
             )?;
         }
-        for diagnostic in &facts.diagnostics {
-            self.graph.diagnostics.push(CodeGraphDiagnostic {
-                code: "ast.coverage".to_owned(),
-                message: diagnostic.clone(),
-                file: Some(path.clone()),
-            });
-        }
-        self.refresh_counts();
         Ok(())
     }
 
@@ -608,49 +503,13 @@ impl CodeGraphBuilder {
         Ok(())
     }
 
-    pub fn mark_incomplete(&mut self, reason: impl Into<String>, skipped_files: u32) {
+    pub fn mark_incomplete(&mut self, reason: impl Into<String>) {
         self.graph.completeness.scan_complete = false;
-        self.graph.completeness.skipped_files = skipped_files;
         self.graph.completeness.reasons.insert(reason.into());
     }
 
     pub fn finish(self) -> CodeGraphSnapshot {
-        let mut graph = self.finish_without_digest();
-        let encoded = serde_json::to_vec(&graph).unwrap_or_default();
-        graph.snapshot.digest = sha256(&encoded);
-        graph
-    }
-
-    /// The finished graph with an empty `snapshot.digest`: for callers that
-    /// never read it, skipping the whole-graph serialization and hash (the
-    /// dominant cost of finishing a large graph).
-    pub fn finish_without_digest(mut self) -> CodeGraphSnapshot {
-        self.refresh_generation();
-        self.graph.diagnostics.sort();
-        self.graph.diagnostics.dedup();
-        self.refresh_counts();
-        self.graph.snapshot.digest.clear();
         self.graph
-    }
-
-    pub fn finish_with_receipt(mut self) -> (CodeGraphSnapshot, GraphBuildReceipt) {
-        self.refresh_counts();
-        self.refresh_relation_counts();
-        let metrics = self.metrics.clone();
-        let graph = self.finish();
-        let receipt = GraphBuildReceipt {
-            snapshot_digest: graph.snapshot.digest.clone(),
-            metrics,
-        };
-        (graph, receipt)
-    }
-
-    fn refresh_generation(&mut self) {
-        self.graph.snapshot.generation = generation_digest(
-            &self.graph.snapshot.root,
-            self.graph.snapshot.facts_schema_version,
-            &self.graph.snapshot.files,
-        );
     }
 
     fn ensure_file(&mut self, path: &str) -> NodeId {
@@ -668,35 +527,22 @@ impl CodeGraphBuilder {
         id
     }
 
-    fn ensure_node(&mut self, id: NodeId) {
-        self.graph.nodes.entry(id.clone()).or_insert_with(|| {
-            let kind = if id.0.starts_with("file:") {
-                NodeKind::File
-            } else if id.0.starts_with("external:") {
-                NodeKind::ExternalSymbol
-            } else {
-                NodeKind::UnresolvedTarget
-            };
-            CodeNode {
-                display_name: id.0.clone(),
-                id,
-                kind,
-                file: None,
-                range: None,
-            }
-        });
-    }
-
     fn resolve_fact_node(&mut self, file: &str, local_id: &str) -> NodeId {
         let symbol = NodeId::symbol(file, local_id);
         if self.graph.nodes.contains_key(&symbol) {
             return symbol;
         }
         let occurrence = NodeId::occurrence(file, local_id);
-        if self.graph.nodes.contains_key(&occurrence) {
-            return occurrence;
-        }
-        self.ensure_node(occurrence.clone());
+        self.graph
+            .nodes
+            .entry(occurrence.clone())
+            .or_insert_with(|| CodeNode {
+                display_name: occurrence.0.clone(),
+                id: occurrence.clone(),
+                kind: NodeKind::UnresolvedTarget,
+                file: None,
+                range: None,
+            });
         occurrence
     }
 
@@ -740,37 +586,8 @@ impl CodeGraphBuilder {
                 kind,
                 evidence: BTreeSet::from([evidence_id]),
             });
-        self.refresh_counts();
         Ok(())
     }
-
-    fn refresh_counts(&mut self) {
-        self.metrics.files = self.graph.snapshot.files.len() as u64;
-        self.metrics.nodes = self.graph.nodes.len() as u64;
-        self.metrics.edges = self.graph.edges.len() as u64;
-        self.metrics.evidence = self.graph.evidence.len() as u64;
-    }
-
-    fn refresh_relation_counts(&mut self) {
-        self.metrics.ast_relations = self
-            .graph
-            .evidence
-            .values()
-            .filter(|evidence| matches!(&evidence.source, EvidenceSource::Ast { .. }))
-            .count() as u64;
-        self.metrics.semantic_observations = self.graph.observations.len() as u64;
-        self.metrics.semantic_relations = self
-            .graph
-            .evidence
-            .values()
-            .filter(|evidence| matches!(&evidence.source, EvidenceSource::Lsp { .. }))
-            .count() as u64;
-    }
-}
-
-fn generation_digest(root: &str, schema: u32, files: &BTreeMap<String, String>) -> String {
-    let encoded = serde_json::to_vec(&(root, schema, files)).unwrap_or_default();
-    sha256(&encoded)
 }
 
 fn normalize_path(path: &str) -> String {

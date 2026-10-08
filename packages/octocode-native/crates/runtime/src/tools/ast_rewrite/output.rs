@@ -29,7 +29,6 @@ pub(super) fn success_value(
             .unwrap_or(&[])
     };
     let has_more = !apply && offset.saturating_add(page_size) < matches.len();
-    let total_pages = matches.len().div_ceil(page_size).max(1);
     // A preview page carries only the files its matches touch, and each
     // file's patch holds only the hunks of this page's matches, so pageSize
     // bounds the patch too. The patch applies to the original file on its
@@ -59,18 +58,17 @@ pub(super) fn success_value(
         .collect::<Vec<_>>();
     let mut value = json!({
         "mode":if apply {"apply"} else {"preview"},
-        "root":root,"snapshot":snapshot,"totalMatches":matches.len(),
+        "snapshot":snapshot,"matchCount":matches.len(),
         "affectedFiles":files.len(),
         "matches":shown.iter().map(|matched| public_match(matched, query.debug())).collect::<Vec<_>>(),
         "files":page_files,
         "isPartial":has_more,
-        "pagination":{"currentPage":page,"totalPages":total_pages,"pageSize":page_size,"hasMore":has_more}
+        "pagination":crate::response::pages::PageFacts::counted(page, page_size, matches.len()).to_value()
     });
     if apply {
-        // The preview already showed the root, match rows and patch; the
-        // receipt states only what was committed (debug adds diagnostics).
+        // The preview already showed the match rows and patch; the receipt
+        // states only what was committed (debug adds diagnostics).
         if let Some(map) = value.as_object_mut() {
-            map.remove("root");
             map.remove("matches");
         }
     }
@@ -141,7 +139,7 @@ fn attach_leads(
         next["expectedHashes"] = Value::Object(
             files
                 .iter()
-                .map(|file| (file.path.clone(), json!(file.before_hash)))
+                .map(|file| (file.shown.clone(), json!(file.before_hash)))
                 .collect(),
         );
         // The one lead that writes: marked, and only ever an optional route.
@@ -245,7 +243,7 @@ fn page_patch(
     ) else {
         return;
     };
-    let patch = super::create_unified_patch(&file.path, before, after);
+    let patch = super::create_unified_patch(&file.shown, before, after);
     if debug {
         value["patchBytes"] = json!(patch.len());
     }
@@ -274,21 +272,21 @@ fn public_match(matched: &PreparedMatch, debug: bool) -> Value {
 /// An applied file row: its edit count and the hash of the bytes now on disk.
 fn applied_file(file: &PreparedFile) -> Value {
     json!({
-        "path":file.path,"matchCount":file.matches.len(),"afterHash":file.after_hash
+        "path":file.absolute,"matchCount":file.matches.len(),"afterHash":file.after_hash
     })
 }
 
 /// A file row: `beforeHash` guards apply (a complete preview states it once,
 /// in `next.apply.expectedHashes`) and `matchCount` sizes the edit.
-/// `afterHash` (recomputed by the journal), `patchBytes` and `absolutePath`
-/// are diagnostics kept under `debug`.
+/// `afterHash` (recomputed by the journal) and `patchBytes` are diagnostics
+/// kept under `debug`. `path` is absolute here; the response stage names it
+/// relative to the workspace root.
 pub(super) fn public_file(file: &PreparedFile, debug: bool) -> Value {
     let mut value = json!({
-        "path":file.path,"beforeHash":file.before_hash,
+        "path":file.absolute,"beforeHash":file.before_hash,
         "matchCount":file.matches.len(),"patch":file.patch
     });
     if debug {
-        value["absolutePath"] = json!(file.absolute);
         value["afterHash"] = json!(file.after_hash);
         value["patchBytes"] = json!(file.patch.len());
     }
@@ -337,12 +335,7 @@ pub(super) fn portable_relative(root: &Path, target: &Path) -> Result<String, Re
             path.to_string_lossy()
                 .replace(std::path::MAIN_SEPARATOR, "/")
         })
-        .map_err(|_| {
-            RewriteError::new(
-                "ast.rewrite.path_escape",
-                "The rewrite escaped the requested root.",
-            )
-        })
+        .map_err(|_| RewriteError::new("pathEscape", "The rewrite escaped the requested root."))
 }
 
 /// astRewrite's answers to the shared response stages (CLI-only: its edit
@@ -353,9 +346,12 @@ impl crate::tools::output::ToolOutput for Output {
         "Broaden the structural pattern, path, or file filters."
     }
     fn error_hint(&self, code: &str) -> Option<&'static str> {
-        (code == "ast.rewrite.root_unavailable").then_some(crate::tools::output::VERIFY_PATH_HINT)
+        (code == "rootUnavailable").then_some(crate::tools::output::VERIFY_PATH_HINT)
     }
     fn evidence_kind(&self, _query: &Value, _data: &Value) -> &'static str {
         "exact"
+    }
+    fn path_anchor(&self) -> crate::tools::output::PathAnchor {
+        crate::tools::output::PathAnchor::Workspace
     }
 }

@@ -7,7 +7,10 @@ const mocks = vi.hoisted(() => ({
 }));
 vi.mock('node:child_process', () => ({ spawnSync: mocks.spawn }));
 vi.mock('../../src/utils/prompts.js', () => ({ select: mocks.select }));
-vi.mock('../../src/cli/native-delegate.js', () => ({
+vi.mock('../../src/cli/native-delegate.js', async importOriginal => ({
+  ...(await importOriginal<
+    typeof import('../../src/cli/native-delegate.js')
+  >()),
   delegateToNative: mocks.delegate,
 }));
 

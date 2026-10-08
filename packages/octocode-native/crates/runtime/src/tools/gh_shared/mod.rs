@@ -7,8 +7,8 @@ pub(crate) mod test_support;
 mod tests;
 
 use crate::providers::github::{
-    ConditionalCache, CredentialResolver, GitHubProvider, ProviderError, ProviderErrorKind,
-    ProviderErrorReason, RequestContext,
+    ConditionalCache, GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason,
+    RequestContext,
 };
 use crate::tools::id::ToolId;
 use crate::tools::result::{Continuation, remove_null_fields};
@@ -131,9 +131,9 @@ pub(crate) fn search_failure(error: ProviderError, window_hint: &str) -> GhFailu
     }
 }
 
-/// The hint of a ref that did not resolve; `hints.viewStructure` lists the
+/// The hint of a ref that did not resolve; `hints.viewRefs` lists the
 /// repository's branches and tags.
-pub(crate) const REF_RECOVERY_HINT: &str = "Verify the branch, tag, or SHA (hints.viewStructure lists refs), or omit ref for the default branch.";
+pub(crate) const REF_RECOVERY_HINT: &str = "Verify the branch, tag, or SHA (hints.viewRefs lists refs), or omit ref for the default branch.";
 
 /// A ref that did not resolve: ghStructure `operation:"refs"` lists the
 /// branches and tags it could name.
@@ -153,7 +153,7 @@ pub(crate) fn with_ref_recovery(mut failure: GhFailure, owner: &str, repo: &str)
         return failure;
     }
     let mut next = failure.next.take().unwrap_or_else(|| json!({}));
-    next["viewStructure"] = ref_recovery(owner, repo);
+    next["viewRefs"] = ref_recovery(owner, repo);
     failure.next = Some(next);
     failure.hint(REF_RECOVERY_HINT)
 }
@@ -174,14 +174,14 @@ fn renamed_to(owner: &str, repo: &str, full_name: &str) -> Option<(String, Strin
 
 /// Remember `owner/repo`'s canonical `full_name` (from repository metadata
 /// a tool already read) for later calls and processes.
-pub(crate) async fn remember_canonical<R: CredentialResolver, C: ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+pub(crate) async fn remember_canonical<C: ConditionalCache>(
+    provider: &GitHubProvider<C>,
     owner: &str,
     repo: &str,
     full_name: &str,
     context: &RequestContext,
 ) {
-    if let Ok(partition) = provider.transport.cache_partition(context, None).await {
+    if let Ok(partition) = provider.transport.cache_partition(context, None) {
         provider
             .cache
             .put(
@@ -189,7 +189,7 @@ pub(crate) async fn remember_canonical<R: CredentialResolver, C: ConditionalCach
                 canonical_key(owner, repo),
                 crate::providers::github::CachedContent {
                     etag: None,
-                    bytes: full_name.as_bytes().to_vec(),
+                    bytes: full_name.as_bytes().to_vec().into(),
                     resolved_ref: full_name.to_owned(),
                 },
             )
@@ -201,17 +201,13 @@ pub(crate) async fn remember_canonical<R: CredentialResolver, C: ConditionalCach
 /// stands. Costs no request for a repository GitHub never redirected: the
 /// memo answers first, then a followed rename redirect triggers one
 /// metadata read, which is memoized.
-pub(crate) async fn canonical_repo<R: CredentialResolver, C: ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+pub(crate) async fn canonical_repo<C: ConditionalCache>(
+    provider: &GitHubProvider<C>,
     owner: &str,
     repo: &str,
     context: &RequestContext,
 ) -> Option<(String, String)> {
-    let partition = provider
-        .transport
-        .cache_partition(context, None)
-        .await
-        .ok()?;
+    let partition = provider.transport.cache_partition(context, None).ok()?;
     if let Some(cached) = provider
         .cache
         .get(&partition, &canonical_key(owner, repo))
@@ -281,19 +277,31 @@ pub(crate) fn add_next(
 
 /// Provider-side incompleteness of a search page: the 1,000-result cap and
 /// GitHub's own incomplete-results flag (with a `retry` of the same page).
+/// `matched` is GitHub's own match count; past the cap the first page
+/// states it, since the reachable `totalItems` is not the count.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn apply_partial(
     value: &mut Value,
     tool: ToolId,
     query: &impl serde::Serialize,
     incomplete: bool,
-    capped: bool,
+    matched: usize,
     page: usize,
     has_more: bool,
     subject: &str,
 ) {
+    let capped = matched > SEARCH_RESULT_CAP;
     let mut reasons = Vec::new();
     if capped {
+        if page == 1 {
+            let warning = json!(format!(
+                "GitHub matched {matched} {subject} results; search reaches only the first {SEARCH_RESULT_CAP}: narrow the query to reach the rest."
+            ));
+            match value.get_mut("warnings").and_then(Value::as_array_mut) {
+                Some(warnings) => warnings.push(warning),
+                None => value["warnings"] = json!([warning]),
+            }
+        }
         reasons.push("providerResultCap");
         // terminalLimit means no executable continuation remains: only the
         // last reachable page of a capped search ends coverage.
@@ -361,8 +369,8 @@ pub(crate) struct RepoPath<'a> {
 
 /// Walk up to the nearest directory that exists, then back down matching each
 /// remaining segment case-insensitively, within [`PATH_RECOVERY_LISTINGS`].
-pub(crate) async fn locate_path<R: CredentialResolver, C: ConditionalCache>(
-    provider: &GitHubProvider<R, C>,
+pub(crate) async fn locate_path<C: ConditionalCache>(
+    provider: &GitHubProvider<C>,
     at: &RepoPath<'_>,
     context: &RequestContext,
 ) -> Option<PathRecovery> {

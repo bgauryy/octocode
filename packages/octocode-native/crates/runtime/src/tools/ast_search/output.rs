@@ -18,16 +18,14 @@ impl ToolOutput for Output {
     fn error_hint(&self, code: &str) -> Option<&'static str> {
         Some(match code {
             crate::tools::ast_rule::INVALID_PATTERN => crate::tools::ast_rule::INVALID_PATTERN_HINT,
-            "fileTooLarge" | "ast.source.limit" => {
-                "Target a smaller file or narrower directory scope."
-            }
-            "ast.language.required" | "ast.language.unsupported" | "ast.language.mismatch" => {
+            "fileTooLarge" => "Target a smaller file or narrower directory scope.",
+            "languageRequired" | "languageUnsupported" | "languageMismatch" => {
                 "Set language to the grammar of the source files (e.g. \"typescript\", \"rust\")."
             }
-            "ast.language.fileRequired" => {
+            "languageFileRequired" => {
                 "For a directory, drop language: each extension picks its grammar; languageGlobs overrides (e.g. {cpp:[\"**/*.h\"]})."
             }
-            "ast.language.directoryRequired" => {
+            "languageDirectoryRequired" => {
                 "For a single file, use language instead of languageGlobs."
             }
             _ => return None,

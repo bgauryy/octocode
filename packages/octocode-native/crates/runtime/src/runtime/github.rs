@@ -26,6 +26,10 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 const ANONYMOUS_RATE_LIMIT_HINT: &str =
     "Wait for the rate-limit reset, or run octocode auth login for a higher quota.";
 
+/// Auth failure of a token the host supplied with the request: the remote
+/// caller has no local `octocode auth login` to run.
+const REQUEST_TOKEN_AUTH_HINT: &str = "GitHub rejected the token supplied with this request; re-authenticate with the host and retry.";
+
 fn provider_recovery_hint(kind: ProviderErrorKind) -> &'static str {
     match kind {
         ProviderErrorKind::Authentication => GITHUB_AUTH_RECOVERY_HINT,
@@ -66,12 +70,11 @@ fn provider_row(
     message: impl Into<String>,
     mut hints: Vec<String>,
     next: Option<Value>,
-    kind: FailureKind,
 ) -> DomainResult {
     let code = serde_json::to_value(error.kind)
         .ok()
         .and_then(|code| code.as_str().map(str::to_owned))
-        .unwrap_or_else(|| "unknown".into());
+        .unwrap_or_else(|| "executionFailed".into());
     if hints.is_empty() {
         hints.push(provider_recovery_hint(error.kind).to_owned());
     }
@@ -80,7 +83,7 @@ fn provider_row(
         http_status: error.status,
         rate_limit: error.rate_limit.as_ref().map(rate_limit_block),
     };
-    let mut row = DomainResult::provider(code, message, hints, next, kind, upstream);
+    let mut row = DomainResult::provider(code, message, hints, next, upstream);
     if let Some(request_id) = &error.request_id {
         row.data["requestId"] = json!(request_id);
     }
@@ -124,11 +127,13 @@ fn advise_login_for_anonymous_quota(data: &mut Value, anonymous: bool) {
 
 pub(super) struct GitHubServices {
     credentials: Authentication,
-    provider: GitHubProvider<StaticCredentialResolver, GitHubContentCache>,
+    provider: GitHubProvider<GitHubContentCache>,
     timeout: Duration,
     home: PathBuf,
     /// Resolved `storage.cloneCache.*` limits for ghCloneRepo.
     clone_limits: crate::config::CloneCacheConfig,
+    /// ghCloneRepo's git, keeping the runtime env's PATH, proxy and CA names.
+    git: SystemGit,
     /// `output.pagination.defaultCharLength`: patch pages are sized to fit it.
     auto_page_chars: usize,
     /// Sanitized full views of recently paged files (scoped to this runtime's
@@ -148,7 +153,6 @@ impl GitHubServices {
             )?)?;
         let mut transport = GitHubTransport::new(
             endpoint,
-            Arc::new(StaticCredentialResolver::anonymous()),
             RetryPolicy {
                 max_attempts: (config.resolved.network.max_retries as u8).saturating_add(1),
                 ..Default::default()
@@ -165,6 +169,7 @@ impl GitHubServices {
         let timeout = Duration::from_secs_f64(config.resolved.network.timeout / 1000.0);
         let clone_limits = config.resolved.storage.clone_cache.clone();
         let auto_page_chars = config.resolved.output.pagination.default_char_length as usize;
+        let git = SystemGit::with_env(&config.credential_env());
         let credentials = Authentication::new(config);
         Ok(Self {
             credentials,
@@ -172,6 +177,7 @@ impl GitHubServices {
             timeout,
             home,
             clone_limits,
+            git,
             auto_page_chars,
             sanitized_views: crate::security::scan::SanitizedViewMemo::new(),
         })
@@ -202,10 +208,21 @@ impl GitHubServices {
             regex,
             paths,
         ))?;
-        // A rejected credential is resolved again on the next row.
         if result.failure == Some(FailureKind::Authentication) {
-            self.credentials
-                .forget(self.provider.transport.endpoint().credential_host());
+            if context.github_credential.is_some() {
+                // The host supplied this token: the host re-authenticates
+                // its caller. Ambient credential state stays untouched.
+                result.data["hints"] = json!([REQUEST_TOKEN_AUTH_HINT]);
+            } else {
+                // GitHub rejected the credential: the next row selects again without it.
+                self.credentials.reject(
+                    self.provider.transport.endpoint().credential_host(),
+                    request_context
+                        .as_ref()
+                        .ok()
+                        .and_then(RequestContext::resolved_credential),
+                );
+            }
         }
         let anonymous = request_context
             .as_ref()
@@ -233,22 +250,20 @@ impl GitHubServices {
             .endpoint()
             .credential_host()
             .to_owned();
-        let mut budget = RequestContext::with_timeout(self.timeout, 16 * 1024 * 1024);
+        let mut budget =
+            crate::providers::RequestBudget::with_timeout(self.timeout, 16 * 1024 * 1024);
         budget.deadline = context.deadline.min(budget.deadline);
         budget.cancellation = context.cancellation.clone();
+        // A request-supplied token is the only credential: no fallback.
+        if let Some(credential) = &context.github_credential {
+            return Ok(RequestContext::new(budget, Some(credential.clone())));
+        }
         let credential = self
             .credentials
             .resolve(&host, AuthMode::Request, &budget)
             .await?
             .map(|selection| selection.credential);
-        let mut request_context = RequestContext::with_resolved_credential(
-            self.timeout,
-            budget.max_body_bytes,
-            credential,
-        );
-        request_context.deadline = budget.deadline;
-        request_context.cancellation = budget.cancellation;
-        Ok(request_context)
+        Ok(RequestContext::new(budget, credential))
     }
 
     /// artifactSearch's upstream release-tag checks for one row, through
@@ -356,7 +371,6 @@ impl GitHubServices {
         let config = CloneConfig::persistent(self.home.clone())
             .with_limits(&self.clone_limits)
             .with_network_timeout(self.timeout);
-        let git = SystemGit::default();
         let clone_context = CloneContext {
             config: &config,
             endpoint: self.provider.transport.endpoint(),
@@ -365,7 +379,7 @@ impl GitHubServices {
             cancellation: context,
             deadline: context.deadline,
             path_policy: paths,
-            git: &git,
+            git: &self.git,
         };
         match gh_clone_repo::run(&self.provider, query, Ok(request), &clone_context).await {
             Ok(result) => {
@@ -373,13 +387,12 @@ impl GitHubServices {
             }
             Err(CloneFailure::Provider(error)) => provider_error(error),
             Err(CloneFailure::Clone(error)) => {
-                let kind = super::exit::failure_kind(&error.code);
                 // Only a timed-out git transfer can succeed unchanged.
                 let upstream = Upstream {
                     retryable: error.code == "timeout",
                     ..Upstream::default()
                 };
-                DomainResult::provider(error.code, error.message, error.hints, None, kind, upstream)
+                DomainResult::provider(error.code, error.message, error.hints, None, upstream)
             }
         }
     }
@@ -399,6 +412,7 @@ impl GitHubServices {
         };
         // Patch windows fill this row's share of the response page.
         query.auto_page_chars = Some(context.response_window.unwrap_or(self.auto_page_chars));
+        query.configured_page_chars = Some(self.auto_page_chars);
         let result = gh_get_history_item::execute(
             &self.provider.transport,
             &query,
@@ -450,14 +464,8 @@ fn tool_row(result: Result<ToolData, GhFailure>) -> DomainResult {
             ..DomainResult::payload(output.data, output.status)
         },
         Err(failure) => {
-            let kind = failure_kind(failure.error.kind);
-            let mut row = provider_row(
-                &failure.error,
-                failure.message,
-                failure.hints,
-                failure.next,
-                kind,
-            );
+            let mut row =
+                provider_row(&failure.error, failure.message, failure.hints, failure.next);
             for (field, value) in failure.fields {
                 row.data[field] = value;
             }
@@ -508,18 +516,7 @@ pub(super) fn provider_error(error: ProviderError) -> DomainResult {
             .into_iter()
             .collect(),
         None,
-        failure_kind(error.kind),
     )
-}
-
-fn failure_kind(kind: ProviderErrorKind) -> FailureKind {
-    match kind {
-        ProviderErrorKind::NotFound => FailureKind::NotFound,
-        ProviderErrorKind::Authentication => FailureKind::Authentication,
-        ProviderErrorKind::Permission => FailureKind::Permission,
-        ProviderErrorKind::RateLimited => FailureKind::RateLimited,
-        _ => FailureKind::Execution,
-    }
 }
 
 /// A history failure row; the wording comes from the history tools
@@ -527,7 +524,7 @@ fn failure_kind(kind: ProviderErrorKind) -> FailureKind {
 fn history_error(error: ProviderError, search: bool) -> DomainResult {
     let (message, hint) = gh_search_history::history_failure(&error, search);
     let hints = hint.map(str::to_owned).into_iter().collect();
-    provider_row(&error, message, hints, None, failure_kind(error.kind))
+    provider_row(&error, message, hints, None)
 }
 
 #[cfg(test)]
@@ -756,7 +753,7 @@ mod tests {
         );
         // The error names the ref; the hint leads to the ref listing.
         let hint = data["hints"][0].as_str().expect("ref hint");
-        assert!(hint.contains("viewStructure"), "{hint}");
+        assert!(hint.contains("viewRefs"), "{hint}");
 
         // The commits-endpoint flavor (422 Validation) maps the same way.
         let error = ProviderError {
@@ -979,37 +976,11 @@ mod tests {
         }
     }
 
-    /// ghGetHistoryItem is not a search endpoint: a bogus commit SHA (GitHub
-    /// 422 "No commit found for SHA: …") must produce a commit-not-found
-    /// message, not a search-syntax one.
+    /// A ghSearchHistory 422 names the search query, with no extra field.
+    /// (ghGetHistoryItem's bogus-SHA 422 is mapped inside the tool and
+    /// covered end to end in tests/runtime_github.rs.)
     #[test]
-    fn history_item_bogus_sha_is_commit_not_found_without_search_suggestion() {
-        let error = ProviderError {
-            kind: ProviderErrorKind::Validation,
-            message: "No commit found for SHA: deadbeef1234567890".into(),
-            status: Some(422),
-            request_id: None,
-            documentation_url: None,
-            rate_limit: None,
-            retryable: false,
-            reason: None,
-        };
-
-        let result = history_error(error, false);
-        let data = &result.data;
-
-        assert_eq!(result.status, Some("error"));
-        assert_eq!(
-            data["error"].as_str(),
-            Some("Commit not found - verify the ref/SHA exists in this repository")
-        );
-        assert_eq!(
-            data["hints"],
-            json!(["Correct the invalid GitHub query fields."]),
-            "non-search operations must not suggest checking search syntax: {data}"
-        );
-
-        // The search-history tool names the query, with no extra field.
+    fn history_search_422_names_the_query() {
         let error = ProviderError {
             kind: ProviderErrorKind::Validation,
             message: "Validation Failed".into(),

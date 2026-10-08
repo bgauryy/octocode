@@ -45,9 +45,6 @@ impl ProviderContractError {
 /// contract. Every method is called from the generic clasify engine; vendor
 /// logic stays exclusively inside the impl.
 pub trait ClassificationProvider: Send + Sync {
-    /// Stable vendor identifier, matching the `classification.type` value.
-    fn id(&self) -> &'static str;
-
     /// Default API root used when `OCTOCODE_CLASSIFICATION_API_HOST` is unset.
     fn default_host(&self) -> &'static str;
 

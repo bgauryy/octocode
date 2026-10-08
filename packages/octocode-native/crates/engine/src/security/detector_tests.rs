@@ -1,5 +1,10 @@
 use super::*;
 
+/// Former 500 KB chunk edge and 8 KiB overlap of the removed chunked path.
+/// Large-input tests keep secrets at these offsets as regression positions.
+const CHUNK_SIZE: usize = 500_000;
+const CHUNK_OVERLAP: usize = 8_192;
+
 #[test]
 fn multiline_redaction_keeps_source_line_positions() {
     let regex = regex::Regex::new("BEGIN[\\s\\S]*?END").unwrap();
@@ -11,36 +16,36 @@ fn multiline_redaction_keeps_source_line_positions() {
 }
 
 #[test]
-fn detect_single_returns_empty_on_blank_input() {
-    let result = detect_single("", None);
+fn detect_returns_empty_on_blank_input() {
+    let result = detect("", None);
     assert_eq!(result.sanitized, "");
     assert!(result.secrets_detected.is_empty());
 }
 
 #[test]
-fn detect_single_no_match_returns_input_unchanged() {
+fn detect_no_match_returns_input_unchanged() {
     let input = "no secrets here just plain text";
-    let result = detect_single(input, None);
+    let result = detect(input, None);
     assert_eq!(result.sanitized, input);
     assert!(result.secrets_detected.is_empty());
 }
 
 #[test]
-fn detect_single_redacts_github_token() {
+fn detect_redacts_github_token() {
     let input = "token: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    let result = detect_single(input, None);
+    let result = detect(input, None);
     assert!(result.sanitized.contains("[REDACTED-"));
     assert!(!result.secrets_detected.is_empty());
 }
 
 #[test]
-fn detect_single_applies_file_context_when_path_matches() {
+fn detect_applies_file_context_when_path_matches() {
     // kubernetesSecrets pattern has file_context = r"\.ya?ml$"
     // Use a content that matches that pattern (kind: Secret … data:)
     let yaml = "kind: Secret\ndata:\n  password: c2VjcmV0cGFzc3dvcmQ=\n";
-    let result_no_path = detect_single(yaml, None);
-    let result_with_yaml = detect_single(yaml, Some("k8s/secret.yaml"));
-    let result_with_ts = detect_single(yaml, Some("src/index.ts"));
+    let result_no_path = detect(yaml, None);
+    let result_with_yaml = detect(yaml, Some("k8s/secret.yaml"));
+    let result_with_ts = detect(yaml, Some("src/index.ts"));
     // With .yaml path → file-context pattern should fire
     assert!(result_with_yaml.has_secrets_or(&result_no_path));
     // With .ts path → file-context pattern should NOT fire
@@ -54,7 +59,7 @@ fn content_net_redacts_file_context_secret_without_path() {
     // a `.yaml` reference matches the `\.ya?ml$` anchor against the CONTENT,
     // so it is redacted even though `file_path` is None.
     let yaml = "kind: Secret\ndata:\n  password: c2VjcmV0cGFzc3dvcmQ=\n# source: manifest.yaml";
-    let result = detect_single(yaml, None);
+    let result = detect(yaml, None);
     assert!(
         result.sanitized.contains("[REDACTED-"),
         "k8s Secret data block must be redacted via the content net with path None: {}",
@@ -76,62 +81,37 @@ fn content_net_does_not_redact_bare_uuid_without_keyword_context() {
     // azureSubscriptionId) — the content net keeps those FP-prone patterns
     // gated so ordinary UUIDs/SHAs pass through untouched.
     let bare = "requestId = 550e8400-e29b-41d4-a716-446655440000";
-    let result = detect_single(bare, None);
+    let result = detect(bare, None);
     assert_eq!(result.sanitized, bare, "bare UUID must not be redacted");
 }
 
 #[test]
-fn mask_text_returns_empty_on_blank_input() {
-    assert_eq!(mask_text(String::new()), "");
-}
-
-#[test]
-fn mask_text_no_match_returns_input_unchanged() {
-    let input = "no secrets here".to_string();
-    assert_eq!(mask_text(input.clone()), input);
-}
-
-#[test]
-fn mask_text_redacts_oversized_content_wholesale() {
-    // Over-limit input must be redacted wholesale (mirroring sanitize_content)
-    // instead of scanned, so maskSensitiveData can't be handed unbounded work.
-    let input = "a".repeat(MAX_CONTENT_SIZE + 1);
-    assert_eq!(mask_text(input), CONTENT_SIZE_LIMIT_PLACEHOLDER);
-}
-
-#[test]
-fn find_char_boundary_at_end_returns_len() {
-    let s = "hello";
-    assert_eq!(find_char_boundary(s, 10), s.len());
-}
-
-#[test]
-fn detect_chunked_no_match_returns_input_unchanged() {
+fn detect_large_no_match_returns_input_unchanged() {
     // Content with no secrets but length > CHUNK_SIZE to exercise the
     // pre-filter early-return path.
     let padding = "a".repeat(CHUNK_SIZE + 1);
-    let result = detect_chunked(&padding, None);
+    let result = detect(&padding, None);
     assert_eq!(result.sanitized, padding);
     assert!(result.secrets_detected.is_empty());
 }
 
 #[test]
-fn detect_chunked_redacts_token_spanning_chunk_boundary() {
+fn detect_large_redacts_token_spanning_chunk_boundary() {
     // Place a GitHub PAT near the CHUNK_SIZE boundary so it straddles the
-    // overlap window and must still be redacted by the chunked path.
+    // overlap window and must still be redacted.
     let prefix = "a".repeat(CHUNK_SIZE - 10);
     let token = "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let input = format!("{prefix} token={token}");
-    let result = detect_chunked(&input, None);
+    let result = detect(&input, None);
     assert!(
         result.sanitized.contains("[REDACTED-"),
-        "chunked path must redact token near chunk boundary"
+        "must redact token near chunk boundary"
     );
     assert!(!result.secrets_detected.is_empty());
 }
 
 #[test]
-fn detect_chunked_redacts_long_secret_spanning_chunk_boundary() {
+fn detect_large_redacts_long_secret_spanning_chunk_boundary() {
     // A multi-line PEM private key block is far longer than 1 KB and matches
     // via `[\s\S]*?`. Straddle it across the CHUNK_SIZE boundary so BEGIN sits
     // ~1.5 KB before the edge and END after it — beyond the old 1 KB overlap,
@@ -145,28 +125,37 @@ fn detect_chunked_redacts_long_secret_spanning_chunk_boundary() {
     );
     let prefix = "a".repeat(CHUNK_SIZE - 1_500);
     let input = format!("{prefix}{key}\n tail");
-    let result = detect_chunked(&input, None);
+    let result = detect(&input, None);
     assert!(
         result.sanitized.contains("[REDACTED-"),
-        "chunked path must redact a >1 KB secret straddling the chunk boundary"
+        "must redact a >1 KB secret straddling the chunk boundary"
     );
     assert!(!result.sanitized.contains("-----BEGIN RSA PRIVATE KEY-----"));
     assert!(!result.secrets_detected.is_empty());
 }
 
+/// Review M1: an open-ended secret whose first part fits inside chunk 1
+/// must not be redacted only up to the slice end (the slice end satisfies
+/// `\b`), leaving its tail in clear text after `[REDACTED-*]`.
 #[test]
-fn next_chunk_start_snaps_overlap_to_char_boundary() {
-    let s = format!("{}😀tail", "a".repeat(10));
-    let inside_emoji = 11;
-
-    let next = next_chunk_start(&s, CHUNK_OVERLAP + inside_emoji);
-
-    assert_eq!(next, 10);
-    assert!(s.is_char_boundary(next));
+fn detect_large_does_not_leak_tail_of_open_ended_secret_at_chunk_end() {
+    let body: String = "Ab3Cd5Ef7Gh9".repeat(5); // 60 alphanumerics
+    let secret = format!("sk-{body}");
+    // 44 body characters land inside the first 500 KB chunk, 16 after it.
+    let prefix = format!("{} ", "x".repeat(CHUNK_SIZE - 48));
+    let input = format!("{prefix}{secret} tail");
+    assert_eq!(input.find(&secret), Some(CHUNK_SIZE - 47));
+    let result = detect(&input, None);
+    let tail = &body[44..];
+    assert!(
+        !result.sanitized.contains(tail),
+        "secret tail leaked after the chunk boundary"
+    );
+    assert!(!result.sanitized.contains(&secret));
 }
 
 #[test]
-fn detect_chunked_preserves_canonical_pattern_order() {
+fn detect_large_preserves_canonical_pattern_order() {
     let input = format!(
         "{} {} {} {}",
         "sk-1234567890abcdefghijklmnopqrstuvwxyzT3BlbkFJABCDEFGHIJKLMNO",
@@ -175,7 +164,7 @@ fn detect_chunked_preserves_canonical_pattern_order() {
         "x".repeat(CHUNK_SIZE)
     );
 
-    let result = detect_chunked(&input, None);
+    let result = detect(&input, None);
 
     assert_eq!(
         result.secrets_detected,
@@ -185,34 +174,6 @@ fn detect_chunked_preserves_canonical_pattern_order() {
             "githubTokens".to_string(),
         ]
     );
-}
-
-#[test]
-fn detect_chunked_matches_detect_single_on_same_input() {
-    // Both paths must produce the same redacted output for content that
-    // fits in a single chunk (use a small string so both paths are tested).
-    let input = "token: ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-    let single = detect_single(input, None);
-    let chunked = detect_chunked(input, None);
-    assert_eq!(single.sanitized, chunked.sanitized);
-    assert_eq!(
-        single
-            .secrets_detected
-            .iter()
-            .collect::<std::collections::HashSet<_>>(),
-        chunked
-            .secrets_detected
-            .iter()
-            .collect::<std::collections::HashSet<_>>(),
-    );
-}
-
-#[test]
-fn find_char_boundary_snaps_to_valid_boundary() {
-    let s = "héllo";
-    let pos = 2; // middle of the 2-byte 'é'
-    let b = find_char_boundary(s, pos);
-    assert!(s.is_char_boundary(b));
 }
 
 // ghp_ + 36 alphanum satisfies githubTokens regex {36,255}.
@@ -267,9 +228,9 @@ fn prescan_agrees_with_reference_regex_set_on_corpus() {
 }
 
 #[test]
-fn detect_single_redacts_aws_access_key_id() {
+fn detect_redacts_aws_access_key_id() {
     let input = format!("AWS_ACCESS_KEY_ID={FAKE_AWS_KEY}");
-    let result = detect_single(&input, None);
+    let result = detect(&input, None);
     assert!(
         result.sanitized.contains("[REDACTED-AWSACCESSKEYID]"),
         "expected redaction, got: {}",
@@ -282,40 +243,9 @@ fn detect_single_redacts_aws_access_key_id() {
     );
 }
 
-#[test]
-fn mask_text_fully_masks_matched_secret() {
-    let output = mask_text(FAKE_GH_TOKEN.to_string());
-    // Must differ from input and preserve byte length (ASCII '*' == 1 byte).
-    assert_ne!(output, FAKE_GH_TOKEN);
-    assert_eq!(
-        output.len(),
-        FAKE_GH_TOKEN.len(),
-        "masking must not change byte length"
-    );
-    // The entire matched span is masked — no character of the secret leaks.
-    assert!(
-        output.chars().all(|c| c == '*'),
-        "every character of the matched secret must be masked: {output}"
-    );
-    assert!(
-        !output.contains("ghp_"),
-        "no portion of the token prefix may survive: {output}"
-    );
-}
-
-#[test]
-fn mask_text_preserves_non_matching_prefix_and_suffix() {
-    // Use spaces as separators: '_' is a word-char and would break the \b boundary.
-    let input = format!("token: {FAKE_GH_TOKEN}, rest");
-    let output = mask_text(input.clone());
-    assert!(output.starts_with("token: "), "prefix must be untouched");
-    assert!(output.ends_with(", rest"), "suffix must be untouched");
-    assert!(output.contains('*'), "match region must be masked");
-}
-
 // ── Straddle-proofing post-condition tests ────────────────────────────────
 //
-// These pin the guarantee that `detect_chunked`'s output never still matches
+// These pin the guarantee that `detect`'s output never still matches
 // a candidate pattern, even when a secret is longer than CHUNK_OVERLAP and
 // lands across a 500 KB chunk boundary (invisible to every chunk slice).
 
@@ -344,7 +274,7 @@ fn assert_no_pattern_matches(result: &DetectResult) {
 }
 
 #[test]
-fn detect_chunked_redacts_oversized_secret_straddling_boundary() {
+fn detect_large_redacts_oversized_secret_straddling_boundary() {
     // A >8 KiB secret placed so it straddles the 500 KB chunk boundary with
     // BEGIN before the edge and END after it, both markers landing OUTSIDE
     // the 8 KiB overlap window. No single chunk slice contains the whole
@@ -360,10 +290,10 @@ fn detect_chunked_redacts_oversized_secret_straddling_boundary() {
     let input = format!("{prefix}{key}\n tail");
     assert!(
         input.len() > CHUNK_SIZE,
-        "input must exceed CHUNK_SIZE so detect_chunked actually chunks"
+        "input must exceed the former chunk edge"
     );
 
-    let result = detect_chunked(&input, None);
+    let result = detect(&input, None);
 
     assert!(
         !result.sanitized.contains("-----BEGIN RSA PRIVATE KEY-----"),
@@ -379,7 +309,7 @@ fn detect_chunked_redacts_oversized_secret_straddling_boundary() {
 }
 
 #[test]
-fn detect_chunked_redacts_both_in_chunk_and_straddling_matches() {
+fn detect_large_redacts_both_in_chunk_and_straddling_matches() {
     // One key fully inside chunk 1 (redacted by the fast path, so
     // `found_in_pattern` is set) AND a second oversized key straddling the
     // chunk 1/2 boundary beyond the overlap window (invisible to every
@@ -393,7 +323,7 @@ fn detect_chunked_redacts_both_in_chunk_and_straddling_matches() {
     let filler = "a".repeat(CHUNK_SIZE - half - key_early.len());
     let input = format!("{key_early}{filler}{key_straddle}\n tail");
 
-    let result = detect_chunked(&input, None);
+    let result = detect(&input, None);
 
     assert!(
         !result.sanitized.contains("-----BEGIN RSA PRIVATE KEY-----"),
@@ -418,16 +348,9 @@ fn detect_chunked_redacts_both_in_chunk_and_straddling_matches() {
 
 // ── Property tests ───────────────────────────────────────────────────────
 //
-// Two complementary checks (both proptest!):
-//
-// 1. `prop_chunked_matches_single_small`: byte-identical equivalence across
-//    small, randomly shaped inputs, including multibyte characters.
-//
-// 2. `prop_chunked_matches_single_boundary`: the same
-//    equivalence on ~500KB inputs with the token placed at boundary-relevant
-//    offsets, including a multibyte character near the chunk edge. The
-//    literal prescan bounds regex work sufficiently for this to run in the
-//    default suite; it no longer depends on the removed RegexSet path.
+// `prop_large_input_redacts_token_at_former_boundaries`: ~500KB inputs with
+// the token at the former chunk-edge offsets, including a multibyte character
+// nearby, are always fully redacted.
 //
 // `prop_sanitized_has_no_raw_token_shape` pins the no-re-trigger guarantee:
 // redaction output never re-exposes a raw `ghp_` token shape that a later
@@ -440,41 +363,10 @@ proptest! {
         ..ProptestConfig::default()
     })]
 
-    /// `detect_chunked` and `detect_single` agree on small, randomly-shaped
-    /// inputs (incl. multi-byte chars interspersed around the token). Fast —
-    /// keeps the default suite quick; the chunk-boundary mega-input case is
-    /// covered by the dedicated unit tests and the #[ignore] property below.
+    /// ~500KB inputs with the token at the former chunk edge/overlap offsets,
+    /// including a multibyte character nearby: the token is always redacted.
     #[test]
-    fn prop_chunked_matches_single_small(
-        pre in "[ a-z]{0,16}",
-        post in "[ a-z]{0,16}",
-        token_idx in 0usize..4,
-        mb_before in any::<bool>(),
-        mb_after in any::<bool>(),
-    ) {
-        let token = match token_idx {
-            0 => FAKE_GH_TOKEN.to_string(),
-            1 => FAKE_AWS_KEY.to_string(),
-            2 => format!("sk-{}T3BlbkFJ{}", "a".repeat(20), "a".repeat(20)),
-            _ => format!("gho_{}", "a".repeat(36)),
-        };
-        let before = if mb_before { format!("{pre}é") } else { pre };
-        let after = if mb_after { format!("é{post}") } else { post };
-        let input = format!("{before} {token} {after}");
-
-        let single = detect_single(&input, None);
-        let chunked = detect_chunked(&input, None);
-        prop_assert_eq!(single.sanitized, chunked.sanitized);
-        let s: std::collections::HashSet<_> = single.secrets_detected.iter().collect();
-        let c: std::collections::HashSet<_> = chunked.secrets_detected.iter().collect();
-        prop_assert_eq!(s, c);
-    }
-
-    /// ~500KB chunk-boundary equivalence, including UTF-8 overlap windows.
-    /// Keep the same case count as the small-input properties so the large
-    /// input path remains part of ordinary correctness validation.
-    #[test]
-    fn prop_chunked_matches_single_boundary(
+    fn prop_large_input_redacts_token_at_former_boundaries(
         offset_idx in 0usize..5,
         token_idx in 0usize..4,
     ) {
@@ -501,12 +393,10 @@ proptest! {
         }
         let input = format!("{prefix}token={token}\n tail");
 
-        let single = detect_single(&input, None);
-        let chunked = detect_chunked(&input, None);
-        prop_assert_eq!(single.sanitized, chunked.sanitized);
-        let s: std::collections::HashSet<_> = single.secrets_detected.iter().collect();
-        let c: std::collections::HashSet<_> = chunked.secrets_detected.iter().collect();
-        prop_assert_eq!(s, c);
+        let result = detect(&input, None);
+        prop_assert!(!result.sanitized.contains(&token), "token leaked");
+        prop_assert!(!result.secrets_detected.is_empty());
+        assert_no_pattern_matches(&result);
     }
 
     /// Sanitized output must contain no raw secret-token prefix that a later
@@ -518,7 +408,7 @@ proptest! {
         rest in "[ -~]{0,40}", // printable ASCII so we don't re-invent secrets
     ) {
         let input = format!("{wrap}{FAKE_GH_TOKEN}{rest}");
-        let out = detect_single(&input, None);
+        let out = detect(&input, None);
         // The redacted form is `[REDACTED-GITHUBTOKENS]` — it must NOT contain
         // the bare `ghp_` prefix followed by token chars.
         prop_assert!(
@@ -526,9 +416,5 @@ proptest! {
             "raw token leaked into sanitized output: {:?}",
             out.sanitized
         );
-        // And mask_text must preserve total byte length for this ASCII input
-        // (even-indexed chars become '*'; ASCII '*' == 1 byte, so length holds).
-        let masked = mask_text(input.clone());
-        prop_assert_eq!(masked.len(), input.len());
     }
 }

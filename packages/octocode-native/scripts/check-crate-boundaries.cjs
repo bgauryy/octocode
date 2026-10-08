@@ -41,14 +41,11 @@ function checkBoundaries(packages) {
   return failures;
 }
 
-if (require.main === module) {
-  try {
-    const failures = checkBoundaries(workspacePackages(join(__dirname, '..')));
-    if (failures.length) throw new Error(failures.join('\n'));
-    console.log('crate boundaries: five internal crates follow the declared dependency direction');
-  } catch (error) {
-    console.error(`crate boundaries failed: ${error.message}`);
-    process.exitCode = 1;
-  }
+try {
+  const failures = checkBoundaries(workspacePackages(join(__dirname, '..')));
+  if (failures.length) throw new Error(failures.join('\n'));
+  console.log('crate boundaries: five internal crates follow the declared dependency direction');
+} catch (error) {
+  console.error(`crate boundaries failed: ${error.message}`);
+  process.exitCode = 1;
 }
-module.exports = { checkBoundaries };

@@ -13,10 +13,12 @@
  *   ctx = { root, roots, files, read, write, sessionDir, artifactDir, args, matches }
  *   return { ok, findings?, matches? } (optional)
  */
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, writeFile, stat, mkdir } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { paginate } from './lib/pagination.mjs';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import {
   takeArg,
   hasFlag,
@@ -46,7 +48,8 @@ const artifactDirArg = takeArg(args, '--artifact-dir');
 const regexStr = takeArg(args, '--regex');
 const flags = takeArg(args, '--flags', 'gi');
 const rootsCsv = takeArg(args, '--roots', 'raw,text,extracts,cdp,snippets');
-const limit = Math.max(1, Math.min(500, Number(takeArg(args, '--limit', '50')) || 50));
+const limit = Number(takeArg(args, '--limit', '50'));
+if (!Number.isSafeInteger(limit) || limit < 1 || limit > 300) { console.error('Invalid limit'); process.exit(2); }
 const concatParts = hasFlag(args, '--concat-parts');
 const writeFullClean = hasFlag(args, '--write-full-clean');
 const scriptArg = takeArg(args, '--script');
@@ -135,16 +138,16 @@ async function runRegex() {
   const matches = [];
   const scanned = [];
   for (const file of files) {
-    let text;
+    let text, sourceSnapshot;
     try {
-      const buf = await readFile(file.abs);
-      if (buf.length > maxFileBytes) {
-        scanned.push({ rel: file.rel, skipped: 'max-file-bytes', bytes: buf.length });
+      const size = (await stat(file.abs)).size;
+      if (size > maxFileBytes) {
+        scanned.push({ rel: file.rel, skipped: 'max-file-bytes', bytes: size });
         continue;
       }
-      text = buf.toString('utf8');
-    } catch {
-      continue;
+      const raw = await readFile(file.abs); text = raw.toString('utf8'); sourceSnapshot = createHash('sha256').update(raw).digest('hex');
+    } catch (error) {
+      scanned.push({rel:file.rel,error:error.message}); continue;
     }
     scanned.push({ rel: file.rel, bytes: Buffer.byteLength(text) });
     re.lastIndex = 0;
@@ -162,13 +165,14 @@ async function runRegex() {
         column,
         match: m[0],
         groups: m.slice(1),
+        next: { continue: { command: process.execPath, args: [fileURLToPath(new URL('./source-query.mjs', import.meta.url)), '--file', file.abs, '--snapshot', sourceSnapshot] } },
         snippet: text.slice(start, end).replace(/\s+/g, ' ').trim().slice(0, 240),
       });
       perFile += 1;
-      if (matches.length >= limit || perFile >= Math.max(5, Math.floor(limit / 2))) break;
+      if (m[0].length === 0) re.lastIndex += re.unicode && text.codePointAt(re.lastIndex) > 0xffff ? 2 : 1;
       if (!re.global) break;
     }
-    if (matches.length >= limit) break;
+
   }
   return { matches, scanned };
 }
@@ -202,6 +206,8 @@ const ctxBase = {
 };
 
 let scriptResult = null;
+let scriptEvidence = null;
+let inlineScriptResult = null;
 if (scriptArg) {
   const absScript = safeScriptPath(scriptArg, process.cwd());
   const mod = await import(pathToFileURL(absScript).href);
@@ -210,11 +216,22 @@ if (scriptArg) {
     process.exit(1);
   }
   scriptResult = await mod.run(ctxBase);
+  const value = JSON.stringify(scriptResult ?? null);
+  inlineScriptResult = Buffer.byteLength(value) <= 4000 ? scriptResult : null;
+  const digest = createHash('sha256').update(value).digest('hex');
+  const directory = resolve(sessionDir || artifactDir, 'indexes', 'script-results');
+  await mkdir(directory, { recursive: true });
+  const file = resolve(directory, digest + '.json');
+  await writeFile(file, value);
+  scriptEvidence = { file, sha256: digest, next: { continue: { command: process.execPath, args: [fileURLToPath(new URL('./source-query.mjs', import.meta.url)), '--file', file, '--snapshot', digest] } } };
 }
 
 let regexResult = { matches: [], scanned: [] };
 if (regexStr) regexResult = await runRegex();
 
+const pagingArgs = args.filter((_,i)=>!['--script','--script-arg','--write-full-clean','--concat-parts'].includes(args[i])&&!['--script','--script-arg'].includes(args[i-1]));
+const skippedFiles = regexResult.scanned.filter(row => row.skipped || row.error).map(row=>({...row,next:{continue:{command:process.execPath,args:[fileURLToPath(new URL('./source-query.mjs',import.meta.url)),'--file',files.find(file=>file.rel===row.rel).abs]}}}));
+const paging = await paginate({lists:{matches:regexResult.matches,scanned:regexResult.scanned,skippedFiles},files:files.map(file=>file.abs),dir:sessionDir||artifactDir,args:pagingArgs,script:fileURLToPath(import.meta.url),defaultLimit:limit});
 const ok = scriptResult?.ok !== false;
 console.log(JSON.stringify({
   ok,
@@ -229,17 +246,10 @@ console.log(JSON.stringify({
   script: scriptArg
     ? {
         path: resolve(scriptArg),
-        result: scriptResult && typeof scriptResult === 'object'
-          ? {
-              ok: scriptResult.ok !== false,
-              findings: scriptResult.findings || scriptResult.matches || undefined,
-              detail: scriptResult.detail || undefined,
-            }
-          : { ok: true, detail: scriptResult },
+        result: { ...(inlineScriptResult && typeof inlineScriptResult === 'object' ? inlineScriptResult : { detail: inlineScriptResult }), ok: scriptResult?.ok !== false, ...scriptEvidence },
       }
     : null,
-  next: regexResult.matches.length
-    ? regexResult.matches.slice(0, 5).map((m) => ({ file: m.file, line: m.line, match: m.match }))
-    : ['No regex hits — broaden pattern or ingest HAR bodies first'],
+  ...paging,
+  coverage: { complete: regexResult.scanned.every(row => !row.skipped && !row.error), maxFileBytes },
 }, null, 2));
 process.exit(ok ? 0 : 1);

@@ -1,6 +1,6 @@
 //! Provider-backed ghSearchCode tests: line resolution latency.
 use super::{GhSearchCodeQuery, execute};
-use crate::providers::github::{RequestContext, RetryPolicy};
+use crate::providers::github::RetryPolicy;
 use crate::security::scan::Passthrough;
 use crate::tools::gh_shared::test_support::mock_provider;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
@@ -79,7 +79,8 @@ async fn the_head_commit_resolves_while_the_search_runs() {
     let query: GhSearchCodeQuery =
         serde_json::from_value(json!({"owner":"a","repo":"b","keywords":["wrap_app"]}))
             .expect("query");
-    let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    let context =
+        crate::tools::gh_shared::test_support::fixture_context(Duration::from_secs(5), 1 << 20);
     let out = execute(&provider, &query, &context, &Passthrough)
         .await
         .expect("search");
@@ -129,7 +130,8 @@ async fn searches_without_line_reads_resolve_no_commit() {
             ..Default::default()
         },
     );
-    let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    let context =
+        crate::tools::gh_shared::test_support::fixture_context(Duration::from_secs(5), 1 << 20);
     for row in [
         json!({"owner":"a","repo":"b","keywords":["app"],"match":"path"}),
         json!({"owner":"a","repo":"b","keywords":["app"],"concise":true}),
@@ -176,7 +178,8 @@ async fn run_owner_wide(server: &MockServer) -> crate::tools::result::ToolData {
     );
     let query: GhSearchCodeQuery =
         serde_json::from_value(json!({"owner":"o","keywords":["HTTPAdapter"]})).expect("query");
-    let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    let context =
+        crate::tools::gh_shared::test_support::fixture_context(Duration::from_secs(5), 1 << 20);
     execute(&provider, &query, &context, &Passthrough)
         .await
         .expect("search")
@@ -216,7 +219,7 @@ async fn owner_wide_rows_list_numbered_lines_at_the_indexed_commit() {
     }
     // One commit for every row is stated once.
     assert_eq!(out.data["commitSha"], SHA, "{}", out.data);
-    let read = &out.data["next"]["readTopMatch"]["query"]["queries"][0];
+    let read = &out.data["next"]["read"]["query"]["queries"][0];
     assert_eq!(read["ref"], SHA, "{}", out.data);
     assert_eq!(read["owner"], "o", "{}", out.data);
     assert_eq!(read["repo"], "a", "{}", out.data);

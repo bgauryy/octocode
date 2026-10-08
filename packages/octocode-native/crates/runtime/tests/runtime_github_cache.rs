@@ -11,7 +11,7 @@ use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 #[tokio::test]
 async fn github_cache_survives_runtime_close_until_explicitly_cleared() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/source.rs"))
         .respond_with(|request: &Request| {
@@ -74,7 +74,7 @@ async fn github_cache_survives_runtime_close_until_explicitly_cleared() {
 /// successfully — there is no disk cache to fall back to.
 #[tokio::test]
 async fn memory_storage_mode_does_not_persist_github_content_to_disk() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     // Content endpoint: every non-conditional request gets a fresh 200 +
     // ETag; a conditional request would get 304.  In memory-only mode the
     // second runtime must NOT send a conditional request because it has no
@@ -144,4 +144,66 @@ async fn memory_storage_mode_does_not_persist_github_content_to_disk() {
         );
     }
     second.close().await;
+}
+
+/// Repository and history searches follow the code-search cache policy: an
+/// identical repeat in the same session is answered from the cache, with no
+/// request and no wait for the 2 s search spacing.
+#[tokio::test]
+async fn repeated_repository_and_history_searches_are_cache_hits() {
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/repositories"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count": 1, "incomplete_results": false,
+            "items": [{"full_name": "a/ripgrep", "name": "ripgrep",
+                       "html_url": "https://github.com/a/ripgrep", "default_branch": "main",
+                       "created_at": null, "updated_at": null, "pushed_at": null,
+                       "language": "Rust", "homepage": null, "license": null}]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/search/issues"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "total_count": 1, "incomplete_results": false,
+            "items": [{"number": 700, "title": "Merged change", "state": "closed",
+                       "user": {"login": "alice"}, "labels": [],
+                       "pull_request": {"merged_at": "2026-01-01T00:00:00Z"}}]
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let repo = json!({"keywords": ["ripgrep"], "pageSize": 5});
+    let history = json!({"operation": "pullRequest", "owner": "a", "repo": "b", "state": "merged"});
+    let mut first = Vec::new();
+    for (tool, query) in [("ghSearchRepo", &repo), ("ghSearchHistory", &history)] {
+        let outcome = call(&runtime, tool, query.clone()).await.unwrap();
+        assert_eq!(
+            row_status(&outcome),
+            "success",
+            "{}",
+            outcome.structured_content
+        );
+        first.push(row_data(&outcome).clone());
+    }
+    let started = std::time::Instant::now();
+    for _ in 0..3 {
+        for (index, (tool, query)) in [("ghSearchRepo", &repo), ("ghSearchHistory", &history)]
+            .into_iter()
+            .enumerate()
+        {
+            let outcome = call(&runtime, tool, query.clone()).await.unwrap();
+            assert_eq!(row_data(&outcome), &first[index], "{tool} repeat");
+        }
+    }
+    let elapsed = started.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(1),
+        "six cached repeats took {elapsed:?}"
+    );
+    runtime.close().await;
 }

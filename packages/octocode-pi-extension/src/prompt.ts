@@ -22,20 +22,20 @@ interface PromptInputs {
   identity?: { id: string; parentId?: string; collaborate?: boolean; scratch?: string };
   /** Whether a file-writing tool is active; a read-only subagent hands long results back in its report instead. */
   canWrite?: boolean;
-  /** Whether Octocode's GitHub and npm tools are deferred: declared only after `tool_search` loads them. */
+  /** Whether Octocode's GitHub and package registry tools are deferred: declared only after `tool_search` loads them. */
   octocodeDeferred?: boolean;
 }
 
 export function octocodePrompt(input: PromptInputs): string {
   // Which Octocode tool does what is the server's own business (its tool descriptions); the prompt only states the
   // preference and its precedence over Pi's generic "use bash for ls, rg, find" rule.
-  const deferred = input.octocodeDeferred ? ' Load its GitHub and npm tools with `tool_search` when they are not listed.' : '';
+  const deferred = input.octocodeDeferred ? ' Load its GitHub and package registry tools with `tool_search` when they are not listed.' : '';
   const research = input.octocode
     ? [
-        `- Prefer Octocode MCP (\`mcp__octocode__*\`) for code search and research: local search and structure, LSP, GitHub repositories, PRs and history, npm packages. For searching and reading code this takes precedence over the generic rule to use bash for ls, rg or find; \`read\` and bash stay right for known paths, builds, tests, git and commands.${deferred}`,
+        `- Prefer Octocode MCP (\`mcp__octocode__*\`) for code search and research: local search and structure, LSP, GitHub repositories, PRs and history, package registries. For searching and reading code this takes precedence over the generic rule to use bash for ls, rg or find; \`read\` and bash stay right for known paths, builds, tests, git and commands.${deferred}`,
         '- Search when the location is unknown; read known paths directly and fetch only the parts you need.',
       ]
-    : ['- Search when the location is unknown; read known paths directly and fetch only the ranges you need. Use `web` (or the `gh` CLI in bash when available) for GitHub and npm lookups.'];
+    : ['- Search when the location is unknown; read known paths directly and fetch only the ranges you need. Use `web` (or the `gh` CLI in bash when available) for GitHub and package registry lookups.'];
 
   // The askUser tool description says when to ask; Safety owns the destructive-action rule.
   const asking = input.canDelegate

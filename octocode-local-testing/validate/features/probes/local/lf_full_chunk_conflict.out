@@ -1,5 +1,0 @@
-# cmd: octocode localFetch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/a.ts", "fullContent": true, "chunkSize": 10}
-# env: None
-# exit: 2
-# stderr: 
-{"kind":"octocode.toolError","version":1,"tool":"localFetch","error":"Check the query fields.","details":["fullContent: Choose fullContent or chunk controls."]}

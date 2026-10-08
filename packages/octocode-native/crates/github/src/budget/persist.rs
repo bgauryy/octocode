@@ -124,7 +124,10 @@ impl KeyState {
     }
 
     /// [`Self::persist`] with `adjust` applied to the merged view before the
-    /// write.
+    /// write. A merged view equal to the file is not written again (a repeat
+    /// exhaust or cooldown with the same reset); a new start reservation
+    /// always changes it, and it must reach the file, because it is what
+    /// spaces the next process's search.
     pub(super) fn persist_with(&self, adjust: impl FnOnce(&mut KeyFacts)) {
         let path = {
             let persist = self
@@ -136,11 +139,23 @@ impl KeyState {
                 None => return,
             }
         };
+        let Some(parent) = path.parent() else {
+            return;
+        };
+        if std::fs::create_dir_all(parent).is_err() {
+            return;
+        }
+        // Serialize read-merge-write across processes: without it, two CLI
+        // processes read the same file and the later rename drops the other's
+        // start stamps and window slots (review L9). Released on drop. A
+        // filesystem without lock support degrades to the unlocked write.
+        let _lock = lock_file(&path);
         let now = now_ms();
         let mut view = self.facts().blocking_view(now);
-        if let Some(disk) = std::fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<KeyFacts>(&bytes).ok())
+        let on_disk = std::fs::read(&path).ok();
+        if let Some(disk) = on_disk
+            .as_deref()
+            .and_then(|bytes| serde_json::from_slice::<KeyFacts>(bytes).ok())
         {
             view.merge(disk, now);
         }
@@ -148,10 +163,7 @@ impl KeyState {
         let Ok(bytes) = serde_json::to_vec(&view) else {
             return;
         };
-        let Some(parent) = path.parent() else {
-            return;
-        };
-        if std::fs::create_dir_all(parent).is_err() {
+        if on_disk.as_deref() == Some(bytes.as_slice()) {
             return;
         }
         let tmp = parent.join(format!(
@@ -173,6 +185,21 @@ impl KeyState {
             persist.seen = Some(modified);
         }
     }
+}
+
+/// Exclusive advisory lock on the `<state>.lock` sidecar; `None` when the
+/// file cannot be opened or the filesystem does not support locking.
+fn lock_file(path: &Path) -> Option<std::fs::File> {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(".lock");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(PathBuf::from(name))
+        .ok()?;
+    file.lock().ok()?;
+    Some(file)
 }
 
 #[cfg(test)]
@@ -219,5 +246,53 @@ mod tests {
             })
             .count();
         assert_eq!(leftovers, 0);
+    }
+
+    /// Review L9: concurrent writers that do not share memory (separate
+    /// processes; here separate registries) never drop each other's facts.
+    #[test]
+    fn concurrent_writers_keep_every_fact() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let key = LimiterKey::new("ghe.example", Some("tok"));
+        let now = now_ms();
+        std::thread::scope(|scope| {
+            for writer in 0..8 {
+                let (dir, key) = (dir.path(), &key);
+                scope.spawn(move || {
+                    let budget = GitHubBudget::relaxed();
+                    let state = budget.key_state(key, Some(dir));
+                    for round in 0..25 {
+                        state.persist_with(|view| {
+                            view.last_start_ms.insert(format!("w{writer}-{round}"), now);
+                        });
+                    }
+                });
+            }
+        });
+        let disk: KeyFacts =
+            serde_json::from_slice(&std::fs::read(dir.path().join(key.file_name())).expect("file"))
+                .expect("json");
+        assert_eq!(disk.last_start_ms.len(), 8 * 25);
+    }
+
+    /// A repeat of the same blocking fact leaves the file in place; a new
+    /// fact replaces it.
+    #[cfg(unix)]
+    #[test]
+    fn an_unchanged_view_is_not_rewritten() {
+        use std::os::unix::fs::MetadataExt;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let key = LimiterKey::new("ghe.example", Some("tok"));
+        let budget = GitHubBudget::relaxed();
+        let state = budget.key_state(&key, Some(dir.path()));
+        let file = dir.path().join(key.file_name());
+        let inode = || std::fs::metadata(&file).expect("state file").ino();
+        let reset = now_ms() / 1000 + 300;
+        state.exhaust("search", reset);
+        let first = inode();
+        state.exhaust("search", reset);
+        assert_eq!(inode(), first, "same view, no rewrite");
+        state.cool_down(now_ms() + 30_000);
+        assert_ne!(inode(), first, "a new cooldown is written");
     }
 }

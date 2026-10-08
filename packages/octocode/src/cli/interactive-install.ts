@@ -1,15 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { select } from '../utils/prompts.js';
-import { delegateToNative } from './native-delegate.js';
-
-function nativeCommand(
-  bin: string,
-  argv: readonly string[]
-): readonly [string, string[]] {
-  return bin.endsWith('.cjs') || bin.endsWith('.js')
-    ? [process.execPath, [bin, ...argv]]
-    : [bin, [...argv]];
-}
+import { delegateToNative, nativeCommand } from './native-delegate.js';
 
 function listInstallClients(bin: string): string[] {
   const [command, args] = nativeCommand(bin, ['install', '--list', '--json']);

@@ -26,6 +26,9 @@ pub(super) enum PageOutcome {
     },
 }
 
+/// A page above the whole `maxChars`: never judged, so it keeps its read.
+pub(super) const TOO_LARGE: &str = "classificationContextTooLarge";
+
 /// A failed answer, page, or resource in the shape of a failed tool row:
 /// `{errorCode, error, hints:{text}}`.
 fn error_value(error: &ClassificationError) -> Value {
@@ -181,45 +184,75 @@ pub(super) fn host_receipt(receipt: &mut Value, paths: &crate::policy::path::Pat
         };
         let local = crate::tools::clasify::resource::tool_of(read)
             == Some(crate::tools::id::ToolId::LocalFetch);
-        // A search hit window was sized before the file was read: end it at
-        // the file's last line.
-        let total_lines = total_lines.or_else(|| {
-            let end = read_range(&read["query"])?.1;
-            local
-                .then(|| paths.validate_read(read["query"]["path"].as_str()?).ok())
-                .flatten()
-                .and_then(|file| lines_up_to(&file.canonical, end))
-        });
         // A read replays the judged bytes; search host reads say "high".
         if let Some(read) = read.as_object_mut() {
             read.entry("confidence").or_insert_with(|| json!("exact"));
         }
-        let Some(query) = read.get_mut("query").and_then(Value::as_object_mut) else {
+        let Some(query) = read.get_mut("query") else {
             continue;
         };
-        if local && let Some(path) = query.get_mut("path") {
-            relative(path);
-        }
-        // The capture brief; the response stage adds the matrix brief.
-        query.remove("mainGoal");
-        query.remove("reasoning");
-        // The provider byte budget, unless an `offset` page is addressed in
-        // window units.
-        if !query.contains_key("offset") {
-            query.remove("unit");
-            query.remove("length");
-        }
-        if query.get("minify").and_then(Value::as_str) == Some("none") {
-            // Both file reads default to unminified source.
-            query.remove("minify");
-        }
-        if let (Some(total), Some((start, end))) = (total_lines, single_range(query))
-            && start <= total
-            && end > total
-        {
-            query.insert("ranges".into(), json!([format!("{start}-{total}")]));
+        // A batched read names its rows under `queries`.
+        let rows = if query.get("queries").is_some() {
+            query["queries"]
+                .as_array_mut()
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+        } else {
+            vec![query]
+        };
+        for query in rows.into_iter().filter_map(Value::as_object_mut) {
+            // A search hit window was sized before the file was read: end it
+            // at the file's last line.
+            let total_lines = total_lines.or_else(|| {
+                let end = row_ranges(query).map(|(_, end)| end).max()?;
+                local
+                    .then(|| paths.validate_read(query.get("path")?.as_str()?).ok())
+                    .flatten()
+                    .and_then(|file| lines_up_to(&file.canonical, end))
+            });
+            if local && let Some(path) = query.get_mut("path") {
+                relative(path);
+            }
+            // The capture brief; the response stage adds the matrix brief.
+            query.remove("mainGoal");
+            query.remove("reasoning");
+            // The provider byte budget, unless an `offset` page is addressed
+            // in window units.
+            if !query.contains_key("offset") {
+                query.remove("unit");
+                query.remove("length");
+            }
+            if query.get("minify").and_then(Value::as_str) == Some("none") {
+                // Both file reads default to unminified source.
+                query.remove("minify");
+            }
+            if let Some(total) = total_lines
+                && let Some(ranges) = query.get_mut("ranges").and_then(Value::as_array_mut)
+            {
+                for range in ranges {
+                    if let Some((start, end)) = range
+                        .as_str()
+                        .and_then(crate::tools::line_spans::parse_span::<u64>)
+                        && start <= total
+                        && end > total
+                    {
+                        *range = json!(format!("{start}-{total}"));
+                    }
+                }
+            }
         }
     }
+}
+
+/// Every `ranges` span of one read row, as `(start, end)`.
+fn row_ranges(query: &Map<String, Value>) -> impl Iterator<Item = (u64, u64)> + '_ {
+    query
+        .get("ranges")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|range| crate::tools::line_spans::parse_span(range.as_str()?))
 }
 
 /// Lines in the file at `path`, counted no further than `limit`.
@@ -427,6 +460,11 @@ pub(super) fn resource(
                 failed = true;
                 terminal_partial = receipt["coverage"] == "partial";
                 let mut page = page_base(&receipt);
+                // A window too large to judge stays reachable: the host reads
+                // its exact lines (the read tool pages them losslessly).
+                if error.code == TOO_LARGE {
+                    page_read(&mut page, &receipt);
+                }
                 page.insert("error".into(), error_value(&error));
                 Value::Object(page)
             }
@@ -1034,7 +1072,11 @@ mod tests {
         assert_eq!(pages.len(), 6, "{resource}");
         for page in pages {
             assert!(page.get("error").is_none(), "{resource}");
-            assert_eq!(page["lines"], json!([1, 9]), "{resource}");
+            assert_eq!(
+                (&page["line"], &page["endLine"]),
+                (&json!(1), &json!(9)),
+                "{resource}"
+            );
             assert!(page["next"]["read"].is_object(), "{resource}");
         }
     }

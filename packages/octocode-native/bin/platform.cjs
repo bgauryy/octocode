@@ -46,4 +46,4 @@ function executableName(binary, os = process.platform) {
   return os === 'win32' ? `${binary}.exe` : binary;
 }
 
-module.exports = { BINARIES, PLATFORMS, executableName, getPlatformSuffix, isMusl };
+module.exports = { BINARIES, PLATFORMS, executableName, getPlatformSuffix };

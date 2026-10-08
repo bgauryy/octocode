@@ -1,7 +1,7 @@
 //! Provider-backed ghSearchRepo tests: typed filters, archived disclosure,
 //! and row facts.
 use super::{GhSearchRepoQuery, execute};
-use crate::providers::github::{RequestContext, RetryPolicy};
+use crate::providers::github::RetryPolicy;
 use crate::tools::gh_shared::test_support::{mock_provider, mount_json};
 use crate::tools::result::ToolData;
 use serde_json::{Value, json};
@@ -18,7 +18,8 @@ async fn run(server: &MockServer, query: Value) -> ToolData {
         },
     );
     let query: GhSearchRepoQuery = serde_json::from_value(query).expect("query");
-    let context = RequestContext::with_timeout(Duration::from_secs(5), 1 << 20);
+    let context =
+        crate::tools::gh_shared::test_support::fixture_context(Duration::from_secs(5), 1 << 20);
     execute(&provider, &query, &context).await.expect("search")
 }
 
@@ -119,7 +120,7 @@ async fn default_archived_exclusion_is_disclosed_with_a_lead() {
     );
     // Repo-discovery words are not code keywords: no code-search lead.
     assert!(
-        first.data["next"].get("searchContent").is_none(),
+        first.data["next"].get("searchCode").is_none(),
         "{}",
         first.data
     );
@@ -132,7 +133,7 @@ async fn default_archived_exclusion_is_disclosed_with_a_lead() {
         second.data
     );
     assert!(
-        second.data["next"].get("searchContent").is_none(),
+        second.data["next"].get("searchCode").is_none(),
         "{}",
         second.data
     );
@@ -254,4 +255,39 @@ async fn owner_listing_marks_forks_only() {
     assert_eq!(rows.len(), 2, "{}", out.data);
     assert!(rows[0].get("fork").is_none(), "{}", out.data);
     assert_eq!(rows[1]["fork"], true, "{}", out.data);
+}
+
+/// QA2: GitHub matched more repositories than search reaches (1,000): the
+/// first page states the provider's full count, not only the reachable
+/// `totalItems`, so an org count is never silently 1,000.
+#[tokio::test]
+async fn capped_search_states_the_full_match_count() {
+    let server = MockServer::start().await;
+    mount_json(
+        &server,
+        "/api/v3/search/repositories",
+        200,
+        json!({"total_count": 4156, "incomplete_results": false, "items": [repo_item("r", false)]}),
+    )
+    .await;
+    let out = run(&server, json!({"owner":"o","archived":false,"pageSize":1})).await;
+    assert_eq!(
+        out.data["partialReasons"],
+        json!(["providerResultCap"]),
+        "{}",
+        out.data
+    );
+    let warnings = out.data["warnings"].to_string();
+    assert!(warnings.contains("4156"), "{}", out.data);
+    // Later pages do not repeat it.
+    let second = run(
+        &server,
+        json!({"owner":"o","archived":false,"pageSize":1,"page":2}),
+    )
+    .await;
+    assert!(
+        !second.data["warnings"].to_string().contains("4156"),
+        "{}",
+        second.data
+    );
 }

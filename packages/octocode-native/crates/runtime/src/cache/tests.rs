@@ -4,7 +4,7 @@ fn key(resource: &str, credential: &str) -> CacheKey {
     CacheKey {
         namespace: "test".into(),
         resource: resource.into(),
-        partition: CachePartition {
+        partition: StorePartition {
             endpoint: "https://api.github.com".into(),
             credential_fingerprint: credential.into(),
         },
@@ -19,7 +19,8 @@ fn config(fresh: u64, ttl: u64) -> CacheConfig {
     }
 }
 
-fn json_files(dir: &Path) -> Vec<PathBuf> {
+/// The `.json` entry files directly under `dir`.
+pub(crate) fn json_files(dir: &Path) -> Vec<PathBuf> {
     fs::read_dir(dir)
         .unwrap()
         .flatten()

@@ -10,8 +10,13 @@
 //!   queued to the writer (bounded wait), never written inline, so a server
 //!   that stops reading stdin cannot stall reads.
 //! * **Failure is total**: EOF, a framing fault, a broken write, a queue that
-//!   stays full, or a request timeout marks the connection failed and fails
-//!   every pending request at once (the pending map is taken, not iterated).
+//!   stays full, or a second consecutive request timeout marks the connection
+//!   failed and fails every pending request at once (the pending map is taken,
+//!   not iterated).
+//! * **One slow request is not a fault**: a request that uses its whole
+//!   timeout is cancelled with `$/cancelRequest` and the server is kept, so the
+//!   next request does not pay a cold start. Only [`RETIRE_AFTER_TIMEOUTS`]
+//!   timeouts with no answered request between them retire the connection.
 //!   Both tasks install a [`FailOnExit`] guard, so every exit path, including
 //!   panic and abort, fails the connection.
 //! * **Cancel on drop**: a dropped `request` future removes its pending entry
@@ -26,7 +31,7 @@ use super::server_requests::{ClientRequestContext, client_response_for};
 use crate::error::{Error, Result, RpcError};
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, oneshot};
@@ -44,6 +49,9 @@ const NOTIFY_BASE_DEADLINE_MS: u64 = 1_000;
 const NOTIFY_MS_PER_MIB: u64 = 1_000;
 /// How long a timed-out request waits for its `$/cancelRequest` to be written.
 const CANCEL_WRITE_WAIT_MS: u64 = 100;
+/// Request timeouts in a row, with no answered request between them, that
+/// retire the connection as wedged. The first one only cancels its request.
+const RETIRE_AFTER_TIMEOUTS: u32 = 2;
 /// How long the reader may wait for writer-queue space to reply to a server
 /// request before declaring the server wedged (it is not reading stdin).
 const REPLY_ENQUEUE_DEADLINE_MS: u64 = 1_000;
@@ -79,6 +87,8 @@ struct Shared {
     /// Frames whose body was not valid JSON (skipped). A spike means the
     /// stream lost its framing.
     unparseable_frames: AtomicU64,
+    /// Request timeouts since the server last answered a pending request.
+    consecutive_timeouts: AtomicU32,
 }
 
 impl Shared {
@@ -280,6 +290,7 @@ impl JsonRpcConnection {
             push_diagnostics: PushDiagnosticsStore::new(),
             partial_results: PartialResultStore::default(),
             unparseable_frames: AtomicU64::new(0),
+            consecutive_timeouts: AtomicU32::new(0),
         });
         // The guards are created before spawning so they run even if a task is
         // aborted before its first poll.
@@ -303,7 +314,7 @@ impl JsonRpcConnection {
     }
 
     /// `false` once the connection has failed (server exited, framing fault,
-    /// broken write, or a request timeout retired it).
+    /// broken write, or consecutive request timeouts retired it).
     pub(crate) fn is_alive(&self) -> bool {
         self.shared.is_alive()
     }
@@ -311,7 +322,7 @@ impl JsonRpcConnection {
     /// Retire the connection: every pending and later request fails with
     /// `reason` (used when the server is killed for exceeding its memory
     /// cap). Idempotent; the first reason wins.
-    #[cfg_attr(not(target_os = "macos"), allow(dead_code))] // Wired on macOS only.
+    #[cfg_attr(not(any(target_os = "macos", target_os = "linux")), allow(dead_code))] // Wired on macOS and Linux only.
     pub(crate) fn fail(&self, reason: &str) {
         self.shared.fail(reason);
     }
@@ -339,10 +350,14 @@ impl JsonRpcConnection {
 
     /// Sends a request and waits for its response until `timeout_ms`.
     ///
-    /// Timeout policy: a request that consumes its whole timeout means the
-    /// server is wedged, not merely slow (indexing waits go through readiness),
-    /// so the request is cancelled and the connection is retired: every other
-    /// pending request fails immediately and the pool restarts the server.
+    /// Timeout policy: a request that consumes its whole timeout is cancelled
+    /// with `$/cancelRequest` and fails with a timeout; the server is kept, so
+    /// one slow walk on a large tree does not cost a cold start. The
+    /// connection is retired as wedged only when the cancel cannot be
+    /// written in time (the server stopped reading stdin) or on the
+    /// [`RETIRE_AFTER_TIMEOUTS`]th timeout with no answered request between:
+    /// then every other pending request fails immediately and the pool
+    /// restarts the server on the next acquire.
     pub(crate) async fn request(
         &self,
         method: &str,
@@ -373,11 +388,15 @@ impl JsonRpcConnection {
             Ok(Err(_)) => Err(closed_error()),
             Err(_) => {
                 let reason = format!("LSP request timed out after {timeout_ms}ms");
+                // `true` when the cancel could not be written in time: the
+                // writer queue is full or the pipe does not drain, so the
+                // server stopped reading stdin.
+                let mut cancel_refused = false;
                 if self.shared.take_pending(id).is_some()
                     && let Ok(frame) = encode_frame(&cancel_message(id))
                 {
                     // Tell the server to stop computing the abandoned request,
-                    // briefly waiting so the cancel precedes retirement.
+                    // briefly waiting so the cancel precedes any retirement.
                     let (tx, rx) = oneshot::channel();
                     let cancel_deadline =
                         Instant::now() + Duration::from_millis(CANCEL_WRITE_WAIT_MS);
@@ -386,12 +405,24 @@ impl JsonRpcConnection {
                         deadline: cancel_deadline,
                         written: Some(tx),
                     });
-                    if queued.is_ok() {
-                        let _ = tokio::time::timeout_at(cancel_deadline, rx).await;
-                    }
+                    cancel_refused = match queued {
+                        Ok(()) => !matches!(
+                            tokio::time::timeout_at(cancel_deadline, rx).await,
+                            Ok(Ok(Ok(())))
+                        ),
+                        Err(_) => true,
+                    };
                 }
-                self.shared
-                    .fail(&format!("{reason}; LSP connection retired as wedged"));
+                let timeouts = self
+                    .shared
+                    .consecutive_timeouts
+                    .fetch_add(1, Ordering::AcqRel)
+                    .saturating_add(1);
+                if cancel_refused || timeouts >= RETIRE_AFTER_TIMEOUTS {
+                    self.shared.fail(&format!(
+                        "{reason}; LSP connection retired as wedged after {timeouts} consecutive timeout(s)"
+                    ));
+                }
                 Err(Error::timeout(reason))
             }
         }
@@ -566,6 +597,8 @@ async fn dispatch(
         None => Ok(message.remove("result").unwrap_or(Value::Null)),
     };
     if let Some(sender) = shared.take_pending(id) {
+        // The server answered a live request: it is slow at worst, not wedged.
+        shared.consecutive_timeouts.store(0, Ordering::Release);
         let _ = sender.send(result);
     }
     Ok(())

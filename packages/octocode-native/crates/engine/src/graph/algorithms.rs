@@ -424,49 +424,70 @@ pub fn condense(graph: &BTreeMap<String, FileGraphNode>) -> Condensed {
         layers,
     }
 }
-/// Components above which descendant bitsets (n²/8 bytes) cost more memory
-/// than they save; larger graphs use the per-edge search.
-const BITSET_COMPONENT_LIMIT: usize = 16_384;
+/// Target columns per bitset pass. Each pass keeps `nodes × COLUMN_CHUNK / 8`
+/// bytes of descendant bits (32 MiB at 16,384 nodes), so memory stays bounded
+/// at any graph size while the work stays O(edges × nodes / 64).
+const COLUMN_CHUNK: usize = 16_384;
 
 /// Transitive edges of a DAG (the condensation): `(u, v)` whose target is
-/// also reachable through another successor of `u`. One post-order pass
-/// builds each node's descendant bitset, so the whole check costs
-/// O(edges × nodes / 64) instead of one graph search per edge.
+/// also reachable through another successor of `u`. One post-order pass per
+/// chunk of target columns builds each node's descendant bitset for those
+/// columns, so the whole check costs O(edges × nodes / 64) instead of one
+/// graph search per edge (review L14: the old search fallback above 16,384
+/// components did not finish on large graphs).
 pub fn transitive_edges(edges: &BTreeMap<usize, BTreeSet<usize>>) -> BTreeSet<(usize, usize)> {
+    transitive_edges_chunked(edges, COLUMN_CHUNK)
+}
+
+fn transitive_edges_chunked(
+    edges: &BTreeMap<usize, BTreeSet<usize>>,
+    chunk: usize,
+) -> BTreeSet<(usize, usize)> {
     let size = edges
         .keys()
         .chain(edges.values().flatten())
         .max()
         .map_or(0, |max| max + 1);
-    if size > BITSET_COMPONENT_LIMIT {
-        return transitive_edges_by_search(edges);
-    }
-    let words = size.div_ceil(64);
-    // Descendants of each node, itself excluded.
-    let mut descendants = vec![0_u64; size * words];
-    for node in postorder(edges, size) {
-        let mut row = vec![0_u64; words];
-        for &successor in edges.get(&node).into_iter().flatten() {
-            row[successor / 64] |= 1 << (successor % 64);
-            let below = &descendants[successor * words..(successor + 1) * words];
-            for (word, bits) in row.iter_mut().zip(below) {
-                *word |= bits;
-            }
-        }
-        descendants[node * words..(node + 1) * words].copy_from_slice(&row);
-    }
+    let order = postorder(edges, size);
     let mut out = BTreeSet::new();
-    for (&source, targets) in edges {
-        let mut through = vec![0_u64; words];
-        for &successor in targets {
-            let below = &descendants[successor * words..(successor + 1) * words];
-            for (word, bits) in through.iter_mut().zip(below) {
-                *word |= bits;
+    for low in (0..size).step_by(chunk.max(1)) {
+        let high = (low + chunk.max(1)).min(size);
+        let words = (high - low).div_ceil(64);
+        let in_chunk = |node: usize| (low..high).contains(&node).then(|| node - low);
+        // Descendants of each node within columns [low, high), itself excluded.
+        let mut descendants = vec![0_u64; size * words];
+        let mut row = vec![0_u64; words];
+        for &node in &order {
+            row.fill(0);
+            for &successor in edges.get(&node).into_iter().flatten() {
+                if let Some(bit) = in_chunk(successor) {
+                    row[bit / 64] |= 1 << (bit % 64);
+                }
+                let below = &descendants[successor * words..(successor + 1) * words];
+                for (word, bits) in row.iter_mut().zip(below) {
+                    *word |= bits;
+                }
             }
+            descendants[node * words..(node + 1) * words].copy_from_slice(&row);
         }
-        for &target in targets {
-            if through[target / 64] >> (target % 64) & 1 == 1 {
-                out.insert((source, target));
+        let mut through = vec![0_u64; words];
+        for (&source, targets) in edges {
+            if !targets.iter().any(|&target| in_chunk(target).is_some()) {
+                continue;
+            }
+            through.fill(0);
+            for &successor in targets {
+                let below = &descendants[successor * words..(successor + 1) * words];
+                for (word, bits) in through.iter_mut().zip(below) {
+                    *word |= bits;
+                }
+            }
+            for &target in targets {
+                if let Some(bit) = in_chunk(target)
+                    && through[bit / 64] >> (bit % 64) & 1 == 1
+                {
+                    out.insert((source, target));
+                }
             }
         }
     }
@@ -504,6 +525,8 @@ fn postorder(edges: &BTreeMap<usize, BTreeSet<usize>>, size: usize) -> Vec<usize
     order
 }
 
+/// Per-edge graph search; the reference the bitset pass is tested against.
+#[cfg(test)]
 fn transitive_edges_by_search(
     edges: &BTreeMap<usize, BTreeSet<usize>>,
 ) -> BTreeSet<(usize, usize)> {
@@ -648,7 +671,12 @@ mod tests {
                     edges.entry(a).or_default().insert(b);
                 }
             }
-            proptest::prop_assert_eq!(transitive_edges(&edges), transitive_edges_by_search(&edges));
+            let expected = transitive_edges_by_search(&edges);
+            proptest::prop_assert_eq!(&transitive_edges(&edges), &expected);
+            // Small chunks exercise the multi-pass column split.
+            for chunk in [1, 7, 64] {
+                proptest::prop_assert_eq!(&transitive_edges_chunked(&edges, chunk), &expected);
+            }
         }
     }
 
@@ -661,6 +689,32 @@ mod tests {
             (2, BTreeSet::from([3])),
         ]);
         assert_eq!(transitive_edges(&edges), BTreeSet::from([(0, 3)]));
+    }
+
+    /// Review L14: a condensation above the old 16,384-component bitset
+    /// limit stays near-linear instead of one graph search per edge. Before
+    /// the column-chunked pass this chain-with-shortcuts graph took a full
+    /// downstream walk per chain edge.
+    #[test]
+    fn large_condensation_transitive_edges_are_fast_and_exact() {
+        let size = 30_000;
+        let mut edges = BTreeMap::<usize, BTreeSet<usize>>::new();
+        for node in 0..size - 1 {
+            let targets = edges.entry(node).or_default();
+            targets.insert(node + 1);
+            if node + 2 < size {
+                targets.insert(node + 2);
+            }
+        }
+        let started = std::time::Instant::now();
+        let transitive = transitive_edges(&edges);
+        let elapsed = started.elapsed();
+        let expected: BTreeSet<(usize, usize)> = (0..size - 2).map(|n| (n, n + 2)).collect();
+        assert_eq!(transitive, expected);
+        assert!(
+            elapsed < std::time::Duration::from_secs(10),
+            "transitive reduction took {elapsed:?}"
+        );
     }
 
     fn node(edges: &[&str]) -> FileGraphNode {

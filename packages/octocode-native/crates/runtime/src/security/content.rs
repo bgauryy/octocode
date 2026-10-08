@@ -51,11 +51,7 @@ fn is_private_key_path(path: Option<&Path>) -> bool {
         .and_then(|name| name.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
-    let extension = path
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
+    let extension = octocode_engine::text::extension_of(&path.to_string_lossy(), true, "");
     matches!(extension.as_str(), "pem" | "key" | "p8" | "pk8" | "ppk")
         || matches!(
             file_name.as_str(),
@@ -823,7 +819,7 @@ mod tests {
     fn continuation_shaped_values_are_not_credentials() {
         let policy = ContentSecurity::new();
         for value in [
-            "lexical-live-v1:845e0d1f0b51e9d91d398dac8fdc9d3a0b88cb954e6434e78a56ff2b753a9a16",
+            "lexical-live-v2:845e0d1f0b51e9d91d398dac8fdc9d3a0b88cb954e6434e78a56ff2b753a9a16",
             "824df86de3bc3a3ff0c6201874d42955e8b5b12a0",
             "3bc3a3ff0",
             "MAX_STRING_LENGTH",

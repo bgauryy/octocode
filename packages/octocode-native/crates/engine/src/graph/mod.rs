@@ -3,22 +3,15 @@ mod diff;
 mod model;
 
 pub use algorithms::{
-    Condensed, CycleWitnesses, FileEdge, FileGraphNode, FilePath, TraversalStep, condense,
-    reachable, reverse, scc, scc_unsorted, shortest_path, strongly_connected_components,
-    transitive_edges, traverse,
+    Condensed, CycleWitnesses, FileEdge, FileGraphNode, condense, reachable, reverse, scc,
+    scc_unsorted, shortest_path, strongly_connected_components, transitive_edges, traverse,
 };
-pub use diff::{
-    BoolChange, CompletenessDelta, CycleDelta, DiffIncompatibility, EvidenceDelta, FileDelta,
-    GraphDiff, MetricDelta, NodeDelta, RelationDelta, RelationKey, StaticDynamicShift, diff_graphs,
-};
+pub use diff::{GraphDiff, diff_graphs};
 pub use model::{
-    CodeEdge, CodeGraphBuilder, CodeGraphDiagnostic, CodeGraphSnapshot, CodeNode, EdgeKind,
-    Evidence, EvidenceId, EvidenceSource, GraphBuildMetrics, GraphBuildReceipt, GraphCompleteness,
-    GraphFactCall, GraphFactCommonJs, GraphFactDeclaration, GraphFactEdge, GraphFactExport,
-    GraphFactImport, GraphFactRustModule, GraphFactsDocument, GraphFactsTypedEntry,
-    GraphFactsTypedScanResult, GraphPosition, GraphRange, IMPORT_USE_MODULE, NodeId, NodeKind,
-    SemanticObservation, SemanticOperation, SemanticOutcome, ServerReceipt, SnapshotMetadata,
-    SymbolAnchor,
+    CodeGraphBuilder, CodeGraphSnapshot, EdgeKind, GraphFactCall, GraphFactCommonJs,
+    GraphFactDeclaration, GraphFactEdge, GraphFactExport, GraphFactImport, GraphFactRustModule,
+    GraphFactsDocument, GraphFactsTypedEntry, GraphFactsTypedScanResult, GraphPosition, GraphRange,
+    IMPORT_USE_MODULE, NodeKind, SourceStamp,
 };
 
 use std::{fs, io::Read, path::Path, sync::Arc};
@@ -128,14 +121,15 @@ pub fn scan_graph_facts_typed_selected(
     )?;
 
     let truncated = query.was_capped;
-    let mut candidate_paths: Vec<String> = query
-        .entries
-        .iter()
-        .map(|entry| entry.relative_path.replace('\\', "/"))
-        .collect();
-    candidate_paths.sort_unstable();
-    let outcomes: Vec<Option<GraphFactsScanOutcome>> = query
-        .entries
+    let mut entries = query.entries;
+    // Walk order is stable, so the leading files an earlier window read are
+    // exactly these.
+    let skip = options
+        .skip_files
+        .map_or(0, |n| n as usize)
+        .min(entries.len());
+    entries.drain(..skip);
+    let outcomes: Vec<Option<GraphFactsScanOutcome>> = entries
         .into_par_iter()
         .map(|entry| -> Result<Option<GraphFactsScanOutcome>, String> {
             let path = Path::new(&entry.path);
@@ -151,13 +145,13 @@ pub fn scan_graph_facts_typed_selected(
                     "file exceeds the graph scan byte limit",
                 );
             }
-            let Ok(file) = fs::File::open(path) else {
+            let Ok(mut file) = fs::File::open(path) else {
                 return outcome("graph.scan.readFailed", "file could not be opened");
             };
             // Metadata is advisory: a file can grow between discovery and open.
             // The read itself has a strict bound, including one overflow byte.
             let mut content = String::new();
-            if file
+            if (&mut file)
                 .take(max_file_bytes as u64 + 1)
                 .read_to_string(&mut content)
                 .is_err()
@@ -191,6 +185,13 @@ pub fn scan_graph_facts_typed_selected(
                 );
             }
             let content_digest = crate::digest::sha256(content.as_bytes());
+            // Taken from the open handle after the read, so it describes the
+            // bytes just hashed; a file written meanwhile is not settled.
+            let source_stamp = file
+                .metadata()
+                .ok()
+                .filter(|meta| meta.len() == content.len() as u64)
+                .and_then(|meta| SourceStamp::settled(&meta, std::time::SystemTime::now()));
             let parser = selected.iter().next().copied();
             let memo_key = format!("{content_digest}\u{0}{relative_path}\u{0}{}", parser.unwrap_or(""));
             let parsed = if let Some(hit) = FACTS_MEMO.get(&memo_key) {
@@ -226,6 +227,7 @@ pub fn scan_graph_facts_typed_selected(
                 GraphFactsTypedEntry {
                     relative_path,
                     content_digest,
+                    source_stamp,
                     facts: parsed.facts.clone(),
                     reference_counts: parsed.reference_counts.clone(),
                 },
@@ -248,7 +250,6 @@ pub fn scan_graph_facts_typed_selected(
         schema_version: crate::signatures::GRAPH_FACTS_SCHEMA_VERSION,
         entries,
         skipped,
-        candidate_paths,
         files_skipped,
         truncated,
     })
@@ -259,6 +260,18 @@ mod tests {
     use super::*;
 
     use std::path::Path;
+
+    /// Every file the scan read or skipped, sorted.
+    fn scanned_paths(result: &GraphFactsTypedScanResult) -> Vec<String> {
+        let mut paths: Vec<String> = result
+            .entries
+            .iter()
+            .map(|entry| entry.relative_path.clone())
+            .chain(result.skipped.iter().map(|skip| skip.relative_path.clone()))
+            .collect();
+        paths.sort_unstable();
+        paths
+    }
 
     fn scan_graph_facts(
         options: GraphFactsScanOptions,
@@ -277,6 +290,43 @@ mod tests {
         }
     }
 
+    /// A stamp stands in for content only once the file has been untouched
+    /// for the settle window; a fresh write keeps the hash as the proof.
+    #[test]
+    fn a_source_stamp_settles_two_seconds_after_the_last_write() {
+        let root = std::env::temp_dir().join(format!("octocode-stamp-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("create fixture");
+        let file = root.join("a.ts");
+        fs::write(&file, "export const a = 1;").expect("write fixture");
+        let meta = fs::metadata(&file).expect("meta");
+        let stamp = SourceStamp::of(&meta).expect("stamp");
+        assert_eq!(stamp.size, 19);
+        let last_write = stamp.modified_ns.max(stamp.changed_ns);
+        let at = |nanos: u64| std::time::UNIX_EPOCH + std::time::Duration::from_nanos(nanos);
+        let settle = SourceStamp::SETTLE.as_nanos() as u64;
+        assert_eq!(
+            SourceStamp::settled(&meta, at(last_write + settle - 1)),
+            None
+        );
+        assert_eq!(SourceStamp::settled(&meta, at(last_write)), None);
+        assert_eq!(
+            SourceStamp::settled(&meta, at(last_write + settle)),
+            Some(stamp)
+        );
+        // A just-written file scans with no stamp: its digest stays the proof.
+        let result = scan_graph_facts(GraphFactsScanOptions {
+            path: path_string(&root),
+            max_files: Some(10),
+            skip_files: None,
+            ..Default::default()
+        })
+        .expect("scan graph facts");
+        assert_eq!(result.entries.len(), 1);
+        assert_eq!(result.entries[0].source_stamp, None);
+        fs::remove_dir_all(root).expect("cleanup fixture");
+    }
+
     #[test]
     fn scans_supported_files_and_counts_export_references() {
         let root = std::env::temp_dir().join(format!("octocode-graph-scan-{}", std::process::id()));
@@ -293,13 +343,14 @@ mod tests {
         let result = scan_graph_facts(GraphFactsScanOptions {
             path: path_string(&root),
             max_files: Some(10),
+            skip_files: None,
             max_file_bytes: Some(48),
             ..Default::default()
         })
         .expect("scan graph facts");
 
         assert_eq!(result.entries.len(), 1);
-        assert_eq!(result.candidate_paths, ["src/entry.ts", "src/large.ts"]);
+        assert_eq!(scanned_paths(&result), ["src/entry.ts", "src/large.ts"]);
         assert_eq!(result.files_skipped, 1);
         assert_eq!(result.schema_version, 1);
         assert_eq!(result.skipped.len(), 1);
@@ -381,6 +432,7 @@ mod tests {
         let result = scan_graph_facts(GraphFactsScanOptions {
             path: path_string(&root),
             max_files: Some(10),
+            skip_files: None,
             max_file_bytes: Some(extraction_size as u32),
             ..Default::default()
         })
@@ -494,6 +546,7 @@ mod tests {
         let below_cap = scan_graph_facts(GraphFactsScanOptions {
             path: path_string(&root),
             max_files: Some(4),
+            skip_files: None,
             ..Default::default()
         })
         .expect("scan below cap");
@@ -503,6 +556,7 @@ mod tests {
         let exact_cap = scan_graph_facts(GraphFactsScanOptions {
             path: path_string(&root),
             max_files: Some(3),
+            skip_files: None,
             ..Default::default()
         })
         .expect("scan at cap");
@@ -512,6 +566,7 @@ mod tests {
         let over_cap = scan_graph_facts(GraphFactsScanOptions {
             path: path_string(&root),
             max_files: Some(2),
+            skip_files: None,
             ..Default::default()
         })
         .expect("scan over cap");
@@ -535,6 +590,7 @@ mod tests {
         let capped = scan_graph_facts(GraphFactsScanOptions {
             path: path_string(&root),
             max_files: Some(1),
+            skip_files: None,
             ..Default::default()
         })
         .expect("scan nested graph at cap");
@@ -547,11 +603,12 @@ mod tests {
         let expanded = scan_graph_facts(GraphFactsScanOptions {
             path: path_string(&root),
             max_files: Some(2),
+            skip_files: None,
             ..Default::default()
         })
         .expect("expand nested graph scan");
         assert_eq!(
-            expanded.candidate_paths,
+            scanned_paths(&expanded),
             ["left/entry-0.ts", "right/entry-0.ts"]
         );
         assert!(
@@ -580,10 +637,11 @@ mod tests {
         let result = scan_graph_facts(GraphFactsScanOptions {
             path: path_string(&root),
             max_files: Some(1),
+            skip_files: None,
             ..Default::default()
         })
         .expect("scan exactly one matching graph file");
-        assert_eq!(result.candidate_paths, ["entry-0.ts"]);
+        assert_eq!(scanned_paths(&result), ["entry-0.ts"]);
         assert!(
             !result.truncated,
             "nonmatching entries are not graph overflow"
@@ -606,12 +664,13 @@ mod tests {
             GraphFactsScanOptions {
                 path: path_string(&root),
                 max_files: Some(1),
+                skip_files: None,
                 ..Default::default()
             },
             &|path| Ok(!path.starts_with(root.join("private"))),
         )
         .expect("filtered scan");
-        assert_eq!(result.candidate_paths, ["visible.rs"]);
+        assert_eq!(scanned_paths(&result), ["visible.rs"]);
         assert_eq!(result.entries.len(), 1);
         assert_eq!(result.files_skipped, 0);
         assert!(!result.truncated);

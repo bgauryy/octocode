@@ -19,7 +19,7 @@ use oxc_span::{GetSpan, Span};
 
 use crate::types::GraphReferenceCount;
 
-use super::js_oxc_shared::LineIndex;
+use super::js_oxc_shared::SpanPositions;
 
 /// One declaration to count: its id, display name and name-token start.
 pub(super) struct CountTarget<'d> {
@@ -31,7 +31,7 @@ pub(super) struct CountTarget<'d> {
 
 pub(super) fn value_reference_counts(
     semantic: &Semantic<'_>,
-    line_index: &LineIndex<'_>,
+    line_index: &SpanPositions<'_>,
     targets: &[CountTarget<'_>],
 ) -> Vec<GraphReferenceCount> {
     let scoping = semantic.scoping();
@@ -73,7 +73,7 @@ pub(super) fn value_reference_counts(
 /// bindings and bindings without a resolvable symbol keep `used_in` absent.
 pub(super) fn record_import_uses(
     semantic: &Semantic<'_>,
-    line_index: &LineIndex<'_>,
+    line_index: &SpanPositions<'_>,
     facts: &mut crate::graph::GraphFactsDocument,
 ) {
     let crate::graph::GraphFactsDocument {

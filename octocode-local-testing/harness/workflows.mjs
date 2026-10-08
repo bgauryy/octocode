@@ -24,11 +24,12 @@ for (const [variant, ext] of [['cjs-noconfig', 'cjs'], ['cjs-jsconfig', 'cjs'], 
   const file = path.join(NATIVE, 'scripts/native-addon-utils.cjs');
   // Anchor on the live declaration line: this is a real repo file that moves.
   const lineHint = fs.readFileSync(file, 'utf8').split('\n').findIndex(line => line.startsWith('function stageFile(')) + 1;
-  const refs = await call('lspSearch', { path: file, symbolName: 'stageFile', lineHint, operation: 'references' });
+  // LP8: coverage.importerScan is a verbose (stats) field, listed only under debug.
+  const refs = await call('lspSearch', { path: file, symbolName: 'stageFile', lineHint, operation: 'references', debug: true });
   const files = new Set(locations(refs).map(f => path.basename(f)));
   check('F1 real repo: stageFile references span build-native.cjs + test', files.has('build-native.cjs') && files.has('build-publication.test.cjs'), [...files].join(','));
   const coverage = rowData(refs)?.payload?.coverage;
-  check('F1: coverage reports a complete importer scan', coverage?.importerScan === 'complete', JSON.stringify(coverage));
+  check('F1: coverage reports a complete importer scan (debug)', coverage?.importerScan === 'complete', JSON.stringify(coverage));
 }
 
 // F2 — workspaceSymbol ranks the exact name first.
@@ -42,7 +43,7 @@ for (const [variant, ext] of [['cjs-noconfig', 'cjs'], ['cjs-jsconfig', 'cjs'], 
 {
   const ws = await call('lspSearch', { workspaceRoot: NATIVE, operation: 'workspaceSymbol', symbolName: 'is_alive' });
   const route = findHint(ws.sc, 'hints.searchRust');
-  check('F3: mixed root names the searched language and offers hints.searchRust', (rowData(ws)?.lsp?.language ?? (/\btypescript language server\b/.test(JSON.stringify(rowData(ws)?.hints?.text ?? [])) ? 'typescript' : undefined)) === 'typescript' && !!route, JSON.stringify(rowData(ws)?.hints));
+  check('F3: mixed root names the searched language and offers hints.searchRust', (rowData(ws)?.lsp?.language ?? (/\btypescript (?:language )?server\b/.test(JSON.stringify(rowData(ws)?.hints?.text ?? [])) ? 'typescript' : undefined)) === 'typescript' && !!route, JSON.stringify(rowData(ws)?.hints));
   if (route) {
     const followed = await client.follow(route);
     check('F3: following hints.searchRust finds is_alive', (rowData(followed)?.payload?.matches ?? []).some(i => i.name === 'is_alive'), followed.text.slice(0, 100));
@@ -104,7 +105,7 @@ for (const [variant, ext] of [['cjs-noconfig', 'cjs'], ['cjs-jsconfig', 'cjs'], 
   const log = path.join(FIXTURES, 'large/huge.log');
   if (fs.existsSync(log)) {
     const count = await call('localSearch', { path: log, matchString: 'level=ERROR', resultView: 'countMatches' });
-    const n = rowData(count)?.stats?.totalMatches ?? collect(rowData(count), o => typeof o.matchCount === 'number')[0]?.matchCount;
+    const n = rowData(count)?.stats?.matchCount ?? collect(rowData(count), o => typeof o.matchCount === 'number')[0]?.matchCount;
     check('L1: 28MB log is searched (exact count)', n === Math.floor(400_000 / 97), `count=${n}`);
     const tail = await call('localFetch', { path: log, ranges: ['399999-400000'] });
     check('L2: 28MB log tail window served with exact totals', rowData(tail)?.totalLines === 400_000 && (rowData(tail)?.content ?? '').includes('req=400000'), rowData(tail)?.errorCode ?? '');

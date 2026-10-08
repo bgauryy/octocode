@@ -43,8 +43,6 @@ pub(crate) fn strip_trailing_newline(mut s: String) -> String {
     s
 }
 
-/// Truncates a string to at most `max_chars` Unicode scalar values, appending
-/// `...` when truncated. Avoids `[...value]` spread allocation from JS.
 /// Chars kept after the match start when a snippet must be clipped.
 const MATCH_TAIL_CHARS: usize = 20;
 
@@ -69,14 +67,21 @@ fn line_rank_at(line: &str, column: u32) -> u32 {
     super::relevance::line_rank(line.as_bytes(), byte)
 }
 
+/// Whether [`clip_around_match`] cuts a window around the match rather
+/// than keeping the line's head.
+fn clips_to_window(line: &str, column: u32, max_chars: usize) -> bool {
+    max_chars > 3
+        && utf16_to_char_index(line, column) + MATCH_TAIL_CHARS.min(max_chars / 2) >= max_chars
+}
+
 /// Clip `line` to `max_chars`, keeping the match at UTF-16 `column` visible.
 /// Lines whose match already fits the head are truncated from the start; otherwise
 /// the window starts a quarter-snippet before the match and is marked with `…`.
 fn clip_around_match(line: &str, column: u32, max_chars: usize) -> String {
-    let match_char = utf16_to_char_index(line, column);
-    if max_chars <= 3 || match_char + MATCH_TAIL_CHARS.min(max_chars / 2) < max_chars {
+    if !clips_to_window(line, column, max_chars) {
         return truncate_unicode(line, max_chars);
     }
+    let match_char = utf16_to_char_index(line, column);
     let start_char = match_char.saturating_sub(max_chars / 4);
     let start_byte = line
         .char_indices()
@@ -85,6 +90,8 @@ fn clip_around_match(line: &str, column: u32, max_chars: usize) -> String {
     format!("…{}", truncate_unicode(&line[start_byte..], max_chars - 1))
 }
 
+/// Truncates a string to at most `max_chars` Unicode scalar values, appending
+/// `...` when truncated.
 pub(crate) fn truncate_unicode(s: &str, max_chars: usize) -> String {
     if max_chars == 0 {
         return String::new();
@@ -115,21 +122,53 @@ pub(crate) fn truncate_unicode(s: &str, max_chars: usize) -> String {
 /// snippet to `max_snippet` chars.
 pub(crate) fn assemble_file(
     path: String,
-    entry: &FileEntry,
+    entry: FileEntry,
     context_lines: u32,
     max_snippet: usize,
 ) -> RipgrepFile {
+    if context_lines == 0 {
+        // One row per hit line: a line that needs no clip becomes the value
+        // itself instead of a copy.
+        let matches = entry
+            .raw_matches
+            .into_iter()
+            .map(|m| {
+                let chars = m.line_text.chars().count();
+                let rank = line_rank_at(&m.line_text, m.column);
+                let value = if chars <= max_snippet
+                    && !clips_to_window(&m.line_text, m.column, max_snippet)
+                {
+                    m.line_text
+                } else {
+                    clip_around_match(&m.line_text, m.column, max_snippet)
+                };
+                RipgrepMatch {
+                    line: m.line_number,
+                    column: m.column,
+                    value,
+                    count: None,
+                    kind: None,
+                    score_hint: None,
+                    rank: Some(rank),
+                    original_chars: (chars > max_snippet)
+                        .then(|| u32::try_from(chars).unwrap_or(u32::MAX)),
+                }
+            })
+            .collect::<Vec<_>>();
+        return RipgrepFile {
+            path,
+            match_count: matches.len() as u32,
+            matches,
+            source: None,
+        };
+    }
     // Neighbouring match lines are context too (rg -C prints them); without this
     // lookup a snippet silently skipped them and joined non-adjacent lines.
-    let match_lines: HashMap<u32, &str> = if context_lines == 0 {
-        HashMap::new()
-    } else {
-        entry
-            .raw_matches
-            .iter()
-            .map(|m| (m.line_number, m.line_text.as_str()))
-            .collect()
-    };
+    let match_lines: HashMap<u32, &str> = entry
+        .raw_matches
+        .iter()
+        .map(|m| (m.line_number, m.line_text.as_str()))
+        .collect();
     let neighbour = |line: u32| {
         entry
             .contexts
@@ -141,13 +180,7 @@ pub(crate) fn assemble_file(
         .raw_matches
         .iter()
         .map(|m| {
-            let (value, original_chars) = if context_lines == 0 {
-                let chars = m.line_text.chars().count();
-                (
-                    clip_around_match(&m.line_text, m.column, max_snippet),
-                    (chars > max_snippet).then(|| u32::try_from(chars).unwrap_or(u32::MAX)),
-                )
-            } else {
+            let (value, original_chars) = {
                 // Contiguous context only: stop at the first line that is absent.
                 // Join by line slot (not by buffer emptiness) so a blank
                 // leading line keeps its place and line numbers stay aligned.
@@ -213,6 +246,7 @@ pub(crate) fn assemble_file(
         path,
         match_count,
         matches,
+        source: None,
     }
 }
 
@@ -242,7 +276,7 @@ mod tests {
                 }
             }
         }
-        assemble_file("f.ts".to_owned(), &entry, context_lines, max_snippet)
+        assemble_file("f.ts".to_owned(), entry, context_lines, max_snippet)
     }
 
     #[test]
@@ -348,6 +382,32 @@ mod tests {
         assert!(val.starts_with(&near), "{val}");
         assert!(val.contains("fn target() {\n    body();"), "{val}");
         assert!(val.chars().count() <= 80, "{val}");
+    }
+
+    /// A hit line kept whole is moved into its value; every value still
+    /// equals the clip of the line, including a line that fits but whose
+    /// match sits in its tail (that one is clipped to a window).
+    #[test]
+    fn moved_line_values_equal_the_clipped_line() {
+        let lines = [
+            ("short line", 0),
+            ("ab", 1),
+            (&*"x".repeat(100), 95),
+            (&*"y".repeat(100), 10),
+            (&*"z".repeat(120), 110),
+            ("café → naïve ✓ needle", 15),
+            ("", 0),
+        ];
+        for max in [0, 2, 3, 4, 50, 100, 500] {
+            for (line, column) in lines {
+                let f = assemble(&[(1, line, Some(column))], 0, max);
+                assert_eq!(
+                    f.matches[0].value,
+                    clip_around_match(line, column, max),
+                    "{line:?} {column} {max}"
+                );
+            }
+        }
     }
 
     #[test]

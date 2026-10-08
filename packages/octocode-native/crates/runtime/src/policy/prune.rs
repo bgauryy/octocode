@@ -101,6 +101,16 @@ impl PruneMode {
             Vec::new()
         }
     }
+
+    /// [`Self::directories`] without the credential stores. The read policy
+    /// withholds those anyway, so a walk whose path-policy callback records
+    /// what it denies (`discovery::Withheld`) meets them there and can
+    /// disclose them instead of pruning them unseen.
+    pub fn directories_before_policy(self, defaults: bool) -> Vec<String> {
+        let mut names = self.directories(defaults);
+        names.retain(|name| !CREDENTIAL_DIRECTORY_NAMES.contains(&name.as_str()));
+        names
+    }
 }
 
 /// `defaultExcludes` as the generated query types spell it (a plain flag or
@@ -130,6 +140,22 @@ impl DefaultsFlag for Option<crate::contracts::tool_types::ArDefaultExcludes> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn credential_stores_left_to_the_policy_are_all_withheld_by_it() {
+        for name in super::CREDENTIAL_DIRECTORY_NAMES {
+            assert!(
+                crate::policy::discovery::SENSITIVE_DIRECTORY_NAMES.contains(name),
+                "{name} would be walked"
+            );
+            assert!(
+                !super::PruneMode::SyntaxVisible
+                    .directories_before_policy(true)
+                    .iter()
+                    .any(|kept| kept == name)
+            );
+        }
+    }
+
     use super::*;
 
     #[test]

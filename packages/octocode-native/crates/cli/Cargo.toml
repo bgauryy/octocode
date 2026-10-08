@@ -33,8 +33,6 @@ futures-util = { workspace = true }
 tokio-util = { workspace = true }
 url = { workspace = true }
 regress = { workspace = true }
-sha2 = { workspace = true }
-hex = { workspace = true }
 flate2 = { workspace = true }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 reqwest = { workspace = true }

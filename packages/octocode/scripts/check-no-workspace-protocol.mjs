@@ -94,11 +94,8 @@ function collectWorkspaceMemberNames() {
   const names = new Set();
   // Root workspace package (e.g. octocode-monorepo) resolves via workspace:. legitimately.
   const rootPkgPath = join(repoRoot, 'package.json');
-  if (existsSync(rootPkgPath)) {
-    const rootName = readJson(rootPkgPath).name;
-    if (typeof rootName === 'string') names.add(rootName);
-  }
   const rootPkg = existsSync(rootPkgPath) ? readJson(rootPkgPath) : {};
+  if (typeof rootPkg.name === 'string') names.add(rootPkg.name);
   const patterns = Array.isArray(rootPkg.workspaces) ? rootPkg.workspaces : rootPkg.workspaces?.packages ?? [];
   for (const pattern of patterns) {
     for (const directory of globSync(pattern, { cwd: repoRoot })) {

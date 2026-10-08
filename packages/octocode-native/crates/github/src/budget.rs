@@ -16,7 +16,9 @@ mod persist;
 
 pub(crate) use classify::{is_primary_rate_limit, is_secondary_rate_limit};
 
-use super::{ProviderError, ProviderErrorKind, RateLimit, credential_host, retry::header_u64};
+use super::{
+    BudgetStop, ProviderError, ProviderErrorKind, RateLimit, credential_host, retry::header_u64,
+};
 use reqwest::header::HeaderMap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -81,6 +83,16 @@ impl Group {
             Self::Graphql => "graphql",
             Self::Write => "write",
             Self::Auth => "auth",
+        }
+    }
+
+    /// The GitHub rate-limit bucket this group's requests draw from.
+    fn bucket(self) -> &'static str {
+        match self {
+            Self::Search => GitHubResource::Search.bucket(),
+            Self::CodeSearch => GitHubResource::CodeSearch.bucket(),
+            Self::Graphql => GitHubResource::Graphql.bucket(),
+            Self::Write | Self::Auth => GitHubResource::Core.bucket(),
         }
     }
 }
@@ -308,18 +320,8 @@ pub(crate) fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn ceil_secs(duration: Duration) -> u64 {
+pub(crate) fn ceil_secs(duration: Duration) -> u64 {
     duration.as_millis().div_ceil(1000) as u64
-}
-
-fn cancelled() -> ProviderError {
-    ProviderError::new(ProviderErrorKind::Cancelled, "GitHub request cancelled")
-}
-fn timed_out() -> ProviderError {
-    ProviderError::new(
-        ProviderErrorKind::Timeout,
-        "GitHub request deadline exceeded",
-    )
 }
 
 /// Cancellation- and deadline-aware sleep. Fails fast (timeout) instead of
@@ -330,16 +332,16 @@ pub(crate) async fn pause(
     cancellation: &CancellationToken,
 ) -> Result<(), ProviderError> {
     if cancellation.is_cancelled() {
-        return Err(cancelled());
+        return Err(BudgetStop::Cancelled.into());
     }
     if Instant::now() + delay >= deadline {
-        return Err(timed_out());
+        return Err(BudgetStop::Deadline.into());
     }
     if delay.is_zero() {
         return Ok(());
     }
     tokio::select! {
-        _ = cancellation.cancelled() => Err(cancelled()),
+        _ = cancellation.cancelled() => Err(BudgetStop::Cancelled.into()),
         _ = tokio::time::sleep(delay) => Ok(()),
     }
 }
@@ -351,8 +353,8 @@ async fn acquire(
 ) -> Result<OwnedSemaphorePermit, ProviderError> {
     let remaining = deadline.saturating_duration_since(Instant::now());
     tokio::select! {
-        _ = cancellation.cancelled() => Err(cancelled()),
-        _ = tokio::time::sleep(remaining) => Err(timed_out()),
+        _ = cancellation.cancelled() => Err(BudgetStop::Cancelled.into()),
+        _ = tokio::time::sleep(remaining) => Err(BudgetStop::Deadline.into()),
         permit = semaphore.clone().acquire_owned() => permit.map_err(|_| {
             ProviderError::new(ProviderErrorKind::Cancelled, "GitHub concurrency limiter closed")
         }),
@@ -515,13 +517,23 @@ impl KeyState {
                     };
                     if wait > limit.max(config.spacing(group)) || Instant::now() + wait >= deadline
                     {
+                        // Label the wait by its cause: the code-search window,
+                        // or this group's own spacing (review L10).
+                        let message = if window {
+                            "GitHub code search window is full; request not sent.".to_owned()
+                        } else {
+                            format!(
+                                "GitHub {} request spacing exceeds the deadline; request not sent.",
+                                group.name()
+                            )
+                        };
                         return Err(rate_limited_error(
-                            "GitHub code search window is full; request not sent.",
+                            &message,
                             RateLimit {
                                 remaining: Some(0),
                                 reset_epoch_seconds: Some(start.div_ceil(1000)),
                                 retry_after_seconds: Some(ceil_secs(wait)),
-                                resource: Some(GitHubResource::CodeSearch.bucket().into()),
+                                resource: Some(group.bucket().into()),
                             },
                         ));
                     }
@@ -627,10 +639,10 @@ impl KeyState {
         self.refresh_from_disk();
         loop {
             if is_cancelled() {
-                return Err(cancelled());
+                return Err(BudgetStop::Cancelled.into());
             }
             if Instant::now() >= deadline {
-                return Err(timed_out());
+                return Err(BudgetStop::Deadline.into());
             }
             // Clone traffic is not metered by an API bucket; only the shared
             // cooldown/circuit apply.
@@ -829,6 +841,42 @@ mod tests {
         let budget = Arc::new(GitHubBudget::with_config(config));
         let state = budget.key_state(&LimiterKey::new("h", None), None);
         (budget, state)
+    }
+
+    /// Review L10: a spacing rejection names the group's own bucket, not the
+    /// code-search window.
+    #[tokio::test]
+    async fn spacing_rejection_names_its_own_resource() {
+        let (budget, state) = limited(ExecutorConfig {
+            graphql_spacing: Duration::from_secs(5),
+            ..ExecutorConfig::relaxed()
+        });
+        let token = CancellationToken::new();
+        let admit = |deadline| {
+            state.admit(
+                Some(Group::Graphql),
+                budget.config(),
+                false,
+                Duration::from_secs(10),
+                deadline,
+                &token,
+            )
+        };
+        drop(
+            admit(Instant::now() + Duration::from_secs(30))
+                .await
+                .expect("first start"),
+        );
+        let error = admit(Instant::now() + Duration::from_millis(100))
+            .await
+            .err()
+            .expect("spacing exceeds the deadline");
+        assert_eq!(error.kind, ProviderErrorKind::RateLimited);
+        assert_eq!(
+            error.rate_limit.and_then(|rate| rate.resource).as_deref(),
+            Some("graphql")
+        );
+        assert!(!error.message.contains("code search"), "{}", error.message);
     }
 
     #[tokio::test]

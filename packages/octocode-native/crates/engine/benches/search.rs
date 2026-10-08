@@ -49,22 +49,30 @@ fn fixture_tree() -> PathBuf {
 fn high_hit_search(criterion: &mut Criterion) {
     let root = fixture_tree();
     let path = root.display().to_string();
-    criterion.bench_function("ripgrep_high_hit_collect", |bencher| {
-        bencher.iter(|| {
-            let result = search_ripgrep_cancellable(
-                RipgrepSearchOptions {
-                    path: path.clone(),
-                    pattern: "needle".to_owned(),
-                    fixed_string: Some(true),
-                    ..Default::default()
-                },
-                Arc::new(AllowAll),
-                &|| false,
-            )
-            .expect("bench search");
-            black_box(result)
+    // `_digest` hashes every searched file in the read it searches with, as
+    // localSearch asks (its page cache keeps those digests).
+    for (name, digest_max_bytes) in [
+        ("ripgrep_high_hit_collect", None),
+        ("ripgrep_high_hit_collect_digest", Some(64 * 1024 * 1024)),
+    ] {
+        criterion.bench_function(name, |bencher| {
+            bencher.iter(|| {
+                let result = search_ripgrep_cancellable(
+                    RipgrepSearchOptions {
+                        path: path.clone(),
+                        pattern: "needle".to_owned(),
+                        fixed_string: Some(true),
+                        digest_max_bytes,
+                        ..Default::default()
+                    },
+                    Arc::new(AllowAll),
+                    &|| false,
+                )
+                .expect("bench search");
+                black_box(result)
+            });
         });
-    });
+    }
 }
 
 criterion_group!(benches, high_hit_search);

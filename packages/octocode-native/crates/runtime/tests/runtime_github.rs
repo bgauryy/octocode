@@ -39,7 +39,7 @@ impl Respond for DelayedContentResponse {
 
 #[tokio::test]
 async fn malformed_remote_regex_keeps_original_error_and_required_file_path() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/README.md"))
@@ -63,7 +63,7 @@ async fn malformed_remote_regex_keeps_original_error_and_required_file_path() {
 
 #[tokio::test]
 async fn github_file_read_goes_through_execute_and_redacts() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/main"))
@@ -135,7 +135,7 @@ async fn github_missing_identity_is_a_contract_error() {
 
 #[tokio::test]
 async fn github_tree_materialize_is_accepted_and_emits_location() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
@@ -206,6 +206,22 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
     let exhausted = call(&runtime, "ghStructure", json!({"owner":"a","repo":"b","ref":sha,"pageSize":1,"materialize":true,"materializeOffset":1})).await.expect("boundary offset");
     let boundary = row_data(&exhausted);
     assert_eq!(boundary["pagination"]["hasMore"], true, "{boundary}");
+    // GS6b: a materialize resumed inside its page does not re-send the
+    // entries its first call listed; `location` anchors it.
+    let resumed = call(
+        &runtime,
+        "ghStructure",
+        json!({"owner":"a","repo":"b","ref":sha,"materialize":true,"materializeOffset":1}),
+    )
+    .await
+    .expect("mid-page offset");
+    let resumed = row_data(&resumed);
+    assert!(resumed.get("entries").is_none(), "{resumed}");
+    assert!(
+        resumed["location"]["localPath"].as_str().is_some(),
+        "{resumed}"
+    );
+    assert_eq!(resumed["location"]["complete"], true, "{resumed}");
     let next = &boundary["next"]["continueMaterialize"]["query"]["queries"][0];
     assert_eq!(next["ref"], sha, "{boundary}");
     assert_eq!(next["page"], 2, "{boundary}");
@@ -222,7 +238,7 @@ async fn github_tree_materialize_is_accepted_and_emits_location() {
 /// them is not complete, and `next.expandDepth` writes them.
 #[tokio::test]
 async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
@@ -283,7 +299,7 @@ async fn github_tree_materialize_with_unwritten_folders_is_not_complete() {
 /// (exit 3), not an empty partial search.
 #[tokio::test]
 async fn gh_search_code_on_a_missing_repository_is_not_found() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/code"))
         .respond_with(
@@ -318,9 +334,9 @@ async fn gh_search_code_on_a_missing_repository_is_not_found() {
 }
 
 #[tokio::test]
-async fn github_clone_is_cli_only_even_when_mcp_enables_clone() {
+async fn github_clone_is_cli_only() {
     let workspace = Workspace::new();
-    let cli = workspace.runtime(&[("ENABLE_CLONE", "false".into())]);
+    let cli = workspace.runtime(&[]);
     assert!(cli.is_available("ghCloneRepo"));
     let mcp_call = cli
         .execute_mcp(
@@ -333,7 +349,7 @@ async fn github_clone_is_cli_only_even_when_mcp_enables_clone() {
     assert_eq!(mcp_call.code, "toolUnavailable");
     cli.close().await;
 
-    let mut input = workspace.config(&[("ENABLE_CLONE", "true".into())]);
+    let mut input = workspace.config(&[]);
     input.runtime_surface = octocode_native::config::RuntimeSurface::Mcp;
     let mcp = octocode_native::runtime::ToolRuntime::new(input).expect("MCP runtime");
     assert!(!mcp.is_available("ghCloneRepo"));
@@ -348,7 +364,7 @@ async fn github_clone_is_cli_only_even_when_mcp_enables_clone() {
 /// rows retain their input order.
 #[tokio::test]
 async fn three_github_bulk_queries_are_concurrent_and_preserve_order() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     let arrivals = Arc::new(Mutex::new(Vec::new()));
 
@@ -419,7 +435,7 @@ async fn three_github_bulk_queries_are_concurrent_and_preserve_order() {
 /// observable proof.
 #[tokio::test]
 async fn three_sequential_queries_each_hit_the_server() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
 
     // One SHA endpoint shared by all three queries.
@@ -475,7 +491,7 @@ async fn three_sequential_queries_each_hit_the_server() {
 
 #[tokio::test]
 async fn gh_search_history_commits_lists_via_rest() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     // canonical_owner_repo pre-flight
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
@@ -529,7 +545,7 @@ async fn gh_search_history_commits_lists_via_rest() {
 async fn gh_search_history_issues_list_via_issue_search() {
     // Plain issue listings page `is:issue` search results: GitHub's REST
     // /issues list interleaves pull requests, which left pages short.
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/issues"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -579,7 +595,7 @@ async fn gh_search_history_issues_list_via_issue_search() {
 
 #[tokio::test]
 async fn gh_search_history_pull_requests_lists_via_rest() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b"))
         .respond_with(
@@ -631,7 +647,7 @@ async fn gh_search_history_pull_requests_lists_via_rest() {
 
 #[tokio::test]
 async fn gh_get_history_item_commit_fetches_via_rest() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "abc123def456abc123def456abc123def456abc1";
     Mock::given(method("GET"))
         .and(path(format!("/api/v3/repos/a/b/commits/{sha}")))
@@ -685,7 +701,7 @@ async fn gh_get_history_item_commit_fetches_via_rest() {
 /// instead of searching by SHA.
 #[tokio::test]
 async fn squash_merge_commit_reads_its_pull_request_directly() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "30df32a13f9cf5f129b913b967ff6f137c5511d6";
     Mock::given(method("GET"))
         .and(path(format!("/api/v3/repos/a/b/commits/{sha}")))
@@ -726,7 +742,7 @@ async fn squash_merge_commit_reads_its_pull_request_directly() {
 
 #[tokio::test]
 async fn gh_get_history_item_issue_fetches_via_rest() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/42"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -767,7 +783,7 @@ async fn gh_get_history_item_issue_fetches_via_rest() {
 
 #[tokio::test]
 async fn gh_get_history_item_preserves_github_permission_reason() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let leaked_token = format!("ghp_{}", "a".repeat(37));
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/42"))
@@ -801,7 +817,7 @@ async fn gh_get_history_item_preserves_github_permission_reason() {
 
 #[tokio::test]
 async fn gh_get_history_item_commit_not_found_surfaces_error() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/deadbeef1234567890"))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
@@ -836,17 +852,14 @@ async fn gh_get_history_item_commit_not_found_surfaces_error() {
 /// be cloned at all, and the API is never asked.
 #[tokio::test]
 async fn gh_clone_repo_makes_no_metadata_call_before_git() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/ghost/nope"))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message": "Not Found"})))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    let runtime = workspace.runtime(&[
-        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
-        ("ENABLE_CLONE", "true".into()),
-    ]);
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
         &runtime,
         "ghCloneRepo",
@@ -867,7 +880,7 @@ async fn gh_clone_repo_makes_no_metadata_call_before_git() {
 
 #[tokio::test]
 async fn artifact_search_lookup_goes_through_execute() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/left-pad/latest"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -887,9 +900,9 @@ async fn artifact_search_lookup_goes_through_execute() {
         &runtime,
         "artifactSearch",
         json!({
-            "type": "npm",
+            "ecosystem": "npm",
             "packageName": "left-pad",
-            "registry": server.uri()
+            "registryUrl": server.uri()
         }),
     )
     .await
@@ -921,7 +934,7 @@ async fn artifact_search_npm_credentials_follow_the_runtime_env() {
         ("home", Some("Bearer from-runtime-home")),
         ("empty", None),
     ] {
-        let server = MockServer::start().await;
+        let server = MockServer::builder().start().await;
         Mock::given(method("GET"))
             .and(path("/runtime-env-auth/latest"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -963,7 +976,7 @@ async fn artifact_search_npm_credentials_follow_the_runtime_env() {
         let outcome = call(
             &runtime,
             "artifactSearch",
-            json!({"type": "npm", "packageName": "runtime-env-auth", "registry": server.uri()}),
+            json!({"ecosystem": "npm", "packageName": "runtime-env-auth", "registryUrl": server.uri()}),
         )
         .await
         .expect("artifactSearch");
@@ -1000,7 +1013,7 @@ async fn artifact_search_npm_credentials_follow_the_runtime_env() {
 /// its own npmrc and route a user's token to a registry it names.
 #[tokio::test]
 async fn artifact_search_npm_userconfig_never_comes_from_the_workspace_env() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/runtime-env-auth/latest"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -1028,7 +1041,7 @@ async fn artifact_search_npm_userconfig_never_comes_from_the_workspace_env() {
     let outcome = call(
         &runtime,
         "artifactSearch",
-        json!({"type": "npm", "packageName": "runtime-env-auth", "registry": server.uri()}),
+        json!({"ecosystem": "npm", "packageName": "runtime-env-auth", "registryUrl": server.uri()}),
     )
     .await
     .expect("artifactSearch");
@@ -1056,7 +1069,7 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
     // Regression: the per-row `next` menu omitted required pageSize, so every
     // plain PR fetch tripped outputContractViolation. The summary row carries
     // a body preview: the multibyte body rides the file-list read whole.
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let body = "修复并发缓冲区的内存泄漏问题。".repeat(60);
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/pulls/7"))
@@ -1118,7 +1131,7 @@ async fn gh_get_history_item_pull_request_without_content_passes_output_contract
 
 #[tokio::test]
 async fn history_repository_without_owner_is_rejected_before_provider_requests() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
     let outcome = call(
@@ -1140,6 +1153,7 @@ async fn history_repository_without_owner_is_rejected_before_provider_requests()
     let payload = outcome.payload.as_ref().expect("transport error payload");
     assert_eq!(payload["kind"], "octocode.toolError");
     assert_eq!(payload["tool"], "ghSearchHistory");
+    assert_eq!(payload["errorCode"], "invalidInput");
     assert!(
         server
             .received_requests()
@@ -1153,7 +1167,7 @@ async fn history_repository_without_owner_is_rejected_before_provider_requests()
 #[tokio::test]
 async fn history_rest_page_ceiling_retains_current_items_without_invalid_continuation() {
     for operation in ["pullRequest", "commit"] {
-        let server = MockServer::start().await;
+        let server = MockServer::builder().start().await;
         mount_repo_metadata(&server).await;
         let (endpoint, rows, field) = if operation == "pullRequest" {
             (
@@ -1218,7 +1232,7 @@ async fn mount_repo_metadata(server: &MockServer) {
 
 #[tokio::test]
 async fn gh_search_history_pull_request_list_defaults_to_all_states_newest_first() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_repo_metadata(&server).await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/pulls"))
@@ -1253,7 +1267,7 @@ async fn gh_search_history_pull_request_list_defaults_to_all_states_newest_first
 
 #[tokio::test]
 async fn gh_search_history_pull_request_search_works_across_repositories() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/issues"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -1297,7 +1311,7 @@ async fn gh_search_history_pull_request_search_works_across_repositories() {
 
 #[tokio::test]
 async fn gh_search_history_commit_list_forwards_committer() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_repo_metadata(&server).await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits"))
@@ -1313,7 +1327,7 @@ async fn gh_search_history_commit_list_forwards_committer() {
     let outcome = call(
         &runtime,
         "ghSearchHistory",
-        json!({"operation": "commit", "owner": "a", "repo": "b", "committer": "web-flow"}),
+        json!({"operation": "commit", "owner": "a", "repo": "b", "qualifiers": "committer:web-flow"}),
     )
     .await
     .expect("commit list");
@@ -1324,7 +1338,7 @@ async fn gh_search_history_commit_list_forwards_committer() {
 
 #[tokio::test]
 async fn gh_get_file_content_on_directory_returns_tree_recovery() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/main"))
@@ -1372,7 +1386,7 @@ async fn gh_get_file_content_on_directory_returns_tree_recovery() {
 /// size and blob SHA under an invalid-input code, not a decode failure.
 #[tokio::test]
 async fn gh_file_read_of_binary_content_reports_size_and_blob() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     let blob = "b".repeat(40);
     Mock::given(method("GET"))
@@ -1412,7 +1426,7 @@ async fn gh_file_read_of_binary_content_reports_size_and_blob() {
 /// file to its nearest existing directory, never to another missing path.
 #[tokio::test]
 async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/main"))
@@ -1501,7 +1515,7 @@ async fn gh_file_read_of_a_missing_path_recovers_to_what_exists() {
 /// (case-corrected), never another missing path.
 #[tokio::test]
 async fn gh_structure_of_a_missing_path_recovers_to_the_nearest_directory() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/main"))
@@ -1582,7 +1596,7 @@ async fn gh_structure_of_a_missing_path_recovers_to_the_nearest_directory() {
 
 #[tokio::test]
 async fn gh_search_concise_repositories_are_contract_valid() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/search/repositories"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -1621,7 +1635,7 @@ async fn gh_search_concise_repositories_are_contract_valid() {
 /// `<home>/tmp/ratelimit/` for other processes.
 #[tokio::test]
 async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_processes() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let reset = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -1691,7 +1705,7 @@ async fn gh_primary_rate_limit_is_contract_valid_and_persisted_for_other_process
 /// D6: only an anonymous caller is told that authenticating raises quota.
 #[tokio::test]
 async fn anonymous_rate_limit_advises_authentication() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .respond_with(
             ResponseTemplate::new(403)
@@ -1729,7 +1743,7 @@ async fn anonymous_rate_limit_advises_authentication() {
 async fn gh_get_history_item_capped_file_scan_is_not_a_complete_count() {
     // A path-scoped scan that stops at the file-batch cap must not
     // report its file count as complete.
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "abc123def456abc123def456abc123def456abc1";
     let commit_path = format!("/api/v3/repos/a/b/commits/{sha}");
     Mock::given(method("GET"))
@@ -1800,7 +1814,7 @@ fn all_hints(value: &serde_json::Value) -> Vec<String> {
 /// mid-sentence with an ellipsis.
 #[tokio::test]
 async fn github_recovery_hints_are_never_cut_mid_sentence() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/locked"))
@@ -1844,7 +1858,7 @@ async fn github_recovery_hints_are_never_cut_mid_sentence() {
 /// GitHub's unrelated commits documentation link.
 #[tokio::test]
 async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/ghost/nope/commits/HEAD"))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({
@@ -1877,7 +1891,7 @@ async fn gh_file_read_on_a_missing_repository_reports_repository_access() {
 /// default row drops them; `debug: true` keeps them.
 #[tokio::test]
 async fn gh_file_error_keeps_provider_diagnostics_for_debug_only() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/src%2Fmissing.rs"))
@@ -1916,7 +1930,7 @@ async fn gh_file_error_keeps_provider_diagnostics_for_debug_only() {
 /// read instead of a generic not-found.
 #[tokio::test]
 async fn gh_pull_request_read_of_an_issue_number_offers_read_issue() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/pulls/9"))
         .respond_with(ResponseTemplate::new(404).set_body_json(json!({"message":"Not Found"})))
@@ -1988,7 +2002,7 @@ async fn mount_capped_compare(server: &MockServer) {
 /// page carries only files, and a commit page only commits.
 #[tokio::test]
 async fn compare_pages_carry_one_collection_each_and_pin_both_refs() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_capped_compare(&server).await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
@@ -2011,6 +2025,10 @@ async fn compare_pages_carry_one_collection_each_and_pin_both_refs() {
         data["hints"]["readCommit"]["query"]["queries"][0]["ref"], data["commits"][0]["sha"],
         "{data}"
     );
+    // P6: the commit list is count-cut with a known total (`totalCommits`):
+    // its page states the total and the page count.
+    assert_eq!(data["pagination"]["totalItems"], 150, "{data}");
+    assert_eq!(data["pagination"]["totalPages"], 2, "{data}");
     let commit_page = data["next"]["nextPage"]["query"]["queries"][0].clone();
     assert!(commit_page.get("filePage").is_none(), "{commit_page}");
     assert_eq!(commit_page["head"], HEAD_SHA, "{commit_page}");
@@ -2048,7 +2066,7 @@ async fn compare_pages_carry_one_collection_each_and_pin_both_refs() {
 /// row warns and leads to the path's commits up to the pinned head.
 #[tokio::test]
 async fn capped_compare_with_a_path_leads_to_the_path_history() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_capped_compare(&server).await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
@@ -2083,7 +2101,7 @@ async fn capped_compare_with_a_path_leads_to_the_path_history() {
 /// full message is one `readCommit` lead away.
 #[tokio::test]
 async fn commit_patch_view_carries_the_headline_not_the_whole_message() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "abc123def456abc123def456abc123def456abc1";
     let message = format!("Fix the parser (#42)\n\n{}", "Long rationale. ".repeat(400));
     Mock::given(method("GET"))
@@ -2123,7 +2141,7 @@ async fn commit_patch_view_carries_the_headline_not_the_whole_message() {
 /// unshown comment (no second, response-level cursor).
 #[tokio::test]
 async fn issue_comment_pages_fit_the_response_with_one_cursor() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/7"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -2174,11 +2192,155 @@ async fn issue_comment_pages_fit_the_response_with_one_cursor() {
     runtime.close().await;
 }
 
+/// P4 (issue twin of D9): a comment-body continuation hop lists only the
+/// bodies it continues, and pages exactly the comments its first window
+/// showed. The first window reads the issue body beside the discussion, so
+/// its comments get less of the page than a comments-only hop would: the
+/// hop must still stop where the first window stopped, or it shows comments
+/// first at a later offset (their opening text never read) and its
+/// `nextCommentPage` skips them. Every lead of every response is followed;
+/// every body (the issue's and each comment's) arrives contiguous and
+/// exactly once, and no finished comment is listed again.
+#[tokio::test]
+async fn issue_comment_body_hops_list_only_unfinished_bodies() {
+    let server = MockServer::builder().start().await;
+    let issue_body = format!("issue body {}", "b".repeat(9_000));
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/7"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "number": 7, "title": "Long thread", "state": "open", "body": issue_body,
+            "user": {"login": "alice"}, "labels": [], "comments": 40,
+            "created_at": "2026-09-20T00:00:00Z", "updated_at": "2026-09-25T00:00:00Z"
+        })))
+        .mount(&server)
+        .await;
+    let body = |n: usize| {
+        let size = if n % 2 == 1 { 8_000 } else { 300 };
+        format!("comment {n} ") + &format!("{n:02}.").repeat(size / 3)
+    };
+    let comments = (0..40)
+        .map(|n| {
+            json!({"id": n, "user": {"login": "bob"}, "body": body(n),
+                        "created_at": "2026-09-21T00:00:00Z", "updated_at": "2026-09-21T00:00:00Z"})
+        })
+        .collect::<Vec<_>>();
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/issues/7/comments"))
+        .and(query_param("page", "1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!(comments)))
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[
+        ("GITHUB_API_URL", format!("{}/api/v3", server.uri())),
+        ("OCTOCODE_OUTPUT_DEFAULT_CHAR_LENGTH", "20000".into()),
+    ]);
+    let first = json!({"queries":[{"operation":"issue","owner":"a","repo":"b","number":7,
+        "sections":["body","comments"],"length":6000,"debug":false}]});
+    let mut queue = std::collections::VecDeque::from([first]);
+    let mut followed = std::collections::HashSet::<String>::new();
+    let mut read = std::collections::BTreeMap::<u64, String>::new();
+    let mut issue_text = String::new();
+    let (mut calls, mut relisted) = (0, 0);
+    // One lead offered by two responses runs once, whatever its key order.
+    fn canonical(value: &serde_json::Value) -> String {
+        match value {
+            serde_json::Value::Object(map) => {
+                let mut keys = map.keys().collect::<Vec<_>>();
+                keys.sort();
+                let fields = keys
+                    .into_iter()
+                    .map(|key| format!("{key:?}:{}", canonical(&map[key])))
+                    .collect::<Vec<_>>();
+                format!("{{{}}}", fields.join(","))
+            }
+            serde_json::Value::Array(items) => {
+                format!(
+                    "[{}]",
+                    items.iter().map(canonical).collect::<Vec<_>>().join(",")
+                )
+            }
+            scalar => scalar.to_string(),
+        }
+    }
+    while let Some(input) = queue.pop_front() {
+        if !followed.insert(canonical(&input)) {
+            continue;
+        }
+        calls += 1;
+        assert!(calls <= 60, "walk did not finish");
+        let outcome = runtime
+            .execute(
+                format!("walk-{calls}"),
+                "ghGetHistoryItem".into(),
+                input.clone(),
+            )
+            .await
+            .unwrap_or_else(|error| panic!("call {calls} failed: {error:?}\n{input}"));
+        let content = &outcome.structured_content;
+        let data = &content["results"][0]["data"];
+        let issue = &data["issues"][0];
+        if let Some(text) = issue["body"].as_str() {
+            let offset = issue["contentPagination"]["body"]["offset"]
+                .as_u64()
+                .unwrap_or(0);
+            assert_eq!(
+                offset as usize,
+                issue_text.chars().count(),
+                "call {calls}: issue body"
+            );
+            issue_text.push_str(text);
+        }
+        for comment in issue["comments"].as_array().into_iter().flatten() {
+            let id = match &comment["id"] {
+                serde_json::Value::String(id) => id.parse::<u64>().expect("numeric id"),
+                id => id.as_u64().expect("id"),
+            };
+            let text = comment["body"].as_str().unwrap_or("");
+            let offset = comment["bodyPagination"]["offset"].as_u64().unwrap_or(0);
+            let so_far = read.entry(id).or_default();
+            if text.is_empty() && so_far.chars().count() == body(id as usize).chars().count() {
+                relisted += 1;
+                continue;
+            }
+            assert_eq!(
+                offset as usize,
+                so_far.chars().count(),
+                "call {calls}: comment {id} {comment}"
+            );
+            so_far.push_str(text);
+        }
+        if let Some(next) = content["responsePagination"]["next"]["query"].as_object() {
+            queue.push_back(serde_json::Value::Object(next.clone()));
+        }
+        for (_, lead) in data["next"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter(|(name, _)| {
+                matches!(
+                    name.as_str(),
+                    "continueBody" | "continueCommentBody" | "nextCommentPage"
+                )
+            })
+        {
+            queue.push_back(lead["query"].clone());
+        }
+    }
+    assert_eq!(relisted, 0, "finished comments listed again");
+    assert_eq!(issue_text, issue_body);
+    assert_eq!(read.len(), 40, "{:?}", read.keys().collect::<Vec<_>>());
+    for (id, text) in &read {
+        assert_eq!(text, &body(*id as usize), "comment {id}");
+    }
+    runtime.close().await;
+}
+
 /// A comparison's patch window past the first carries files only: the
 /// commit list rode the first window with its own page cursor.
 #[tokio::test]
 async fn compare_patch_windows_do_not_resend_the_commit_list() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_capped_compare(&server).await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
@@ -2200,7 +2362,7 @@ async fn compare_patch_windows_do_not_resend_the_commit_list() {
 /// at the top level; the scope's own count is its file page's.
 #[tokio::test]
 async fn path_scoped_commit_labels_whole_commit_totals() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "abc123def456abc123def456abc123def456abc1";
     Mock::given(method("GET"))
         .and(path(format!("/api/v3/repos/a/b/commits/{sha}")))
@@ -2236,7 +2398,7 @@ async fn path_scoped_commit_labels_whole_commit_totals() {
 /// cap (about 40k chars) and continues instead of returning 74–82k.
 #[tokio::test]
 async fn gh_full_content_first_page_stays_under_the_host_output_cap() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     let text = (0..6000)
         .map(|n| format!("fn function_number_{n}(value: usize) -> usize {{ value * {n} }}\n"))
@@ -2274,11 +2436,11 @@ async fn gh_full_content_first_page_stays_under_the_host_output_cap() {
 }
 
 /// An issue read lists the pull requests that closed it
-/// (merged first) and offers the merged fix as `next.readFixPullRequest`; without
+/// (merged first) and offers the merged fix as `next.readPullRequest`; without
 /// GraphQL the read falls back to the keyword search hop.
 #[tokio::test]
 async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/42"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -2319,7 +2481,7 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
         ]),
         "{data}"
     );
-    let read = &data["hints"]["readFixPullRequest"];
+    let read = &data["hints"]["readPullRequest"];
     assert_eq!(read["tool"], "ghGetHistoryItem", "{data}");
     assert_eq!(
         read["query"]["queries"][0]["operation"], "pullRequest",
@@ -2329,7 +2491,7 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
     runtime.close().await;
 
     // GraphQL unavailable: no closedBy, the search hop instead.
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/42"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -2348,7 +2510,7 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
     .expect("issue read");
     let data = row_data(&outcome);
     assert!(data["issues"][0].get("closedBy").is_none(), "{data}");
-    let find = &data["hints"]["findFixPullRequest"];
+    let find = &data["hints"]["findPullRequest"];
     assert_eq!(find["tool"], "ghSearchHistory", "{data}");
     assert_eq!(
         find["query"]["queries"][0]["keywords"],
@@ -2363,7 +2525,7 @@ async fn issue_read_lists_closing_pull_requests_and_reads_the_merged_fix() {
 /// count instead of the linked pull requests again.
 #[tokio::test]
 async fn issue_body_windows_keep_closing_reference_coverage() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/42"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -2440,7 +2602,7 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
             );
         } else {
             assert!(data["issues"][0].get("closedBy").is_none(), "{data}");
-            assert!(data["hints"].get("readFixPullRequest").is_none(), "{data}");
+            assert!(data["hints"].get("readPullRequest").is_none(), "{data}");
         }
         match data["next"]["continueBody"]["query"].as_object() {
             Some(next) => query = serde_json::Value::Object(next.clone()),
@@ -2472,7 +2634,7 @@ async fn issue_body_windows_keep_closing_reference_coverage() {
 /// first among the leads.
 #[tokio::test]
 async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let at_ref = "0123456789abcdef0123456789abcdef01234567";
     let head = "fedcba9876543210fedcba9876543210fedcba98";
     Mock::given(method("GET"))
@@ -2539,7 +2701,7 @@ async fn pinned_ref_code_search_warns_and_leads_to_the_ref_listing() {
 /// parent, so a gutter number is a direct `ranges` entry on its side.
 #[tokio::test]
 async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "abc123def456abc123def456abc123def456abc1";
     let parent = "9999999def456abc123def456abc123def456abc";
     Mock::given(method("GET"))
@@ -2583,7 +2745,7 @@ async fn commit_patch_view_numbers_both_sides_and_reads_each_side() {
 /// `notFound`, not an invalid query.
 #[tokio::test]
 async fn bad_commit_sha_is_not_found() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/deadbeef"))
         .respond_with(
@@ -2617,7 +2779,7 @@ async fn bad_commit_sha_is_not_found() {
 /// missing, with the path's commit history as the lead.
 #[tokio::test]
 async fn compare_include_scopes_files_and_capped_scope_leads_to_path_history() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     mount_capped_compare(&server).await;
     let workspace = Workspace::new();
     let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
@@ -2667,7 +2829,7 @@ async fn compare_include_scopes_files_and_capped_scope_leads_to_path_history() {
 /// merge base (the old side of a three-dot diff).
 #[tokio::test]
 async fn compare_patch_view_reads_head_and_merge_base() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path_regex(format!("^/api/v3/repos/a/b/compare/{BASE_SHA}\\.\\.\\.{HEAD_SHA}$")))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -2751,7 +2913,7 @@ impl Respond for CommentList {
 /// fill the response budget (few calls).
 #[tokio::test]
 async fn issue_comment_walk_discloses_bots_and_counts_the_rest() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/issues/7"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -2834,7 +2996,7 @@ async fn issue_comment_walk_discloses_bots_and_counts_the_rest() {
 /// leads to the whole body.
 #[tokio::test]
 async fn pr_summary_previews_the_body() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let body = format!(
         "<!-- template: describe the change -->\nFixes the cache race.\n\n{}",
         "Details. ".repeat(100)
@@ -2876,7 +3038,7 @@ async fn pr_summary_previews_the_body() {
 /// both GitHub read tools, with one runnable lead to the repository's refs.
 #[tokio::test]
 async fn gh_bad_ref_is_not_found_with_a_refs_lead() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/commits/no-such-ref"))
         .respond_with(
@@ -2907,13 +3069,176 @@ async fn gh_bad_ref_is_not_found_with_a_refs_lead() {
                 .contains("\"no-such-ref\""),
             "{tool}: {data}"
         );
-        let lead = &data["hints"]["viewStructure"];
+        let lead = &data["hints"]["viewRefs"];
         assert_eq!(lead["tool"], "ghStructure", "{tool}: {data}");
         let row = &lead["query"]["queries"][0];
         for (field, value) in [("owner", "a"), ("repo", "b"), ("operation", "refs")] {
             assert_eq!(row[field], value, "{tool}: {data}");
         }
     }
+    runtime.close().await;
+}
+
+/// QA2: a full 40-hex SHA that GitHub does not have skips ref resolution, so
+/// the listing's tree read is a bare 404. ghStructure must still name the
+/// ref and lead to the repository's refs, as ghGetFileContent does, instead
+/// of the generic "Repository, resource, or path not found".
+#[tokio::test]
+async fn gh_missing_full_sha_is_named_with_a_refs_lead() {
+    const MISSING: &str = "2bd066d87f5bafd315be9f40889d0a60b9e58e0b";
+    let server = MockServer::builder().start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/api/v3/repos/a/b/commits/{MISSING}")))
+        .respond_with(
+            ResponseTemplate::new(422)
+                .set_body_json(json!({"message":format!("No commit found for SHA: {MISSING}")})),
+        )
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path_regex("^/api/v3/repos/a/b/contents"))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .set_body_json(json!({"message":format!("No commit found for the ref {MISSING}")})),
+        )
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    for (tool, query) in [
+        (
+            "ghGetFileContent",
+            json!({"owner":"a","repo":"b","path":"README.md","ref":MISSING,"forceRefresh":true}),
+        ),
+        ("ghStructure", json!({"owner":"a","repo":"b","ref":MISSING})),
+        (
+            "ghStructure",
+            json!({"owner":"a","repo":"b","ref":MISSING,"path":"src"}),
+        ),
+    ] {
+        let outcome = call(&runtime, tool, query).await.expect("error row");
+        let data = row_data(&outcome);
+        assert_eq!(data["errorCode"], "notFound", "{tool}: {data}");
+        assert!(
+            data["error"].as_str().unwrap_or_default().contains(MISSING),
+            "{tool}: {data}"
+        );
+        assert_eq!(
+            data["hints"]["viewRefs"]["tool"], "ghStructure",
+            "{tool}: {data}"
+        );
+    }
+    runtime.close().await;
+}
+
+/// QA2: GitHub answers a missing pull request, issue, or comparison ref
+/// with a bare 404. The error row must name what was asked for (the number
+/// or the compared refs), not the generic "Repository, resource, or path not
+/// found"; a comparison also leads to the repository's refs.
+#[tokio::test]
+async fn gh_history_item_not_found_names_the_item() {
+    let server = MockServer::builder().start().await;
+    // An existing repository: `main` resolves, `no-such-head` does not (422),
+    // and the comparison of an unknown base is GitHub's bare 404.
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/main"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(HISTORY_A_HEAD))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/v3/repos/a/b/commits/no-such-head"))
+        .respond_with(
+            ResponseTemplate::new(422)
+                .set_body_json(json!({"message":"No commit found for SHA: no-such-head"})),
+        )
+        .mount(&server)
+        .await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    for (query, named) in [
+        (
+            json!({"operation":"pullRequest","owner":"a","repo":"b","number":987654}),
+            "#987654",
+        ),
+        (
+            json!({"operation":"issue","owner":"a","repo":"b","number":987654}),
+            "#987654",
+        ),
+        (
+            json!({"operation":"compare","owner":"a","repo":"b","base":"no-such-base","head":"main"}),
+            "no-such-base...",
+        ),
+        (
+            json!({"operation":"compare","owner":"a","repo":"b","base":"main","head":"no-such-head"}),
+            "no-such-head",
+        ),
+    ] {
+        let outcome = call(&runtime, "ghGetHistoryItem", query.clone())
+            .await
+            .expect("error row");
+        let data = row_data(&outcome);
+        assert_eq!(data["errorCode"], "notFound", "{query}: {data}");
+        let error = data["error"].as_str().unwrap_or_default();
+        assert!(error.contains(named), "{query}: {data}");
+        if query["operation"] != "compare" || query["head"] == "main" {
+            assert!(error.contains("a/b"), "{query}: {data}");
+        }
+        if query["operation"] == "compare" {
+            let lead = &data["hints"]["viewRefs"];
+            assert_eq!(lead["tool"], "ghStructure", "{data}");
+            assert_eq!(lead["query"]["queries"][0]["operation"], "refs", "{data}");
+        }
+    }
+    runtime.close().await;
+}
+
+/// QA2: a commit listing GitHub answers with a bare 404 (missing repository
+/// or ref) names the repository and ref it listed.
+#[tokio::test]
+async fn gh_search_history_commit_not_found_names_the_scope() {
+    let server = MockServer::builder().start().await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    for (query, named) in [
+        (
+            json!({"operation":"commit","owner":"a","repo":"b","ref":"no-such-ref"}),
+            "\"no-such-ref\"",
+        ),
+        (json!({"operation":"commit","owner":"a","repo":"b"}), "a/b"),
+    ] {
+        let outcome = call(&runtime, "ghSearchHistory", query.clone())
+            .await
+            .expect("error row");
+        let data = row_data(&outcome);
+        assert_eq!(data["errorCode"], "notFound", "{query}: {data}");
+        let error = data["error"].as_str().unwrap_or_default();
+        assert!(
+            error.contains(named) && error.contains("a/b"),
+            "{query}: {data}"
+        );
+    }
+    runtime.close().await;
+}
+
+/// QA2: an owner-only ghSearchRepo listing of a login GitHub does not know
+/// (bare 404) names the owner instead of "Repository, resource, or path".
+#[tokio::test]
+async fn gh_search_repo_missing_owner_is_named() {
+    let server = MockServer::builder().start().await;
+    let workspace = Workspace::new();
+    let runtime = workspace.runtime(&[("GITHUB_API_URL", format!("{}/api/v3", server.uri()))]);
+    let outcome = call(&runtime, "ghSearchRepo", json!({"owner":"ghost-login"}))
+        .await
+        .expect("error row");
+    let data = row_data(&outcome);
+    assert_eq!(data["errorCode"], "notFound", "{data}");
+    assert!(
+        data["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("\"ghost-login\""),
+        "{data}"
+    );
     runtime.close().await;
 }
 
@@ -2966,7 +3291,7 @@ async fn history_a_mount_pr(server: &MockServer, merged: bool, files: serde_json
 /// (merged) the merge commit: patch, file-list, and matchString views.
 #[tokio::test]
 async fn history_a_every_pr_view_carries_source_target_and_merge_commits() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     history_a_mount_pr(
         &server,
         true,
@@ -3018,7 +3343,7 @@ async fn history_a_every_pr_view_carries_source_target_and_merge_commits() {
 /// merged PR whose merge read stands for the patched file's new side.
 #[tokio::test]
 async fn history_a_unpatched_file_gets_head_and_parent_reads() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     history_a_mount_pr(
         &server,
         true,
@@ -3064,7 +3389,7 @@ async fn history_a_unpatched_file_gets_head_and_parent_reads() {
 /// view, and a metadata view the commit and review-thread totals.
 #[tokio::test]
 async fn history_a_graphql_pr_reads_target_sha_and_totals() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/api/graphql"))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({"data": {
@@ -3132,7 +3457,7 @@ async fn history_a_graphql_pr_reads_target_sha_and_totals() {
 #[tokio::test]
 async fn history_a_issue_summary_counts_comments_and_offers_the_discussion() {
     for (comments, offered) in [(105, true), (0, false)] {
-        let server = MockServer::start().await;
+        let server = MockServer::builder().start().await;
         Mock::given(method("GET"))
             .and(path("/api/v3/repos/a/b/issues/42"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -3175,7 +3500,7 @@ async fn history_a_issue_summary_counts_comments_and_offers_the_discussion() {
 /// whole commit's counts and names the changed directories nearest it.
 #[tokio::test]
 async fn history_a_commit_include_matching_nothing_warns_with_nearest_dirs() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "abc123def456abc123def456abc123def456abc1";
     let files = [
         "docs/a.md",
@@ -3228,7 +3553,7 @@ async fn history_a_commit_include_matching_nothing_warns_with_nearest_dirs() {
 /// one `readCommit` lead for the first commit with more message.
 #[tokio::test]
 async fn history_a_compare_commits_are_headlines_with_login_authors() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let head = "1111111111111111111111111111111111111111";
     Mock::given(method("GET"))
         .and(path(format!("/api/v3/repos/a/b/compare/v1...{head}")))
@@ -3283,7 +3608,7 @@ async fn history_a_compare_commits_are_headlines_with_login_authors() {
 /// redirect) still knows the rename from the memo.
 #[tokio::test]
 async fn gh_file_read_of_a_renamed_repository_names_the_canonical_repository() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     for (from, to) in [
         (
@@ -3375,7 +3700,7 @@ async fn gh_file_read_of_a_renamed_repository_names_the_canonical_repository() {
 /// X9: a repository GitHub never redirected costs no metadata request.
 #[tokio::test]
 async fn gh_file_read_of_a_standing_repository_reads_no_metadata() {
-    let server = MockServer::start().await;
+    let server = MockServer::builder().start().await;
     let sha = "0123456789abcdef0123456789abcdef01234567";
     Mock::given(method("GET"))
         .and(path("/api/v3/repos/a/b/contents/README.md"))

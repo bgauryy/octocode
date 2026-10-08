@@ -6,7 +6,55 @@ use octocode_engine::lsp::workspace::resolve_workspace_root_for_file;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
+
+type ProbeKey = (String, String, u64);
+const MAX_PROBES: usize = 128;
+const NEGATIVE_TTL: Duration = Duration::from_secs(5);
+const POSITIVE_TTL: Duration = Duration::from_secs(300);
+
+#[derive(Debug, Default)]
+pub(crate) struct LeadProbeCache(Mutex<HashMap<ProbeKey, (bool, Instant)>>);
+
+impl LeadProbeCache {
+    fn get(&self, key: &ProbeKey) -> Option<bool> {
+        let mut entries = self.0.lock().ok()?;
+        let (available, observed) = entries.get(key).copied()?;
+        if observed.elapsed()
+            < if available {
+                POSITIVE_TTL
+            } else {
+                NEGATIVE_TTL
+            }
+        {
+            Some(available)
+        } else {
+            entries.remove(key);
+            None
+        }
+    }
+
+    fn insert(&self, key: ProbeKey, available: bool, observed: Instant) {
+        if let Ok(mut entries) = self.0.lock() {
+            if entries.len() >= MAX_PROBES
+                && !entries.contains_key(&key)
+                && let Some(oldest) = entries
+                    .iter()
+                    .min_by_key(|(_, (_, when))| *when)
+                    .map(|(key, _)| key.clone())
+            {
+                entries.remove(&oldest);
+            }
+            entries.insert(key, (available, observed));
+        }
+    }
+
+    #[cfg(test)]
+    fn len(&self) -> usize {
+        self.0.lock().map_or(0, |entries| entries.len())
+    }
+}
 
 /// What a lead asks about the declaration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -35,6 +83,15 @@ impl Verify {
     }
 }
 
+/// The lead name of a [`verify_query`] row: its operation (`callers` or
+/// `references`), as every lspSearch lead is named (X10).
+pub(crate) fn lead_name(row: &Value) -> String {
+    row.get("operation")
+        .and_then(Value::as_str)
+        .unwrap_or("references")
+        .to_owned()
+}
+
 /// The `lspSearch` query row for the declaration `symbol` at one-based
 /// `line` of `path`. `None` when no language server would start for the
 /// file, so a lead that could only fail is never offered.
@@ -54,13 +111,7 @@ pub fn verify_query(path: &str, symbol: &str, line: u64, verify: Verify) -> Opti
 /// per extension, workspace and discovery settings. A failed probe is not
 /// cached, so the next lead asks again.
 fn server_available(path: &str) -> bool {
-    /// `(extension, workspace, discovery settings hash)`.
-    type ProbeKey = (String, String, u64);
-    static KNOWN: OnceLock<Mutex<HashMap<ProbeKey, bool>>> = OnceLock::new();
-    let extension = Path::new(path)
-        .extension()
-        .map(|extension| extension.to_string_lossy().to_ascii_lowercase())
-        .unwrap_or_default();
+    let extension = octocode_engine::text::extension_of(path, true, "");
     let workspace = resolve_workspace_root_for_file(path.to_owned()).unwrap_or_else(|_| {
         Path::new(path)
             .parent()
@@ -75,8 +126,8 @@ fn server_available(path: &str) -> bool {
         hasher.finish()
     };
     let key = (extension, workspace, settings);
-    let known = KNOWN.get_or_init(Mutex::default);
-    if let Some(available) = known.lock().ok().and_then(|map| map.get(&key).copied()) {
+    let cache = LEAD_CACHE.with(|cell| cell.borrow().clone());
+    if let Some(available) = cache.as_ref().and_then(|cache| cache.get(&key)) {
         return available;
     }
     let available = match default_server_for_file(path, &key.1, &discovery) {
@@ -86,8 +137,8 @@ fn server_available(path: &str) -> bool {
         },
         None => false,
     };
-    if let Ok(mut map) = known.lock() {
-        map.insert(key, available);
+    if let Some(cache) = cache {
+        cache.insert(key, available, Instant::now());
     }
     available
 }
@@ -96,6 +147,8 @@ thread_local! {
     /// Discovery the runtime resolved for the request running on this
     /// thread (see [`with_lead_discovery`]).
     static LEAD_DISCOVERY: std::cell::RefCell<Option<LspDiscoveryOptions>> =
+        const { std::cell::RefCell::new(None) };
+    static LEAD_CACHE: std::cell::RefCell<Option<Arc<LeadProbeCache>>> =
         const { std::cell::RefCell::new(None) };
 }
 
@@ -108,11 +161,12 @@ pub fn with_lead_discovery<R>(
     paths: &crate::policy::path::PathPolicy,
     run: impl FnOnce() -> R,
 ) -> R {
-    struct Restore(Option<LspDiscoveryOptions>);
+    struct Restore(Option<LspDiscoveryOptions>, Option<Arc<LeadProbeCache>>);
     impl Drop for Restore {
         fn drop(&mut self) {
             let previous = self.0.take();
             LEAD_DISCOVERY.with(|cell| *cell.borrow_mut() = previous);
+            LEAD_CACHE.with(|cell| *cell.borrow_mut() = self.1.take());
         }
     }
     let config_path = execution
@@ -121,7 +175,10 @@ pub fn with_lead_discovery<R>(
         .and_then(|path| paths.validate_read(path).ok())
         .map(|validated| validated.canonical);
     let options = execution.discovery(config_path);
-    let _restore = Restore(LEAD_DISCOVERY.with(|cell| cell.borrow_mut().replace(options)));
+    let _restore = Restore(
+        LEAD_DISCOVERY.with(|cell| cell.borrow_mut().replace(options)),
+        LEAD_CACHE.with(|cell| cell.borrow_mut().replace(execution.lead_cache.clone())),
+    );
     run()
 }
 
@@ -153,6 +210,22 @@ fn discovery() -> LspDiscoveryOptions {
 mod tests {
     use super::*;
     use crate::policy::path::{PathPolicy, PathPolicyConfig};
+
+    #[test]
+    fn negative_probe_expires_and_cache_stays_bounded() {
+        let cache = LeadProbeCache::default();
+        let old = std::time::Instant::now() - NEGATIVE_TTL - std::time::Duration::from_secs(1);
+        cache.insert(("rs".into(), "old".into(), 1), false, old);
+        assert_eq!(cache.get(&("rs".into(), "old".into(), 1)), None);
+        for i in 0..(MAX_PROBES + 1) {
+            cache.insert(
+                ("rs".into(), format!("workspace-{i}"), 1),
+                true,
+                std::time::Instant::now(),
+            );
+        }
+        assert!(cache.len() <= MAX_PROBES);
+    }
 
     #[test]
     fn leads_probe_the_runtime_resolved_discovery_inside_a_row_only() {

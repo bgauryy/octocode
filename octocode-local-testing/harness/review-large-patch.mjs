@@ -11,5 +11,5 @@ try {
  check('patch pagination terminates',!e);
  const res=await fetch('https://api.github.com/repos/microsoft/TypeScript/pulls/51387/files?per_page=100&page=2',{headers:{'User-Agent':'octocode-review-audit'}});if(!res.ok)throw Error('oracle HTTP '+res.status);
  const f=(await res.json()).find(f=>f.filename==='src/compiler/transformers/utilities.ts');
- check('assembled raw patch exactly equals independent API',rawPatch(patch)===f?.patch,'chars '+patch.length);check('assembled patch numbers every new-side line',patchNumbersOk(patch));
+ check('assembled raw patch exactly equals independent API',rawPatch(patch)===f?.patch,'chars '+patch.length);check('assembled patch numbers every line on its side (new for +/space, old for -)',patchNumbersOk(patch));
 } catch(err){check('audit completes',false,err.message)}finally {const result=summary();writeResults('review-large-patch',{...result,pages,calls});c.close();process.exitCode=result.failed.length?1:0}

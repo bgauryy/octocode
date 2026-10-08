@@ -22,9 +22,6 @@
     "noUncheckedIndexedAccess": true,
     "types": ["vitest/globals", "node"]
   },
-  "include": ["src/**/*", "tests/**/*", "src/types/**/*.d.ts"],
-  "exclude": ["node_modules"],
-  "ts-node": {
-    "esm": true
-  }
+  "include": ["src/**/*", "tests/**/*"],
+  "exclude": ["node_modules"]
 }

@@ -1,4 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,14 +19,39 @@ import {
 const classificationKeys = configFieldEnvNames('classification.api');
 const allKeys = [...ENV_TOKEN_VARS, ...classificationKeys];
 
+/**
+ * A stand-in native binary whose `config check <token> --json` reports
+ * `source` as the GitHub token it would use (none when undefined).
+ */
+function fakeNative(dir: string, source?: string): string {
+  const bin = path.join(dir, `octocode-${source ?? 'none'}`);
+  const reply = JSON.stringify({
+    key: ENV_TOKEN_VARS[0],
+    set: false,
+    ...(source ? { githubTokenSource: source } : {}),
+  });
+  const expected = JSON.stringify([
+    'config',
+    'check',
+    ENV_TOKEN_VARS[0],
+    '--json',
+  ]);
+  writeFileSync(
+    bin,
+    `#!/usr/bin/env node\nif (JSON.stringify(process.argv.slice(2)) === ${JSON.stringify(expected)}) process.stdout.write(${JSON.stringify(reply)});\nprocess.exit(1);\n`
+  );
+  chmodSync(bin, 0o755);
+  return bin;
+}
+
 describe('skill env params come from the config contract', () => {
   let home: string;
 
   beforeEach(() => {
     home = mkdtempSync(path.join(tmpdir(), 'octocode-env-params-'));
     vi.stubEnv('OCTOCODE_HOME', home);
-    // Keep the developer's own `gh` login out of the token checks.
-    vi.stubEnv('GH_CONFIG_DIR', path.join(home, 'gh'));
+    // Keep the developer's own stored or `gh` login out of the token checks.
+    vi.stubEnv('OCTOCODE_NATIVE_BIN', fakeNative(home));
     for (const key of allKeys) vi.stubEnv(key, '');
   });
 
@@ -45,14 +76,20 @@ describe('skill env params come from the config contract', () => {
     }
   });
 
-  it('counts a stored `octocode auth login` or `gh` login as the GitHub token', () => {
+  it('asks native for a GitHub token outside the environment', () => {
     expect(getSkillEnvStatus('octocode-research').readiness).toBe('partial');
-    writeFileSync(path.join(home, 'credentials.json'), '{}');
+    vi.stubEnv('OCTOCODE_NATIVE_BIN', fakeNative(home, 'octocode-storage'));
     expect(getSkillEnvStatus('octocode-research').readiness).toBe('ready');
-    rmSync(path.join(home, 'credentials.json'));
+    vi.stubEnv('OCTOCODE_NATIVE_BIN', fakeNative(home, 'gh-cli'));
+    expect(getSkillEnvStatus('octocode-research').readiness).toBe('ready');
+  });
+
+  it('does not read credential files itself', () => {
+    writeFileSync(path.join(home, 'credentials.json'), '{}');
     mkdirSync(path.join(home, 'gh'), { recursive: true });
     writeFileSync(path.join(home, 'gh', 'hosts.yml'), 'github.com: {}\n');
-    expect(getSkillEnvStatus('octocode-research').readiness).toBe('ready');
+    vi.stubEnv('GH_CONFIG_DIR', path.join(home, 'gh'));
+    expect(getSkillEnvStatus('octocode-research').readiness).toBe('partial');
   });
 
   it('honors the home .env layer Octocode loads', () => {

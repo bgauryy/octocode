@@ -75,7 +75,8 @@ unpublished Cargo packages. `check:crate-boundaries` validates these boundaries.
 AST declaration extraction indexes local export aliases by symbol name in the engine
 and polls cancellation during outline construction. Runtime owns a bounded cache of
 private declaration JSON for single-file symbol requests (128 entries, 32 MiB,
-120-second TTL). Each request validates workspace access and reads current source
+cache class `Immutable`: an entry never expires, because its key holds the
+source-content hash; size and entry caps evict it). Each request validates workspace access and reads current source
 before lookup; the key includes canonical path, parser choice, and a source-content
 hash. Source edits invalidate pagination snapshots, and policy shaping runs on every
 request. Directory extraction is not cached. Parsing occurs outside the cache lock;
@@ -141,7 +142,7 @@ Generic text search, reads, minification, file recognition, GitHub/history opera
 - Search classification handoffs preserve the search brief and scope, screen snippets for relevance and sufficiency, and keep remaining candidates reachable through `next.clasify`.
 - `localFetch` and `ghGetFileContent` share extraction: literal and regex matches use original byte coordinates and include every source line touched by a multiline match. Case-insensitive Unicode normalization never supplies offsets for slicing original content.
 - Structural rewrite uses embedded engine primitives while the tool layer retains locks, hashes, path policy, selection, postconditions, transactions, and recovery.
-- Public rewrite paths are relative to the preview root; guarded apply resolves them against that root.
+- Public rewrite paths (rows, patch headers, `expectedHashes` keys) are workspace-relative like every local tool's rows; guarded apply resolves relative keys against the workspace root and also accepts absolute keys. Match ids stay keyed on the scanned-directory path, and the snapshot carries a contract version, so a preview from an older path form fails closed with `staleSnapshot` and `next.restart`.
 - No external search, AST, rewrite, or provider executable is used. Intentional subprocesses are limited to system Git cloning, configured language servers, the bounded regex worker, and supported credential discovery.
 
 ## Contract generation

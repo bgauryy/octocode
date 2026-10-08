@@ -21,7 +21,7 @@ Match the repo's own layer vocabulary when a doc declares one. An edge from a la
 | Kind | What proves it | Octocode lane |
 |---|---|---|
 | `import` | scan already records file:line | trust scan; `astTopology path` for a specific chain |
-| `call` | a call site of the target's entry symbol | `lspSearch callers`/`callHierarchy` on the entry; `astSearch` for the call shape |
+| `call` | a call site of the target's entry symbol | `lspSearch callers` on the entry; `astSearch` for the call shape |
 | `spawn` / `stdio` | `spawn`, `exec`, `Command::new`, binary path resolution | `localSearch` for the spawn call, then `localFetch` of the argv build |
 | `ffi` | `#[napi]`, `wasm_bindgen`, `pyo3`, `.node` require or dlopen | `localSearch` + `lspSearch definition` of the loader |
 | `http` / `rpc` | base URL plus the client call; for servers, route registration | `localSearch` for host or route, `lspSearch references` of the client |

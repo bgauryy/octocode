@@ -4,10 +4,10 @@ use std::fmt;
 use url::Url;
 
 pub use crate::contracts::tool_types::{ArtifactSearchQuery, ArtifactType};
-use crate::contracts::tool_types::{RegistryDiscoveryType, RegistryExactType};
+use crate::contracts::tool_types::{RegistryDiscoveryEcosystem, RegistryExactEcosystem};
 
 impl ArtifactType {
-    pub fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Npm => "npm",
             Self::Pypi => "pypi",
@@ -23,29 +23,29 @@ impl ArtifactType {
 
 /// Registry-facing views over the generated wire query.
 impl ArtifactSearchQuery {
-    pub fn artifact_type(&self) -> ArtifactType {
+    pub(crate) fn artifact_type(&self) -> ArtifactType {
         match self {
             Self::NpmExact(_) | Self::NpmDiscovery(_) => ArtifactType::Npm,
-            Self::RegistryExact(query) => match query.type_ {
-                RegistryExactType::Pypi => ArtifactType::Pypi,
-                RegistryExactType::Crates => ArtifactType::Crates,
-                RegistryExactType::Maven => ArtifactType::Maven,
-                RegistryExactType::Nuget => ArtifactType::Nuget,
-                RegistryExactType::Go => ArtifactType::Go,
-                RegistryExactType::Packagist => ArtifactType::Packagist,
-                RegistryExactType::Rubygems => ArtifactType::Rubygems,
+            Self::RegistryExact(query) => match query.ecosystem {
+                RegistryExactEcosystem::Pypi => ArtifactType::Pypi,
+                RegistryExactEcosystem::Crates => ArtifactType::Crates,
+                RegistryExactEcosystem::Maven => ArtifactType::Maven,
+                RegistryExactEcosystem::Nuget => ArtifactType::Nuget,
+                RegistryExactEcosystem::Go => ArtifactType::Go,
+                RegistryExactEcosystem::Packagist => ArtifactType::Packagist,
+                RegistryExactEcosystem::Rubygems => ArtifactType::Rubygems,
             },
-            Self::RegistryDiscovery(query) => match query.type_ {
-                RegistryDiscoveryType::Crates => ArtifactType::Crates,
-                RegistryDiscoveryType::Maven => ArtifactType::Maven,
-                RegistryDiscoveryType::Nuget => ArtifactType::Nuget,
-                RegistryDiscoveryType::Go => ArtifactType::Go,
-                RegistryDiscoveryType::Packagist => ArtifactType::Packagist,
-                RegistryDiscoveryType::Rubygems => ArtifactType::Rubygems,
+            Self::RegistryDiscovery(query) => match query.ecosystem {
+                RegistryDiscoveryEcosystem::Crates => ArtifactType::Crates,
+                RegistryDiscoveryEcosystem::Maven => ArtifactType::Maven,
+                RegistryDiscoveryEcosystem::Nuget => ArtifactType::Nuget,
+                RegistryDiscoveryEcosystem::Go => ArtifactType::Go,
+                RegistryDiscoveryEcosystem::Packagist => ArtifactType::Packagist,
+                RegistryDiscoveryEcosystem::Rubygems => ArtifactType::Rubygems,
             },
         }
     }
-    pub fn package_name(&self) -> Option<&str> {
+    pub(crate) fn package_name(&self) -> Option<&str> {
         match self {
             Self::NpmExact(query) => Some(query.package_name.as_str()),
             Self::RegistryExact(query) => Some(query.package_name.as_str()),
@@ -55,7 +55,7 @@ impl ArtifactSearchQuery {
     /// The requested version, range, or tag: the `version` field, else the
     /// registry's own coordinate suffix (`name@x` on npm/crates, `name==x`
     /// on PyPI), which stays valid input. `None` means the latest release.
-    pub fn version(&self) -> Option<&str> {
+    pub(crate) fn version(&self) -> Option<&str> {
         let explicit = match self {
             Self::NpmExact(query) => query.version.as_deref().map(String::as_str),
             Self::RegistryExact(query) => query.version.as_deref().map(String::as_str),
@@ -68,7 +68,7 @@ impl ArtifactSearchQuery {
     }
 
     /// The package name without a coordinate version suffix.
-    pub fn bare_package_name(&self) -> Option<&str> {
+    pub(crate) fn bare_package_name(&self) -> Option<&str> {
         self.package_name().map(|_| self.split_coordinate().0)
     }
 
@@ -95,7 +95,7 @@ impl ArtifactSearchQuery {
     }
 
     /// `debug:true`: keep diagnostic row fields (registry URLs).
-    pub fn debug(&self) -> bool {
+    pub(crate) fn debug(&self) -> bool {
         match self {
             Self::NpmExact(query) => query.debug,
             Self::NpmDiscovery(query) => query.debug,
@@ -104,15 +104,15 @@ impl ArtifactSearchQuery {
         }
     }
 
-    pub fn registry(&self) -> Option<&str> {
+    pub fn registry_url(&self) -> Option<&str> {
         match self {
-            Self::NpmExact(query) => query.registry.as_deref(),
-            Self::NpmDiscovery(query) => query.registry.as_deref(),
+            Self::NpmExact(query) => query.registry_url.as_deref(),
+            Self::NpmDiscovery(query) => query.registry_url.as_deref(),
             _ => None,
         }
     }
     /// The 1-based discovery page (`page`); exact lookups have one.
-    pub fn page(&self) -> u64 {
+    pub(crate) fn page(&self) -> u64 {
         match self {
             Self::NpmDiscovery(query) => query.page.map_or(1, |page| page.get()),
             Self::RegistryDiscovery(query) => query.page.map_or(1, |page| page.get()),
@@ -120,7 +120,7 @@ impl ArtifactSearchQuery {
         }
     }
     /// Points a discovery query at `page`.
-    pub fn set_page(&mut self, page: u64) {
+    pub(crate) fn set_page(&mut self, page: u64) {
         let page = std::num::NonZeroU64::new(page);
         match self {
             Self::NpmDiscovery(query) => query.page = page,
@@ -128,7 +128,7 @@ impl ArtifactSearchQuery {
             _ => {}
         }
     }
-    pub fn page_size(&self) -> Option<usize> {
+    pub(crate) fn page_size(&self) -> Option<usize> {
         match self {
             Self::NpmDiscovery(query) => Some(query.page_size.get() as usize),
             Self::RegistryDiscovery(query) => Some(query.page_size.get() as usize),
@@ -136,7 +136,7 @@ impl ArtifactSearchQuery {
         }
     }
     /// Keywords as one space-joined registry search text.
-    pub fn terms(&self) -> String {
+    pub(crate) fn terms(&self) -> String {
         match self {
             Self::NpmDiscovery(query) => query
                 .keywords
@@ -163,7 +163,7 @@ pub(crate) fn artifact_query(
     base: Option<&ArtifactSearchQuery>,
 ) -> ArtifactSearchQuery {
     let mut value = base.map_or_else(
-        || serde_json::json!({"type": "npm", "mainGoal": "test", "reasoning": "test"}),
+        || serde_json::json!({"ecosystem": "npm", "mainGoal": "test", "reasoning": "test"}),
         |base| serde_json::to_value(base).expect("query serializes"),
     );
     let object = value.as_object_mut().expect("query object");
@@ -274,6 +274,10 @@ pub struct ArtifactItem {
     /// `source_ref` is an upstream release tag checked to exist.
     #[serde(skip)]
     pub source_tag: bool,
+    /// The registry's release ref that GitHub does not have (an unpushed
+    /// or rewritten commit): no lead pins it; the response warns with it.
+    #[serde(skip)]
+    pub missing_ref: Option<String>,
     /// The file this release declares its dependencies in, when the
     /// release was checked (a setuptools sdist: `setup.py`); it points the
     /// `readManifest` lead and is not a public row field.
@@ -323,6 +327,7 @@ impl ArtifactItem {
             verification: None,
             source_attested: false,
             source_tag: false,
+            missing_ref: None,
             manifest: None,
             entry_directory: None,
         }
@@ -346,7 +351,7 @@ pub struct ArtifactProviderPage {
     pub next_state: Option<ArtifactProviderState>,
     pub total: Option<u64>,
     pub terminal_limit: Option<String>,
-    pub registry: Option<String>,
+    pub(crate) registry: Option<String>,
 }
 
 impl ArtifactProviderPage {
@@ -355,6 +360,17 @@ impl ArtifactProviderPage {
             artifacts: vec![],
             next_state: None,
             total,
+            terminal_limit: None,
+            registry: None,
+        }
+    }
+
+    /// The one artifact an exact lookup resolved.
+    pub(crate) fn single(artifact: ArtifactItem) -> Self {
+        Self {
+            artifacts: vec![artifact],
+            next_state: None,
+            total: Some(1),
             terminal_limit: None,
             registry: None,
         }

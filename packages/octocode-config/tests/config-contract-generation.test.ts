@@ -7,8 +7,6 @@ import {
   ENV_TOKEN_VARS,
   PROTECTED_KEY_NAMES,
 } from '../src/config/contract.generated.js';
-import { resolveConfigFields } from '../src/config/resolverSections.js';
-import type { OctocodeConfig } from '../src/config/types.js';
 
 const contractPath = fileURLToPath(
   new URL('../config-contract.json', import.meta.url)
@@ -46,87 +44,5 @@ describe('generated config contract', () => {
     expect(
       ENV_TOKEN_VARS.every(name => !new Set<string>(PROTECTED_KEY_NAMES).has(name))
     ).toBe(true);
-  });
-
-  it('interprets malformed values through generic contract rules, never field branches', () => {
-    const malformed = {
-      version: 'future',
-      github: { apiUrl: 123, graphqlEnabled: 'yes' },
-      local: {
-        allowedPaths: [42],
-        workspaceRoot: 'relative/path',
-      },
-      tools: { enabled: 'ghSearchCode' },
-      network: { timeout: Number.NaN, maxRetries: 'many' },
-      lsp: { configPath: 10 },
-      output: { format: 1 },
-    } as unknown as OctocodeConfig;
-
-    const malformedEnvironment = {
-      GITHUB_API_URL: 'not a URL',
-      OCTOCODE_ENABLE_LOCAL: 1,
-      ALLOWED_PATHS: 'relative/path',
-      REQUEST_TIMEOUT: 'fast',
-      OCTOCODE_OUTPUT_FORMAT: 'xml',
-    } as unknown as Record<string, string | undefined>;
-    const resolved = resolveConfigFields(malformed, malformedEnvironment);
-
-    expect(resolved).toEqual(
-      expect.objectContaining({
-        version: 1,
-        github: { apiUrl: 'https://api.github.com', graphqlEnabled: true },
-        tools: { enabled: null, disabled: null },
-        network: expect.objectContaining({ timeout: 30_000 }),
-        output: expect.objectContaining({ format: 'yaml' }),
-      })
-    );
-  });
-
-  it('accepts contract-valid URL, path, enum, and numeric values from each source', () => {
-    const resolved = resolveConfigFields(
-      {
-        version: 1,
-        github: { apiUrl: 'http://ghe.example.test/api/v3' },
-        local: { workspaceRoot: 'C:\\workspace', allowedPaths: ['~/src'] },
-        output: { format: 'json' },
-      },
-      {
-        REQUEST_TIMEOUT: '60000ms',
-        OCTOCODE_LSP_CONFIG: ' /tmp/lsp.json ',
-      }
-    );
-
-    expect(resolved.github.apiUrl).toBe('http://ghe.example.test/api/v3');
-    expect(resolved.local.workspaceRoot).toBe('C:\\workspace');
-    expect(resolved.network.timeout).toBe(60_000);
-    expect(resolved.lsp.configPath).toBe('/tmp/lsp.json');
-    expect(resolved.output.format).toBe('json');
-  });
-
-  it('resolves classification.maxConcurrency with default 10, env override, and 1..64 clamping', () => {
-    expect(resolveConfigFields({}, {}).classification.maxConcurrency).toBe(10);
-    expect(
-      resolveConfigFields({ classification: { maxConcurrency: 3 } }, {})
-        .classification.maxConcurrency
-    ).toBe(3);
-    for (const [raw, expected] of [
-      ['4', 4],
-      ['0', 1],
-      ['1000', 64],
-      ['nope', 10],
-    ] as const) {
-      expect(
-        resolveConfigFields(
-          {},
-          { OCTOCODE_CLASSIFICATION_CONCURRENCY: raw }
-        ).classification.maxConcurrency
-      ).toBe(expected);
-    }
-    expect(
-      resolveConfigFields(
-        { classification: { maxConcurrency: 3 } },
-        { OCTOCODE_CLASSIFICATION_CONCURRENCY: '12' }
-      ).classification.maxConcurrency
-    ).toBe(12);
   });
 });

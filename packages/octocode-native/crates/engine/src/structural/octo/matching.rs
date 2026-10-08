@@ -276,7 +276,7 @@ pub(super) fn collect_kind_matches(
     macros: Option<&MacroBodies>,
     deadline: Instant,
 ) -> Result<Vec<MatchWithKind>, ExecutionError> {
-    let line_index = LineIndex::new(content);
+    let line_index = LineIndex::tree_sitter(content);
     let mut matches = Vec::new();
     visit_named_expanding_macros(
         root,

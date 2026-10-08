@@ -36,9 +36,37 @@ pub(super) async fn get_locations(
     line: u32,
     character: u32,
 ) -> Result<Vec<JsCodeSnippet>, LspFailure> {
+    settled_locations(
+        client,
+        snippet_policy,
+        cancel,
+        request,
+        (path, line, character),
+        None,
+    )
+    .await
+}
+
+/// [`get_locations`] asked at least `settle` after the call (see the
+/// engine's `get_locations`): a cached settled answer returns at once.
+async fn settled_locations(
+    client: &NativeLspClient,
+    snippet_policy: &SnippetReadPolicy,
+    cancel: &dyn CancellationCheck,
+    request: LocationRequest,
+    (path, line, character): (&str, u32, u32),
+    settle: Option<Duration>,
+) -> Result<Vec<JsCodeSnippet>, LspFailure> {
     let mut snippets = cancellable(
         cancel,
-        client.get_locations(request, path.to_owned(), line, character, snippet_policy),
+        client.get_locations(
+            request,
+            path.to_owned(),
+            line,
+            character,
+            snippet_policy,
+            settle,
+        ),
     )
     .await??;
     snippets.retain(|snippet| snippet.content != SNIPPET_CONTENT_WITHHELD);
@@ -50,10 +78,7 @@ pub(super) async fn get_locations(
 /// hierarchy walk's node keys do. A path that cannot be canonicalized (gone,
 /// or not local) falls back to its decoded form.
 pub(super) fn snippet_identity(snippet: &JsCodeSnippet) -> String {
-    let path = uri_to_path(&snippet.uri);
-    let path = std::fs::canonicalize(&path)
-        .map(|canonical| canonical.to_string_lossy().into_owned())
-        .unwrap_or(path);
+    let path = super::scope::canonical(&uri_to_path(&snippet.uri));
     format!(
         "{}:{}:{}:{}:{}",
         path,
@@ -117,12 +142,12 @@ pub(super) async fn resolve_definition_chain(
             };
             if let Err(error) = cancellable(
                 cancel,
-                client.open_document(target.clone(), source.content.clone()),
+                client.open_document(target.clone(), &source.content),
             )
             .await?
             {
                 let failure = LspFailure::from_engine(&error);
-                if failure.code == "lsp.cancelled" {
+                if failure.code == "cancelled" {
                     return Err(failure);
                 }
                 warnings.push(hop_failure_warning(&snippet, depth, &failure));
@@ -137,17 +162,21 @@ pub(super) async fn resolve_definition_chain(
                     .iter()
                     .any(|candidate| snippet_identity(candidate) != identity);
                 if should_retry_definition_hop(depth, path, &target, has_distinct_target) {
-                    cancellable(
+                    // Ask again after the settle; never the cached early answer.
+                    nested = settled_locations(
+                        client,
+                        snippet_policy,
                         cancel,
-                        tokio::time::sleep(Duration::from_millis(DEFINITION_ALIAS_SETTLE_MS)),
+                        LocationRequest::Definition,
+                        (&target, hop_line, hop_character),
+                        Some(Duration::from_millis(DEFINITION_ALIAS_SETTLE_MS)),
                     )
-                    .await?;
-                    nested = definition(target, hop_line, hop_character).await;
+                    .await;
                 }
             }
             let nested = match nested {
                 Ok(nested) => nested,
-                Err(failure) if failure.code == "lsp.cancelled" => return Err(failure),
+                Err(failure) if failure.code == "cancelled" => return Err(failure),
                 Err(failure) => {
                     warnings.push(hop_failure_warning(&snippet, depth, &failure));
                     next.push(snippet);
@@ -225,7 +254,7 @@ pub(super) async fn recover_aliases(
             .iter()
             .map(snippet_identity)
             .collect::<HashSet<_>>(),
-        Err(failure) if failure.code == "lsp.cancelled" => return Err(failure),
+        Err(failure) if failure.code == "cancelled" => return Err(failure),
         Err(_) => return Ok(AliasRecovery::default()),
     };
     if definition_ids.is_empty() {

@@ -3,6 +3,8 @@
 **Status:** Proposed · **Priority:** P3 · **Lane:** Scale & cost
 **Related:** [05 — Fan-out batches](05-fan-out-batches.md) multiplies this baseline by every child. [01 — Permissions](01-permissions.md) adds the `permissions:` frontmatter beside the new `mcpTools:` and `skills:` fields.
 
+> **Tool names.** The measurements below (sessions, breakdown and duplication tables, proposal yields) were taken on octocode-mcp 19.1.0's retired nine-tool surface and keep its names and numbers. The current server renamed and split those tools: `localGetFileContent` → `localFetch`, `localAnalyzeGraph` → `structureSearch` + `astSearch` (+ `astTopology` with `OCTOCODE_BETA=1`), `lspGetSemantics` → `lspSearch`, `ghSearch` → `ghSearchRepo` / `ghSearchCode` / `ghStructure`, `npmSearch` → `artifactSearch`; `clasify` registers with `OCTOCODE_CLASSIFICATION_API`. The design sections use the current names; re-measure before relying on the Δ figures.
+
 ## Problem and evidence
 
 Every model request resends the system prompt and all declared tool schemas. Prompt caching lowers the price of repeats, but every new session and every subagent pays a cache write, and the full prefix fills the context window.
@@ -71,7 +73,7 @@ All three drop MCP tools per agent. Octocode profiles drop only whole servers (`
 
 ## Pi API constraints
 
-- MCP exposure is per server with per-tool overrides: `toolExposure` keys are exact names or `*` patterns; exact names win, then the first matching pattern. Values: `direct`, `deferred`, `codemode`, `hidden` (Pi `docs/mcp.md`, "Control tool exposure"). Octocode sets `exposure: 'direct'` plus `toolExposure: { 'gh*': 'deferred', npmSearch: 'deferred' }` (`src/mcp/octocode.ts:31,55-56`).
+- MCP exposure is per server with per-tool overrides: `toolExposure` keys are exact names or `*` patterns; exact names win, then the first matching pattern. Values: `direct`, `deferred`, `codemode`, `hidden` (Pi `docs/mcp.md`, "Control tool exposure"). Octocode sets `exposure: 'direct'` plus `toolExposure: { 'gh*': 'deferred', artifactSearch: 'deferred' }` (`src/mcp/octocode.ts:31,55-56`).
 - A user's `octocode` entry in `mcp.json` overrides the built-in registration (`octocode.ts:11-15`).
 - `registerTool` accepts `exposure: 'deferred'`; `tool_search` finds and activates such tools (Pi `docs/extensions.md`, "Tool exposure").
 - Pi lists name, description and path of every discovered skill (`docs/skills.md`). Extensions can only **add** paths through `resources_discover` (`src/skills.ts:66-71`). `BeforeAgentStartEventResult` offers only `message` or a full `systemPrompt` replacement (`dist/core/extensions/types.d.ts:1082-1086`). The CLI has `--no-skills` plus `--skill <path>` (`docs/cli.md:198-201`), which works for children because Octocode launches them.
@@ -86,8 +88,8 @@ All three drop MCP tools per agent. Octocode profiles drop only whole servers (`
 
 | Value | Effect |
 |---|---|
-| `default` (or unset) | The built-in map: local + LSP direct, `gh*` and `npmSearch` deferred. Phase 2 also defers `localAnalyzeGraph` in the main session. |
-| `direct` | All nine tools direct (old `OCTOCODE_MCP_DIRECT=1`). |
+| `default` (or unset) | The built-in map: local + LSP direct, `gh*` and `artifactSearch` deferred. Phase 2 also defers `structureSearch` and `astSearch` in the main session. |
+| `direct` | Every Octocode tool direct (old `OCTOCODE_MCP_DIRECT=1`). |
 | `codemode` | The non-direct group uses `codemode` instead of `deferred`. Opt-in. |
 
 `OCTOCODE_MCP_TOOLS` overrides single tools on top of any `OCTOCODE_MCP_EXPOSURE` value.
@@ -95,9 +97,9 @@ All three drop MCP tools per agent. Octocode profiles drop only whole servers (`
 New optional profile frontmatter, parsed in `src/subagents/profiles.ts`:
 
 ```yaml
-mcpTools: localSearch, localGetFileContent, lspGetSemantics   # these direct; every other octocode tool deferred
+mcpTools: localSearch, localFetch, lspSearch   # these direct; every other octocode tool deferred
 # or
-mcpTools: "localSearch=direct, localAnalyzeGraph=deferred, gh*=hidden"   # explicit map
+mcpTools: "localSearch=direct, astSearch=deferred, gh*=hidden"   # explicit map
 # or
 mcpTools: none     # same as mcp: false
 ```
@@ -111,10 +113,10 @@ Bundled defaults:
 
 | Profile | Direct | Deferred | Δ tokens |
 |---|---|---|---|
-| main session | localSearch, localGetFileContent, lspGetSemantics | localAnalyzeGraph, gh*, npmSearch | −4.8K |
-| `implementer`, `reviewer` | localSearch, localGetFileContent, lspGetSemantics | rest | −4.8K |
-| `researcher` | all local + LSP | gh*, npmSearch | 0 |
-| `plan` (from 01) | localSearch, localGetFileContent, localAnalyzeGraph | rest | −3.8K |
+| main session | localSearch, localFetch, lspSearch | structureSearch, astSearch, gh*, artifactSearch | −4.8K |
+| `implementer`, `reviewer` | localSearch, localFetch, lspSearch | rest | −4.8K |
+| `researcher` | all local + LSP | gh*, artifactSearch | 0 |
+| `plan` (from 01) | localSearch, localFetch, structureSearch, astSearch | rest | −3.8K |
 | `webHeadless` / `webLive` | — (`mcp: false`) | — | 0 |
 
 ### 2. Extension tool narrowing
@@ -148,7 +150,7 @@ Octocode does not rewrite schemas client-side; a local rewrite would drift from 
 
 ### 5. Codemode
 
-Codemode gives deferred gh*/npm tools zero declarations and lets scripts fan out with `Promise.allSettled` and filter output above 20 KB (`docs/mcp.md`). Decision: **`deferred` stays the default**, because direct calls keep Octocode's renderers, permission gates (01) and schema-guided arguments. `OCTOCODE_MCP_EXPOSURE=codemode` is the opt-in; Phase 3 measures its declaration cost and script failure rate.
+Codemode gives deferred gh*/artifactSearch tools zero declarations and lets scripts fan out with `Promise.allSettled` and filter output above 20 KB (`docs/mcp.md`). Decision: **`deferred` stays the default**, because direct calls keep Octocode's renderers, permission gates (01) and schema-guided arguments. `OCTOCODE_MCP_EXPOSURE=codemode` is the opt-in; Phase 3 measures its declaration cost and script failure rate.
 
 ## Measurement: `tests/token-budget.test.ts`
 
@@ -177,7 +179,7 @@ For a 20-unit batch (05), the implementer prefix drops from about 610K to about 
 | File | Change |
 |---|---|
 | `src/shared/env.ts` | Remove `MCP_DIRECT_ENV` (`OCTOCODE_MCP_DIRECT`); add `OCTOCODE_MCP_EXPOSURE`, `OCTOCODE_MCP_TOOLS`, `OCTOCODE_TOKEN_REPORT`. |
-| `src/mcp/octocode.ts` | `toolExposure` from `OCTOCODE_MCP_EXPOSURE` + `OCTOCODE_MCP_TOOLS`; main-session map defers `localAnalyzeGraph`; update the doc comment at line 28. |
+| `src/mcp/octocode.ts` | `toolExposure` from `OCTOCODE_MCP_EXPOSURE` + `OCTOCODE_MCP_TOOLS`; main-session map defers `structureSearch` and `astSearch`; update the doc comment above `DEFERRED_TOOL_EXPOSURE`. |
 | `src/subagents/profiles.ts` | Parse `mcpTools` and `skills`. |
 | `src/subagents/process.ts` | `OCTOCODE_MCP_TOOLS` env; `--no-skills` + `--skill` args. |
 | `src/prompt.ts` | Name deferred Octocode tools when narrowed. |
@@ -192,20 +194,20 @@ For a 20-unit batch (05), the implementer prefix drops from about 610K to about 
 ## Phased plan
 
 1. **Measure.** Add `tests/token-budget.test.ts` with today's budgets and the report mode.
-2. **Local narrowing.** `OCTOCODE_MCP_EXPOSURE` (replaces `OCTOCODE_MCP_DIRECT`), `mcpTools`, `skills`, deferred `memory`/`backlog` in children, `localAnalyzeGraph` deferred in main. Lower the budgets.
+2. **Local narrowing.** `OCTOCODE_MCP_EXPOSURE` (replaces `OCTOCODE_MCP_DIRECT`), `mcpTools`, `skills`, deferred `memory`/`backlog` in children, `structureSearch` and `astSearch` deferred in main. Lower the budgets.
 3. **Evals.** A 20-task research/implement set with and without narrowing. Pass: `tool_search` calls for deferred tools in ≤ 15% of tasks, and no drop in task success. Also evaluate deferring `browser` in main and `OCTOCODE_MCP_EXPOSURE=codemode`.
 4. **Upstream.** File the issue and PR in `bgauryy/octocode` with the duplication table, ship flattening, bump the pinned version, lower the budgets.
 
 ## Test plan
 
-- **Unit:** profile parsing (`mcpTools` list, map and `none`; invalid names rejected with a notice). `octocodeServerConfig` maps per profile, exact-name precedence, each `OCTOCODE_MCP_EXPOSURE` value (`default`, `direct` declares all nine, `codemode`), and `OCTOCODE_MCP_TOOLS` overriding `OCTOCODE_MCP_EXPOSURE=direct`. `OCTOCODE_MCP_DIRECT=1` has no effect. `buildAgentArgs` emits `--no-skills --skill …` only when `skills:` is set. `memory` and `backlog` register deferred in subagent env.
+- **Unit:** profile parsing (`mcpTools` list, map and `none`; invalid names rejected with a notice). `octocodeServerConfig` maps per profile, exact-name precedence, each `OCTOCODE_MCP_EXPOSURE` value (`default`, `direct` declares every tool, `codemode`), and `OCTOCODE_MCP_TOOLS` overriding `OCTOCODE_MCP_EXPOSURE=direct`. `OCTOCODE_MCP_DIRECT=1` has no effect. `buildAgentArgs` emits `--no-skills --skill …` only when `skills:` is set. `memory` and `backlog` register deferred in subagent env.
 - **Budget test:** fails on more than 5% growth; report mode prints a breakdown for a fixture session JSONL.
-- **E2E (scripted model, stub MCP):** the child's `toolsAdded` contains exactly the expected direct tools. `tool_search` for `localAnalyzeGraph` loads it, and the next call succeeds.
+- **E2E (scripted model, stub MCP):** the child's `toolsAdded` contains exactly the expected direct tools. `tool_search` for `astSearch` loads it, and the next call succeeds.
 - **Real Pi flow:** `pi --no-extensions -e dist/index.js -e builtin:mcp -e builtin:tool-search -p "say ok"` in the e2e folder; first-request usage meets the targets table. Repeat with an `implementer` child through `agent`, reading its usage from the run details (`tool.ts:184`). Then run `OCTOCODE_TOKEN_REPORT=<that session>` and record the breakdown.
 
 ## Open questions
 
-1. Should `localAnalyzeGraph` stay direct in the main session for repos with frequent architecture questions (a per-project setting)?
+1. Should `structureSearch` and `astSearch` stay direct in the main session for repos with frequent architecture questions (a per-project setting)?
 2. Will upstream accept a flat wire schema, or prefer `$defs` with a Pi-side provider-support check?
 3. Should the `octocode` prompt section (1.4K tokens) shrink further for children without `agent`? It already varies with `canDelegate`.
 

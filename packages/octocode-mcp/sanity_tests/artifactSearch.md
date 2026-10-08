@@ -8,7 +8,7 @@ Use the live MCP tool or built CLI. Read the schema first; keep these checks ali
 - [ ] Each query requires one ecosystem `type`: npm, pypi, crates, maven, nuget, go, packagist, or rubygems.
 - [ ] Exactly one selector: exact `packageName` or non-empty `keywords` array.
 - [ ] Discovery accepts `cursor` and `pageSize` (default 10, maximum 100); exact reads reject both. Numbered `page` is rejected.
-- [ ] `registry` is npm-only; secrets do not appear in query examples or output.
+- [ ] `registryUrl` is npm-only; secrets do not appear in query examples or output.
 - [ ] PyPI keyword discovery returns a typed unsupported error and a concise exact-lookup hint.
 
 ## Pagination and output
@@ -31,5 +31,5 @@ Use the live MCP tool or built CLI. Read the schema first; keep these checks ali
 ## Example
 
 ```json
-{"queries":[{"type":"npm","packageName":"react"},{"type":"pypi","packageName":"requests"},{"type":"crates","keywords":["async","runtime"],"pageSize":2}]}
+{"queries":[{"ecosystem":"npm","packageName":"react"},{"ecosystem":"pypi","packageName":"requests"},{"ecosystem":"crates","keywords":["async","runtime"],"pageSize":2}]}
 ```

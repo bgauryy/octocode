@@ -1,7 +1,7 @@
 //! The `Command` enum: one sub-command per native tool plus system commands.
 //!
 //! The CLI surface is intentionally minimal — every tool is invoked by its
-//! canonical name with a raw JSON query, and `scheme` is the single discovery
+//! canonical name with a raw JSON query, and `schema` is the single discovery
 //! command. No per-tool flag wrappers, no aliases.
 use clap::{ArgMatches, Args, FromArgMatches, Subcommand};
 use octocode_native::tools::id::ToolId;
@@ -27,26 +27,27 @@ impl ToolArgs {
     /// Resolve the JSON query text from `--input FILE|-` or the positional
     /// argument. `Ok(None)` means no query was supplied.
     pub fn query_text(&self) -> Result<Option<String>, String> {
-        use std::io::Read;
         let Some(path) = &self.input else {
             return Ok(self.query.clone());
         };
-        let mut text = String::new();
-        let read = if path.as_os_str() == "-" {
-            std::io::stdin()
-                .take(MAX_QUERY_BYTES + 1)
-                .read_to_string(&mut text)
-                .map_err(|error| format!("Cannot read the query from stdin: {error}"))
+        let (source, read) = if path.as_os_str() == "-" {
+            (
+                "the query from stdin".to_owned(),
+                super::read_bounded(std::io::stdin(), MAX_QUERY_BYTES),
+            )
         } else {
-            std::fs::File::open(path)
-                .and_then(|file| file.take(MAX_QUERY_BYTES + 1).read_to_string(&mut text))
-                .map_err(|error| format!("Cannot read --input {}: {error}", path.display()))
+            (
+                format!("--input {}", path.display()),
+                std::fs::File::open(path)
+                    .and_then(|file| super::read_bounded(file, MAX_QUERY_BYTES)),
+            )
         };
-        read?;
-        if text.len() as u64 > MAX_QUERY_BYTES {
-            return Err(format!("The JSON query exceeds {} MiB.", MAX_QUERY_BYTES >> 20));
-        }
-        Ok(Some(text))
+        let bytes = read
+            .map_err(|error| format!("Cannot read {source}: {error}"))?
+            .ok_or_else(|| format!("The JSON query exceeds {} MiB.", MAX_QUERY_BYTES >> 20))?;
+        String::from_utf8(bytes)
+            .map(Some)
+            .map_err(|error| format!("Cannot read {source}: {error}"))
     }
 }
 
@@ -245,9 +246,8 @@ pub(super) enum Command {
     /// Show the cache home directory (`status`) or delete all cached GitHub responses (`clear`).
     #[command(hide = true)]
     Cache {
-        /// `status` — print the cache home directory path; `clear` — delete all cached responses.
-        #[arg(value_parser = ["status", "clear"])]
-        action: String,
+        #[arg(value_enum)]
+        action: CacheAction,
     },
     /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `clean`, `status`, `which`).
     #[command(name = "lsp-server", hide = true)]
@@ -270,6 +270,14 @@ pub(super) enum Command {
         #[arg(long)]
         json: bool,
     },
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug)]
+pub(super) enum CacheAction {
+    /// Print the cache home directory and recent evictions.
+    Status,
+    /// Delete all cached GitHub responses.
+    Clear,
 }
 
 const SCHEMA_HELP: &str = "List tools with agent instructions, or print one tool's input contract.

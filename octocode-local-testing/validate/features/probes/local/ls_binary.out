@@ -1,5 +1,0 @@
-# cmd: octocode localSearch {"goal": "g", "reasoning": "r", "path": "/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src/bin.dat", "searchText": "needle"}
-# env: None
-# exit: 0
-# stderr: 
-{"results":[{"index":0,"data":{"warnings":["binaryFileSkipped: a file with a NUL byte was searched only up to it; no text tool reads past it."],"files":[{"path":"bin.dat","matches":[{"line":1,"value":"needle before"}]}],"isPartial":true,"terminalLimit":true}}],"base":"/Users/bgaryy/code/octocode/octocode-local-testing/bench/validate/features/probes/local/fx/src"}

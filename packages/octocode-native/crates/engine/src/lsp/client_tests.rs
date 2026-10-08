@@ -40,7 +40,7 @@ fn location_links_select_the_symbol_and_preserve_definition_context() {
         std::fs::write(&file_path, "// context\nfunction target() {\n  return 1;\n}\n").unwrap();
         let uri = path_to_uri(&file_path.to_string_lossy()).unwrap();
         let selection = json!({"start":{"line":1,"character":9},"end":{"line":1,"character":15}});
-        let locations = snippets_from_locations(json!([
+        let locations = snippets_from_locations(&json!([
             {"targetUri":uri,"targetRange":{"start":{"line":0,"character":0},"end":{"line":4,"character":0}},"targetSelectionRange":selection},
             {"uri":uri,"range":selection}
         ]), &SnippetReadPolicy::default()).await.unwrap();
@@ -114,49 +114,45 @@ fn wait_for_graceful_exit_kills_a_process_that_ignores_the_window() {
     });
 }
 
+/// The sweep signals `-pid`. Once the leader is reaped its pid can be
+/// recycled, and a new process that leads its own group would take the
+/// signal. The sweep must therefore fire while the leader is still
+/// unreaped (alive or a zombie), on both the clean-exit and timeout paths.
+#[cfg(unix)]
 #[test]
-fn graceful_exit_sweeps_process_group_on_the_clean_exit_path_too() {
-    // The bug: the process-group sweep ran ONLY on the timeout branch, so a
-    // server that exits cleanly leaked its descendants (proc-macro-srv,
-    // cargo/build scripts, clangd workers). The sweep must run on BOTH paths;
-    // the hard kill only when the process outlived the window.
+fn group_sweep_fires_before_the_leader_is_reaped() {
     let runtime = tokio::runtime::Runtime::new().expect("tokio runtime");
     runtime.block_on(async {
-        // Clean-exit path: exited == true. Sweep MUST run; hard-kill MUST NOT.
-        let swept = std::cell::Cell::new(0u32);
-        let hard_killed = std::cell::Cell::new(0u32);
-        finish_graceful_exit(
-            true,
-            || swept.set(swept.get() + 1),
-            || async { hard_killed.set(hard_killed.get() + 1) },
-        )
-        .await;
-        assert_eq!(
-            swept.get(),
-            1,
-            "process-group sweep must run on the clean-exit path"
-        );
-        assert_eq!(
-            hard_killed.get(),
-            0,
-            "no hard kill when the process exited on its own"
-        );
-
-        // Timeout path: exited == false. Both sweep and hard-kill run.
-        let swept = std::cell::Cell::new(0u32);
-        let hard_killed = std::cell::Cell::new(0u32);
-        finish_graceful_exit(
-            false,
-            || swept.set(swept.get() + 1),
-            || async { hard_killed.set(hard_killed.get() + 1) },
-        )
-        .await;
-        assert_eq!(swept.get(), 1, "sweep still runs on the timeout path");
-        assert_eq!(
-            hard_killed.get(),
-            1,
-            "a process that outlived the window is hard-killed"
-        );
+        for (script, window, expect_exit) in [("exit 0", 2_000, true), ("sleep 30", 50, false)] {
+            let mut child = tokio::process::Command::new("sh")
+                .args(["-c", script])
+                .process_group(0)
+                .kill_on_drop(true)
+                .spawn()
+                .expect("spawn sh");
+            let reserved = std::cell::Cell::new(None);
+            let exited = end_child(
+                &mut child,
+                tokio::time::Duration::from_millis(window),
+                |pid| {
+                    // SAFETY: signal 0 only checks that `pid` still names a
+                    // process (a zombie counts); nothing is delivered.
+                    let probe = unsafe { libc::kill(pid as i32, 0) };
+                    reserved.set(Some(probe == 0));
+                },
+            )
+            .await;
+            assert_eq!(exited, expect_exit, "{script}");
+            assert_eq!(
+                reserved.get(),
+                Some(true),
+                "{script}: the sweep ran after the leader was reaped"
+            );
+            assert!(
+                child.id().is_none(),
+                "{script}: the leader is reaped afterwards"
+            );
+        }
     });
 }
 
@@ -554,7 +550,7 @@ fn first_open_waits_for_the_project_load_the_open_triggers() {
         let readiness = client
             .open_document_and_wait(
                 source_path.clone(),
-                "function foo() {}\nfoo();\n".into(),
+                "function foo() {}\nfoo();\n",
                 Some(400),
                 Some(5_000),
             )
@@ -570,6 +566,7 @@ fn first_open_waits_for_the_project_load_the_open_triggers() {
                 0,
                 9,
                 &SnippetReadPolicy::default(),
+                None,
             )
             .await
             .expect("references");
@@ -583,7 +580,7 @@ fn first_open_waits_for_the_project_load_the_open_triggers() {
         let again = client
             .open_document_and_wait(
                 source_path,
-                "function foo() {}\nfoo();\n".into(),
+                "function foo() {}\nfoo();\n",
                 Some(400),
                 Some(5_000),
             )
@@ -850,7 +847,7 @@ fn unauthorized_snippet_paths_are_never_touched() {
         let locations = tokio::time::timeout(
             Duration::from_secs(10),
             snippets_from_locations(
-                json!([
+                &json!([
                     {"uri": fifo_uri, "range": at},
                     {"uri": fifo_uri, "range": at},
                     {"uri": allowed_uri, "range": at}
@@ -872,6 +869,46 @@ fn unauthorized_snippet_paths_are_never_touched() {
         assert_eq!(consulted.load(Ordering::SeqCst), 2, "one decision per file");
         let _ = std::fs::remove_file(fifo);
         let _ = std::fs::remove_file(allowed);
+    });
+}
+
+#[test]
+fn shared_reads_authorize_and_read_each_file_once_across_responses() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let file = temp_file("octocode-engine-snippet-shared");
+        std::fs::write(&file, "alpha\nbeta\n").unwrap();
+        let uri = path_to_uri(&file.to_string_lossy()).unwrap();
+        let consulted = Arc::new(AtomicUsize::new(0));
+        let authorizer = {
+            let consulted = Arc::clone(&consulted);
+            move |path: &Path| {
+                consulted.fetch_add(1, Ordering::SeqCst);
+                Some(path.to_path_buf())
+            }
+        };
+        let policy = SnippetReadPolicy::with_authorizer(authorizer.clone()).shared_reads();
+        let response = |line: u32| {
+            json!([{"uri": uri, "range": {"start":{"line":line,"character":0},"end":{"line":line,"character":4}}}])
+        };
+        let first = snippets_from_locations(&response(0), &policy).await.unwrap();
+        // The file is gone: a later response under the same policy (or a
+        // clone of it) is served from the request's shared read.
+        std::fs::remove_file(&file).unwrap();
+        let second = snippets_from_locations(&response(1), &policy.clone())
+            .await
+            .unwrap();
+        assert_eq!(first[0].content, "alpha");
+        assert_eq!(second[0].content, "beta");
+        assert_eq!(consulted.load(Ordering::SeqCst), 1, "one decision per file");
+        // A policy without shared reads (or a new request) reads again.
+        let fresh = snippets_from_locations(
+            &response(1),
+            &SnippetReadPolicy::with_authorizer(authorizer),
+        )
+        .await
+        .unwrap();
+        assert!(fresh[0].content.starts_with("[content unavailable"), "{}", fresh[0].content);
+        assert_eq!(consulted.load(Ordering::SeqCst), 2);
     });
 }
 
@@ -986,7 +1023,7 @@ fn concurrent_syncs_of_one_document_reach_the_server_in_version_order() {
                     tokio::spawn(async move {
                         let mut body = format!("// {index}\n");
                         body.push_str(&"x".repeat(BODY));
-                        client.open_document(file, body).await
+                        client.open_document(file, &body).await
                     })
                 })
                 .collect();
@@ -1025,7 +1062,7 @@ fn a_blocked_sync_keeps_the_client_busy_and_cancelling_it_releases() {
             let client = client.clone();
             tokio::spawn(async move {
                 client
-                    .open_document("/tmp/octocode-busy.ts".into(), "x".repeat(4096))
+                    .open_document("/tmp/octocode-busy.ts".into(), &"x".repeat(4096))
                     .await
             })
         };
@@ -1047,7 +1084,9 @@ fn a_blocked_sync_keeps_the_client_busy_and_cancelling_it_releases() {
 
 /// Minimal stdio LSP server (node). `FAKE_INIT_DELAY_MS` delays the
 /// `initialize` reply; `FAKE_ALLOC_MB` allocates (and touches) that much
-/// memory after `initialized`; `FAKE_PID_FILE` records the server pid.
+/// memory after `initialized`; `FAKE_INDEX_MS` reports one `$/progress`
+/// indexing wave of that length after `initialized`; `FAKE_PID_FILE` records
+/// the server pid.
 #[cfg(unix)]
 const CONFIGURABLE_SERVER: &str = r#"#!/usr/bin/env node
 const fs = require('fs');
@@ -1065,6 +1104,11 @@ function handle(msg) {
   } else if (msg.method === 'initialized') {
     const mb = Number(process.env.FAKE_ALLOC_MB || 0);
     for (let i = 0; i < mb; i++) hold.push(Buffer.alloc(1 << 20, 1));
+    const indexMs = Number(process.env.FAKE_INDEX_MS || 0);
+    if (indexMs > 0) {
+      send({ jsonrpc: '2.0', method: '$/progress', params: { token: 'index', value: { kind: 'begin', title: 'Indexing' } } });
+      setTimeout(() => send({ jsonrpc: '2.0', method: '$/progress', params: { token: 'index', value: { kind: 'end' } } }), indexMs);
+    }
   } else if (msg.method === 'exit') {
     process.exit(0);
   } else if (msg.id !== undefined && msg.method) {
@@ -1191,10 +1235,10 @@ fn stop_overlapping_a_slow_start_waits_then_tears_it_down() {
     let _ = std::fs::remove_dir_all(root);
 }
 
-/// On macOS (no `RLIMIT_AS`) a server whose resident memory passes
-/// `maxMemoryMb` is killed by the RSS watchdog and its requests fail with a
-/// clear "exceeded memory cap" error.
-#[cfg(target_os = "macos")]
+/// On macOS and Linux a server whose resident memory passes `maxMemoryMb` is
+/// killed by the RSS watchdog and its requests fail with a clear "exceeded
+/// memory cap" error.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
 #[test]
 fn server_over_its_memory_cap_is_killed_with_a_clear_error() {
     if !node_available() {
@@ -1224,6 +1268,45 @@ fn server_over_its_memory_cap_is_killed_with_a_clear_error() {
         let _ = client.stop().await;
     });
     let _ = std::fs::remove_dir_all(root);
+}
+
+/// The RSS watchdog is armed on every platform that has a tree RSS reader
+/// (macOS and Linux): a server tree over its cap is killed and the connection
+/// fails with the "exceeded memory cap" error.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn memory_watchdog_is_armed_and_fires_on_macos_and_linux() {
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let mut child = tokio::process::Command::new("sleep")
+            .arg("30")
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn sleep");
+        let (client_w, _server_r) = tokio::io::duplex(1024);
+        let (_server_w, client_r) = tokio::io::duplex(1024);
+        let connection = Arc::new(JsonRpcConnection::new(
+            client_r,
+            client_w,
+            ClientRequestContext {
+                configuration: json!({}),
+                section_root: None,
+                workspace_folders: json!([]),
+            },
+            ProgressTracker::new(),
+        ));
+        assert!(
+            memory_watchdog_for(&child, None, &connection).is_none(),
+            "no cap, no watchdog"
+        );
+        // A 1-byte cap: the first sample is over it.
+        let _watchdog = memory_watchdog_for(&child, Some(1), &connection).expect("watchdog armed");
+        let status = tokio::time::timeout(Duration::from_secs(30), child.wait())
+            .await
+            .expect("the watchdog kills the tree")
+            .expect("wait");
+        assert!(!status.success());
+        assert!(!connection.is_alive(), "the connection was failed");
+    });
 }
 
 #[test]
@@ -1307,7 +1390,11 @@ fn first_page_reuses_responses_when_generation_matches() {
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         let source = root.join("a.ts");
         std::fs::write(&source, "function foo() {}\nfoo();\n".repeat(10)).unwrap();
-        let source_path = source.canonicalize().unwrap().to_string_lossy().into_owned();
+        let source_path = source
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
         let client = NativeLspClient::new(JsLanguageServerConfig {
             command: script.to_string_lossy().into_owned(),
             args: Some(Vec::new()),
@@ -1331,6 +1418,7 @@ fn first_page_reuses_responses_when_generation_matches() {
                         0,
                         9,
                         &SnippetReadPolicy::default(),
+                        None,
                     )
                     .await
                     .expect("references")[0]
@@ -1360,4 +1448,211 @@ fn first_page_reuses_responses_when_generation_matches() {
         client.stop().await.unwrap();
         let _ = std::fs::remove_dir_all(root);
     });
+}
+
+#[cfg(unix)]
+#[test]
+fn settled_requests_wait_only_when_they_reach_the_server() {
+    use std::os::unix::fs::PermissionsExt;
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let root = temp_file("octocode-engine-settled-reuse");
+        std::fs::create_dir_all(&root).unwrap();
+        let script = root.join("fake-lsp.js");
+        std::fs::write(&script, COUNTING_SERVER).unwrap();
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let source = root.join("a.ts");
+        std::fs::write(&source, "function foo() {}\nfoo();\n".repeat(10)).unwrap();
+        let source_path = source
+            .canonicalize()
+            .unwrap()
+            .to_string_lossy()
+            .into_owned();
+        let client = NativeLspClient::new(JsLanguageServerConfig {
+            command: script.to_string_lossy().into_owned(),
+            args: Some(Vec::new()),
+            workspace_root: root.canonicalize().unwrap().to_string_lossy().into_owned(),
+            language_id: Some("typescript".into()),
+            initialization_options: None,
+            env: None,
+            max_memory_mb: None,
+        });
+        client.start().await.expect("fake server starts");
+        let settle = Duration::from_millis(200);
+        let ask = |settled: Option<Duration>| {
+            let client = &client;
+            let source_path = source_path.clone();
+            let scope = ResponseScope {
+                reuse: true,
+                generation: "g1".to_owned(),
+            };
+            RESPONSE_SCOPE.scope(std::cell::RefCell::new(scope), async move {
+                let started = std::time::Instant::now();
+                let line = client
+                    .get_locations(
+                        LocationRequest::References {
+                            include_declaration: true,
+                        },
+                        source_path,
+                        0,
+                        9,
+                        &SnippetReadPolicy::default(),
+                        settled,
+                    )
+                    .await
+                    .expect("references")[0]
+                    .range
+                    .start
+                    .line;
+                (line, started.elapsed())
+            })
+        };
+        let (first, _) = ask(None).await;
+        // A settled request never takes the earlier (pre-settle) answer: it
+        // waits, then asks the server.
+        let (settled, waited) = ask(Some(settle)).await;
+        assert_ne!(settled, first);
+        assert!(waited >= settle, "{waited:?}");
+        // Repeated under the same generation, both answers come from the
+        // cache: no wait, no request (the server would answer a new line).
+        let (again, waited) = ask(Some(settle)).await;
+        assert_eq!(again, settled);
+        assert!(waited < settle, "{waited:?}");
+        assert_eq!(ask(None).await.0, first);
+        client.stop().await.unwrap();
+        let _ = std::fs::remove_dir_all(root);
+    });
+}
+
+/// A readiness wait that times out while the server still indexes
+/// does not leave a client that fails every later call. The next acquire
+/// reuses the same process (no respawn) and waits again; it sees indexing
+/// finish and the client answers. The re-wait does not pay the 2 s
+/// silent-server settle on top of the elapsed timeout.
+#[cfg(unix)]
+#[test]
+fn readiness_timeout_client_waits_again_on_the_next_acquire() {
+    use crate::lsp::pool::{LspClientPool, LspPoolOptions};
+    if !node_available() {
+        return;
+    }
+    let pid_file = temp_file("octocode-engine-readiness-timeout-pid");
+    let (root, mut config) = configurable_server(
+        "octocode-engine-readiness-timeout",
+        &[
+            // Longer than the 2 s shellscript readiness budget, shorter
+            // than two of them.
+            ("FAKE_INDEX_MS", "3000".into()),
+            ("FAKE_PID_FILE", pid_file.to_string_lossy().into_owned()),
+        ],
+        None,
+    );
+    config.language_id = Some("shellscript".into());
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let pool = LspClientPool::new(LspPoolOptions::default());
+        let first = pool
+            .acquire(config.clone())
+            .await
+            .expect("start")
+            .expect("client");
+        assert_eq!(
+            first.readiness().as_deref(),
+            Some("timeout"),
+            "indexing outlasts the first readiness budget"
+        );
+        let first_pid = std::fs::read_to_string(&pid_file).expect("server pid");
+
+        let started = std::time::Instant::now();
+        let second = pool
+            .acquire(config.clone())
+            .await
+            .expect("acquire")
+            .expect("client");
+        let waited = started.elapsed();
+        assert!(second.same_client(&first), "same pooled server, no respawn");
+        assert_eq!(
+            std::fs::read_to_string(&pid_file).expect("server pid"),
+            first_pid,
+            "no second server process"
+        );
+        assert_eq!(
+            second.readiness().as_deref(),
+            Some("progressIdle"),
+            "the next acquire waits again instead of keeping the stored timeout"
+        );
+        assert!(
+            waited < Duration::from_millis(2_000),
+            "the re-wait ends with the indexing, without a second settle: {waited:?}"
+        );
+        second
+            .get_hover(root.join("a.sh").to_string_lossy().into_owned(), 0, 0)
+            .await
+            .expect("the resumed client answers");
+
+        // A ready client is handed out again without any wait.
+        let started = std::time::Instant::now();
+        let third = pool
+            .acquire(config)
+            .await
+            .expect("acquire")
+            .expect("client");
+        assert!(third.same_client(&first));
+        assert!(started.elapsed() < Duration::from_millis(500));
+        pool.clear_all().await;
+    });
+    let _ = std::fs::remove_file(pid_file);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// Once the startup readiness wait saw the project load finish
+/// (`progressIdle`), a first `didOpen` does not stack the 400 ms settle on
+/// it. A server that is silent at startup keeps the settle (see
+/// `first_open_waits_for_the_project_load_the_open_triggers`).
+#[cfg(unix)]
+#[test]
+fn first_open_after_a_confirmed_project_load_skips_the_settle() {
+    if !node_available() {
+        return;
+    }
+    let (root, config) = configurable_server(
+        "octocode-engine-open-after-index",
+        &[("FAKE_INDEX_MS", "50".into())],
+        None,
+    );
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let client = NativeLspClient::new(config);
+        client.start().await.expect("fake server starts");
+        assert_eq!(
+            client.wait_for_ready(Some(5_000)).await.unwrap(),
+            "progressIdle"
+        );
+        let file = root.join("a.sh").to_string_lossy().into_owned();
+        let started = std::time::Instant::now();
+        let readiness = client
+            .open_document_and_wait(file, "echo hi\n", Some(400), Some(5_000))
+            .await
+            .expect("document syncs");
+        let waited = started.elapsed();
+        assert_eq!(readiness.as_deref(), Some("settledWithoutProgress"));
+        assert!(
+            waited < Duration::from_millis(400),
+            "no settle stacked on a confirmed project load: {waited:?}"
+        );
+        client.stop().await.unwrap();
+    });
+    let _ = std::fs::remove_dir_all(root);
+}
+
+/// The response cache weighs an entry by its JSON length, measured
+/// once without building the text.
+#[test]
+fn cached_response_weight_is_the_json_length() {
+    let value = json!({"uri": "file:///a.rs", "range": [1, 2, 3], "text": "q\"uote\u{e9}"});
+    let entry = CachedResponse::new(Arc::new(value.clone()));
+    assert_eq!(entry.json_bytes, value.to_string().len());
+    assert_eq!(json_len(&Value::Null), 4);
 }

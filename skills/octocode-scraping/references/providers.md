@@ -1,6 +1,6 @@
 # Providers and ScrapingAnt
 
-Load when choosing `--provider`, checking routes, adding a vendor, or making an approved hosted call.
+Load when choosing `--provider`, checking routes, adding a vendor, or making an approved hosted call. Why: choose a supported route without unintended spend.
 
 ## Contract
 `fetch({ url, pageId, config, apiKey })` → `FetchResponse` (`scripts/schemas/provider.schema.json`). Corpus and analyzers must not branch on vendor names.

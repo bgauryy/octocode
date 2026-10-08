@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { c, bold, dim, underline } from '../src/utils/colors.js';
+import { c, bold, dim } from '../src/utils/colors.js';
 
 describe('Colors', () => {
   const originalIsTTY = process.stdout.isTTY;
@@ -50,12 +50,6 @@ describe('Colors', () => {
       expect(result).toContain('\x1b[2m');
       expect(result).toContain('subtle');
     });
-
-    it('should underline text', () => {
-      const result = underline('link');
-      expect(result).toContain('\x1b[4m');
-      expect(result).toContain('link');
-    });
   });
 
   describe('when output is not a TTY (piped / agent capture)', () => {
@@ -68,7 +62,6 @@ describe('Colors', () => {
       expect(c('red', 'hello')).toBe('hello');
       expect(bold('important')).toBe('important');
       expect(dim('subtle')).toBe('subtle');
-      expect(underline('link')).toBe('link');
     });
   });
 

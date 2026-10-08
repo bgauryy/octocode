@@ -40,20 +40,20 @@ fn validate_registry(
         || base.fragment().is_some()
     {
         return Err(ArtifactError::new(
-            "invalid_query",
+            "invalidInput",
             "Invalid npm registry URL: use HTTP(S) without credentials, query or fragment.",
         ));
     }
-    if let Some(requested) = query.registry() {
+    if let Some(requested) = query.registry_url() {
         let requested = Url::parse(requested).map_err(|_| {
             ArtifactError::new(
-                "invalid_query",
+                "invalidInput",
                 "Invalid npm registry URL: use HTTP(S) without credentials, query or fragment.",
             )
         })?;
         if trim_registry(&requested) != trim_registry(base) {
             return Err(ArtifactError::new(
-                "invalid_query",
+                "invalidInput",
                 "Resolved npm registry does not match the query registry.",
             ));
         }
@@ -70,7 +70,7 @@ fn trim_registry(url: &Url) -> String {
 
 fn registry_target_error() -> ArtifactError {
     ArtifactError::new(
-        "invalid_query",
+        "invalidInput",
         "Invalid npm registry URL: loopback, link-local, and private hosts are not allowed \
          (set network.allowPrivateRegistry / OCTOCODE_ALLOW_PRIVATE_REGISTRY to permit).",
     )
@@ -104,7 +104,7 @@ fn validate_registry_target(base: &Url) -> Result<Option<DnsPin>, ArtifactError>
                 .to_socket_addrs()
                 .map_err(|_| {
                     ArtifactError::new(
-                        "provider_error",
+                        "providerError",
                         "Custom npm registry hostname could not be resolved safely.",
                     )
                 })?
@@ -122,7 +122,7 @@ fn validate_registry_target(base: &Url) -> Result<Option<DnsPin>, ArtifactError>
 fn validate_resolved_addresses(addresses: &[SocketAddr]) -> Result<(), ArtifactError> {
     if addresses.is_empty() {
         return Err(ArtifactError::new(
-            "provider_error",
+            "providerError",
             "Custom npm registry hostname resolved without any usable address.",
         ));
     }
@@ -247,7 +247,7 @@ async fn exact(
     let returned = required(row.get("name"), ArtifactType::Npm)?;
     if returned != name {
         return Err(ArtifactError::new(
-            "provider_error",
+            "providerError",
             "npm registry returned a different package name.",
         ));
     }
@@ -290,14 +290,19 @@ async fn exact(
     {
         artifact.source_ref = Some(attested);
         artifact.source_attested = true;
+    } else if let (Some(repository), Some(head)) =
+        (artifact.repository.clone(), artifact.source_ref.clone())
+        && super::release_ref::github_ref_missing(&repository, &head, client).await
+    {
+        // A `gitHead` GitHub does not have pins no lead: the default branch
+        // is read instead, and the response names the dead ref.
+        artifact.source_ref = None;
+        artifact.missing_ref = Some(head);
     }
     artifact.version = Some(version);
     Ok(ArtifactProviderPage {
-        artifacts: vec![artifact],
-        next_state: None,
-        total: Some(1),
-        terminal_limit: None,
         registry: Some(trim_registry(&registry.base)),
+        ..ArtifactProviderPage::single(artifact)
     })
 }
 
@@ -538,18 +543,18 @@ async fn search(
     let response = client
         .json_with_dns_pin(ArtifactType::Npm, url, false, authorization, dns_pin)
         .await?
-        .ok_or_else(|| ArtifactError::new("provider_error", "npm registry search failed."))?;
+        .ok_or_else(|| ArtifactError::new("providerError", "npm registry search failed."))?;
     let data = object_for(&response, ArtifactType::Npm)?;
     let total_found = total(data.get("total")).ok_or_else(|| {
         ArtifactError::new(
-            "provider_error",
+            "providerError",
             "npm registry search omitted a valid total; pagination cannot be determined.",
         )
     })?;
     let objects = data
         .get("objects")
         .and_then(Value::as_array)
-        .ok_or_else(|| ArtifactError::new("provider_error", "Invalid npm registry search response; expected an object with results and a total."))?;
+        .ok_or_else(|| ArtifactError::new("providerError", "Invalid npm registry search response; expected an object with results and a total."))?;
     let mut artifacts = Vec::with_capacity(objects.len().min(size));
     for entry in objects.iter().take(size) {
         let package = object_for(
@@ -560,7 +565,7 @@ async fn search(
         )?;
         let name = required(package.get("name"), ArtifactType::Npm).map_err(|_| {
             ArtifactError::new(
-                "provider_error",
+                "providerError",
                 "npm registry search returned an unnamed package; refusing to skip a result.",
             )
         })?;
@@ -603,7 +608,7 @@ async fn search(
 
 fn registry_url(base: &Url, path: &str) -> Result<Url, ArtifactError> {
     Url::parse(&format!("{}/{}", trim_registry(base), path))
-        .map_err(|_| ArtifactError::new("invalid_query", "Invalid npm registry URL."))
+        .map_err(|_| ArtifactError::new("invalidInput", "Invalid npm registry URL."))
 }
 
 pub(crate) fn normalize_repository(value: &str) -> Option<String> {
@@ -700,7 +705,7 @@ mod tests {
 
     fn npm_query(registry: Option<&str>) -> ArtifactSearchQuery {
         artifact_query(
-            serde_json::json!({"type": ArtifactType::Npm, "packageName": "left-pad".to_string(), "registry": registry.map(str::to_owned)}),
+            serde_json::json!({"ecosystem": ArtifactType::Npm, "packageName": "left-pad".to_string(), "registryUrl": registry.map(str::to_owned)}),
             None,
         )
     }
@@ -713,7 +718,7 @@ mod tests {
             validate_registry(&query, &registry, false).expect_err("must reject link-local host");
         // The opt-in escape hatch permits the same host.
         assert!(validate_registry(&query, &registry, true).is_ok());
-        assert_eq!(err.code, "invalid_query");
+        assert_eq!(err.code, "invalidInput");
     }
 
     #[test]
@@ -737,7 +742,7 @@ mod tests {
         ];
         let error = validate_resolved_addresses(&addresses)
             .expect_err("one blocked answer must reject the complete DNS result");
-        assert_eq!(error.code, "invalid_query");
+        assert_eq!(error.code, "invalidInput");
         assert!(validate_resolved_addresses(&[addresses[0]]).is_ok());
     }
 
@@ -866,7 +871,7 @@ mod tests {
     ) -> Result<super::ArtifactProviderPage, super::ArtifactError> {
         let budget = super::super::types::test_budget();
         let client = RegistryClient::uncached(http, &budget);
-        let mut query = json!({"type": "npm"});
+        let mut query = json!({"ecosystem": "npm"});
         for (key, value) in fields.as_object().expect("fields") {
             query[key] = value.clone();
         }
@@ -1136,7 +1141,7 @@ mod tests {
         super::exact("zod", Some("^4"), &registry, &client, None)
             .await
             .expect("packument and manifest");
-        let query = artifact_query(json!({"type":"npm","keywords":["schema"]}), None);
+        let query = artifact_query(json!({"ecosystem":"npm","keywords":["schema"]}), None);
         super::search(&query, &Default::default(), &registry, &client, None)
             .await
             .expect("discovery");

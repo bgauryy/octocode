@@ -1,6 +1,6 @@
 import type { ExtensionContext, Theme } from '@earendil-works/pi-coding-agent';
 import { truncateToWidth, visibleWidth, type Component } from '@earendil-works/pi-tui';
-import { formatDuration, formatTokens, toolCallCount } from '../shared/format.js';
+import { formatDuration } from '../shared/format.js';
 import { clip, statusColor } from '../shared/render.js';
 import type { Team } from './session.js';
 import type { Member, Traffic } from './model.js';
@@ -18,28 +18,34 @@ const safe = (text: string | undefined, max = 200) => (text ? clip(text, max) : 
 
 /** An agent whose heartbeat (every 5 s) stopped this long ago is killed or hung: it leaves the panel. */
 const UNRESPONSIVE_MS = 15_000;
-const TASK_MAX = 38;
+const MODEL_MAX = 28;
 
 type Cell = { text: string; color: Parameters<Theme['fg']>[0]; right?: boolean };
 /** Optional columns, dropped left to right when the terminal is too narrow; name, state and activity always stay. */
-const OPTIONAL = ['cost', 'tokensOut', 'tokensIn', 'tools', 'flags', 'age'] as const;
+const OPTIONAL = ['cost', 'tools', 'flags', 'age', 'model'] as const;
 type Column = 'glyph' | 'name' | 'state' | (typeof OPTIONAL)[number];
-const ORDER: Column[] = ['glyph', 'name', 'state', 'age', 'tools', 'tokensIn', 'tokensOut', 'cost', 'flags'];
+const ORDER: Column[] = ['glyph', 'name', 'model', 'state', 'age', 'tools', 'cost', 'flags'];
 
+/** `anthropic/claude-opus-4-5` → `claude-opus-4-5`: the provider adds width, not meaning, in a one-line row. */
+export const modelLabel = (model: string | undefined) => safe(model?.slice(model.lastIndexOf('/') + 1), MODEL_MAX);
+
+const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+
+/**
+ * One agent's cells. The row says who it is, which model it runs, its state, and what it does right now; the task it
+ * was given (a long prompt) stays in `coordinate list`, and raw token counters (cumulative re-sent context) stay out.
+ */
 function cells(member: Member, depth: number, now: number): Record<Column, Cell> & { detail: string } {
   const working = member.status === 'working';
-  const task = safe(member.task);
-  // What it was asked, then what it is doing right now.
-  const detail = working ? [safe(task, TASK_MAX), safe(member.activity)].filter(Boolean).join(' › ') : task;
-  const flags = [member.pending ? `✉ ${member.pending}` : '', member.locks?.length ? `locks ${member.locks.length}` : ''].filter(Boolean).join('  ');
+  const detail = working ? safe(member.activity) : '';
+  const flags = [member.pending ? `✉ ${member.pending} waiting` : '', member.locks?.length ? plural(member.locks.length, 'lock') : ''].filter(Boolean).join('  ');
   return {
     glyph: { text: working ? '●' : '○', color: working ? 'accent' : 'dim' },
     name: { text: `${depth > 0 ? `${'  '.repeat(depth - 1)} └ ` : ''}${safe(member.id, 64)}`, color: working ? 'text' : 'muted' },
+    model: { text: modelLabel(member.model), color: 'muted' },
     state: { text: working ? 'working' : 'idle', color: working ? 'accent' : 'dim' },
     age: { text: formatDuration(now - member.joinedAt), color: 'dim', right: true },
-    tools: { text: toolCallCount(member.toolCalls), color: 'dim', right: true },
-    tokensIn: { text: `↑${formatTokens(member.input)}`, color: 'dim', right: true },
-    tokensOut: { text: `↓${formatTokens(member.output)}`, color: 'dim', right: true },
+    tools: { text: plural(member.toolCalls, 'tool'), color: 'dim', right: true },
     cost: { text: member.cost > 0 ? `$${member.cost.toFixed(2)}` : '', color: 'dim', right: true },
     flags: { text: flags, color: member.pending ? 'warning' : 'dim' },
     detail,
@@ -135,10 +141,9 @@ export function widgetLines(members: Member[], selfId: string | undefined, now: 
   const tree = treeOrder(others, selfId);
   const shown = tree.slice(0, MAX_ROWS);
   const busy = others.filter((member) => member.status === 'working').length;
-  const sum = (key: 'input' | 'output' | 'cost') => others.reduce((total, member) => total + member[key], 0);
-  const cost = sum('cost');
+  const cost = others.reduce((total, member) => total + member.cost, 0);
   const idle = others.length - busy;
-  const summary = [...(busy ? [`${busy} working`] : []), ...(idle ? [`${idle} idle`] : []), `${others.length} in this session`, `↑${formatTokens(sum('input'))} ↓${formatTokens(sum('output'))}`, ...(cost > 0 ? [`$${cost.toFixed(2)}`] : [])].join(' · ');
+  const summary = [...(busy ? [`${busy} working`] : []), ...(idle ? [`${idle} idle`] : []), ...(cost > 0 ? [`$${cost.toFixed(2)}`] : [])].join(' · ');
   const head = truncateToWidth(` ${theme.fg('toolTitle', theme.bold('agents'))}  ${theme.fg('muted', summary)}`, Math.max(1, width), '…');
   const more = tree.length - shown.length;
   return [head, ...memberRows(shown, now, theme, width), ...(more > 0 ? [theme.fg('muted', ` +${more} more`)] : []), ...ownTraffic(traffic, others, selfId).slice(0, TRAFFIC_ROWS).map((message) => trafficRow(message, now, theme, width))];

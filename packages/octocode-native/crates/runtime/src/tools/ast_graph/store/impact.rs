@@ -16,8 +16,6 @@ use super::format::{Confidence, EdgeKind, FLAG_TEST, GraphTables, NONE, NodeKind
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
-const MAX_LISTED: usize = 100;
-
 /// Files whose change invalidates everything below their directory.
 pub(crate) fn is_global_config(path: &str) -> bool {
     let name = path.rsplit('/').next().unwrap_or(path);
@@ -387,7 +385,6 @@ fn report(
         files
             .iter()
             .filter(|(_, r)| (from..=to).contains(&r.depth))
-            .take(MAX_LISTED)
             .map(|(id, _)| key(*id))
             .collect::<Vec<_>>()
     };
@@ -398,10 +395,10 @@ fn report(
         "allAffected": global.iter().any(|(dir, _)| dir.is_empty()),
         "affectedFiles": files.len(),
         "byDepth": by_depth,
-        "affectedEntrypoints": entries.iter().take(MAX_LISTED).collect::<Vec<_>>(),
-        "testsToRun": tests.iter().take(MAX_LISTED).collect::<Vec<_>>(),
+        "affectedEntrypoints": entries,
+        "testsToRun": tests,
         "testCount": tests.len(),
-        "testFunctions": test_functions.iter().take(MAX_LISTED).map(|(_, k)| *k).collect::<Vec<_>>(),
+        "testFunctions": test_functions.iter().map(|(_, k)| *k).collect::<Vec<_>>(),
         "testFunctionCount": test_function_count,
         "willBreak": bucket(1, 1),
         "likely": bucket(2, 2),

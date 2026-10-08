@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 
 /// One flattened document symbol: `name`, `kind`, one-based `line` (the
 /// name line, a usable `lineHint`) and `endLine` (the full extent), the
-/// zero-based name `character`, and `parent`/`parentLine` for a nested
+/// one-based name `character`, and `parent`/`parentLine` for a nested
 /// symbol (a member, or a function's local). Every symbol is listed.
 pub(super) fn flatten_document_symbol(
     value: &Value,
@@ -41,7 +41,8 @@ pub(super) fn flatten_document_symbol(
             "name": name,
             "kind": kind,
             "line": start,
-            "character": anchor.pointer("/start/character").and_then(Value::as_u64).unwrap_or(0),
+            // 1-based, like every public column (D2).
+            "character": anchor.pointer("/start/character").and_then(Value::as_u64).unwrap_or(0) + 1,
             "endLine": range.pointer("/end/line").and_then(Value::as_u64).unwrap_or(0) + 1,
         });
         if let Some((parent, parent_line)) = parent {
@@ -89,7 +90,7 @@ pub(super) fn document_symbol_rows(page: &[Value], all: &[Value]) -> Vec<Value> 
             row
         })
         .collect::<Vec<_>>();
-    crate::tools::symbol_outline::outline_rows(&objects)
+    crate::tools::symbol_outline::declaration_rows(&objects)
 }
 
 /// typescript-language-server reports a `type X = …` alias as a variable
@@ -176,38 +177,15 @@ pub(super) fn symbol_kind_name(kind: Option<&Value>) -> String {
     .to_owned()
 }
 
+/// One page of `items` ([`crate::response::pages::slice_page`]), with the
+/// `nextPage` cursor the response stage moves to `next`.
 pub(super) fn paginate(items: &[Value], page: u32, page_size: u32) -> (Vec<Value>, Value) {
-    let page_size = page_size.max(1);
-    let total = items.len() as u32;
-    let total_pages = total.div_ceil(page_size).max(1);
-    // A page past the end is an empty, terminal, explicitly out-of-range page —
-    // never silently clamped to the last page (which would duplicate results).
-    let out_of_range = page > total_pages;
-    let current = page.max(1);
-    let start = if out_of_range {
-        items.len()
-    } else {
-        ((current - 1) * page_size) as usize
-    };
-    let page_items = items
-        .iter()
-        .skip(start)
-        .take(page_size as usize)
-        .cloned()
-        .collect::<Vec<_>>();
-    let has_more = !out_of_range && current < total_pages;
-    let mut pagination = json!({
-        "currentPage": current,
-        "totalPages": total_pages,
-        "totalItems": total,
-        "hasMore": has_more,
-        "pageSize": page_size
-    });
-    if has_more {
-        pagination["nextPage"] = json!(current + 1);
-    }
-    if out_of_range {
-        pagination["outOfRange"] = json!(true);
+    let page = page.max(1);
+    let (page_items, facts) =
+        crate::response::pages::slice_page(items, page as usize, page_size as usize);
+    let mut pagination = facts.to_value();
+    if pagination["hasMore"] == true {
+        pagination["nextPage"] = json!(page + 1);
     }
     (page_items, pagination)
 }

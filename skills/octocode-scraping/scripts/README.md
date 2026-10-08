@@ -10,6 +10,7 @@ Use this catalog to select an existing deterministic helper before writing a new
 | `fetch-and-brief.mjs` | Optional fetch + corpus brief |
 | `corpus-inspect` / `corpus-find` / `dom-find` / `resource-list` / `graph-navigate` | Query corpus before raw reads (static; live DOM → chrome-devtools) |
 | `har-ingest.mjs` | CDP ↔ scrape bridge; `--export-packet` / `--from-cdp-dir` (chrome aliases exist) |
+| `source-query.mjs` | Lossless base64 byte pages for original sources or oversized values; digest-pinned continuations |
 | `corpus-run.mjs` | Local `--regex` / `--script` (chrome alias `corpus-run-local`) |
 | `schema-helper.mjs` | Extraction field hints |
 
@@ -22,3 +23,7 @@ Schemas live in `schemas/graph.schema.json` and `schemas/provider.schema.json`. 
 ## Focused regressions
 
 The lobby names which test to run after each change. The corpus test executes limit-one continuations over seven fixed matches, checks their exact union, terminal states, and invalid arguments. The HTTP policy test covers robots precedence, bounded body reads, and one short `Retry-After`. The CDP test checks the generated default runner through navigation/body extraction and rejects failed stealth setup without starting a real browser. Live browser verification remains separate.
+
+All query helpers page their result lists with executable continuations. `--view <list>` follows one list independently; `--cursor-<list>` is supplied by the continuation. `corpus-find` keeps `--offset` and scans all stored text parts. `corpus-run --regex` scans all admitted files and matches, pages matches and coverage, and reports its `--max-file-bytes` terminal limit. Navigation pagination and full downloaded-text retention are checked by `tests/navigation-pagination.test.mjs`.
+
+`corpus-run --script` saves the complete returned value with a digest-pinned `script.result.next.continue`. Values up to 4000 bytes also appear inline; larger values use the saved source. Query continuations do not execute the custom script again.

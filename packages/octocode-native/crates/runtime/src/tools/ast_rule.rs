@@ -129,7 +129,7 @@ pub(crate) fn choose_grammar(
 
 /// The grammar and extensions a file's own extension selects.
 pub(crate) fn file_grammar(path: &std::path::Path) -> Option<(String, BTreeSet<String>)> {
-    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    let extension = octocode_engine::text::extension_of(&path.to_string_lossy(), true, "");
     octocode_engine::portable::grammar_capabilities()
         .into_iter()
         .filter(|capability| capability.structural_search)
@@ -158,20 +158,12 @@ pub(crate) fn present_grammars(
         .collect::<Vec<_>>();
     let mut seen = BTreeSet::new();
     let mut files = 0_usize;
-    let pruned = prune.to_vec();
-    let walker = ignore::WalkBuilder::new(root)
+    let walker = crate::tools::pruned_walk(root, prune.iter().cloned().collect())
         .hidden(!hidden)
         .git_ignore(!no_ignore)
         .git_exclude(!no_ignore)
         .ignore(!no_ignore)
         .parents(!no_ignore)
-        .filter_entry(move |entry| {
-            entry.depth() == 0
-                || !entry.file_type().is_some_and(|kind| kind.is_dir())
-                || !pruned
-                    .iter()
-                    .any(|name| entry.file_name().to_string_lossy() == name.as_str())
-        })
         .build();
     for entry in walker {
         let Ok(entry) = entry else { continue };
@@ -185,8 +177,10 @@ pub(crate) fn present_grammars(
         if files > max_files {
             break;
         }
-        if let Some(extension) = entry.path().extension().and_then(|ext| ext.to_str()) {
-            seen.insert(extension.to_ascii_lowercase());
+        let extension =
+            octocode_engine::text::extension_of(&entry.path().to_string_lossy(), true, "");
+        if !extension.is_empty() {
+            seen.insert(extension);
         }
     }
     let mut grammars = BTreeMap::new();
@@ -209,6 +203,14 @@ pub(crate) fn grammar_selector(capability: &octocode_engine::types::GrammarCapab
         .language_id
         .clone()
         .unwrap_or_else(|| capability.language.to_ascii_lowercase())
+}
+
+/// The one message for a `language` no structural grammar answers to
+/// (astSearch and astRewrite, error code `languageUnsupported`).
+pub(crate) fn unsupported_language_message(language: &str) -> String {
+    format!(
+        "language \"{language}\" is not a supported structural grammar. Use a language name, id, or extension such as \"typescript\", \"rust\", or \"py\"."
+    )
 }
 
 pub(crate) fn language_extensions(language: &str) -> Option<BTreeSet<String>> {
@@ -247,7 +249,9 @@ pub(crate) fn language_extensions(language: &str) -> Option<BTreeSet<String>> {
 }
 
 pub(crate) fn has_extension_in(path: &std::path::Path, extensions: &BTreeSet<String>) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| extensions.contains(&ext.to_ascii_lowercase()))
+    extensions.contains(&octocode_engine::text::extension_of(
+        &path.to_string_lossy(),
+        true,
+        "",
+    ))
 }

@@ -8,10 +8,6 @@ impl ToolOutput for Output {
     fn fallback_hint(&self, _query: &Value) -> &'static str {
         "Broaden path, depth, or file filters."
     }
-    fn error_hint(&self, code: &str) -> Option<&'static str> {
-        (code == crate::policy::PATH_POLICY_DENIED)
-            .then_some(crate::policy::discovery::WITHHELD_HINT)
-    }
     fn evidence_kind(&self, _query: &Value, _data: &Value) -> &'static str {
         "exact"
     }

@@ -3,17 +3,27 @@ use oxc_span::Span;
 
 use crate::graph::{GraphPosition, GraphRange};
 
-/// Maps byte offsets to LSP `(line, character)` positions, where `character`
-/// counts UTF-16 code units from the line start (the LSP wire convention).
-pub(super) struct LineIndex<'a>(crate::text::utf8_offsets::LineIndex<'a>);
+/// Maps oxc byte spans to graph `(line, character)` positions, where
+/// `character` counts UTF-16 code units from the line start (the LSP wire
+/// convention): the shared [`LineIndex`] under the tree-sitter rule, so oxc
+/// and tree-sitter positions agree.
+///
+/// [`LineIndex`]: crate::text::LineIndex
+pub(super) struct SpanPositions<'a> {
+    content: &'a str,
+    index: crate::text::LineIndex,
+}
 
-impl<'a> LineIndex<'a> {
+impl<'a> SpanPositions<'a> {
     pub(super) fn new(content: &'a str) -> Self {
-        Self(crate::text::utf8_offsets::LineIndex::new(content))
+        Self {
+            content,
+            index: crate::text::LineIndex::tree_sitter(content),
+        }
     }
 
     pub(super) fn position(&self, byte_offset: u32) -> GraphPosition {
-        let (line, character) = self.0.byte_to_position(byte_offset);
+        let (line, character) = self.index.byte_to_position(self.content, byte_offset);
         GraphPosition { line, character }
     }
 
@@ -26,7 +36,7 @@ impl<'a> LineIndex<'a> {
 
     /// Convert an LSP `(line, character)` (0-based, UTF-16) to a byte offset.
     pub(super) fn byte_offset(&self, line: u32, character: u32) -> u32 {
-        self.0.position_to_byte(line, character)
+        self.index.position_to_byte(self.content, line, character)
     }
 }
 

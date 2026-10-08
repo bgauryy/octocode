@@ -31,7 +31,9 @@ pub(super) fn disclose_remaining_pages(structured: &mut Value, tool: ToolId) {
         .into_iter()
         .flatten()
     {
-        if let Some(data) = row.get_mut("data").and_then(Value::as_object_mut) {
+        if let Some(data) = row.get_mut("data").and_then(Value::as_object_mut)
+            && data.get("complete") != Some(&Value::Bool(true))
+        {
             disclose_pages(data, |name| crate::tools::id::is_remaining(tool, name));
         }
     }
@@ -52,7 +54,7 @@ pub(super) fn disclose_incomplete_rows(structured: &mut Value) {
     let mut pages = Vec::new();
     for row in rows {
         let mut names = Vec::new();
-        if let Some(data) = row.get("data") {
+        if let Some(data) = row.get("data").filter(|data| !is_complete(data)) {
             page_names(data, &mut names);
         }
         if names.is_empty() {
@@ -345,8 +347,12 @@ fn items_left(entry: &Value) -> Option<u64> {
     (left > 0).then_some(left)
 }
 
-/// Chars left after the shown window: `totalChars - nextOffset`.
+/// Chars left after the shown window: the entry's own `remainingChars`
+/// (one window over several bodies), else `totalChars - nextOffset`.
 fn chars_left(entry: &Value) -> Option<u64> {
+    if let Some((left, _)) = number(entry, &["remainingChars"]) {
+        return (left > 0).then_some(left);
+    }
     let (total, _) = number(entry, &["totalChars"])?;
     let (offset, _) = number(entry, &["nextOffset"])?;
     total.checked_sub(offset).filter(|left| *left > 0)
@@ -522,6 +528,137 @@ pub(super) fn restart_stale(tool: ToolId, query: &Value, data: &mut Value) {
     }
 }
 
+/// One page's facts. Every tool builds its `pagination` block from these
+/// (never a hand-written JSON block), so the key set and order are the same
+/// on every tool and every page: `currentPage`, `totalPages` and
+/// `totalItems` when the total is known, `pageSize` when pages are cut by
+/// count, `hasMore`, and `outOfRange` on a page past the end. `totalItems`
+/// counts the paged unit only (the rows the pages split), never another
+/// count of the same result. Tool-specific facts (`countScope`, cursors the
+/// stage moves to `next`) follow on the block the caller extends.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PageFacts {
+    page: usize,
+    page_size: Option<usize>,
+    total_items: Option<usize>,
+    total_pages: Option<usize>,
+    has_more: bool,
+    out_of_range: bool,
+}
+
+impl PageFacts {
+    /// A count-cut page of a known total: the page count and `hasMore`
+    /// follow from it.
+    pub(crate) fn counted(page: usize, page_size: usize, total_items: usize) -> Self {
+        let page = page.max(1);
+        let size = page_size.max(1);
+        Self {
+            page,
+            page_size: Some(size),
+            total_items: Some(total_items),
+            total_pages: Some(total_items.div_ceil(size).max(1)),
+            has_more: page.saturating_mul(size) < total_items,
+            out_of_range: false,
+        }
+    }
+
+    /// A page whose total is unknown (a provider that does not count, or a
+    /// walk that stops early): only the cursor facts.
+    pub(crate) fn open(page: usize, page_size: Option<usize>, has_more: bool) -> Self {
+        Self {
+            page: page.max(1),
+            page_size,
+            total_items: None,
+            total_pages: None,
+            has_more,
+            out_of_range: false,
+        }
+    }
+
+    /// A page cut by size (bytes, a response budget), not by count: the
+    /// pager states the page count and the total of the paged unit.
+    pub(crate) fn sized(
+        page: usize,
+        total_pages: usize,
+        total_items: usize,
+        has_more: bool,
+    ) -> Self {
+        Self {
+            page: page.max(1),
+            page_size: None,
+            total_items: Some(total_items),
+            total_pages: Some(total_pages.max(1)),
+            has_more,
+            out_of_range: false,
+        }
+    }
+
+    /// The same page with a known total of the paged unit.
+    pub(crate) fn with_total(mut self, total_items: usize) -> Self {
+        self.total_items = Some(total_items);
+        if let Some(size) = self.page_size {
+            self.total_pages = Some(total_items.div_ceil(size.max(1)).max(1));
+        }
+        self
+    }
+
+    /// The same page with a partial count of the paged unit (items loaded
+    /// so far, a provider's capped total): no page count follows from it.
+    pub(crate) fn with_items(mut self, total_items: usize) -> Self {
+        self.total_items = Some(total_items);
+        self
+    }
+
+    /// The same size-cut page with the caller's requested page size.
+    pub(crate) fn with_page_size(mut self, page_size: usize) -> Self {
+        self.page_size = Some(page_size);
+        self
+    }
+
+    /// The same page, flagged as requested past the end (`outOfRange`).
+    pub(crate) fn out_of_range(mut self, past_end: bool) -> Self {
+        self.out_of_range = past_end;
+        self
+    }
+
+    /// The `pagination` block.
+    pub(crate) fn to_value(self) -> Value {
+        let mut block = Map::new();
+        block.insert("currentPage".into(), json!(self.page));
+        if let Some(pages) = self.total_pages {
+            block.insert("totalPages".into(), json!(pages));
+        }
+        if let Some(size) = self.page_size {
+            block.insert("pageSize".into(), json!(size));
+        }
+        if let Some(total) = self.total_items {
+            block.insert("totalItems".into(), json!(total));
+        }
+        block.insert("hasMore".into(), json!(self.has_more));
+        if self.out_of_range {
+            block.insert("outOfRange".into(), json!(true));
+        }
+        Value::Object(block)
+    }
+}
+
+/// One count-cut page of an in-memory list. A page past the end is empty,
+/// terminal and flagged `outOfRange`, never clamped to the last page, which
+/// would repeat rows the caller already has.
+pub(crate) fn slice_page<T: Clone>(
+    items: &[T],
+    page: usize,
+    page_size: usize,
+) -> (Vec<T>, PageFacts) {
+    let page = page.max(1);
+    let size = page_size.max(1);
+    let facts = PageFacts::counted(page, size, items.len());
+    let past_end = facts.total_pages.is_some_and(|pages| page > pages);
+    let start = (page - 1).saturating_mul(size);
+    let rows = items.iter().skip(start).take(size).cloned().collect();
+    (rows, facts.out_of_range(past_end))
+}
+
 /// One pagination block, one shape for every tool and page: where the page
 /// stands, its size, what is known of the total and whether more exists.
 /// The cursor (`nextPage`, `snapshot`, `resultId`) rides `next`; a false
@@ -543,6 +680,13 @@ pub(super) fn slim_pagination(block: &mut Map<String, Value>, limited: bool) {
 
 pub(super) fn is_pagination_key(key: &str) -> bool {
     key == "pagination" || key.ends_with("Pagination")
+}
+
+/// A row that states `complete:true` lists everything in its scope: any
+/// `next.*` it carries is a drill-down, not unread rest.
+#[must_use]
+pub fn is_complete(data: &Value) -> bool {
+    data.get("complete") == Some(&Value::Bool(true))
 }
 
 pub fn is_partial(data: &Value) -> bool {
@@ -697,7 +841,7 @@ fn bounded(record: &Map<String, Value>) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::disclose_remaining_pages;
+    use super::{PageFacts, disclose_remaining_pages};
     use crate::tools::id::ToolId;
     use serde_json::{Value, json};
 
@@ -859,6 +1003,18 @@ mod tests {
         assert_eq!(
             issue["warnings"],
             json!(["2366 more body chars: follow next.continueBody"])
+        );
+        // QA2: one offset continues every cut comment of the page; the
+        // count is all of their remaining chars.
+        let comments = disclosed(json!({
+            "pullRequests": [{"number": 3, "contentPagination": {"commentBody": {"offset": 0,
+                "length": 12000, "totalChars": 26574, "hasMore": true,
+                "nextOffset": 12000, "remainingChars": 101000}}}],
+            "next": {"continueCommentBody": page("ghGetHistoryItem")}
+        }));
+        assert_eq!(
+            comments["warnings"],
+            json!(["101000 more comment body chars: follow next.continueCommentBody"])
         );
     }
 
@@ -1038,5 +1194,37 @@ mod tests {
             crate::response::pages::STALE_SNAPSHOT_ERROR.contains("source or the query changed")
         );
         assert!(crate::response::pages::STALE_SNAPSHOT_ERROR.contains("next.restart"));
+    }
+
+    #[test]
+    fn page_facts_count_only_the_paged_unit() {
+        // One key order on every page; the total is the paged unit's.
+        assert_eq!(
+            PageFacts::counted(2, 10, 25).to_value().to_string(),
+            r#"{"currentPage":2,"totalPages":3,"pageSize":10,"totalItems":25,"hasMore":true}"#
+        );
+        assert_eq!(
+            PageFacts::counted(3, 10, 25).to_value()["hasMore"],
+            json!(false)
+        );
+        // A page past the end is a page, not more.
+        assert_eq!(
+            PageFacts::counted(4, 10, 25).to_value()["hasMore"],
+            json!(false)
+        );
+        // Unknown totals state only the cursor facts, in the same order.
+        assert_eq!(
+            PageFacts::open(1, Some(30), true).to_value().to_string(),
+            r#"{"currentPage":1,"pageSize":30,"hasMore":true}"#
+        );
+        assert_eq!(
+            PageFacts::open(1, Some(30), true).with_total(31).to_value(),
+            json!({"currentPage":1,"totalPages":2,"pageSize":30,"totalItems":31,"hasMore":true})
+        );
+        // Size-cut pages have no page size.
+        assert_eq!(
+            PageFacts::sized(1, 4, 90, true).to_value().to_string(),
+            r#"{"currentPage":1,"totalPages":4,"totalItems":90,"hasMore":true}"#
+        );
     }
 }

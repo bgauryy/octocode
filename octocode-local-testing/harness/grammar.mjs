@@ -71,7 +71,8 @@ for (const [lang, l] of Object.entries(L)) {
     const srcLines = l.src.split('\n');
     const emojiLine = srcLines.findIndex(s => s.includes('😀')) + 1;
     const onEmoji = matches.find(x => x.line === emojiLine);
-    const expected = emojiLine ? srcLines[emojiLine - 1].indexOf(`${l.call}(`) : -1;
+    // 1-based UTF-16 column (D2): JS string indices count UTF-16 units.
+    const expected = emojiLine ? srcLines[emojiLine - 1].indexOf(`${l.call}(`) + 1 : -1;
     res.match = `${matches.length} hits`;
     res.utf16 = onEmoji ? (onEmoji.column === expected ? `ok(${expected})` : `BAD ${onEmoji.column}≠${expected}`) : 'no-hit';
     check(`${lang}: call pattern ${l.call}($A) matches`, matches.length > 0, m.text.slice(0, 100));

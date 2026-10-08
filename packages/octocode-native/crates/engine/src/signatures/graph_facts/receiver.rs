@@ -224,11 +224,25 @@ impl<'t> ReceiverTypes<'t> {
     fn bindings_of(&mut self, function: Node<'t>, content: &str) -> &[Binding] {
         if !self.bindings.contains_key(&function.id()) {
             let mut out = Vec::new();
-            let mut pending = vec![function];
+            // Depth-first, each node with its depth below `function`: `path`
+            // keeps the enclosing nodes of the one being visited, so a binding
+            // site reads its parents without a root-down `Node::parent` descent.
+            let mut pending = vec![(function, 0)];
+            let mut path = Vec::new();
             let mut cursor = function.walk();
-            while let Some(node) = pending.pop() {
-                self.collect_bindings(node, function, content, &mut out);
-                pending.extend(node.named_children(&mut cursor));
+            while let Some((node, depth)) = pending.pop() {
+                path.truncate(depth);
+                let up = Up {
+                    root: self.root,
+                    node,
+                    path: &path,
+                };
+                self.collect_bindings(up, function, content, &mut out);
+                path.push(node);
+                pending.extend(
+                    node.named_children(&mut cursor)
+                        .map(|child| (child, depth + 1)),
+                );
             }
             self.bindings.insert(function.id(), out);
         }
@@ -237,34 +251,35 @@ impl<'t> ReceiverTypes<'t> {
 
     fn collect_bindings(
         &self,
-        node: Node<'t>,
+        up: Up<'_, 't>,
         function: Node<'t>,
         content: &str,
         out: &mut Vec<Binding>,
     ) {
         match self.lang {
-            Lang::Rust => self.rust_bindings(node, content, out),
-            Lang::Python => self.python_bindings(node, function, content, out),
-            Lang::Java => self.java_bindings(node, content, out),
-            Lang::Go => self.go_bindings(node, content, out),
-            Lang::CSharp => self.csharp_bindings(node, function, content, out),
-            Lang::Cpp => self.cpp_bindings(node, content, out),
+            Lang::Rust => self.rust_bindings(up, content, out),
+            Lang::Python => self.python_bindings(up, function, content, out),
+            Lang::Java => self.java_bindings(up, content, out),
+            Lang::Go => self.go_bindings(up, content, out),
+            Lang::CSharp => self.csharp_bindings(up, function, content, out),
+            Lang::Cpp => self.cpp_bindings(up, content, out),
         }
     }
 
-    fn rust_bindings(&self, node: Node<'t>, content: &str, out: &mut Vec<Binding>) {
+    fn rust_bindings(&self, up: Up<'_, 't>, content: &str, out: &mut Vec<Binding>) {
+        let node = up.node;
         let pattern = node.child_by_field_name("pattern");
         match node.kind() {
             "parameter" => {
                 let Some(pattern) = pattern else { return };
-                let until = node.parent().and_then(|p| p.parent()).unwrap_or(node);
+                let until = up.nth(2).unwrap_or(node);
                 let ty = node
                     .child_by_field_name("type")
                     .and_then(|ty| self.rust_type(ty, content));
                 bind_pattern(pattern, ty, node.end_byte(), until.end_byte(), content, out);
             }
             "closure_parameters" => {
-                let until = node.parent().unwrap_or(node).end_byte();
+                let until = up.nth(1).unwrap_or(node).end_byte();
                 let mut cursor = node.walk();
                 for child in node.named_children(&mut cursor) {
                     if child.kind() != "parameter" {
@@ -281,7 +296,7 @@ impl<'t> ReceiverTypes<'t> {
                         node.child_by_field_name("value")
                             .and_then(|value| self.rust_constructor(value, content))
                     });
-                let until = node.parent().unwrap_or(node).end_byte();
+                let until = up.nth(1).unwrap_or(node).end_byte();
                 bind_pattern(pattern, ty, node.end_byte(), until, content, out);
             }
             "for_expression" | "match_arm" => {
@@ -297,7 +312,8 @@ impl<'t> ReceiverTypes<'t> {
             }
             "let_condition" => {
                 let Some(pattern) = pattern else { return };
-                let until = ancestor(self.root, node, &["if_expression", "while_expression"])
+                let until = up
+                    .ancestor(&["if_expression", "while_expression"])
                     .unwrap_or(node)
                     .end_byte();
                 bind_pattern(pattern, None, node.end_byte(), until, content, out);
@@ -308,18 +324,20 @@ impl<'t> ReceiverTypes<'t> {
 
     fn python_bindings(
         &self,
-        node: Node<'t>,
+        up: Up<'_, 't>,
         function: Node<'t>,
         content: &str,
         out: &mut Vec<Binding>,
     ) {
+        let node = up.node;
         // Python locals live until the end of their function.
-        let function_end = ancestor(self.root, node, &["function_definition"])
+        let function_end = up
+            .ancestor(&["function_definition"])
             .unwrap_or(function)
             .end_byte();
         match node.kind() {
             "parameters" | "lambda_parameters" => {
-                let until = node.parent().unwrap_or(node).end_byte();
+                let until = up.nth(1).unwrap_or(node).end_byte();
                 let mut cursor = node.walk();
                 for child in node.named_children(&mut cursor) {
                     let (name, ty) = match child.kind() {
@@ -368,7 +386,7 @@ impl<'t> ReceiverTypes<'t> {
             }
             "for_in_clause" => {
                 if let Some(left) = node.child_by_field_name("left") {
-                    let until = node.parent().unwrap_or(node).end_byte();
+                    let until = up.nth(1).unwrap_or(node).end_byte();
                     bind_pattern(left, None, node.start_byte(), until, content, out);
                 }
             }
@@ -389,7 +407,8 @@ impl<'t> ReceiverTypes<'t> {
         }
     }
 
-    fn java_bindings(&self, node: Node<'t>, content: &str, out: &mut Vec<Binding>) {
+    fn java_bindings(&self, up: Up<'_, 't>, content: &str, out: &mut Vec<Binding>) {
+        let node = up.node;
         let declared = |ty: Option<Node<'t>>, value: Option<Node<'t>>| {
             let ty = ty?;
             if node_text(ty, content) == Some("var") {
@@ -403,7 +422,7 @@ impl<'t> ReceiverTypes<'t> {
                 let Some(name) = node.child_by_field_name("name") else {
                     return;
                 };
-                let until = node.parent().and_then(|p| p.parent()).unwrap_or(node);
+                let until = up.nth(2).unwrap_or(node);
                 let ty = if node.kind() == "catch_formal_parameter" {
                     let mut cursor = node.walk();
                     node.named_children(&mut cursor)
@@ -415,12 +434,12 @@ impl<'t> ReceiverTypes<'t> {
                 push(out, name, ty, node.end_byte(), until.end_byte(), content);
             }
             "spread_parameter" => {
-                let until = node.parent().and_then(|p| p.parent()).unwrap_or(node);
+                let until = up.nth(2).unwrap_or(node);
                 bind_pattern(node, None, node.end_byte(), until.end_byte(), content, out);
             }
             "local_variable_declaration" => {
                 let ty = node.child_by_field_name("type");
-                let until = node.parent().unwrap_or(node).end_byte();
+                let until = up.nth(1).unwrap_or(node).end_byte();
                 let mut cursor = node.walk();
                 for declarator in node.children_by_field_name("declarator", &mut cursor) {
                     let Some(name) = declarator.child_by_field_name("name") else {
@@ -446,7 +465,8 @@ impl<'t> ReceiverTypes<'t> {
                     node.child_by_field_name("value"),
                 );
                 let until = if node.kind() == "resource" {
-                    ancestor(self.root, node, &["try_with_resources_statement"]).unwrap_or(node)
+                    up.ancestor(&["try_with_resources_statement"])
+                        .unwrap_or(node)
                 } else {
                     node
                 };
@@ -470,10 +490,11 @@ impl<'t> ReceiverTypes<'t> {
         }
     }
 
-    fn go_bindings(&self, node: Node<'t>, content: &str, out: &mut Vec<Binding>) {
+    fn go_bindings(&self, up: Up<'_, 't>, content: &str, out: &mut Vec<Binding>) {
+        let node = up.node;
         match node.kind() {
             "parameter_declaration" | "variadic_parameter_declaration" => {
-                let Some(owner) = node.parent().and_then(|list| list.parent()) else {
+                let Some(owner) = up.nth(2) else {
                     return;
                 };
                 if !matches!(
@@ -505,7 +526,7 @@ impl<'t> ReceiverTypes<'t> {
                 ) else {
                     return;
                 };
-                let until = go_scope_end(self.root, node);
+                let until = go_scope_end(up);
                 let lefts = named_children(left);
                 let rights = named_children(right);
                 for (index, name) in lefts.iter().enumerate() {
@@ -520,7 +541,7 @@ impl<'t> ReceiverTypes<'t> {
                 }
             }
             "var_spec" => {
-                let until = go_scope_end(self.root, node);
+                let until = go_scope_end(up);
                 let declared = node
                     .child_by_field_name("type")
                     .and_then(|ty| clean_type_text(node_text(ty, content)?, Lang::Go));
@@ -545,7 +566,7 @@ impl<'t> ReceiverTypes<'t> {
             }
             "range_clause" => {
                 if let Some(left) = node.child_by_field_name("left") {
-                    let until = node.parent().unwrap_or(node).end_byte();
+                    let until = up.nth(1).unwrap_or(node).end_byte();
                     bind_pattern(left, None, node.end_byte(), until, content, out);
                 }
             }
@@ -560,11 +581,12 @@ impl<'t> ReceiverTypes<'t> {
 
     fn csharp_bindings(
         &self,
-        node: Node<'t>,
+        up: Up<'_, 't>,
         function: Node<'t>,
         content: &str,
         out: &mut Vec<Binding>,
     ) {
+        let node = up.node;
         let declared = |ty: Option<Node<'t>>| {
             let ty = ty?;
             (ty.kind() != "implicit_type")
@@ -576,12 +598,12 @@ impl<'t> ReceiverTypes<'t> {
                 let Some(name) = node.child_by_field_name("name") else {
                     return;
                 };
-                let until = node.parent().and_then(|p| p.parent()).unwrap_or(node);
+                let until = up.nth(2).unwrap_or(node);
                 let ty = declared(node.child_by_field_name("type"));
                 push(out, name, ty, node.end_byte(), until.end_byte(), content);
             }
             "variable_declaration" => {
-                let Some(parent) = node.parent() else { return };
+                let Some(parent) = up.nth(1) else { return };
                 if matches!(
                     parent.kind(),
                     "field_declaration" | "event_field_declaration"
@@ -589,7 +611,7 @@ impl<'t> ReceiverTypes<'t> {
                     return;
                 }
                 let scope = if parent.kind() == "local_declaration_statement" {
-                    parent.parent().unwrap_or(parent)
+                    up.nth(2).unwrap_or(parent)
                 } else {
                     parent
                 };
@@ -627,14 +649,14 @@ impl<'t> ReceiverTypes<'t> {
             "declaration_pattern" | "declaration_expression" => {
                 if let Some(name) = node.child_by_field_name("name") {
                     let ty = declared(node.child_by_field_name("type"));
-                    let until = ancestor(self.root, node, &[function.kind()]).unwrap_or(function);
+                    let until = up.ancestor(&[function.kind()]).unwrap_or(function);
                     bind_pattern(name, ty, node.end_byte(), until.end_byte(), content, out);
                 }
             }
             "catch_declaration" => {
                 if let Some(name) = node.child_by_field_name("name") {
                     let ty = declared(node.child_by_field_name("type"));
-                    let until = node.parent().unwrap_or(node).end_byte();
+                    let until = up.nth(1).unwrap_or(node).end_byte();
                     push(out, name, ty, node.end_byte(), until, content);
                 }
             }
@@ -656,7 +678,8 @@ impl<'t> ReceiverTypes<'t> {
         }
     }
 
-    fn cpp_bindings(&self, node: Node<'t>, content: &str, out: &mut Vec<Binding>) {
+    fn cpp_bindings(&self, up: Up<'_, 't>, content: &str, out: &mut Vec<Binding>) {
+        let node = up.node;
         let declared = |ty: Option<Node<'t>>| {
             let ty = ty?;
             (ty.kind() != "placeholder_type_specifier")
@@ -671,19 +694,16 @@ impl<'t> ReceiverTypes<'t> {
                 else {
                     return;
                 };
-                let until = ancestor(
-                    self.root,
-                    node,
-                    &["function_definition", "lambda_expression"],
-                )
-                .unwrap_or(node)
-                .end_byte();
+                let until = up
+                    .ancestor(&["function_definition", "lambda_expression"])
+                    .unwrap_or(node)
+                    .end_byte();
                 let ty = declared(node.child_by_field_name("type"));
                 push(out, name, ty, node.end_byte(), until, content);
             }
             "declaration" => {
                 let ty = node.child_by_field_name("type");
-                let until = node.parent().unwrap_or(node).end_byte();
+                let until = up.nth(1).unwrap_or(node).end_byte();
                 let mut cursor = node.walk();
                 for declarator in node.children_by_field_name("declarator", &mut cursor) {
                     let (target, value) = if declarator.kind() == "init_declarator" {
@@ -1188,21 +1208,59 @@ fn starts_uppercase(name: &str) -> bool {
 }
 
 /// The end of the block that holds a Go declaration statement.
-fn go_scope_end<'t>(root: Node<'t>, node: Node<'t>) -> usize {
-    let chain = ancestors(root, node);
-    for (index, parent) in chain.iter().enumerate().rev() {
+fn go_scope_end(up: Up<'_, '_>) -> usize {
+    let mut level = 1;
+    while let Some(parent) = up.nth(level) {
         match parent.kind() {
-            "var_declaration" | "var_spec_list" => {}
-            "statement_list" => {
-                return index
-                    .checked_sub(1)
-                    .map_or(*parent, |outer| chain[outer])
-                    .end_byte();
-            }
+            "var_declaration" | "var_spec_list" => level += 1,
+            "statement_list" => return up.nth(level + 1).unwrap_or(parent).end_byte(),
             _ => return parent.end_byte(),
         }
     }
-    node.end_byte()
+    up.node.end_byte()
+}
+
+/// A binding site and its enclosing nodes inside the function being scanned
+/// (`path`, function first). Ancestors above the function come from one
+/// root-down descent, as [`ancestor`] and `Node::parent` give them.
+#[derive(Clone, Copy)]
+struct Up<'p, 't> {
+    root: Node<'t>,
+    node: Node<'t>,
+    path: &'p [Node<'t>],
+}
+
+impl<'t> Up<'_, 't> {
+    /// The `level`-th ancestor (1 is the parent), `None` above the root.
+    fn nth(&self, level: usize) -> Option<Node<'t>> {
+        if level == 0 {
+            return Some(self.node);
+        }
+        if let Some(index) = self.path.len().checked_sub(level) {
+            return Some(self.path[index]);
+        }
+        let top = self.path.first().copied().unwrap_or(self.node);
+        let above = level - self.path.len();
+        let chain = ancestors(self.root, top);
+        chain.len().checked_sub(above).map(|index| chain[index])
+    }
+
+    /// The nearest strict ancestor whose kind is one of `kinds`.
+    fn ancestor(&self, kinds: &[&str]) -> Option<Node<'t>> {
+        if let Some(found) = self
+            .path
+            .iter()
+            .rev()
+            .find(|node| kinds.contains(&node.kind()))
+        {
+            return Some(*found);
+        }
+        ancestor(
+            self.root,
+            self.path.first().copied().unwrap_or(self.node),
+            kinds,
+        )
+    }
 }
 
 /// `T{..}`, `&T{..}`, `new(T)`, `NewT(..)` → `T`, `pkg.NewT(..)` → `pkg.T`.

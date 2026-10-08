@@ -16,12 +16,12 @@
 //!   * Degrades gracefully: an unsupported extension or parse failure leaves
 //!     matches unlabeled (kind = None), never an error.
 
-use std::path::Path;
 use std::time::Instant;
 use tree_sitter::Node;
 
 use crate::signatures::extractor::{AST_EXECUTION_TIMEOUT, parse_before};
 use crate::signatures::languages::find_entry;
+use crate::text::file_extension::extension_of;
 use crate::text::utf8_offsets::LineIndex;
 use crate::types::{RipgrepFile, RipgrepMatch};
 
@@ -48,11 +48,8 @@ pub fn classify_ripgrep_files(files: &mut [RipgrepFile], cap: usize) {
         if file.matches.is_empty() {
             continue;
         }
-        let ext = Path::new(&file.path)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
-        if find_entry(ext).is_none() {
+        let ext = extension_of(&file.path, true, "");
+        if find_entry(&ext).is_none() {
             continue;
         }
         // Size guard before reading: skip large/minified files (parsing them is
@@ -65,7 +62,7 @@ pub fn classify_ripgrep_files(files: &mut [RipgrepFile], cap: usize) {
         let Ok(content) = std::fs::read_to_string(&file.path) else {
             continue;
         };
-        classify_file_matches_before(&content, ext, &mut file.matches, deadline);
+        classify_file_matches_before(&content, &ext, &mut file.matches, deadline);
     }
 }
 
@@ -109,7 +106,7 @@ fn classify_file_matches_before(
         return;
     };
     let root = tree.root_node();
-    let index = LineIndex::new(content);
+    let index = LineIndex::tree_sitter(content);
 
     for m in matches.iter_mut() {
         if Instant::now() >= deadline {
@@ -268,17 +265,17 @@ fn is_declaration_kind(k: &str) -> bool {
 }
 
 /// Convert a 1-based line + 0-based UTF-16 column (ripgrep's unit, see
-/// `byte_to_char_offset_inner`) to a byte offset, clamped to the line.
+/// `byte_to_utf16_offset`) to a byte offset, clamped to the line.
 ///
 /// ripgrep sniffs and strips a leading BOM before matching, so its line-1
 /// columns exclude it; the shared `LineIndex` hides the BOM from row-0
 /// columns the same way, so the offset lands on the matched text.
-fn position_to_byte(content: &str, index: &LineIndex<'_>, line: u32, column: u32) -> Option<usize> {
+fn position_to_byte(content: &str, index: &LineIndex, line: u32, column: u32) -> Option<usize> {
     let row = line.checked_sub(1)?;
     if row as usize >= index.line_starts_utf16().len() {
         return None;
     }
-    let byte = index.position_to_byte(row, column) as usize;
+    let byte = index.position_to_byte(content, row, column) as usize;
     Some(byte.min(content.len().saturating_sub(1)))
 }
 
@@ -388,6 +385,7 @@ mod tests {
             path: path.to_string_lossy().into_owned(),
             match_count: 1,
             matches: vec![m(1, 16)],
+            source: None,
         }];
         classify_ripgrep_files(&mut files, DEFAULT_CLASSIFY_FILE_CAP);
         // Skipped by the size guard -> match left unlabeled.
@@ -397,13 +395,31 @@ mod tests {
     }
 
     #[test]
+    fn uppercase_extensions_are_classified_like_lowercase_ones() {
+        let dir =
+            std::env::temp_dir().join(format!("octocode-classify-upper-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("Upper.TS");
+        std::fs::write(&path, "// note\nexport function fallback() {}\n").unwrap();
+        let mut files = vec![RipgrepFile {
+            path: path.to_string_lossy().into_owned(),
+            match_count: 1,
+            matches: vec![m(1, 3)],
+            source: None,
+        }];
+        classify_ripgrep_files(&mut files, DEFAULT_CLASSIFY_FILE_CAP);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(files[0].matches[0].kind.as_deref(), Some(KIND_COMMENT));
+    }
+
+    #[test]
     fn removed_json_grammar_leaves_lexical_matches_unclassified() {
         assert_eq!(classify_one(r#"{"handler":"build"}"#, "json", 1, 2), None);
     }
 
     #[test]
     fn match_columns_are_utf16_like_ripgrep_reports_them() {
-        // ripgrep columns are UTF-16 code units (`byte_to_char_offset_inner`). Each
+        // ripgrep columns are UTF-16 code units (`byte_to_utf16_offset`). Each
         // emoji is 2 units but 1 char, so counting chars drifts right by one per
         // emoji: five emoji push `b` into the trailing comment.
         let src = "const a = \"😀😀😀😀😀\", b=1;//cc\n";

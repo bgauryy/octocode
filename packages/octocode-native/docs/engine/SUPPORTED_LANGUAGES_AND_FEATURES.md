@@ -42,7 +42,7 @@ Tree-sitter-backed. Two query forms: `pattern` (code-shaped, `$X`/`$$$ARGS` meta
 | Structural edit | `astRewrite` | Beta-gated preview and hash-guarded apply |
 | File links, cycles, reachability | `astTopology` | Syntax-derived candidate graph; confirm delete claims with LSP references/callers |
 | Definition, references, types, hover, implementations | `lspSearch definition/references/typeDefinition/hover/implementation` | Requires an installed server and its advertised capability; use an observed symbol anchor |
-| Call hierarchy or inheritance | `lspSearch callers/callees/callHierarchy/supertypes/subtypes` | Requires the corresponding server capability; syntax graph edges alone are not semantic proof |
+| Call hierarchy or inheritance | `lspSearch callers/callees/supertypes/subtypes` | Requires the corresponding server capability; syntax graph edges alone are not semantic proof |
 | File outline | `lspSearch documentSymbols` | Usually server-backed; JS/TS has a syntactic native fallback identified by `lsp.source` |
 | Workspace name lookup | `lspSearch workspaceSymbol` | Supply `uri` in a mixed-language workspace to select the server |
 | Compiler or language-server findings | `lspSearch diagnostic` | Requires a server; reports its diagnostics rather than native grammar support |
@@ -66,7 +66,7 @@ The default release build registers exactly **28 extensions across 11 language f
 
 `tree-sitter-cuda` is already declared and locked. For a one-off runtime build, enable the dependency feature with `--features octocode-engine/tree-sitter-cuda`. To ship it in every build, add `tree-sitter-cuda` to the engine's `portable-default` feature, which the CLI and runtime consume. Then update the fixed default extension expectation in `crates/engine/src/signatures/languages_tests.rs`, the documented counts, and build/test the six platform packages. No new grammar dependency or LSP route is required.
 
-The [same-source Darwin ARM64 release ablation](DEPENDENCY_AUDIT.md#footprint-interpretation) measured **+7,116,704 bytes (+6.787 MiB, +25.53%)** in the stripped engine addon with CUDA enabled. That measures one addon, not the total platform package, compressed download, CLI binary, or runtime addon; those need separate release measurements before changing the default. The optional engine and runtime grammar tests pass with CUDA enabled. Text search, ordinary reads, conservative minification, and the `clangd` LSP route already work for `.cu`/`.cuh` without this parser feature.
+The [same-source Darwin ARM64 release ablation](../DEPENDENCY_AUDIT.md#footprint-interpretation) measured **+7,116,704 bytes (+6.787 MiB, +25.53%)** in the stripped engine addon with CUDA enabled. That measures one addon, not the total platform package, compressed download, CLI binary, or runtime addon; those need separate release measurements before changing the default. The optional engine and runtime grammar tests pass with CUDA enabled. Text search, ordinary reads, conservative minification, and the `clangd` LSP route already work for `.cu`/`.cuh` without this parser feature.
 
 The lockfile contains no other unregistered Tree-sitter language crate. OXC covers JS/TS, while JSON/YAML parsers and the broader minifier table do not supply the source ranges and grammar queries required by AST match, rewrite, symbols, and topology. C++ `.h` files expose a separate ambiguity: `.h` selects C by default. `astSearch match` with `language:"cpp"` parses matching `.h` files as C++ for either a file or directory; tree and symbols accept that override for a single file. `astRewrite` uses `language` for its parser and filters directory scans to the selected language's extensions, including `.h` for C++. For directory `symbols` and `astTopology`, pass `languageGlobs:{"cpp":["include/**/*.h"]}`. Globs are relative to the scan root, take precedence over the extension parser, and are included in continuation queries; conflicting parser matches are reported as skipped files. This AST override does not alter clangd's compile-command handling. For C++ header LSP analysis, provide `compile_commands.json` or a path-scoped `.clangd` fragment such as `If: { PathMatch: include/.*\.h }` with `CompileFlags: { Add: [-xc++] }`. `languageGlobs` uses glob syntax; `.clangd` `PathMatch` uses a regular expression.
 
@@ -129,11 +129,11 @@ Built-in LSP routing covers 11 language families and 27 extensions. CUDA `.cu`/`
 | **Custom configuration** | Any extension, including removed first-class routes | Registers an extension, command, arguments, and language ID; project configuration requires explicit trust |
 
 `documentSymbols`, `definition`, `references`, `callers`, `callees`,
-`callHierarchy`, `hover`, `typeDefinition`, `implementation`,
+`hover`, `typeDefinition`, `implementation`,
 `workspaceSymbol`, `supertypes`, `subtypes`, and `diagnostic` are public
 operations. A running server that lacks an operation returns a typed `empty`
 payload such as `unsupportedOperation`. A missing server returns the typed
-`lsp.serverUnavailable` error instead of a syntax-derived semantic answer.
+`serverUnavailable` error instead of a syntax-derived semantic answer.
 
 `documentSymbols` is the outline exception: JS/TS native outlines and Markdown
 headings run without starting or checking a server. Their `lsp.source` identifies

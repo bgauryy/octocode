@@ -35,7 +35,7 @@ impl LspFailure {
     /// the runtime cancellation outcome instead of this row.
     pub(super) fn cancelled(message: String) -> Self {
         Self {
-            code: "lsp.cancelled",
+            code: "cancelled",
             message,
             retryable: false,
             hint: "The request was cancelled or exceeded its deadline.",
@@ -50,9 +50,7 @@ impl LspFailure {
             PolicyErrorCode::OutsideAllowedRoots | PolicyErrorCode::SymlinkEscape => {
                 crate::tools::output::SANDBOX_HINT
             }
-            _ => {
-                "Verify the path with structureSearch operation:\"files\", then retry the exact path."
-            }
+            _ => crate::tools::output::LIST_FILES_HINT,
         };
         Self {
             code: error.local_error_code("fileAccessFailed"),
@@ -70,20 +68,20 @@ impl LspFailure {
         let message = error.to_string();
         match error.kind() {
             ErrorKind::Timeout => Self {
-                code: "lsp.timeout",
+                code: "timeout",
                 message,
                 retryable: true,
                 hint: "Retry once after indexing settles; narrow workspaceRoot if the timeout persists.",
             },
             ErrorKind::ConnectionClosed => Self {
-                code: "lsp.serverCrashed",
+                code: "serverCrashed",
                 message,
                 retryable: true,
                 hint: "The language server exited or its connection failed; retry once (it restarts), then fall back to astSearch/localSearch.",
             },
             ErrorKind::Rpc(rpc) => match rpc.code {
                 ErrorCode::MethodNotFound => Self {
-                    code: "lsp.capabilityUnavailable",
+                    code: "capabilityUnavailable",
                     message,
                     retryable: false,
                     hint: "Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads.",
@@ -92,14 +90,14 @@ impl LspFailure {
                 | ErrorCode::ServerCancelled
                 | ErrorCode::RequestCancelled
                 | ErrorCode::ServerNotInitialized => Self {
-                    code: "lsp.requestFailed",
+                    code: "requestFailed",
                     message,
                     retryable: true,
                     hint: RETRY_OR_FALL_BACK,
                 },
                 ErrorCode::InvalidParams | ErrorCode::InvalidRequest | ErrorCode::ParseError => {
                     Self {
-                        code: "lsp.requestFailed",
+                        code: "requestFailed",
                         message,
                         retryable: false,
                         hint: "The language server rejected the request; re-anchor from localFetch source or use astSearch/localSearch.",
@@ -113,7 +111,7 @@ impl LspFailure {
 
     fn request_failed(message: String) -> Self {
         Self {
-            code: "lsp.requestFailed",
+            code: "requestFailed",
             message,
             retryable: true,
             hint: RETRY_OR_FALL_BACK,
@@ -129,29 +127,27 @@ impl From<EngineError> for LspFailure {
 
 pub(super) fn failure_hint(query: &LspSearchQuery, code: &str) -> &'static str {
     match code {
-        "lsp.serverUnavailable"
-            if query.operation() == "workspaceSymbol" && query.path().is_none() =>
-        {
+        "serverUnavailable" if query.operation() == "workspaceSymbol" && query.path().is_none() => {
             "Provide path for a representative workspace source file so Octocode can select its language server."
         }
-        "lsp.serverUnavailable" => {
+        "serverUnavailable" => {
             "Use astSearch symbols/match or localSearch for candidates, then localFetch exact source."
         }
-        "lsp.capabilityUnavailable"
+        "capabilityUnavailable"
             if matches!(query.operation().as_str(), "supertypes" | "subtypes") =>
         {
             "This server cannot prove type hierarchy; inspect declarations with astSearch and confirm exact source."
         }
-        "lsp.capabilityUnavailable" => {
+        "capabilityUnavailable" => {
             "Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads."
         }
         "anchorUnresolved" => {
-            "Read the source, then provide an exact position or a unique symbolName with lineHint."
+            "Read the source, then pass the exact symbolName with its 1-based lineHint (orderHint for a repeat)."
         }
-        "lsp.timeout" => {
+        "timeout" => {
             "Retry once after indexing settles; narrow workspaceRoot if the timeout persists."
         }
-        "lsp.documentTooLarge" => {
+        "fileTooLarge" => {
             "Use localSearch or astSearch to locate a bounded region, then read that exact source range."
         }
         _ => "Use astSearch or localSearch to locate candidates, then localFetch exact source.",
@@ -189,7 +185,7 @@ pub(super) fn failure(
         "hints": [failure_hint(query, code)]
     });
     value["path"] = json!(super::render::uri_to_path(canonical_uri));
-    if code == "lsp.timeout" {
+    if code == "timeout" {
         value["next"]["retry"] = continuation(query_value(query));
     }
     if query.path().is_some() {
@@ -298,9 +294,10 @@ pub(super) fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
             }
         }
         value["next"]["nextPage"] = continuation(next_query);
-        // The continuation states the next page, its size and the snapshot.
+        // The continuation states the next page and the snapshot; `pageSize`
+        // stays a page fact, so every page has one key set (B12).
         if let Some(pagination) = value.get_mut("pagination").and_then(Value::as_object_mut) {
-            for key in ["nextPage", "pageSize", "snapshot"] {
+            for key in ["nextPage", "snapshot"] {
                 pagination.shift_remove(key);
             }
         }
@@ -530,6 +527,10 @@ pub(super) const FILE_LEVEL_REASONS: [&str; 5] = [
     "aliasScanCapped",
     "noCompileDatabase",
 ];
+/// File-level reasons that are fixed per-request caps (a terminal limit).
+/// The importer cap is not one: `next.nextImporterPage` verifies the next
+/// window of candidates.
+const CAPPED_REASONS: [&str; 1] = ["aliasScanCapped"];
 /// At most this many text-only files are listed as one bulk lead.
 const LISTED_TEXT_FILES: usize = 5;
 
@@ -567,6 +568,11 @@ pub(super) fn flag_partial(
         Some(name) => {
             push_reason(row, reason, &[warning.to_owned()]);
             row["next"]["textSearch"] = text_search_lead(name, scope, text_only.as_deref());
+            if CAPPED_REASONS.contains(&reason) {
+                // A fixed per-request cap: no page or retry reaches the
+                // unchecked files, only the lexical lead above.
+                row["terminalLimit"] = json!(true);
+            }
         }
         // A position anchor has no name to search for: coverage reason and
         // warning only.

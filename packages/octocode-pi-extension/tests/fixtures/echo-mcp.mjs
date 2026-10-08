@@ -42,7 +42,7 @@ server.registerTool(
   },
 );
 server.registerTool(
-  'localGetFileContent',
+  'localFetch',
   { description: 'Read files (stand-in for Octocode)', inputSchema: z.object({ queries: z.array(z.object({ path: z.string() })) }) },
   async ({ queries }) => ({ content: [{ type: 'text', text: queries.map((query) => readFileSync(query.path, 'utf8')).join('\n') }] }),
 );
