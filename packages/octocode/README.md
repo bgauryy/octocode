@@ -7,7 +7,7 @@ Skills. Every research tool runs in a native Rust engine.
 
 ## Run
 
-Requires Node.js 24 (24.15.0 or later). Run every command through `npx`; nothing
+Requires Node.js 24 (24.15.0 or later, 24.x). Run every command through `npx`; nothing
 to install:
 
 ```bash

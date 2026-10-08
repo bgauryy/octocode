@@ -32,7 +32,7 @@ The idea and the research loop: [The Octocode protocol](https://github.com/bgaur
 
 ## Quick start
 
-Requires Node.js 24.15+.
+Requires Node.js 24.15+ (24.x).
 
 ### 1. Sign in to GitHub
 
@@ -251,6 +251,6 @@ All docs: [documentation hub](https://github.com/bgauryy/octocode/blob/main/docs
 | GitHub auth fails | `npx octocode auth status`, then `npx octocode auth login --refresh` |
 | MCP cannot reach GitHub | run `npx octocode auth login` (or `gh auth login`) once, then restart the MCP server |
 | Path is outside allowed roots | add the directory to `ALLOWED_PATHS` |
-| Node.js errors | use Node.js 24.15+; `npx node-doctor` diagnoses the setup |
+| Node.js errors | use Node.js 24.15+ (24.x); `npx node-doctor` diagnoses the setup |
 
 More fixes: [authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md#troubleshooting) · [configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md#troubleshooting).

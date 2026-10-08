@@ -40,7 +40,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=22.13.0"
+    "node": "^24.15.0"
   },
   "dependencies": {
     "chrome-launcher": "^1.2.1",

@@ -10,7 +10,7 @@ The extension does not implement research tools. It installs and controls the
 ## Requirements
 
 - VS Code 1.107 or later
-- Node.js 24.15.x for the managed MCP runtime
+- Node.js 24.15+ (24.x) for the managed MCP runtime
 
 ## Commands
 

@@ -18,6 +18,13 @@ it('stages skills cleanly and excludes local artifacts on every run', () => {
   const target = join(root, 'target');
   try {
     mkdirSync(join(source, 'research', '__pycache__'), { recursive: true });
+    mkdirSync(join(source, 'research', 'scripts', 'tests'), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(source, 'research', 'scripts', 'tests', 'run.test.mjs'),
+      'test'
+    );
     mkdirSync(join(target, 'removed-skill'), { recursive: true });
     writeFileSync(join(target, 'removed-skill', 'SKILL.md'), 'stale');
     writeFileSync(join(source, 'research', 'SKILL.md'), 'current');
@@ -58,6 +65,7 @@ it('stages skills cleanly and excludes local artifacts on every run', () => {
       'research/.env',
       'research/.env.example',
       'research/__pycache__',
+      'research/scripts/tests',
       'compiled/src',
       'compiled/package.json',
     ]) {

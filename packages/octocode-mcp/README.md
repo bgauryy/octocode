@@ -8,7 +8,7 @@ error; there is no JavaScript execution fallback.
 
 ## Requirements
 
-- Node.js 24.15.x
+- Node.js 24.15+ (24.x)
 - An MCP client with stdio server support
 
 ## Run

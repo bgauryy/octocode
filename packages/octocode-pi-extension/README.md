@@ -7,7 +7,7 @@ pi install npm:@octocodeai/pi-extension    # install for every session
 pi -e npm:@octocodeai/pi-extension         # or try it once
 ```
 
-Requires Pi 0.99.2 or later and Node.js 22.13 or later.
+Requires Pi 0.99.2 or later and Node.js 24.15+ (24.x).
 
 ## Contents
 

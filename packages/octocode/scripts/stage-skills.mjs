@@ -2,7 +2,7 @@ import { cpSync, existsSync, lstatSync, readFileSync, rmSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 
 const EXCLUDED = new Set([
-  '__pycache__', 'coverage', 'dist', 'node_modules', 'out', 'target',
+  '__pycache__', 'coverage', 'dist', 'node_modules', 'out', 'target', 'tests',
   'Thumbs.db', 'npm-debug.log', 'yarn-error.log',
 ]);
 

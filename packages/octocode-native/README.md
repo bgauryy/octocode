@@ -9,7 +9,7 @@ or `./runtime`.
 
 ```sh
 $ npx octocode --version
-octocode 20.0.0
+octocode 20.1.0
 
 $ npx octocode schema
 {"kind":"octocode.toolCatalog","toolCount":16,"tools":[…]}      # availability + compact fields per tool
