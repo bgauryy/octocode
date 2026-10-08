@@ -87,7 +87,9 @@ def run(argv=None):
             raise ValueError('{} is not supported for {}'.format(token.split('=', 1)[0], name))
     if command == 'skill':
         _arity(rest, 0, 0)
-        return output({'instructions': catalog.skill_instructions(args.vendor)})
+        return output({'instructions': catalog.skill_instructions(args.vendor),
+                       'packageRoot': str(catalog.SCRIPTS.parent),
+                       'referenceRoot': str(catalog.SCRIPTS / 'docs')})
     if command == 'schema':
         if not rest:
             value = catalog.catalog()

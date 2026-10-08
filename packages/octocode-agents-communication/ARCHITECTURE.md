@@ -82,7 +82,7 @@ Session IDs route cooperating same-user processes; they are not credentials or f
 Leases use canonical paths and frozen Unicode case folding. They are advisory; guards cover only reported operations.
 
 The runtime rejects unknown schema fingerprints.
-Migration accepts pinned v1/v2/v3 stores, publishes a verified backup, and upgrades atomically to v4.
+Migration accepts pinned v1/v2/v3/v4 stores, publishes a verified backup, and upgrades atomically to v5.
 Retained history keeps original IDs and historical payloads; missing old fields remain unknown.
 Migration does not recreate identity snapshots from current state.
 

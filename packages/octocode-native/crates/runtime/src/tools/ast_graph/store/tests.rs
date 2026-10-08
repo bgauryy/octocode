@@ -50,7 +50,10 @@ fn policy(root: &Path) -> PathPolicy {
 fn default_workspace_stops_at_the_allowed_roots() {
     let dir = fixture();
     let sub = dir.path().join("app");
-    assert_eq!(default_workspace(sub.clone(), &policy(dir.path())), dir.path());
+    assert_eq!(
+        default_workspace(sub.clone(), &policy(dir.path())),
+        dir.path()
+    );
     // A repository root above the allowed root would be denied: use cwd.
     assert_eq!(default_workspace(sub.clone(), &policy(&sub)), sub);
 }

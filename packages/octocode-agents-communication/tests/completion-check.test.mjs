@@ -43,9 +43,12 @@ test('Stop enforces native identity/workspace and selective recovery cannot expo
  assert.ok(!f.call('completion-check',f.event,f.b).reason.includes(`[${first},`));
 });
 test('skill command returns the one installed routine for every vendor flag',()=>{
- const read=vendor=>JSON.parse(execFileSync(binary,['skill',...(vendor?['--vendor',vendor]:[])],{encoding:'utf8',timeout:10000})).instructions;
+ const response=vendor=>JSON.parse(execFileSync(binary,['skill',...(vendor?['--vendor',vendor]:[])],{encoding:'utf8',timeout:10000}));
+ const read=vendor=>response(vendor).instructions;
  const full=read();
  assert.match(full,/scripts\/agents-communication/);
+ assert.ok(response().packageRoot.endsWith('octocode-agents-communication'));
+ assert.ok(response().referenceRoot.endsWith('octocode-agents-communication/scripts/docs'));
  const body=full.replace(/^---\n[\s\S]*?\n---\n/,'');
  assert.ok(body!==full&&body.startsWith('# Agents communication'));
  for(const vendor of ['claude','codex','grok','pi','opencode','cursor','generic']) assert.equal(read(vendor),body);

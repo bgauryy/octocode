@@ -22,7 +22,7 @@ All retained events share this envelope:
 
 `records` is the append-only event history. Its columns are the envelope plus internal `entityId` and retry `key`; neither internal field leaks into fetched envelopes. Triggers append operational events in the same transaction as their transition. `sessions`, `leases`, `lease_waits`, `messages`, `deliveries`, `dispatches`, `subscriptions`, `attachments`, `documents`, and peer-directory caches remain operational state/indexes: they enforce presence, uniqueness, expiry, replies and delivery tokens. They are not alternate generic APIs. Immutable `messages` owns authoritative bodies; fetch resolves that reference into `data`. FTS stores derived searchable content and indexes. No event-log replay is needed for a hot inbox check.
 
-The single type owner is `catalog.json`. `schema type <name>` returns its data schema, event meaning, routing, validated example and suggested fetch filter, without opening a DB. `schema types --compact` gives the complete field inventory without repeating schemas/examples/SQL. `?` means optional for current v4 output. Hook-only message references are a separate validated variant.
+The single type owner is `catalog.json`. `schema type <name>` returns its data schema, event meaning, routing, validated example and suggested fetch filter, without opening a DB. `schema types --compact` gives the complete field inventory without repeating schemas/examples/SQL. `?` means optional for current v5 output. Hook-only message references are a separate validated variant.
 
 | Type | data fields | Event |
 | --- | --- | --- |
@@ -142,11 +142,11 @@ Record triggers preserve operational changes atomically, including conforming SQ
 
 Prune removes up to 100 expired leases per workspace transaction with continuation; expiry does not authorize deleting records/mail. Compact reclaims reusable pages without deleting evidence. Export publishes a verified no-clobber full DB snapshot (all workspaces); document files need separate preservation. Stop workers before restore or migration; never replace a live DB or mix unrelated WAL files. Owner lock files contain no data and are excluded from snapshots.
 
-V1/V2/V3 migration, with all old clients stopped:
+V1/V2/V3/V4 migration, with all old clients stopped:
 
 ```sh
 comm db migrate '{"backup":"/absolute/new-backup.sqlite"}'
 ```
 
 Only the pinned v1/v2/v3/v4 fingerprints are accepted. The command holds a writer lock, makes and verifies a private no-clobber backup, and verifies fingerprint/integrity/foreign keys in one transaction. V1 converts every event to an envelope preserving IDs/state/keys/document references and rebuilds search indexes; v2/v3/v4 replace triggers and add missing tables (v4 gains `lease_waits`) without rewriting historical records.
-V4 adds workspace coordination mappings without changing retained record IDs or origin paths. Failure rolls back; a published backup may remain. V1 had no branch metadata, so those migrated records omit branch. Restart clients on v4; no legacy API aliases or mixed-schema clients are supported. Keep the backup and document files. Missing historical identity fields stay unknown; no migration invents old snapshots.
+The migration adds workspace coordination mappings without changing retained record IDs or origin paths. Failure rolls back; a published backup may remain. V1 had no branch metadata, so those migrated records omit branch. Restart clients on v5; no legacy API aliases or mixed-schema clients are supported. Keep the backup and document files. Missing historical identity fields stay unknown; no migration invents old snapshots.

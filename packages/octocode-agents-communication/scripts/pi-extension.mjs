@@ -2,6 +2,14 @@ import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { runtimeCommand } from './cli-command.mjs';
 
+// Some Pi providers require function parameters to be a plain top-level object.
+// Keep the field schema and let the shared Python catalog enforce cross-field rules.
+function providerParameters(schema) {
+  const result = { ...schema };
+  for (const keyword of ['oneOf', 'anyOf', 'allOf', 'enum', 'const', 'not']) delete result[keyword];
+  return result;
+}
+
 // The parent binds identity and supplies the same catalog used by MCP.
 export default function (pi) {
   // A globally enabled idle cache warmer must not add model calls to this worker.
@@ -12,6 +20,7 @@ export default function (pi) {
 export function registerBoundTools(pi, options) {
   const { tools } = options;
   const names = new Set(tools.map(tool => tool.name));
+  const schemas = new Map(tools.map(tool => [tool.name, providerParameters(tool.inputSchema)]));
   // Responses can normalize omitted strict into all-required parameters.
   // Preserve the canonical optional fields; the runtime still validates every call.
   pi.on?.('before_provider_request', event => {
@@ -20,13 +29,17 @@ export function registerBoundTools(pi, options) {
     let changed = false;
     const descriptors = payload.tools.map(tool => {
       if (tool.type !== 'function') return tool;
-      if (names.has(tool.function?.name) && tool.function.strict !== false) {
+      if (names.has(tool.function?.name)) {
+        const parameters = schemas.get(tool.function.name);
+        if (tool.function.strict === false && tool.function.parameters === parameters) return tool;
         changed = true;
-        return { ...tool, function: { ...tool.function, strict: false } };
+        return { ...tool, function: { ...tool.function, strict: false, parameters } };
       }
-      if (names.has(tool.name) && tool.strict !== false) {
+      if (names.has(tool.name)) {
+        const parameters = schemas.get(tool.name);
+        if (tool.strict === false && tool.parameters === parameters) return tool;
         changed = true;
-        return { ...tool, strict: false };
+        return { ...tool, strict: false, parameters };
       }
       return tool;
     });
@@ -37,7 +50,7 @@ export function registerBoundTools(pi, options) {
       name: tool.name,
       label: tool.name,
       description: tool.description,
-      parameters: tool.inputSchema,
+      parameters: schemas.get(tool.name),
       async execute(id, input, signal) {
         const { binary, workspace, database, session } = options.getBinding ? options.getBinding() ?? {} : options;
         if (!session) throw new Error("Communication is disabled or no session is bound");

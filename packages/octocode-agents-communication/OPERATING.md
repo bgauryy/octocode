@@ -76,6 +76,8 @@ For retries, preserve the key and unchanged input. Inspect uncertain delivery be
 
 ## Load details when needed
 
+The CLI `skill` response includes `referenceRoot`, the absolute path to these `scripts/docs/` files. Resolve a link's filename there when reading instructions returned by `npx` outside the package.
+
 - For installation or raw CLI binding, read [installation](scripts/docs/INSTALLATION.md).
 - For a command example or schema lookup, read [command reference](scripts/docs/COMMANDS.md).
 - For topics, retry keys, TTLs, or message examples, read [workflow details](scripts/docs/WORKFLOW.md).

@@ -11,7 +11,7 @@ function setup(){
  registerBoundTools({on:(name,fn)=>{assert.equal(name,'before_provider_request');hook=fn;},registerTool:tool=>registered=tool},{tools:[{name:'send_message',description:'Send',inputSchema:schema}]});
  return {hook,schema,registered};
 }
-test('Pi preserves optional canonical fields with explicit non-strict own function descriptors',()=>{
+test('Pi keeps optional fields and projects top-level unions for provider function descriptors',()=>{
  const {hook,schema,registered}=setup();
  const unrelated={type:'function',name:'other',strict:true,parameters:schema};
  const custom={type:'custom',name:'send_message',format:{type:'grammar'}};
@@ -21,10 +21,20 @@ test('Pi preserves optional canonical fields with explicit non-strict own functi
  const before=structuredClone(payload),result=hook({payload});
  assert.deepEqual(payload,before,'Never mutate provider input');
  assert.equal(result.tools[0].strict,false);assert.equal(result.tools[1].function.strict,false);
- assert.equal(result.tools[0].parameters,schema);assert.equal(result.tools[1].function.parameters,schema);
- assert.equal(registered.parameters,schema);assert.deepEqual(schema.required,['to']);
+ assert.deepEqual(result.tools[0].parameters,schema);assert.deepEqual(result.tools[1].function.parameters,schema);
+ assert.deepEqual(registered.parameters,schema);assert.deepEqual(schema.required,['to']);
  assert.equal(result.tools[2],unrelated);assert.equal(result.tools[3],custom);assert.equal(result.input,payload.input);
  assert.equal(hook({payload:result}),result,'Already compatible payload is unchanged');
+});
+test('Pi removes only top-level composition; the shared runtime retains exact validation',()=>{
+ let registered;
+ const inputSchema={type:'object',properties:{to:{type:'string'},topic:{type:'string'},body:{type:'string'}},
+  required:['body'],additionalProperties:false,oneOf:[{required:['to']},{required:['topic']}],
+  allOf:[{not:{required:['to','topic']}}]};
+ registerBoundTools({registerTool:tool=>registered=tool},{tools:[{name:'send_message',description:'Send',inputSchema}]});
+ assert.deepEqual(Object.keys(registered.parameters).sort(),['additionalProperties','properties','required','type']);
+ assert.equal(registered.parameters.properties,inputSchema.properties);
+ assert.ok(inputSchema.oneOf && inputSchema.allOf,'canonical schema is unchanged');
 });
 test('Pi preserves payload identity without own OpenAI function tools',()=>{
  const {hook}=setup();
