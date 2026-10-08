@@ -16,7 +16,9 @@
 //! - The server exits after [`IDLE_EXIT`] without a request; a client that
 //!   disconnects mid-call cancels its request.
 
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(unix)]
+use serde_json::json;
 
 /// The server exits after this long without a request.
 #[cfg(unix)]

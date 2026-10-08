@@ -204,7 +204,17 @@ fn window(page: &LocatedPage, group: &Group) -> (u64, u64) {
                 .max(unit.line.saturating_sub(DECLARATION_HEAD.0)),
             unit.line + DECLARATION_HEAD.1,
         ),
-        _ => (
+        // Context completes a record or sentence cut at a passage edge. In
+        // a declaration it never reaches above the declaration (that is the
+        // previous one's tail); below, it may show the next one's head.
+        Some(unit) => (
+            passage
+                .start_line
+                .saturating_sub(VERIFY_CONTEXT_LINES)
+                .max(unit.start_line.min(passage.start_line)),
+            passage.end_line + VERIFY_CONTEXT_LINES,
+        ),
+        None => (
             passage.start_line.saturating_sub(VERIFY_CONTEXT_LINES),
             passage.end_line + VERIFY_CONTEXT_LINES,
         ),
@@ -1006,6 +1016,23 @@ mod tests {
         );
     }
 
+    /// Context lines complete a record or sentence cut at a passage edge; in
+    /// code they never reach above the passage's declaration, so a window on
+    /// a function's head never opens on the previous one's closing brace.
+    #[test]
+    fn a_window_inside_a_declaration_keeps_its_context_within_it() {
+        let content = "function one() {\n  return 1;\n}\n\nfunction two(x) {\n  let a = x;\n  let b = a;\n  let c = b;\n  let d = c;\n  let e = d;\n  return e;\n}\n";
+        let (_, page) =
+            located_state(&json!({"path":"/src/m.js","lines":[1,12],"content":content})).unwrap();
+        // P001 = lines 5-8, the head of `two` (5-12).
+        let [choice, exists] = answers(json!({"P000":0.05,"P001":0.9,"P002":0.05}), 0.95);
+        let projected = collapse_locate_answer(&choice, &exists, &page).unwrap();
+        assert_eq!(
+            projected["answer"]["matches"][0],
+            json!({"startLine":5,"endLine":10,"probability":0.95})
+        );
+    }
+
     #[test]
     fn split_mass_inside_one_declaration_outranks_a_sharper_lone_passage() {
         let (_, page) = js_page();
@@ -1016,10 +1043,11 @@ mod tests {
         );
         let projected = collapse_locate_answer(&choice, &exists, &page).unwrap();
         let matches = projected["answer"]["matches"].as_array().unwrap();
-        // Inside `other` the best passage (P003, lines 13-16) keeps its window.
+        // Inside `other` the best passage (P003, lines 13-16) shows whole;
+        // its context stays out of `debounce` above.
         assert_eq!(
             matches[0],
-            json!({"startLine":11,"endLine":18,"probability":0.7})
+            json!({"startLine":13,"endLine":18,"probability":0.7})
         );
         // debounce (0.3) is below half of 0.7: no runner-up.
         assert_eq!(matches.len(), 1);

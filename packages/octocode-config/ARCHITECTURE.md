@@ -1,6 +1,6 @@
 # Config architecture
 
-`@octocodeai/config` is the zero-runtime-dependency, independently publishable owner of Octocode environment and product-home policy. Public packages may depend on it normally or bundle it for standalone delivery, but they must not reimplement its rules.
+`@octocodeai/config` is the zero-runtime-dependency owner of Octocode environment and product-home policy. It is a private workspace package, never published: public packages bundle it at build time (as a `workspace:*` devDependency) and must not reimplement its rules.
 
 ## Data flow
 

@@ -360,13 +360,27 @@ Lexical search. Outlines and metadata: `structureSearch`; syntax: `astSearch`; f
 | `contextLines` | 0–100; default 0 (`detailed`: 3). |
 | `matchContentLength` | 1–100,000 characters per snippet, clipped around the hit (`matchOnly`: per span); default 200 × (2·contextLines + 1), capped at 4000. |
 | `language` | File type: `ts`, `js`, `py`, `go`, … |
+| `fileHas`, `fileLacks` | File-level AND / NOT (≤100 terms each): keep a matched file only if it also contains every `fileHas` term and no `fileLacks` term, anywhere in the file. Each term is literal and smart-case on its own (all-lowercase ignores case). |
 | `include`, `exclude`, `defaultExcludes`, `hidden`, `noIgnore`, `maxDepth` | [Shared local rules](#shared-local-rules). |
 | `sort`, `reverse` | `relevance` (default), `traversal`, `matchCount`, `path`, `modified`, `accessed`, `created`; `reverse` applies before pagination. |
 | `pageSize` | 1–1000 files; omitted: about 24 KB pages (path and count views: 100 files). |
 | `matchPage`, `matchPageSize` | ≤1000; 1–100,000 rows per file; omitted: every row when the result fits one page, else 10 per file on page 1. |
 | `snapshot` | ≤200 chars; copy from `next`. |
 
-`relevance`: for one bare identifier, declaring files first; generated files (a `generated` directory, a `.generated.`/`_pb2.`-style name, or a `DO NOT EDIT`/`@generated`/`Automatically generated` header) after every hand-written file; then match count, source paths before test, vendored, and bundled paths, declaration hits before code and comment/string hits, then path. `files`/`filesWithout` order by source paths first, then path. `relevance` and `matchCount` keep the 10,000 highest-ranked files (`capReason:"maxCollectedFiles"`; debug `stats` count all matched files).
+`relevance`: for one bare identifier, declaring files first; generated files (a `generated` directory, a `.generated.`/`_pb2.`-style name, a `DO NOT EDIT`/`@generated`/`Automatically generated` header, or `linguist-generated`/`linguist-vendored` in `.gitattributes`, resolved as git does) after every hand-written file; for a word alternation (`retry|backoff|jitter`, optionally `\b(…)\b`), files holding more of its words first, so one common word repeated cannot outrank them; then match count, source paths before test, vendored, and bundled paths, declaration hits before code and comment/string hits, then path. `files`/`filesWithout` order by source paths first, then path. `relevance` and `matchCount` keep the 10,000 highest-ranked files (`capReason:"maxCollectedFiles"`; debug `stats` count all matched files).
+
+How it differs from `rg` (same engine family, measured hit-for-hit equal on shared cases):
+
+| Need | `rg` | `localSearch` |
+|---|---|---|
+| Output size | every line, all of a minified line | ~24 KB lossless pages; long lines clipped around the hit with an `expandValues` read |
+| Secrets in hits | printed | redacted, with a `redactedMatches` warning; credential files never walked |
+| Order | walk order | `relevance` (above); per-file counts sorted by count |
+| Empty result | exit 1 | names what was skipped and why (ignore rule, hidden, pruned dir), other spellings (`didYouMean`), and the lead that searches them |
+| File-level AND / NOT (rg #875) | two runs and a pipe | `fileHas` / `fileLacks` |
+| CRLF files and `$` | needs `--crlf` | works by default |
+| Hit context | lines | innermost declaration (`enclosing`), `lspSearch` callers/references leads |
+| Big results | one stream | totals, `countFiles` lead, pages that never drop a match |
 
 Coverage:
 
@@ -384,7 +398,9 @@ Rows: `path` is relative to `root` (the queried directory, or a queried file's p
 | `next.expandValues` | A clipped value. On a `pageSize`/`matchPageSize` page: the same page with a wider `matchContentLength`. On a default page: one `localFetch` of the clipped lines per file (`expandValues2`, …), or for a multiline match the file searched alone with a wider `matchContentLength`. |
 | `hints.read` | `localFetch` on the first page of a complete result: a shown declaration of the searched symbol, whole; else ±6 lines around the top file's hits (a `matchString` read past 10 ranges). |
 | `hints.callers`, `hints.references` | `lspSearch` when the search names one symbol (an identifier, or one after `fn`/`def`/`class`…) and a shown hit declares it: `callers` for a function or method, else `references`. Omitted without a language server for the file. |
-| `hints.includeIgnored` | An empty result where ignored, hidden, or default-excluded paths match, or default-excluded directories (named) could not be checked: the same search with `noIgnore`, `hidden`, `defaultExcludes:false`. |
+| `hints.includeIgnored` | An empty result where ignored, hidden, or default-excluded paths match, or default-excluded directories (named) could not be checked: the same search with `noIgnore`, `hidden`, `defaultExcludes:false`. The hint names why (up to three): the deciding ignore rule (`gen/.gitignore:2 '*'`), `hidden .notes/`, or the pruned directory. |
+| `hints.didYouMean` | An empty first page for a compound identifier whose other case styles match (`parseConfig` → `parse_config`, `ParseConfig`, `PARSE_CONFIG`, `parse-config`): the same search for those spellings, with the file count. |
+| `hints.countFiles` | A line view with 1,000 or more matches: the same search as `countMatches`, ranked by hits per file. |
 | `hints.repair` | Invalid regex: the same search with the broken pattern escaped. |
 | `hints.clasify` | Wide pages with a multi-word phrase, while `clasify` is available ([OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md)). |
 
@@ -435,7 +451,7 @@ Patterns:
 Results:
 
 - One-based lines and UTF-16 columns (span ends exclusive). A `symbols` declaration's `symbolName` + `line`, or an identifier capture's `text` + `line`, is `lspSearch` `symbolName` + `lineHint` as-is.
-- `match` rows: `{line, column, endLine?, value}` (whitespace-normalized); per-file `totalMatchRows`/`returnedMatchRows` only when a page is a subset. `captureText:true` returns `{line, column, value}` rows (`endLine`/`endColumn` for multi-line spans) with `metavarRanges`; `next.expandCaptures` offers it when a row hides something it returns (a match cut to its header, or capture text the value does not show). A match page offers `hints.read`: the top file's hits with 3 lines of context, when they fit 5 ranges.
+- `match` rows: `{line, column, endLine?, value}` (whitespace-normalized); per-file `totalMatchRows`/`returnedMatchRows` only when a page is a subset. `captureText:true` returns `{line, column, value}` rows (`endLine`/`endColumn` for multi-line spans) with `metavarRanges`; `next.expandCaptures` offers it when a row hides something it returns (a match cut to its header, or capture text the value does not show). A match page offers `hints.read`: the top file's hits with 3 lines of context (a multi-line match of up to 400 lines whole), when they fit 5 ranges.
 - `syntaxTree` pages one file's tree; `pagination.totalItems` counts nodes.
 - `symbols`: a file returns `symbols`; a directory returns `files: [{path, symbols}]`. `snapshot` only on paged results. A JS/TS declaration is `exported` by its local binding. A single named declaration gets `hints.callers` (function or method) or `hints.references` when a language server serves the file.
 

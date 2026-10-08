@@ -8,7 +8,7 @@
 // Downloads the npm-published core version pinned in the workspace root
 // package.json and checks contract/ against THAT — what a clean install of the
 // released packages delivers. (Freshness against the workspace core is
-// `check:tool-contract`.) Native's prepublishOnly runs it.
+// `check:tool-contract`.) Run it before publishing native.
 
 const { execFileSync } = require('node:child_process');
 const { readFileSync, mkdtempSync, rmSync } = require('node:fs');

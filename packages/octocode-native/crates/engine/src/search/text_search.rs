@@ -6,6 +6,7 @@
 //!
 //! It returns a `TextSearchResult` with byte and time stats from the walk.
 
+use aho_corasick::AhoCorasick;
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::atomic::AtomicUsize;
@@ -295,6 +296,46 @@ fn identifier_search(opts: &TextSearchOptions) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$'))
 }
 
+/// Most words a coverage rank tracks (one bit each).
+const MAX_ALTERNATION_WORDS: usize = 64;
+
+/// The words of a plain word alternation (`a|b|c`, optionally wrapped in one
+/// group and `\b` anchors), matched with the search's case rule: the
+/// `relevance` rank puts files holding more of them first, so one common
+/// word repeated cannot outrank files that hold the rarer ones.
+fn alternation_words(opts: &TextSearchOptions) -> Option<AhoCorasick> {
+    if opts.fixed_string.unwrap_or(false) || opts.invert_match.unwrap_or(false) {
+        return None;
+    }
+    let mut pattern = opts.pattern.as_str();
+    if let Some(inner) = pattern
+        .strip_prefix(r"\b")
+        .and_then(|p| p.strip_suffix(r"\b"))
+    {
+        pattern = inner;
+    }
+    if let Some(inner) = pattern.strip_prefix('(').and_then(|p| p.strip_suffix(')')) {
+        pattern = inner.strip_prefix("?:").unwrap_or(inner);
+    }
+    let words: Vec<&str> = pattern.split('|').collect();
+    let plain = |word: &&str| {
+        !word.is_empty()
+            && word
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'$' | b'-'))
+    };
+    if words.len() < 2 || words.len() > MAX_ALTERNATION_WORDS || !words.iter().all(plain) {
+        return None;
+    }
+    let insensitive = opts.case_insensitive.unwrap_or(false)
+        || (!opts.case_sensitive.unwrap_or(false)
+            && !pattern.bytes().any(|byte| byte.is_ascii_uppercase()));
+    AhoCorasick::builder()
+        .ascii_case_insensitive(insensitive)
+        .build(&words)
+        .ok()
+}
+
 fn resolve_mode(opts: &TextSearchOptions) -> Mode {
     if opts.files_only.unwrap_or(false) {
         Mode::FilesOnly
@@ -331,6 +372,9 @@ struct FileRec {
     /// `relevance` identifier search only: a matched line declares the name
     /// (see [`identifier_search`]).
     declares: bool,
+    /// `relevance` word alternation only: how many of its words matched
+    /// (see [`alternation_words`]).
+    covered: u32,
     /// The bytes the values came from (see `digest_max_bytes`).
     source: Option<SearchedSource>,
 }
@@ -588,6 +632,10 @@ struct CollectSink<'a, M: Matcher> {
     line_weight: u32,
     /// A matched line declares the matched name (only with `work.weigh_lines`).
     declares: bool,
+    /// The alternation's words, when ranking by their coverage.
+    words: Option<&'a AhoCorasick>,
+    /// Bit `i`: word `i` of `words` matched a line.
+    covered: u64,
 }
 
 impl<'a, M: Matcher> CollectSink<'a, M> {
@@ -596,8 +644,11 @@ impl<'a, M: Matcher> CollectSink<'a, M> {
         work: MatchWork,
         deadline: Option<Instant>,
         stop: &'a AtomicBool,
+        words: Option<&'a AhoCorasick>,
     ) -> Self {
         Self {
+            words,
+            covered: 0,
             matcher,
             entry: FileEntry::new(),
             submatches: 0,
@@ -718,6 +769,11 @@ impl<M: Matcher> Sink for CollectSink<'_, M> {
             let weight = relevance::line_weight(bytes, first);
             self.declares |= weight == relevance::DECLARATION_WEIGHT;
             self.line_weight = self.line_weight.saturating_add(weight);
+            if let Some(words) = self.words {
+                for found in words.find_overlapping_iter(bytes) {
+                    self.covered |= 1 << found.pattern().as_usize();
+                }
+            }
         }
         self.submatches = self.submatches.saturating_add(count.max(1));
         self.matched_lines = self.matched_lines.saturating_add(1);
@@ -998,6 +1054,94 @@ impl std::io::Read for SourceTap<'_> {
     }
 }
 
+/// Bytes read to check one file's file-level terms.
+const FILE_TERMS_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+/// `file_contains_all` / `file_contains_none`, compiled once per search.
+/// Each term is smart-case on its own: one with an uppercase letter is
+/// case-sensitive, an all-lowercase one matches any case. Terms split into one
+/// automaton per case mode; pattern `i` of each is `terms[i]`.
+struct FileTerms {
+    automatons: Vec<(AhoCorasick, Vec<FileTerm>)>,
+    required: usize,
+}
+
+#[derive(Clone, Copy)]
+enum FileTerm {
+    Required(usize),
+    Excluded,
+}
+
+impl FileTerms {
+    fn new(opts: &TextSearchOptions) -> Option<Self> {
+        let all = opts.file_contains_all.as_deref().unwrap_or_default();
+        let none = opts.file_contains_none.as_deref().unwrap_or_default();
+        let required: Vec<&str> = all
+            .iter()
+            .map(String::as_str)
+            .filter(|t| !t.is_empty())
+            .collect();
+        let terms: Vec<(&str, FileTerm)> = required
+            .iter()
+            .enumerate()
+            .map(|(index, term)| (*term, FileTerm::Required(index)))
+            .chain(
+                none.iter()
+                    .map(String::as_str)
+                    .filter(|term| !term.is_empty())
+                    .map(|term| (term, FileTerm::Excluded)),
+            )
+            .collect();
+        if terms.is_empty() {
+            return None;
+        }
+        let automatons = [false, true]
+            .into_iter()
+            .filter_map(|insensitive| {
+                let (patterns, kinds): (Vec<&str>, Vec<FileTerm>) = terms
+                    .iter()
+                    .filter(|(term, _)| term.bytes().any(|b| b.is_ascii_uppercase()) != insensitive)
+                    .copied()
+                    .unzip();
+                let matcher = AhoCorasick::builder()
+                    .ascii_case_insensitive(insensitive)
+                    .build(&patterns)
+                    .ok()?;
+                (!patterns.is_empty()).then_some((matcher, kinds))
+            })
+            .collect();
+        Some(Self {
+            automatons,
+            required: required.len(),
+        })
+    }
+
+    /// Whether `path` holds every required term and no excluded one. An
+    /// unreadable file fails the check.
+    fn pass(&self, path: &Path) -> bool {
+        let mut bytes = Vec::new();
+        let read = std::fs::File::open(path).and_then(|file| {
+            std::io::Read::read_to_end(
+                &mut std::io::Read::take(file, FILE_TERMS_MAX_BYTES),
+                &mut bytes,
+            )
+        });
+        if read.is_err() {
+            return false;
+        }
+        let mut found = vec![false; self.required];
+        for (matcher, kinds) in &self.automatons {
+            for hit in matcher.find_overlapping_iter(&bytes) {
+                match kinds[hit.pattern().as_usize()] {
+                    FileTerm::Excluded => return false,
+                    FileTerm::Required(index) => found[index] = true,
+                }
+            }
+        }
+        found.into_iter().all(|hit| hit)
+    }
+}
+
 /// Per-worker collection buffer. Workers push into their own `Vec` and merge
 /// into the shared state on drop, after `build_parallel().run()` finishes,
 /// instead of taking a global mutex per matched file. With `eager` set (the
@@ -1096,6 +1240,7 @@ struct FileOutcome {
     opaque: bool,
     line_weight: u32,
     declares: bool,
+    covered: u32,
     /// The digest of the bytes searched so far (see [`Hashed::finish`]).
     hashed: Option<Hashed>,
     /// `relevance` only: the leading bytes declare a generated file; `None`
@@ -1115,6 +1260,7 @@ impl<M: Matcher> From<CollectSink<'_, M>> for FileOutcome {
             binary: sink.binary_offset.is_some(),
             opaque: sink.binary_offset == Some(0),
             line_weight: sink.line_weight,
+            covered: sink.covered.count_ones(),
             declares: sink.declares,
             hashed: None,
             generated_header: None,
@@ -1137,6 +1283,7 @@ struct FileSearcher<'a, M: Matcher> {
     digest_max_bytes: Option<u64>,
     /// Keep the leading bytes for the generated-header check.
     keep_head: bool,
+    words: Option<&'a AhoCorasick>,
 }
 
 impl<M: Matcher> FileSearcher<'_, M> {
@@ -1148,7 +1295,13 @@ impl<M: Matcher> FileSearcher<'_, M> {
     fn search(&mut self, file: &std::fs::File, len: u64) -> std::io::Result<FileOutcome> {
         let hash = self.digest_max_bytes.is_some_and(|max| len <= max);
         let mut tap = SourceTap::new(file, hash, self.keep_head);
-        let mut sink = CollectSink::new(self.matcher, self.work, self.deadline, self.stop);
+        let mut sink = CollectSink::new(
+            self.matcher,
+            self.work,
+            self.deadline,
+            self.stop,
+            self.words,
+        );
         // `search_file` reads through this same reader path: memory maps are
         // never used, and multiline reads the whole file under the heap limit.
         self.searcher
@@ -1173,7 +1326,13 @@ impl<M: Matcher> FileSearcher<'_, M> {
         let prefix_searcher = self
             .prefix_searcher
             .get_or_insert_with(|| build_searcher(opts, context_lines, BinaryDetection::none()));
-        let mut prefix_sink = CollectSink::new(self.matcher, self.work, self.deadline, self.stop);
+        let mut prefix_sink = CollectSink::new(
+            self.matcher,
+            self.work,
+            self.deadline,
+            self.stop,
+            self.words,
+        );
         prefix_searcher.search_slice(self.matcher, &prefix, &mut prefix_sink)?;
         let mut outcome = FileOutcome::from(prefix_sink);
         outcome.binary = true;
@@ -1246,6 +1405,16 @@ fn collect<M: Matcher + Sync>(
     }
 
     let identifier = identifier_search(opts);
+    let file_terms = FileTerms::new(opts);
+    let file_terms = &file_terms;
+    let attributes = ranks_by_relevance(opts)
+        .then(|| relevance::GitAttributes::new(Path::new(&opts.path)))
+        .flatten();
+    let attributes = &attributes;
+    let words = ranks_by_relevance(opts)
+        .then(|| alternation_words(opts))
+        .flatten();
+    let words = &words;
     walk_builder.build_parallel().run(|| {
         let path_filter = Arc::clone(&path_filter);
         let mut worker_recs = WorkerRecs {
@@ -1273,6 +1442,7 @@ fn collect<M: Matcher + Sync>(
             stop: &state.stop,
             digest_max_bytes: opts.digest_max_bytes,
             keep_head: ranks_by_relevance(opts),
+            words: words.as_ref(),
         };
 
         Box::new(move |dent| {
@@ -1363,6 +1533,9 @@ fn collect<M: Matcher + Sync>(
             let generated = ranks_by_relevance(opts)
                 && outcome.matched_lines > 0
                 && (relevance::is_generated_path(&relative)
+                    || attributes
+                        .as_ref()
+                        .is_some_and(|marks| marks.marks_generated(path))
                     || outcome.generated_header.unwrap_or_else(|| {
                         read_prefix(&file, relevance::GENERATED_HEADER_BYTES)
                             .is_ok_and(|prefix| relevance::has_generated_header(&prefix))
@@ -1397,6 +1570,9 @@ fn collect<M: Matcher + Sync>(
                 return WalkState::Continue;
             }
 
+            if file_terms.as_ref().is_some_and(|terms| !terms.pass(path)) {
+                return WalkState::Continue;
+            }
             let demoted =
                 generated || (ranks_by_relevance(opts) && relevance::is_demoted_path(&relative));
             // A stopped walk keeps what it found without reading further.
@@ -1413,6 +1589,7 @@ fn collect<M: Matcher + Sync>(
                 om_matches: outcome.om_matches,
                 sort_time: capture_sort_time(opts, &dent),
                 line_weight: outcome.line_weight,
+                covered: outcome.covered,
                 demoted,
                 generated,
                 declares: outcome.declares && identifier,
@@ -1485,6 +1662,7 @@ fn compare_recs(
         Some("relevance") if lists_match_density(mode) => (b.declares && !b.demoted)
             .cmp(&(a.declares && !a.demoted))
             .then_with(|| a.generated.cmp(&b.generated))
+            .then_with(|| b.covered.cmp(&a.covered))
             .then_with(|| rank_weight(opts, mode, b).cmp(&rank_weight(opts, mode, a)))
             .then_with(|| a.demoted.cmp(&b.demoted))
             .then_with(|| b.line_weight.cmp(&a.line_weight))

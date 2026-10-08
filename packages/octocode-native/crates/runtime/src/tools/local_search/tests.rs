@@ -2881,7 +2881,9 @@ fn an_empty_search_names_matches_under_ignored_and_hidden_paths() {
     // The probe's finding is the row's first hint (rows keep one).
     let hint = &result.hints[0];
     assert!(
-        hint.starts_with("Run hints.includeIgnored: 2 file(s) match in ignored, hidden"),
+        hint.starts_with("Run hints.includeIgnored: 2 file(s) match in skipped paths (")
+            && hint.contains(".gitignore:1 'logs/'")
+            && hint.contains("hidden .notes/"),
         "{hint}"
     );
     assert!(hint.len() <= 120, "{hint}");
@@ -3645,4 +3647,180 @@ fn a_large_line_result_leads_to_per_file_counts() {
         ),
     );
     assert!(counts["next"].get("countFiles").is_none(), "{counts}");
+}
+
+/// A compound identifier that matches nothing is probed in its other case
+/// styles: when `parse_config` exists, `parseConfig` leads to it instead of
+/// reading as absent. Single words and hits get no such lead.
+#[test]
+fn a_missed_identifier_leads_to_its_spelling_variants() {
+    let files = [("src/cfg.py", "def parse_config(path):\n    return path\n")];
+    let body = search_fixture(
+        &files,
+        ls_query(serde_json::json!({"matchString":"parseConfig"}), None),
+    );
+    let lead = &body["next"]["didYouMean"];
+    assert_eq!(lead["tool"], "localSearch", "{body}");
+    let row = lead.pointer("/query/queries/0").unwrap_or(&lead["query"]);
+    let pattern = row["matchString"].as_str().unwrap_or_default();
+    assert!(pattern.contains("parse_config"), "{row}");
+    assert_eq!(row["regex"], "rust", "{row}");
+    let hints = body["hints"].to_string();
+    assert!(
+        hints.contains("hints.didYouMean") && hints.contains("1 file"),
+        "{body}"
+    );
+    // The variant lead runs and finds the file.
+    let run = search_fixture(&files, ls_query(row.clone(), None));
+    assert_eq!(run["files"][0]["path"], "src/cfg.py", "{run}");
+    for miss in ["zzzqqq", "parse_config_missing_entirely"] {
+        let none = search_fixture(
+            &files,
+            ls_query(serde_json::json!({"matchString": miss}), None),
+        );
+        assert!(none["next"].get("didYouMean").is_none(), "{miss}: {none}");
+    }
+}
+
+/// Case-style variants of a compound identifier, excluding the term itself.
+#[test]
+fn identifier_variants_cover_the_common_case_styles() {
+    let variants = super::leads::identifier_variants("parseConfig").expect("compound");
+    for expected in [
+        "parse_config",
+        "ParseConfig",
+        "PARSE_CONFIG",
+        "parse-config",
+    ] {
+        assert!(
+            variants.iter().any(|v| v == expected),
+            "{expected}: {variants:?}"
+        );
+    }
+    assert!(!variants.iter().any(|v| v == "parseConfig"));
+    assert!(
+        super::leads::identifier_variants("needle").is_none(),
+        "one word"
+    );
+    assert!(
+        super::leads::identifier_variants("a.b").is_none(),
+        "not an identifier"
+    );
+    let from_snake = super::leads::identifier_variants("HTTP_server_error").expect("snake");
+    assert!(
+        from_snake.iter().any(|v| v == "httpServerError"),
+        "{from_snake:?}"
+    );
+}
+
+/// `fileHas`/`fileLacks` filter matched files by other terms they
+/// hold anywhere, not on the hit line: "uses X and Y but not Z".
+#[test]
+fn file_terms_keep_files_with_every_term_and_none_excluded() {
+    let files = [
+        ("src/a.rs", "fn handler() {}\nuse tokio;\n"),
+        ("src/b.rs", "fn handler() {}\nuse tokio;\nuse async_std;\n"),
+        ("src/c.rs", "fn handler() {}\n"),
+    ];
+    let body = search_fixture(
+        &files,
+        ls_query(
+            serde_json::json!({"matchString":"handler","fileHas":["tokio"],"fileLacks":["async_std"]}),
+            None,
+        ),
+    );
+    let paths: Vec<&str> = body["files"]
+        .as_array()
+        .expect("files")
+        .iter()
+        .filter_map(|file| file["path"].as_str())
+        .collect();
+    assert_eq!(paths, ["src/a.rs"], "{body}");
+}
+
+/// The ignored-path hint names why files were skipped: the deciding ignore
+/// file, line and pattern (`gen/.gitignore:2 '*'`), or `hidden`.
+#[test]
+fn an_empty_search_names_the_rule_that_skipped_its_matches() {
+    let root = tempfile::tempdir().expect("fixture directory");
+    fs::create_dir(root.path().join(".git")).expect("repository marker");
+    fs::write(root.path().join(".gitignore"), "logs/\n").expect("gitignore");
+    for dir in ["logs", "gen", ".notes"] {
+        fs::create_dir_all(root.path().join(dir)).expect("dir");
+    }
+    fs::write(root.path().join("gen/.gitignore"), "# generated\n*\n").expect("nested");
+    fs::write(root.path().join("logs/log.txt"), "needle-here\n").expect("fixture");
+    fs::write(root.path().join("gen/api.ts"), "needle-here\n").expect("fixture");
+    fs::write(root.path().join(".notes/x.txt"), "needle-here\n").expect("fixture");
+    let (policy, security) = policy_for(root.path());
+    let request = ls_query(
+        serde_json::json!({"path": root.path().to_string_lossy().into_owned(), "matchString": "needle-here"}),
+        None,
+    );
+    let result = execute_local_search(&request, &policy, &security, &NeverCancel, None, None)
+        .expect("search");
+    let hint = &result.hints[0];
+    assert!(
+        hint.starts_with("Run hints.includeIgnored: 3 file(s)"),
+        "{hint}"
+    );
+    for why in [
+        ".gitignore:1 'logs/'",
+        "gen/.gitignore:2 '*'",
+        "hidden .notes/",
+    ] {
+        assert!(hint.contains(why), "{why}: {hint}");
+    }
+    assert!(hint.len() <= 120, "{hint}");
+}
+
+/// Enclosing names fill only the room the rendered page leaves: rows render
+/// with the root's workspace-relative prefix, which the page cut charges, so
+/// the names must too, or a deep root overflows the response window.
+#[test]
+fn enclosing_names_leave_room_for_the_rendered_path_prefix() {
+    let workspace = tempfile::tempdir().expect("fixture directory");
+    let deep = format!(
+        "{}/src",
+        ["a-rather-long-directory-name-for-paths"; 5].join("/")
+    );
+    let root = workspace.path().join(&deep);
+    fs::create_dir_all(&root).expect("deep root");
+    for index in 0..40 {
+        fs::write(
+            root.join(format!("module_{index:02}.rs")),
+            format!("fn handler_{index:02}_with_a_long_name() {{\n    needle();\n}}\n\nfn other_{index:02}() {{\n    needle();\n}}\n"),
+        )
+        .expect("fixture");
+    }
+    let (policy, security) = policy_for(workspace.path());
+    // The row reserve exceeds half this window, so the page budget is its
+    // floor: half the window.
+    let window = 4_000;
+    let budget = window / 2;
+    let prefix = deep.len() + 1;
+    let mut page = 1;
+    loop {
+        let request = ls_query(
+            serde_json::json!({"path": root.to_string_lossy().into_owned(), "matchString": "needle", "page": page}),
+            None,
+        );
+        let result = execute_local_search(
+            &request,
+            &policy,
+            &security,
+            &NeverCancel,
+            None,
+            Some(window),
+        )
+        .expect("search");
+        let files = serde_json::to_string(&result.files).expect("files").len();
+        let rendered = files + prefix * result.files.len();
+        assert!(rendered <= budget, "page {page}: {rendered} > {budget}");
+        let more = result.pagination.as_ref().is_some_and(|p| p.has_more);
+        if !more || page > 20 {
+            break;
+        }
+        page += 1;
+    }
 }

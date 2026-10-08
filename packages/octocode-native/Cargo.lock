@@ -2087,7 +2087,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-cli"
-version = "20.0.0"
+version = "20.1.0"
 dependencies = [
  "clap",
  "flate2",
@@ -2111,7 +2111,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-engine"
-version = "20.0.0"
+version = "20.1.0"
 dependencies = [
  "aho-corasick",
  "ast-grep-config",
@@ -2161,7 +2161,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-github"
-version = "20.0.0"
+version = "20.1.0"
 dependencies = [
  "base64 0.23.1",
  "bytes",
@@ -2182,7 +2182,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-native"
-version = "20.0.0"
+version = "20.1.0"
 dependencies = [
  "aes-gcm",
  "apple-native-keyring-store",
@@ -2225,7 +2225,7 @@ dependencies = [
 
 [[package]]
 name = "octocode-runtime-napi"
-version = "20.0.0"
+version = "20.1.0"
 dependencies = [
  "napi",
  "napi-build",

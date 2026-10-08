@@ -443,6 +443,28 @@ fn a_match_offers_a_read_of_the_top_files_hits() {
     crate::contracts::validate_query("localFetch", row.clone()).expect("a valid localFetch row");
 }
 
+/// A multi-line match shows only its header in the row, so the top read
+/// covers the whole match (with context), not a window around its first line.
+#[test]
+fn a_multi_line_match_read_covers_the_whole_match() {
+    let root = Fixture::new();
+    let body = (1..=8)
+        .map(|n| format!("    step({n});\n"))
+        .collect::<String>();
+    std::fs::write(
+        root.0.join("a.rs"),
+        format!("// head\nfn run() {{\n{body}}}\n"),
+    )
+    .expect("a");
+    let out = run(
+        &root.0,
+        json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"rust","pattern":"fn run() { $$$BODY }"}),
+    )
+    .expect("match");
+    let row = &out["next"]["read"]["query"]["queries"][0];
+    assert_eq!(row["ranges"], json!(["1-14"]), "{out}");
+}
+
 fn run(root: &std::path::Path, query: serde_json::Value) -> Result<serde_json::Value, ToolError> {
     let (paths, security) = simple_policy(root);
     execute_row(query, &paths, &security, &NeverCancel)

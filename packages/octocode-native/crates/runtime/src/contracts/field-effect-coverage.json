@@ -748,6 +748,12 @@
         "exclude": [
           "consumed"
         ],
+        "fileHas": [
+          "consumed"
+        ],
+        "fileLacks": [
+          "consumed"
+        ],
         "hidden": [
           "consumed"
         ],

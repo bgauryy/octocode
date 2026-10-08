@@ -65,6 +65,7 @@ pub fn execute_local_search(
         stored_redaction,
         reusable,
         probe_options,
+        search_options,
         policy_key,
         skipped,
     } = scan_query(query, paths, cancel, walk_threads, response_window)?;
@@ -119,13 +120,15 @@ pub fn execute_local_search(
     let stats = search_stats(&scanned_stats, total_files);
     let (mut files, shown_redacted) = project_files(query, &layout, scanned, &redacted);
     let symbol = searched_symbol(query, &layout);
-    let __t2 = std::time::Instant::now();
+    // Rows render with the root's prefix, which the page cut charged.
+    let enclosing_budget =
+        page_budget.saturating_sub(layout.prefix_chars.saturating_mul(files.len()));
     let (definition, enclosing_note) = annotate_enclosing(
         &mut files,
         symbol,
         symbol.filter(|_| super::enclosing::declaration_search(&query.match_string)),
         output_root,
-        page_budget,
+        enclosing_budget,
         &|source| expected_digest(source),
         outlines,
         security,
@@ -160,8 +163,14 @@ pub fn execute_local_search(
         complete: !capped && !coverage.gap(),
         empty,
     }
-    .add_leads(&mut next, &mut hints, &mut warnings, probe_options, cancel);
-    if std::env::var_os("OCTOCODE_LS_TIMING").is_some() { eprintln!("TIMING enclosing+leads {:?}", __t2.elapsed()); }
+    .add_leads(
+        &mut next,
+        &mut hints,
+        &mut warnings,
+        &search_options,
+        probe_options,
+        cancel,
+    );
     if coverage.scope_miss
         && let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut()
     {
@@ -247,7 +256,6 @@ pub(super) fn shape_page(
     security: &ContentSecurity,
     cancel: &impl CancellationCheck,
 ) -> Result<Shaped, ToolError> {
-    let __t = std::time::Instant::now();
     let (mut redacted, redaction) = redact_scan(
         query,
         parsed,
@@ -258,7 +266,6 @@ pub(super) fn shape_page(
         cancel,
         stored_redaction,
     )?;
-    if std::env::var_os("OCTOCODE_LS_TIMING").is_some() { eprintln!("TIMING {} {:?}", "redact", __t.elapsed()); } let __t = std::time::Instant::now();
     order_files(query, &mut parsed.files);
     let layout = Layout::cut(query, paths, output_root, parsed, page_budget);
     for (index, _) in &layout.shown {
@@ -276,7 +283,6 @@ pub(super) fn shape_page(
         security,
         cancel,
     )?;
-    if std::env::var_os("OCTOCODE_LS_TIMING").is_some() { eprintln!("TIMING {} {:?}", "verify", __t.elapsed()); } let __t = std::time::Instant::now();
     Ok(Shaped {
         layout,
         redacted,
@@ -328,6 +334,8 @@ pub(super) struct Scanned {
     pub(super) reusable: Option<octocode_engine::types::TextSearchResult>,
     /// The walk an empty result re-runs over what the defaults leave out.
     pub(super) probe_options: Option<TextSearchOptions>,
+    /// The query's own walk, for probes over the same scope.
+    pub(super) search_options: TextSearchOptions,
     pub(super) policy_key: String,
     /// What the walk left out: policy-withheld and default-excluded files.
     pub(super) skipped: crate::policy::discovery::WalkSkips,
@@ -352,15 +360,14 @@ pub(super) fn scan_query(
         || query.hidden != Some(true)
         || query.default_excludes.defaults())
     .then(|| options.clone());
+    let search_options = options.clone();
     let policy_key = paths.identity();
-    let __t = std::time::Instant::now();
     let ScanOutput {
         parsed,
         digests,
         skipped,
         stored,
     } = scan(query, paths, options, &policy_key, cancel)?;
-    if std::env::var_os("OCTOCODE_LS_TIMING").is_some() { eprintln!("TIMING {} {:?}", "scan", __t.elapsed()); } let __t = std::time::Instant::now();
     // Pages are cut from serialized sizes so a default-layout page, with
     // the row around it, fits one response window. Sized by the canonical
     // root, not its spelling: a continuation names the same root relative
@@ -402,6 +409,7 @@ pub(super) fn scan_query(
         stored_redaction,
         reusable,
         probe_options,
+        search_options,
         policy_key,
         skipped,
     })
@@ -463,6 +471,10 @@ pub(super) fn search_options(
                 .unwrap_or_else(|| default_context_lines(view)),
         ),
         lang_type: query.language.clone(),
+        file_contains_all: Some(query.file_has.iter().map(|t| t.to_string()).collect())
+            .filter(|terms: &Vec<String>| !terms.is_empty()),
+        file_contains_none: Some(query.file_lacks.iter().map(|t| t.to_string()).collect())
+            .filter(|terms: &Vec<String>| !terms.is_empty()),
         include: Some(crate::policy::include::include_globs(&query.include))
             .filter(|include| !include.is_empty()),
         exclude: Some(

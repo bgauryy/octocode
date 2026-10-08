@@ -5,8 +5,9 @@ use super::{
 };
 use crate::tools::cancel::CancellationCheck;
 use serde_json::{Value, json};
+#[cfg(unix)]
+use std::collections::BTreeSet;
 use std::{
-    collections::BTreeSet,
     fs::{self, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
@@ -193,6 +194,8 @@ fn promote_files(
     // Windows cannot open a directory to sync it; there the renames rest on
     // the filesystem's own ordering. A failed sync elsewhere fails the
     // transaction, which recovery rolls back from the backups.
+    #[cfg(not(unix))]
+    let _ = files;
     #[cfg(unix)]
     for directory in files
         .iter()

@@ -68,7 +68,7 @@ yarn workspace @octocodeai/octocode-native platforms:check
 
 `build:target <platform>` produces and stages all three artifacts using the committed lockfile. The internal runtime adapter library is named `octocode_runtime_napi`; staging preserves the published `octocode-native.<platform>.node` filename. Darwin staging replaces linker-generated ad-hoc addon signatures with fresh ad-hoc signatures. When the target matches the host, staging loads the addon in a subprocess immediately. `platforms:check` verifies all 18 files and also loads the host-platform addon.
 
-Cross-target presence is not runtime proof. CI builds no native artifacts; runtime proof comes from running `node ../verify-binary.cjs` inside `npm/<platform>/` on a machine of that platform, and the 18-file `platforms:check` gate runs after `build:all` (part of `dev.mjs build:publish`).
+Cross-target presence is not runtime proof. CI builds no native artifacts; runtime proof comes from `platforms:check` on a machine of that platform (it loads the host addon), and the 18-file `platforms:check` gate runs after `build:all` (part of `dev.mjs build:publish`).
 
 ## Version contract
 
@@ -98,7 +98,7 @@ Required evidence:
 - Node runtime tests pass;
 - all 18 artifacts exist;
 - the host addon loads;
-- each platform package’s `npm/verify-binary.cjs` passes on its matching runner;
+- `platforms:check` passes on each platform's matching runner;
 - dry-run tarballs contain only intended release files.
 
 The generated-contract provenance test also requires a clean, current Core source receipt. Do not regenerate a provenance receipt merely to hide a dirty source tree.
@@ -122,7 +122,7 @@ done
 npm publish packages/octocode-native --access public --tag next
 ```
 
-Every platform package has a `prepublishOnly` hook that checks artifact presence and, on its matching host, loads the runtime addon and exercises CLI operations. Do not bypass lifecycle scripts.
+Platform packages have no `prepublishOnly` hook: run `platforms:check` before publishing.
 
 ## Registry acceptance
 

@@ -1,11 +1,12 @@
 {
   "name": "@octocodeai/config",
+  "private": true,
   "description": "Octocode unified env + config loader (zero-dep '.' entry) plus the shared tool-contract hub ('./schema', './mcp') and the generated TypeScript/Rust tool input and output types, built from @octocodeai/octocode-core.",
-  "version": "20.1.0",
+  "version": "20.0.0",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
-    "@octocodeai/octocode-core": "20.0.0"
+    "@octocodeai/octocode-core": "20.0.1"
   },
   "devDependencies": {
     "@types/node": "^24.13.4",
@@ -35,12 +36,6 @@
       "import": "./dist/contracts/mcp.js"
     }
   },
-  "files": [
-    "dist/**",
-    "!dist/**/*.map",
-    "README.md",
-    "LICENSE"
-  ],
   "homepage": "https://octocode.ai",
   "keywords": [
     "config",
@@ -50,9 +45,6 @@
   ],
   "license": "MIT",
   "main": "./dist/index.js",
-  "publishConfig": {
-    "access": "public"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bgauryy/octocode.git",
@@ -67,7 +59,6 @@
     "generate:config-contract": "node scripts/generate-config-contract.ts",
     "generate:tool-contract": "node scripts/generate-tool-contract.ts",
     "lint": "node scripts/generate-config-contract.ts --check && node scripts/generate-tool-contract.ts --check && node ../../node_modules/typescript/bin/tsc --noEmit -p tsconfig.json",
-    "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:tokens:acceptance": "cd ../.. && node packages/octocode-config/tests/token-precedence.acceptance.mjs",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",

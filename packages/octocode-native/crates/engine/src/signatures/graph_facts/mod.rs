@@ -88,6 +88,9 @@ struct GraphAccumulator {
     /// Name tokens the main walk passed, for `count_name_references`;
     /// `None` outside that walk (macro bodies are not counted).
     name_tokens: Option<Vec<NameToken>>,
+    /// Outline extraction: skip call facts, which an outline never reads and
+    /// which are most of a large file's walk and facts.
+    declarations_only: bool,
 }
 
 /// A token `count_name_references` reads: a name leaf, or (`format`) a Rust
@@ -115,6 +118,7 @@ impl GraphAccumulator {
             declaration_spans: Vec::new(),
             private_use_imports: Vec::new(),
             name_tokens: None,
+            declarations_only: false,
             diagnostics: vec![
                 "tree-sitter graph facts are syntax-only; use LSP references/callHierarchy for semantic proof".to_owned(),
             ],
@@ -223,11 +227,44 @@ fn syntax_error_lines(root: Node<'_>) -> Vec<[u32; 2]> {
     merged
 }
 
+/// The graph facts without call facts, reference counts or import uses:
+/// what outlines and enclosing names read, at a fraction of the walk.
+pub(crate) fn extract_declaration_facts_with_extension(
+    content: &str,
+    file_path: &str,
+    extension: &str,
+) -> Option<GraphFactsDocument> {
+    if content.len() > crate::signatures::MAX_PARSE_SIZE {
+        return None;
+    }
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        extract_facts_before(
+            content,
+            file_path,
+            extension,
+            std::time::Instant::now() + super::extractor::AST_EXECUTION_TIMEOUT,
+            true,
+        )
+    }))
+    .unwrap_or(None)
+    .map(|extraction| extraction.facts)
+}
+
 fn extract_graph_facts_with_metadata_before(
     content: &str,
     file_path: &str,
     extension: &str,
     deadline: std::time::Instant,
+) -> Option<super::GraphFactsExtraction> {
+    extract_facts_before(content, file_path, extension, deadline, false)
+}
+
+fn extract_facts_before(
+    content: &str,
+    file_path: &str,
+    extension: &str,
+    deadline: std::time::Instant,
+    declarations_only: bool,
 ) -> Option<super::GraphFactsExtraction> {
     let ext = extension.to_owned();
     if !graph_fact_extensions().iter().any(|item| item == &ext) {
@@ -235,6 +272,7 @@ fn extract_graph_facts_with_metadata_before(
     }
     let entry = languages::find_entry(&ext)?;
     let mut acc = GraphAccumulator::new(file_path, &ext);
+    acc.declarations_only = declarations_only;
     let mut rust_root_unsupported = (ext == "rs").then_some(true);
     let mut reference_counts = Vec::new();
     let mut import_uses = None;
@@ -254,7 +292,7 @@ fn extract_graph_facts_with_metadata_before(
             );
             error_lines = syntax_error_lines(root);
         }
-        acc.name_tokens = Some(Vec::new());
+        acc.name_tokens = (!declarations_only).then(Vec::new);
         let visited = visit_node(root, content, &line_index, &mut acc, deadline, &[], None);
         let name_tokens = acc.name_tokens.take().unwrap_or_default();
         if !visited
@@ -265,7 +303,7 @@ fn extract_graph_facts_with_metadata_before(
             // not read a missing import, call or module as absent.
             acc.diagnostics.push("graph.traversal.deadlineExceeded: graph extraction exceeded its execution deadline; facts are incomplete".to_owned());
             rust_root_unsupported = (ext == "rs").then_some(true);
-        } else {
+        } else if !declarations_only {
             let counts = count_name_references(content, &acc, &name_tokens);
             reference_counts = acc
                 .declarations
@@ -606,7 +644,11 @@ fn visit_node(
     }
 
     let rust = acc.ext == "rs";
-    let mut receivers = receiver::ReceiverTypes::new(&acc.ext, root);
+    let mut receivers = if acc.declarations_only {
+        None
+    } else {
+        receiver::ReceiverTypes::new(&acc.ext, root)
+    };
     let mut frames = vec![Frame::Enter(root, RustContext::default(), 0)];
     let mut declarations: Vec<(String, String)> = outer_declaration.into_iter().cloned().collect();
     // Names of the enclosing `mod` items, outermost first.
@@ -1007,7 +1049,8 @@ fn collect_node_facts(
         });
     }
 
-    if is_call_node(node.kind())
+    if !acc.declarations_only
+        && is_call_node(node.kind())
         && let Some((callee, callee_node)) = call_callee(node, content)
     {
         let target = callee

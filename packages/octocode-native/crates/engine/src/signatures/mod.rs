@@ -89,8 +89,19 @@ pub(crate) fn leading_doc_line(lines: &[&str], start: usize, ext: &str) -> Optio
 #[must_use]
 pub fn extract_declarations(content: &str, file_path: &str) -> Option<String> {
     js_oxc::extract_declarations(content, file_path)
-        .or_else(|| tree_sitter_graph_facts(content, file_path).map(|extraction| extraction.facts))
+        .or_else(|| tree_sitter_declarations(content, file_path))
         .and_then(|facts| serde_json::to_string(&facts).ok())
+}
+
+/// [`tree_sitter_graph_facts`] without call facts (see
+/// `graph_facts::extract_declaration_facts_with_extension`).
+fn tree_sitter_declarations(
+    content: &str,
+    file_path: &str,
+) -> Option<crate::graph::GraphFactsDocument> {
+    let ext = extension_of(file_path, true, "txt");
+    let grammar = crate::text::file_extension::grammar_extension(content, &ext);
+    graph_facts::extract_declaration_facts_with_extension(content, file_path, grammar)
 }
 
 #[must_use]
@@ -203,6 +214,69 @@ fn extract_by_ext(content: &str, ext: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The declarations-only extraction (outlines, enclosing names) skips
+    /// call facts, reference counts and import uses, and keeps every other
+    /// fact identical to the full graph extraction, in every grammar.
+    #[test]
+    fn declaration_facts_equal_the_graph_facts_without_calls() {
+        let cases = [
+            (
+                "src/lib.rs",
+                "mod m {\n    pub struct S;\n    impl Clone for S { fn clone(&self) -> Self { make(S) } }\n}\nuse std::fmt;\n/// doc\npub fn make(s: m::S) -> m::S { helper(); s }\nfn helper() {}\nmacro_rules! mk { () => {} }\n",
+            ),
+            (
+                "app.py",
+                "import os\nclass A(Base):\n    def run(self):\n        return os.path.join(self.x)\n\ndef top():\n    A().run()\n",
+            ),
+            (
+                "main.go",
+                "package main\nimport \"fmt\"\ntype T struct{}\nfunc (t T) Run() { fmt.Println(1) }\nfunc main() { T{}.Run() }\n",
+            ),
+            (
+                "A.java",
+                "class A extends B implements C { void run() { go(); } void go() {} }\n",
+            ),
+            (
+                "x.c",
+                "#include <stdio.h>\nstatic int add(int a, int b) { return a + b; }\nint main(void) { printf(\"%d\", add(1, 2)); }\n",
+            ),
+            (
+                "large.rs",
+                include_str!("../../../runtime/tests/runtime_clasify.rs"),
+            ),
+        ];
+        for (path, source) in cases {
+            let full = tree_sitter_graph_facts(source, path).expect(path).facts;
+            let lean = tree_sitter_declarations(source, path).expect(path);
+            assert!(!lean.declarations.is_empty(), "{path}");
+            assert!(lean.calls.is_empty(), "{path}");
+            let json = |value: &crate::graph::GraphFactsDocument| {
+                serde_json::to_value(value).expect("json")
+            };
+            let mut expected = json(&full);
+            expected["calls"] = serde_json::json!([]);
+            if let Some(edges) = expected["edges"].as_array_mut() {
+                edges.retain(|edge| edge["relation"] != "calls");
+            }
+            if let Some(imports) = expected["imports"].as_array_mut() {
+                for import in imports {
+                    if let Some(import) = import.as_object_mut() {
+                        import.remove("usedIn");
+                    }
+                }
+            }
+            // An edge id ends in its push position, which skipped call
+            // edges shift; consumers read from/relation/to.
+            let mut got = json(&lean);
+            for facts in [&mut got, &mut expected] {
+                for edge in facts["edges"].as_array_mut().into_iter().flatten() {
+                    edge.as_object_mut().map(|edge| edge.remove("id"));
+                }
+            }
+            assert_eq!(got, expected, "{path}");
+        }
+    }
 
     fn extract(content: &str, path: &str) -> Option<String> {
         extract_signatures_inner(content, path)
@@ -627,27 +701,5 @@ pub fn second() -> usize {
             })
             .collect();
         assert_eq!(ranges, vec![(0, 20), (22, 25)], "{raw}");
-    }
-}
-
-#[cfg(test)]
-mod outline_cost_probe {
-    #[test]
-    #[ignore = "timing probe"]
-    fn outline_cost_probe() {
-        let path = std::env::var("PROBE_FILE").expect("PROBE_FILE");
-        let text = std::fs::read_to_string(&path).expect("read");
-        let t = std::time::Instant::now();
-        let mut parser = tree_sitter::Parser::new();
-        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).expect("lang");
-        let tree = parser.parse(&text, None).expect("parse");
-        let parse = t.elapsed();
-        let t = std::time::Instant::now();
-        let facts = super::tree_sitter_graph_facts(&text, &path).expect("facts");
-        let graph = t.elapsed();
-        let t = std::time::Instant::now();
-        let json = serde_json::to_string(&facts.facts).expect("json");
-        let ser = t.elapsed();
-        eprintln!("PROBE parse={parse:?} graph_facts={graph:?} to_json={ser:?} json_bytes={} root_children={}", json.len(), tree.root_node().child_count());
     }
 }

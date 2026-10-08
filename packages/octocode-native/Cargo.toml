@@ -5,7 +5,7 @@ resolver = "2"
 
 # Shared metadata keeps internal crates on the native npm release version.
 [workspace.package]
-version = "20.0.0"
+version = "20.1.0"
 edition = "2024"
 # MSRV floor: highest stable API in use is File::try_lock/unlock (Rust 1.89).
 # Enforced in CI by `clippy::incompatible_msrv` (in `clippy::all`, denied, run

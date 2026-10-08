@@ -6,7 +6,7 @@
   "type": "module",
   "bin": "./bin/octocode-agents-communication.mjs",
   "devDependencies": {
-    "@octocodeai/config": "20.1.0",
+    "@octocodeai/config": "workspace:*",
     "esbuild": "^0.28.2",
     "octocode-mcp-cli": "workspace:*"
   },

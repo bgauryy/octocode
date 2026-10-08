@@ -243,7 +243,7 @@
     "versionNotFound": "notFound",
     "workspaceRootInvalid": "execution"
   },
-  "fingerprint": "698b2313c511e28f7550ca8b8bf754125b47d2ba6f05953c0b491f4f169d510d",
+  "fingerprint": "299a9e09adeb4b12c6c4cf741b37759f1593dd699e4980c0f2829779a5b41cde",
   "limits": {
     "maxInputArrayItems": 100
   },
@@ -2251,6 +2251,24 @@
                                           "type": "string"
                                         },
                                         "maxItems": 100,
+                                        "type": "array"
+                                      },
+                                      "fileHas": {
+                                        "items": {
+                                          "minLength": 1,
+                                          "type": "string"
+                                        },
+                                        "maxItems": 100,
+                                        "minItems": 1,
+                                        "type": "array"
+                                      },
+                                      "fileLacks": {
+                                        "items": {
+                                          "minLength": 1,
+                                          "type": "string"
+                                        },
+                                        "maxItems": 100,
+                                        "minItems": 1,
                                         "type": "array"
                                       },
                                       "hidden": {
@@ -7950,6 +7968,24 @@
                                           "type": "string"
                                         },
                                         "maxItems": 100,
+                                        "type": "array"
+                                      },
+                                      "fileHas": {
+                                        "items": {
+                                          "minLength": 1,
+                                          "type": "string"
+                                        },
+                                        "maxItems": 100,
+                                        "minItems": 1,
+                                        "type": "array"
+                                      },
+                                      "fileLacks": {
+                                        "items": {
+                                          "minLength": 1,
+                                          "type": "string"
+                                        },
+                                        "maxItems": 100,
+                                        "minItems": 1,
                                         "type": "array"
                                       },
                                       "hidden": {
@@ -16010,6 +16046,24 @@
                               "maxItems": 100,
                               "type": "array"
                             },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
                             "hidden": {
                               "type": "boolean"
                             },
@@ -22902,6 +22956,24 @@
                                 "type": "string"
                               },
                               "maxItems": 100,
+                              "type": "array"
+                            },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
                               "type": "array"
                             },
                             "hidden": {
@@ -30227,6 +30299,24 @@
                                 "type": "string"
                               },
                               "maxItems": 100,
+                              "type": "array"
+                            },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
                               "type": "array"
                             },
                             "hidden": {
@@ -38141,6 +38231,24 @@
                               "maxItems": 100,
                               "type": "array"
                             },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
                             "hidden": {
                               "type": "boolean"
                             },
@@ -45446,6 +45554,24 @@
                                 "type": "string"
                               },
                               "maxItems": 100,
+                              "type": "array"
+                            },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
                               "type": "array"
                             },
                             "hidden": {
@@ -53843,6 +53969,24 @@
                                 "type": "string"
                               },
                               "maxItems": 100,
+                              "type": "array"
+                            },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
                               "type": "array"
                             },
                             "hidden": {
@@ -63999,6 +64143,24 @@
                               "maxItems": 100,
                               "type": "array"
                             },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
                             "hidden": {
                               "type": "boolean"
                             },
@@ -71033,6 +71195,24 @@
                               "maxItems": 100,
                               "type": "array"
                             },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
                             "hidden": {
                               "type": "boolean"
                             },
@@ -74897,6 +75077,26 @@
                   "maxItems": 100,
                   "type": "array"
                 },
+                "fileHas": {
+                  "description": "Keep only files that also contain every term; lowercase terms ignore case.",
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 100,
+                  "minItems": 1,
+                  "type": "array"
+                },
+                "fileLacks": {
+                  "description": "Drop files that contain any term.",
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 100,
+                  "minItems": 1,
+                  "type": "array"
+                },
                 "hidden": {
                   "description": "Include dot files.",
                   "type": "boolean"
@@ -77821,6 +78021,24 @@
                                 "type": "string"
                               },
                               "maxItems": 100,
+                              "type": "array"
+                            },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
                               "type": "array"
                             },
                             "hidden": {
@@ -80863,6 +81081,24 @@
                               "maxItems": 100,
                               "type": "array"
                             },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
                             "hidden": {
                               "type": "boolean"
                             },
@@ -82419,6 +82655,26 @@
             "maxItems": 100,
             "type": "array"
           },
+          "fileHas": {
+            "description": "Keep only files that also contain every term; lowercase terms ignore case.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
+          "fileLacks": {
+            "description": "Drop files that contain any term.",
+            "items": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
           "hidden": {
             "description": "Include dot files.",
             "type": "boolean"
@@ -82661,6 +82917,8 @@
             "multiline",
             "sort",
             "language",
+            "fileHas",
+            "fileLacks",
             "matchPage",
             "page",
             "snapshot",
@@ -85809,6 +86067,24 @@
                                 "type": "string"
                               },
                               "maxItems": 100,
+                              "type": "array"
+                            },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
                               "type": "array"
                             },
                             "hidden": {
@@ -93692,6 +93968,24 @@
                                 "type": "string"
                               },
                               "maxItems": 100,
+                              "type": "array"
+                            },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
                               "type": "array"
                             },
                             "hidden": {
@@ -104044,6 +104338,24 @@
                               "maxItems": 100,
                               "type": "array"
                             },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
                             "hidden": {
                               "type": "boolean"
                             },
@@ -113554,6 +113866,24 @@
                               "maxItems": 100,
                               "type": "array"
                             },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
                             "hidden": {
                               "type": "boolean"
                             },
@@ -122055,6 +122385,24 @@
                               "maxItems": 100,
                               "type": "array"
                             },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
                             "hidden": {
                               "type": "boolean"
                             },
@@ -129527,6 +129875,24 @@
                                 "type": "string"
                               },
                               "maxItems": 100,
+                              "type": "array"
+                            },
+                            "fileHas": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
+                              "type": "array"
+                            },
+                            "fileLacks": {
+                              "items": {
+                                "minLength": 1,
+                                "type": "string"
+                              },
+                              "maxItems": 100,
+                              "minItems": 1,
                               "type": "array"
                             },
                             "hidden": {

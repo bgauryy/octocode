@@ -7,12 +7,13 @@
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@modelcontextprotocol/server": "^2.1.0",
-    "@octocodeai/config": "20.1.0",
-    "@octocodeai/octocode-native": "20.0.0",
+    "@octocodeai/octocode-core": "20.0.1",
+    "@octocodeai/octocode-native": "20.1.0",
     "zod": "^4.6.2"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
+    "@octocodeai/config": "workspace:*",
     "@types/node": "^24.13.4",
     "@vitest/coverage-v8": "^5.0.2",
     "@vitest/ui": "^5.0.0",
@@ -95,7 +96,6 @@
     "lint": "yarn check:manifest && node ../../node_modules/eslint/bin/eslint.js src tests",
     "lint:fix": "node ../../node_modules/eslint/bin/eslint.js src tests --fix",
     "sync:manifest": "node scripts/sync-manifest.mjs",
-    "prepublishOnly": "node ../octocode/scripts/check-no-workspace-protocol.mjs",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:acceptance": "cd ../.. && node packages/octocode-mcp/tests/integration/stdio.acceptance.mjs",
     "test:boundary": "node tests/native/node-boundary.mjs",

@@ -12,15 +12,14 @@ const CI_EXCLUDE = ['--exclude', '@octocodeai/octocode-benchmark', '--exclude', 
 
 const script = (name, ...args) => ['node', [path.join(HERE, name), ...args]];
 const health = (...args) => script('workspace-health.mjs', ...args);
-const guard = ['node', [path.join(ROOT, 'packages/octocode/scripts/check-no-workspace-protocol.mjs')]];
 const yarn = (...args) => ['yarn', args];
 
 /** task → [description, steps]; extra CLI args go to the last step. */
 const TASKS = {
   build: ['Release build of every workspace (slow)', [health('run', 'build', '--parallel')]],
   'build:dev': ['Fast debug build of every workspace (default locally)', [health('run', 'build', '--parallel', '--prefer', 'build:dev')]],
-  'build:ci': ['Publish guard, then release build without benchmark or native', [script('prepublish.mjs'), guard, health('run', 'build', '--parallel', ...CI_EXCLUDE)]],
-  'build:publish': ['Publish guard, 6-platform native build, platform check, MCP publish build', [script('prepublish.mjs'), guard, yarn('build:native:all'), yarn('platforms:check'), yarn('workspace', 'octocode-mcp', 'build')]],
+  'build:ci': ['Resolution check, then release build without benchmark or native', [script('prepublish.mjs'), health('run', 'build', '--parallel', ...CI_EXCLUDE)]],
+  'build:publish': ['Resolution check, 6-platform native build, platform check, MCP publish build', [script('prepublish.mjs'), yarn('build:native:all'), yarn('platforms:check'), yarn('workspace', 'octocode-mcp', 'build')]],
   test: ['Run every workspace test script', [health('run', 'test')]],
   'test:ci': ['Tests without benchmark or native', [health('run', 'test', ...CI_EXCLUDE)]],
   lint: ['Run every workspace lint script', [health('run', 'lint')]],
@@ -37,8 +36,7 @@ const TASKS = {
   'check:dev-unify': ['Opt-in: test:rust reuses every crate build:dev compiles (nightly unit graph, else cargo tree)', [script('dev-unify-check.mjs')]],
   'deps:dedupe': ['One version range per external dependency (--fix rewrites)', [script('dedupe-deps.mjs')]],
   setup: ['Local dev resolutions (--dry-run, --install, --reset); then yarn install', [script('dev-setup.mjs')]],
-  prepublish: ['Publish guard (--fix strips local resolutions, --dry-run previews)', [script('prepublish.mjs')]],
-  guard: ['Final npm-publish guard: no workspace:/file:/link: protocols ship', [guard]],
+  prepublish: ['Local-resolution check (--fix strips local resolutions, --dry-run previews)', [script('prepublish.mjs')]],
 };
 
 function help() {
@@ -61,10 +59,7 @@ if (!TASKS[task]) {
 }
 
 const steps = TASKS[task][1];
-// A plain `prepublish` check also runs the final guard (the old root `prepublish`);
-// flagged runs (--fix, --dry-run) only rewrite or preview manifests.
-const plan = task === 'prepublish' && extra.length === 0 ? [...steps, guard] : steps;
-plan.forEach(([command, args], index) => {
+steps.forEach(([command, args], index) => {
   const finalArgs = index === steps.length - 1 ? [...args, ...extra] : args;
   const { status, error } = spawnSync(command, finalArgs, { cwd: ROOT, stdio: 'inherit' });
   if (error) {

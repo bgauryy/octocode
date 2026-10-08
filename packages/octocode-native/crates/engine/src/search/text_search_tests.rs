@@ -485,6 +485,7 @@ fn sort_then_cap_retains_deterministic_sorted_prefix() {
             demoted: false,
             generated: false,
             declares: false,
+            covered: 0,
             source: None,
         }
     }
@@ -1078,6 +1079,7 @@ fn bounded_retention_matches_a_full_sort() {
             demoted: salt.is_multiple_of(3),
             generated: salt.is_multiple_of(7),
             declares: salt.is_multiple_of(4),
+            covered: 0,
             source: None,
         }
     }
@@ -1512,4 +1514,118 @@ fn end_anchor_matches_crlf_lines() {
             r.files[0].matches
         );
     }
+}
+
+/// File-level AND/NOT: a matched file is kept only when it also contains
+/// every `file_contains_all` term and none of `file_contains_none`; totals
+/// count only kept files. Each term is smart-case on its own.
+#[test]
+fn file_terms_keep_files_containing_all_and_none_of_the_excluded() {
+    let t = TmpDir::new();
+    t.write("a.rs", "alpha\nbeta\n");
+    t.write("b.rs", "alpha\nGAMMA\n");
+    t.write("c.rs", "alpha\nbeta\ngamma\n");
+    t.write("d.rs", "alpha only\n");
+    let mut o = opts(t.path(), "alpha");
+    o.file_contains_all = Some(vec!["beta".into()]);
+    o.file_contains_none = Some(vec!["gamma".into()]);
+    let r = search(o).expect("search ok");
+    let paths: Vec<_> = r
+        .files
+        .iter()
+        .map(|f| f.path.rsplit('/').next().unwrap_or_default().to_owned())
+        .collect();
+    assert_eq!(paths, ["a.rs"], "{paths:?}");
+    assert_eq!(r.stats.files_matched, Some(1));
+    // An uppercase term is case-sensitive: `GAMMA` excludes only b.rs.
+    let mut o = opts(t.path(), "alpha");
+    o.file_contains_none = Some(vec!["GAMMA".into()]);
+    let r = search(o).expect("search ok");
+    let mut paths: Vec<_> = r
+        .files
+        .iter()
+        .map(|f| f.path.rsplit('/').next().unwrap_or_default().to_owned())
+        .collect();
+    paths.sort();
+    assert_eq!(paths, ["a.rs", "c.rs", "d.rs"], "{paths:?}");
+}
+
+/// `.gitattributes` `linguist-generated`/`linguist-vendored` mark a file
+/// generated for the relevance rank, as git resolves them: the deepest
+/// attributes file first, its last matching line deciding, `-attr` unsetting.
+#[test]
+fn relevance_ranks_gitattributes_generated_files_last() {
+    let t = TmpDir::new();
+    t.write(".git/HEAD", "ref: refs/heads/main\n");
+    t.write(
+        ".gitattributes",
+        "gen/** linguist-generated=true\nlib/*.ts linguist-generated\nthird/** linguist-vendored\n",
+    );
+    t.write("lib/.gitattributes", "keep.ts -linguist-generated\n");
+    t.write("gen/api.ts", &"needle\n".repeat(9));
+    t.write("lib/out.ts", &"needle\n".repeat(8));
+    t.write("third/dep.ts", &"needle\n".repeat(7));
+    t.write("lib/keep.ts", "needle\nneedle\n");
+    t.write("src/a.ts", "needle\n");
+    let mut options = opts(t.path(), "needle");
+    options.sort = Some("relevance".into());
+    let result = search(options).expect("search");
+    let names: Vec<String> = result
+        .files
+        .iter()
+        .map(|file| {
+            Path::new(&file.path)
+                .strip_prefix(t.path())
+                .unwrap_or(Path::new(&file.path))
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect();
+    assert_eq!(
+        names,
+        [
+            "lib/keep.ts",
+            "src/a.ts",
+            "gen/api.ts",
+            "lib/out.ts",
+            "third/dep.ts"
+        ],
+        "{names:?}"
+    );
+}
+
+/// For a word alternation (`retry|backoff|jitter`), a file holding more of
+/// its words outranks one repeating a single common word, then hit count
+/// decides. Other searches keep the count order.
+#[test]
+fn relevance_ranks_alternation_coverage_before_hit_count() {
+    let t = TmpDir::new();
+    t.write("flood.rs", &"retry\n".repeat(40));
+    t.write("all.rs", "retry\nbackoff\nJitter\n");
+    t.write("two.rs", "retry\nretry\nbackoff\n");
+    let rank = |pattern: &str| {
+        let mut options = opts(t.path(), pattern);
+        options.sort = Some("relevance".into());
+        search(options)
+            .expect("search")
+            .files
+            .iter()
+            .map(|file| {
+                Path::new(&file.path)
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        rank("retry|backoff|jitter"),
+        ["all.rs", "two.rs", "flood.rs"]
+    );
+    assert_eq!(
+        rank(r"\b(retry|backoff|jitter)\b"),
+        ["all.rs", "two.rs", "flood.rs"]
+    );
+    assert_eq!(rank("retry"), ["flood.rs", "two.rs", "all.rs"]);
 }

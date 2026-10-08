@@ -1114,6 +1114,8 @@ fn attach_match_continuations(
 const READ_CONTEXT: u64 = 3;
 /// Hit windows one `read` lead may name.
 const READ_MAX_RANGES: usize = 5;
+/// Longest match the top read shows whole.
+const READ_MAX_SPAN: u64 = 400;
 
 /// The file a match row names.
 fn row_file(scope: &Scope, row: &Value) -> Option<std::path::PathBuf> {
@@ -1158,18 +1160,21 @@ fn read_clipped_values(scope: &Scope, group: &Group) -> Vec<Value> {
 /// context. Offered when they fit [`READ_MAX_RANGES`] windows.
 fn read_top_hits(scope: &Scope, row: &Value) -> Option<Value> {
     let file = row_file(scope, row)?;
-    // A hit's first line anchors its window: a multi-line match (a whole
-    // function) is already shown by its row and expandCaptures.
+    // A row shows a multi-line match only up to its header, so its window
+    // spans the whole match; past READ_MAX_SPAN lines, its first line.
     let mut hits = vec![];
     for hit in row["matches"].as_array()? {
-        hits.push(hit["line"].as_u64()?);
+        let line = hit["line"].as_u64()?;
+        let end = hit["endLine"]
+            .as_u64()
+            .filter(|end| *end >= line && end - line < READ_MAX_SPAN)
+            .unwrap_or(line);
+        hits.push((line, end));
     }
-    let windows = crate::tools::line_spans::merge_spans(hits.into_iter().map(|line: u64| {
-        (
-            line.saturating_sub(READ_CONTEXT).max(1),
-            line + READ_CONTEXT,
-        )
-    }));
+    let windows = crate::tools::line_spans::merge_spans(
+        hits.into_iter()
+            .map(|(line, end)| (line.saturating_sub(READ_CONTEXT).max(1), end + READ_CONTEXT)),
+    );
     if windows.is_empty() || windows.len() > READ_MAX_RANGES {
         return None;
     }

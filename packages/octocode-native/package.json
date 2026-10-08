@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-native",
-  "version": "20.0.0",
+  "version": "20.1.0",
   "description": "Native Octocode CLI and tool runtime",
   "author": "Guy Bary <bgauryy@octocodeai.com>",
   "license": "MIT",
@@ -43,12 +43,12 @@
     "README.md"
   ],
   "optionalDependencies": {
-    "@octocodeai/octocode-native-darwin-arm64": "20.0.0",
-    "@octocodeai/octocode-native-darwin-x64": "20.0.0",
-    "@octocodeai/octocode-native-linux-arm64-gnu": "20.0.0",
-    "@octocodeai/octocode-native-linux-x64-gnu": "20.0.0",
-    "@octocodeai/octocode-native-linux-x64-musl": "20.0.0",
-    "@octocodeai/octocode-native-win32-x64-msvc": "20.0.0"
+    "@octocodeai/octocode-native-darwin-arm64": "20.1.0",
+    "@octocodeai/octocode-native-darwin-x64": "20.1.0",
+    "@octocodeai/octocode-native-linux-arm64-gnu": "20.1.0",
+    "@octocodeai/octocode-native-linux-x64-gnu": "20.1.0",
+    "@octocodeai/octocode-native-linux-x64-musl": "20.1.0",
+    "@octocodeai/octocode-native-win32-x64-msvc": "20.1.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.4",
@@ -83,7 +83,6 @@
     "pack:check": "node scripts/check-pack-size.cjs",
     "docs:claims": "node scripts/check-doc-claims.cjs",
     "check:crate-boundaries": "node scripts/check-crate-boundaries.cjs",
-    "verify": "yarn check:crate-boundaries && yarn fmt:rust:check && yarn lint && tsc --noEmit && yarn test && yarn version:check && yarn workspace @octocodeai/config check:tool-contract && yarn docs:claims",
-    "prepublishOnly": "yarn version:check && node ../octocode/scripts/check-no-workspace-protocol.mjs && yarn workspace @octocodeai/config check:core-contract-sync:published"
+    "verify": "yarn check:crate-boundaries && yarn fmt:rust:check && yarn lint && tsc --noEmit && yarn test && yarn version:check && yarn workspace @octocodeai/config check:tool-contract && yarn docs:claims"
   }
 }

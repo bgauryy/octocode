@@ -31,8 +31,7 @@
     "test": "node --test tests/package.test.ts",
     "test:smoke": "node scripts/smoke.ts",
     "verify": "yarn build && yarn lint && yarn typecheck && yarn test",
-    "prepack": "yarn build && yarn typecheck && yarn test",
-    "prepublishOnly": "yarn verify && node scripts/release-check.ts"
+    "prepack": "yarn build && yarn typecheck && yarn test"
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",

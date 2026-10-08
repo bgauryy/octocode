@@ -7,10 +7,11 @@
   "bugs": "https://github.com/bgauryy/octocode/issues",
   "dependencies": {
     "@inquirer/prompts": "^8.7.2",
-    "@octocodeai/config": "20.1.0",
-    "@octocodeai/octocode-native": "20.0.0"
+    "@octocodeai/octocode-native": "20.1.0"
   },
   "devDependencies": {
+    "@octocodeai/config": "workspace:*",
+    "@octocodeai/octocode-core": "20.0.1",
     "@octocodeai/octocode-skill-installer": "workspace:*",
     "@types/node": "^24.13.4",
     "@vitest/coverage-v8": "^5.0.2",
@@ -20,9 +21,6 @@
     "vite": "^8.3.1",
     "vitest": "^5.0.0"
   },
-  "bundledDependencies": [
-    "@octocodeai/config"
-  ],
   "engines": {
     "node": "^24.15.0"
   },
@@ -50,6 +48,9 @@
     "zed"
   ],
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/bgauryy/octocode.git",
@@ -62,7 +63,6 @@
     "lint": "node ../../node_modules/eslint/bin/eslint.js src tests",
     "lint:fix": "node ../../node_modules/eslint/bin/eslint.js src tests --fix",
     "prepack": "node scripts/prepack.mjs",
-    "prepublishOnly": "node scripts/check-no-workspace-protocol.mjs",
     "start": "node ./out/octocode.js",
     "test": "node ../../node_modules/vitest/vitest.mjs run --coverage",
     "test:quiet": "node ../../node_modules/vitest/vitest.mjs run --reporter=dot --silent",

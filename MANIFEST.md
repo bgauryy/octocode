@@ -196,7 +196,7 @@ If the Verifier is the same model as the Generator (e.g., both are GPT-4o or Cla
 **Octocode is the Research Engine** that powers this methodology. It bridges the gap between what you know (local codebase) and what you need to know (external knowledge).
 
 ### Context Pillars
-A robust context is built on four pillars:
+A robust context is built on three pillars:
 
 #### 1. Static Context (The "Knowns")
 Immutable or slowly changing sources of truth. **(Powered by `local research tools`)**
@@ -206,9 +206,9 @@ Immutable or slowly changing sources of truth. **(Powered by `local research too
 External or rapidly changing information. **(Powered by `external research tools`)**
 *   **Source**: Remote repos, package internals, and code history.
 
-#### 4. RDD Data (The "Session State")
+#### 3. RDD Data (The "Session State")
 The artifacts generated during the RDD process itself.
-*   **Sources**: research docs heloing coding agents to perform better
+*   **Sources**: research docs that help coding agents perform better.
 
 ### Context Creation
 **Octocode is the research initiator.** It proactively aggregates context from three primary sources to build the RDD map:
@@ -218,22 +218,30 @@ The artifacts generated during the RDD process itself.
 *   **Existing Context**: Documentation describing the organization, business features, and repositories.
 
 ### The Research Engine Architecture
+
+One Rust engine serves both interfaces, the `octocode-mcp` server and the `npx octocode` CLI:
+
 ```
-+---------------------------------------------------------------+
-|                   OCTOCODE RESEARCH ENGINE                    |
-+---------------------------------------------------------------+
-|                                                               |
-|  +------------------+        +------------------------+       |
-|  |   LOCAL TOOLS    |        |    EXTERNAL TOOLS      |       |
-|  |  (octocode-local)|        |  (octocode-external)   |       |
-|  +------------------+        +------------------------+       |
-|           |                              |                    |
-|           +-------------+----------------+                    |
-|                         v                                     |
-|           +----------------------------------+                |
-|           |   CONTEXT VALIDATION (Hints)     |                |
-|           +----------------------------------+                |
-+---------------------------------------------------------------+
++-------------------------------------------------------------------+
+|                     OCTOCODE RESEARCH ENGINE                      |
++-------------------------------------------------------------------+
+|                                                                   |
+|  +--------------------------+      +---------------------------+  |
+|  |       LOCAL TOOLS        |      |      EXTERNAL TOOLS       |  |
+|  |  files, text, AST, LSP   |      |  GitHub code and history, |  |
+|  |                          |      |  package registries       |  |
+|  +--------------------------+      +---------------------------+  |
+|               |                                 |                 |
+|               +----------------+----------------+                 |
+|                                v                                  |
+|           +-------------------------------------------+           |
+|           |  CLASIFY: judge unread evidence (Jev)     |           |
+|           +-------------------------------------------+           |
+|                                v                                  |
+|           +-------------------------------------------+           |
+|           |  NEXT STEPS: next.* pages, hints.* leads  |           |
+|           +-------------------------------------------+           |
++-------------------------------------------------------------------+
 ```
 
 ---
@@ -365,7 +373,10 @@ Each action operates with a **fresh context window**, utilizing only the *output
 
 The concrete tool workflows that apply this theory have one owner each:
 
+- [The Octocode protocol](docs/OCTOCODE_PROTOCOL.md): the research loop, what each evidence type proves, and measured strengths and limits.
 - [Workflows](docs/OCTOCODE_WORKFLOWS.md): how to choose and combine tools, what each result proves, and one diagram with the rules for each research flow, including `next` pages, `hints` leads, and `clasify`.
+- [clasify](docs/OCTOCODE_CLASIFY.md): judging unread evidence before reading it.
+- [Tool reference](docs/OCTOCODE_TOOLS.md): every tool's fields, results, and continuations.
 - [Research skill](skills/octocode-research/SKILL.md): the executable research workflow for agents.
 
 One rule connects them: every result carries the exact inputs of the next call. Reuse the returned `next.*` pages and `hints.*` leads unchanged; never recompute or guess them. This is "output bridges actions" (Part 2) made mechanical.

@@ -12,8 +12,10 @@ select, sanitize, or execute tools in TypeScript.
   cancellation, and closes the runtime before it closes the transport.
 - `src/public.ts` re-exports the adapter functions and types for embedding;
   the runtime types come from `@octocodeai/octocode-native/runtime`.
-- `@octocodeai/config` supplies the core-owned tool definitions, published input
-  schemas, and server instructions. Public contracts remain owned by core.
+- `@octocodeai/config` (private workspace package, bundled at build time)
+  supplies the core-owned tool definitions, published input schemas, and server
+  instructions. Public contracts remain owned by core, which stays an external
+  runtime dependency.
 - `@octocodeai/octocode-native` owns configuration, policy, validation,
   execution, response shaping, sanitization, pagination, and shutdown of tool
   resources.

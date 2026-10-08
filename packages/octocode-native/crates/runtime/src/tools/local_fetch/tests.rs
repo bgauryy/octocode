@@ -1174,6 +1174,37 @@ fn read_block_reads_every_cut_declaration() {
     );
 }
 
+/// A window cutting two declarations (the last line of one and the head
+/// of the next) offers the one it shows most of: the declaration it is about.
+#[test]
+fn a_cut_read_offers_the_declaration_it_shows_most_of() {
+    let t = Temp::new();
+    let p = t.0.join("m.py");
+    let body =
+        |name: &str| -> String { (0..20).map(|i| format!("    {name}{i} = {i}\n")).collect() };
+    // one(): lines 1-21; two(): lines 23-43.
+    fs::write(
+        &p,
+        format!("def one():\n{}\ndef two():\n{}", body("a"), body("b")),
+    )
+    .expect("fixture");
+    let paths = Paths(t.0.clone());
+    let r = fetch(&qj(&p, serde_json::json!({"ranges": ["21-28"]})), &paths);
+    let lead = r
+        .next
+        .and_then(|next| next.read_block)
+        .expect("next.readBlock");
+    assert_eq!(
+        lead.query
+            .ranges
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        vec!["23-43".to_owned()],
+        "{lead:?}"
+    );
+}
+
 /// A `ranges` read that stops inside a declaration offers it whole when
 /// the read holds one end of it (the rest alone would cut it again from the
 /// other side), and only its unseen lines when the read sits inside it.

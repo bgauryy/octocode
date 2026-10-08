@@ -129,8 +129,9 @@ fn ranges_extract(
     }
     let windows = merge_ranges(kept);
     let (text, selected) = windows_text(lines, &windows);
-    // A plain read that stops inside a declaration offers the first one it
-    // cut. Lines between the read's own windows were skipped on purpose.
+    // A plain read that stops inside a declaration offers the one it cut
+    // that it shows most of (the first on a tie). Lines between the read's
+    // own windows were skipped on purpose.
     let cut = if q.block() {
         Vec::new()
     } else {
@@ -141,9 +142,19 @@ fn ranges_extract(
         windows.first().map_or(0, |w| w.start),
         windows.last().map_or(0, |w| w.end),
     );
+    let shown = |block: &LineRange| {
+        windows
+            .iter()
+            .map(|w| (w.end.min(block.end) + 1).saturating_sub(w.start.max(block.start)))
+            .sum::<usize>()
+    };
     let read_block = cut
         .into_iter()
-        .find(|block| block.start < span.0 || block.end > span.1)
+        .filter(|block| block.start < span.0 || block.end > span.1)
+        .fold(None::<LineRange>, |best, block| match best {
+            Some(best) if shown(&best) >= shown(&block) => Some(best),
+            _ => Some(block),
+        })
         .and_then(|block| line_read(q, &block_lead(block, &windows, span)))
         .and_then(|query| follow_up(query, "Read the declaration this read cut."));
     let next = NextCalls {

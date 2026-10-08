@@ -416,6 +416,107 @@ pub(crate) fn is_demoted_path(relative: &str) -> bool {
             .any(|marker| name.contains(marker))
 }
 
+/// `.gitattributes` `linguist-generated` / `linguist-vendored` marks, as git
+/// resolves them: the deepest attributes file decides, its last matching line
+/// wins, and `-attr`, `!attr` or `attr=false` unset. Read once per directory
+/// per search; only inside a git work tree.
+pub(crate) struct GitAttributes {
+    repo_root: std::path::PathBuf,
+    dirs: std::sync::Mutex<
+        std::collections::HashMap<std::path::PathBuf, std::sync::Arc<Vec<AttributeRule>>>,
+    >,
+}
+
+struct AttributeRule {
+    pattern: ignore::gitignore::Gitignore,
+    generated: bool,
+}
+
+const GENERATED_ATTRIBUTES: [&str; 2] = ["linguist-generated", "linguist-vendored"];
+
+impl GitAttributes {
+    /// `None` outside a git work tree.
+    pub(crate) fn new(search_root: &std::path::Path) -> Option<Self> {
+        let repo_root = search_root
+            .ancestors()
+            .find(|dir| dir.join(".git").exists())?
+            .to_path_buf();
+        Some(Self {
+            repo_root,
+            dirs: std::sync::Mutex::default(),
+        })
+    }
+
+    /// Whether the attributes mark `file` generated or vendored.
+    pub(crate) fn marks_generated(&self, file: &std::path::Path) -> bool {
+        for dir in file.ancestors().skip(1) {
+            if !dir.starts_with(&self.repo_root) {
+                break;
+            }
+            let rules = self.rules(dir);
+            if let Some(rule) = rules
+                .iter()
+                .rev()
+                .find(|rule| rule.pattern.matched(file, false).is_ignore())
+            {
+                return rule.generated;
+            }
+        }
+        false
+    }
+
+    fn rules(&self, dir: &std::path::Path) -> std::sync::Arc<Vec<AttributeRule>> {
+        if let Some(rules) = self
+            .dirs
+            .lock()
+            .ok()
+            .and_then(|dirs| dirs.get(dir).cloned())
+        {
+            return rules;
+        }
+        let rules = std::sync::Arc::new(
+            std::fs::read_to_string(dir.join(".gitattributes"))
+                .map(|text| parse_attributes(dir, &text))
+                .unwrap_or_default(),
+        );
+        if let Ok(mut dirs) = self.dirs.lock() {
+            dirs.insert(dir.to_path_buf(), std::sync::Arc::clone(&rules));
+        }
+        rules
+    }
+}
+
+/// The lines of one `.gitattributes` that set or unset a generated mark.
+fn parse_attributes(dir: &std::path::Path, text: &str) -> Vec<AttributeRule> {
+    text.lines()
+        .filter_map(|line| {
+            let mut tokens = line.split_whitespace();
+            let pattern = tokens
+                .next()
+                .filter(|p| !p.starts_with('#') && !p.starts_with('"'))?;
+            let mut generated = None;
+            for token in tokens {
+                let (unset, attribute) = match token.strip_prefix(['-', '!']) {
+                    Some(name) => (true, name),
+                    None => (false, token),
+                };
+                let (name, value) = attribute.split_once('=').unwrap_or((attribute, "true"));
+                if GENERATED_ATTRIBUTES.contains(&name) {
+                    let set = !unset && value != "false";
+                    generated = Some(generated.unwrap_or(false) || set);
+                }
+            }
+            let generated = generated?;
+            let mut builder = ignore::gitignore::GitignoreBuilder::new(dir);
+            builder.add_line(None, pattern).ok()?;
+            Some(AttributeRule {
+                pattern: builder.build().ok()?,
+                generated,
+            })
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

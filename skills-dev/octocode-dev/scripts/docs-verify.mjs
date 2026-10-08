@@ -27,9 +27,12 @@ const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => {
   return !isCliOnlyTool(name);
 });
 const DEFAULT_TOOL_COUNT = DEFAULT_TOOL_NAMES.length;
-// CLI listing: every tool except beta tools while the beta gate is off.
+// CLI listing: every tool except beta tools while the beta gate is off, and
+// clasify, which the CLI lists only with a classification key.
 const CLI_DEFAULT_TOOL_COUNT = PUBLIC_TOOL_NAMES.filter(
-  name => !isBetaTool(name) || DEFAULT_CONFIG.local.beta
+  name =>
+    name !== TOOL_NAMES.CLASIFY &&
+    (!isBetaTool(name) || DEFAULT_CONFIG.local.beta)
 ).length;
 const DOC_ROOTS = [
   path.join(ROOT, 'docs'),
@@ -271,15 +274,14 @@ function validatePrimaryToolGuidance() {
     {
       file: 'README.md',
       required: [
-        `**${DISCOVERABLE_TOOL_COUNT} tools in the full discovery catalog.**`,
-        `| MCP, no flags | ${DEFAULT_TOOL_COUNT} of ${DISCOVERABLE_TOOL_COUNT} |`,
-        `| CLI, no flags | ${CLI_DEFAULT_TOOL_COUNT} of ${DISCOVERABLE_TOOL_COUNT} |`,
+        `**${DISCOVERABLE_TOOL_COUNT} tools.**`,
+        `${DEFAULT_TOOL_COUNT} tools over MCP and ${CLI_DEFAULT_TOOL_COUNT} in the CLI`,
         '| `ghSearchRepo` |',
         '| `ghSearchCode` |',
         '| `ghStructure` |',
       ],
       forbidden: [
-        '**15 tools in the full discovery catalog.**',
+        '**15 tools.**',
         '| `ghSearch` |',
         '| `ghSearchRepos` |',
         '| `ghViewRepoStructure` |',

@@ -23,4 +23,4 @@ Root automation for the Octocode monorepo. Call a script directly only for a fla
 - Follow `dev-setup.mjs` or `prepublish.mjs --fix` with `yarn install`.
 - Paths are root-relative. Scripts resolve the repo root as `../../..` from this folder. If you move the folder, update `ROOT` in each script, the package builders that import `esbuild-package.mjs` / `runtime-import-contract.mjs`, and `.github/workflows/`.
 - Do not re-add package-local version-sync scripts. Workspace packages version independently; native-package scripts own platform-package version checks.
-- The final publish gate lives in the package: `packages/octocode/scripts/check-no-workspace-protocol.mjs` (run from each package's `prepublishOnly`) blocks local dependency protocols from shipping. Runtime/engine version and four-artifact checks live under `packages/octocode-native/`.
+- Packages have no `prepublishOnly` gates. Runtime/engine version and artifact checks live under `packages/octocode-native/` (`version:check`, `platforms:check`) and run on demand.

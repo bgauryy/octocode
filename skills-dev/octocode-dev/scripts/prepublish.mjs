@@ -12,18 +12,12 @@
  *   before publishing.
  *
  * This script does NOT enforce version alignment between packages — each
- * package is versioned independently. The complementary npm-publish guard
- * (packages/octocode/scripts/check-no-workspace-protocol.mjs) enforces the
- * matching rule that no published package ships a local
- * (workspace:/file:/link:/portal:) dependency.
+ * package is versioned independently.
  *
  * Usage:
  *   node ./skills-dev/octocode-dev/scripts/prepublish.mjs            # check only (exit 1 on issues)
  *   node ./skills-dev/octocode-dev/scripts/prepublish.mjs --fix      # remove offending resolutions and write
  *   node ./skills-dev/octocode-dev/scripts/prepublish.mjs --dry-run  # preview fixes without writing
- *
- * Root publish flow:
- *   "prepublish": "node ./skills-dev/octocode-dev/scripts/prepublish.mjs && node ./packages/octocode/scripts/check-no-workspace-protocol.mjs"
  */
 
 import { readFileSync, writeFileSync } from 'node:fs';

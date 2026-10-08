@@ -153,6 +153,11 @@ pub struct TextSearchOptions {
     pub context_lines: Option<u32>,
     /// Restrict to a file type, e.g. `ts`, `py` (`-t`).
     pub lang_type: Option<String>,
+    /// File-level AND: keep a matched file only when it also contains every
+    /// term (smart-case each: all-lowercase matches any case).
+    pub file_contains_all: Option<Vec<String>>,
+    /// File-level NOT: drop a matched file that contains any term.
+    pub file_contains_none: Option<Vec<String>>,
     /// Include globs (`-g <glob>`).
     pub include: Option<Vec<String>>,
     /// Exclude globs (`-g !<glob>`).

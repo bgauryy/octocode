@@ -40,6 +40,9 @@ pub(super) struct Layout {
     pub(super) budget_binds: bool,
     /// Context windows of nearby rows merge into one block.
     pub(super) merge_context: Option<u32>,
+    /// What each shown file's rendered path adds to its stored one: the
+    /// root's workspace-relative prefix (see [`PageCosts`]).
+    pub(super) prefix_chars: usize,
 }
 
 impl Layout {
@@ -150,6 +153,7 @@ impl Layout {
             display_cap,
             budget_binds,
             merge_context,
+            prefix_chars: costs.prefix_chars,
         }
     }
 

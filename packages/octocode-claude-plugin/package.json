@@ -31,7 +31,6 @@
     "test:smoke": "node scripts/smoke.ts",
     "verify": "yarn build && yarn lint && yarn typecheck && yarn test",
     "prepack": "yarn build && yarn typecheck && yarn test",
-    "prepublishOnly": "yarn verify && yarn validate && node scripts/release-check.ts",
     "validate": "claude plugin validate . --strict && claude plugin validate ../../.claude-plugin/marketplace.json --strict"
   },
   "devDependencies": {

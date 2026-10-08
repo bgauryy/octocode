@@ -29,9 +29,9 @@ The smoke test explicitly substitutes the local MCP build for the unpublished ru
 
 ## Publish the npm package and marketplace
 
-1. Follow `<repo>/skills-dev/octocode-dev/docs/RELEASE.md` to publish compatible config/native, MCP, and CLI packages first. Do not change runtime pins to an older version without compatibility testing.
-2. Set the next plugin version in `package.json` and the catalog's npm source. Run the checks above and `node packages/octocode-claude-plugin/scripts/release-check.ts`. The guard checks that both pinned runtime packages exist on npm.
-3. Inspect the archive with `npm pack --dry-run` in this package. From this package directory, run `npm publish --access public`. Use npm so `prepublishOnly` runs; it validates the bundle, Claude manifests, and runtime availability.
+1. Follow `<repo>/skills-dev/octocode-dev/docs/RELEASE.md` to publish compatible native, MCP, and CLI packages first. Do not change runtime pins to an older version without compatibility testing.
+2. Set the next plugin version in `package.json` and the catalog's npm source. Run the checks above (`yarn verify && yarn validate`) and confirm both pinned runtime packages exist on npm.
+3. Inspect the archive with `npm pack --dry-run` in this package. From this package directory, run `npm publish --access public`.
 4. After npm publication succeeds, publish the matching catalog to the default branch of `bgauryy/octocode`. Do not expose a catalog version before its package exists.
 5. In a clean user profile, add the GitHub marketplace, install the plugin, run `/octocode:octocode-get-started`, and verify local reads plus a permitted GitHub read using `gh` login. Confirm the actual registry-pinned MCP starts. Repeat on supported operating systems before claiming support.
 

@@ -186,6 +186,7 @@ impl Found<'_> {
         next: &mut Option<Value>,
         hints: &mut Vec<String>,
         warnings: &mut Vec<String>,
+        search_options: &TextSearchOptions,
         probe_options: Option<TextSearchOptions>,
         cancel: &impl CancellationCheck,
     ) {
@@ -280,6 +281,9 @@ impl Found<'_> {
             _ => Some("matchString ran as a regex; regex:\"literal\" matches it exactly."),
         };
         warnings.extend(inferred.map(str::to_owned));
+        if self.empty && self.complete && self.first_page() {
+            disclose_variants(query, self.paths, search_options, next, hints, cancel);
+        }
         if self.empty && self.complete && !self.root.is_file() {
             disclose_unsearched(
                 query,
@@ -450,26 +454,34 @@ pub(super) fn disclose_unsearched(
         return;
     };
     let probe = ignored_probe(options, paths, cancel);
-    let (count, cut) = match &probe {
-        Some(found) => (found.count, found.cut),
-        None => (0, true),
+    let (count, cut, reasons) = match probe {
+        Some(found) => (found.count, found.cut, found.reasons),
+        None => (0, true, Vec::new()),
     };
     if count == 0 && (!cut || excluded.is_none()) {
         return;
     }
     // The action leads: the response stage clips long hints at the end.
-    let names = excluded
-        .map(|names| format!(" ({names})"))
-        .unwrap_or_default();
     let hint = if count == 0 {
+        let names = excluded
+            .map(|names| format!(" ({names})"))
+            .unwrap_or_default();
         format!(
             "Run hints.includeIgnored before claiming absence: default-excluded paths were not searched{names}."
         )
     } else {
-        format!(
-            "Run hints.includeIgnored: {}{count} file(s) match in ignored, hidden or default-excluded paths{names}.",
-            if cut { "at least " } else { "" },
-        )
+        let at_least = if cut { "at least " } else { "" };
+        let why: Vec<String> = reasons.into_iter().chain(excluded).collect();
+        if why.is_empty() {
+            format!(
+                "Run hints.includeIgnored: {at_least}{count} file(s) match in ignored, hidden or default-excluded paths."
+            )
+        } else {
+            format!(
+                "Run hints.includeIgnored: {at_least}{count} file(s) match in skipped paths ({}).",
+                why.join(", ")
+            )
+        }
     };
     hints.insert(0, hint);
     if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
@@ -537,6 +549,157 @@ pub(super) fn excluded_names(
 
 /// The same search with the default excludes off, from page 1: a result
 /// that found matches keeps its ignore and hidden settings.
+/// Words of a compound identifier (`parseConfig`, `parse_config`,
+/// `ParseConfig`, `parse-config`, `HTTPServer`): split at `_`, `-` and case
+/// boundaries; `None` for one word or a non-identifier.
+fn identifier_words(term: &str) -> Option<Vec<String>> {
+    let valid = term.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+        && term
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if !valid {
+        return None;
+    }
+    let chars: Vec<char> = term.chars().collect();
+    let mut words = Vec::new();
+    let mut word = String::new();
+    for (index, &c) in chars.iter().enumerate() {
+        if c == '_' || c == '-' {
+            if !word.is_empty() {
+                words.push(std::mem::take(&mut word));
+            }
+            continue;
+        }
+        let previous = index.checked_sub(1).map(|i| chars[i]);
+        let next = chars.get(index + 1).copied();
+        // `aB` starts a word; so does the `B` of `HTTPServer` before `e`.
+        let boundary = c.is_ascii_uppercase()
+            && previous.is_some_and(|p| {
+                p.is_ascii_lowercase()
+                    || p.is_ascii_digit()
+                    || (p.is_ascii_uppercase() && next.is_some_and(|n| n.is_ascii_lowercase()))
+            });
+        if boundary && !word.is_empty() {
+            words.push(std::mem::take(&mut word));
+        }
+        word.push(c.to_ascii_lowercase());
+    }
+    if !word.is_empty() {
+        words.push(word);
+    }
+    (words.len() >= 2).then_some(words)
+}
+
+/// The other case styles of a compound identifier: snake, camel, Pascal,
+/// SCREAMING and kebab, without the term itself.
+pub(super) fn identifier_variants(term: &str) -> Option<Vec<String>> {
+    let words = identifier_words(term)?;
+    let capitalized = |word: &String| {
+        let mut chars = word.chars();
+        chars
+            .next()
+            .map(|first| first.to_ascii_uppercase().to_string() + chars.as_str())
+            .unwrap_or_default()
+    };
+    let camel = words[0].clone() + &words[1..].iter().map(capitalized).collect::<String>();
+    let mut variants = vec![
+        words.join("_"),
+        camel,
+        words.iter().map(capitalized).collect::<String>(),
+        words.join("_").to_ascii_uppercase(),
+        words.join("-"),
+    ];
+    variants.retain(|variant| variant != term);
+    variants.dedup();
+    (!variants.is_empty()).then_some(variants)
+}
+
+/// A bounded files-only walk over the query's own scope for `variants`;
+/// how many files hold one (0 when the walk failed or found none).
+fn variant_files(
+    mut options: TextSearchOptions,
+    variants: &[String],
+    paths: &PathPolicy,
+    cancel: &impl CancellationCheck,
+) -> usize {
+    options.pattern = variants
+        .iter()
+        .map(|variant| regex::escape(variant))
+        .collect::<Vec<_>>()
+        .join("|");
+    options.fixed_string = Some(false);
+    options.perl_regex = Some(false);
+    options.case_sensitive = Some(true);
+    options.case_insensitive = Some(false);
+    options.files_only = Some(true);
+    options.files_without_match = Some(false);
+    options.count_lines_per_file = Some(false);
+    options.count_matches_per_file = Some(false);
+    options.only_matching = Some(false);
+    options.invert_match = Some(false);
+    options.context_lines = Some(0);
+    options.digest_max_bytes = None;
+    let started = std::time::Instant::now();
+    let deadline = std::time::Duration::from_millis(IGNORED_PROBE_MS);
+    search_text_cancellable(options, Arc::new(paths.clone()), &|| {
+        cancel.check().is_err() || started.elapsed() > deadline
+    })
+    .map_or(0, |found| found.files.len())
+}
+
+/// The same search over the identifier's case-style variants.
+fn variants_lead(query: &LocalSearchQuery, variants: &[String]) -> Value {
+    let mut lead = restart_fields(query);
+    if let Some(fields) = lead.as_object_mut() {
+        let pattern = variants
+            .iter()
+            .map(|variant| regex::escape(variant))
+            .collect::<Vec<_>>()
+            .join("|");
+        fields.insert("matchString".into(), json!(pattern));
+        fields.insert("regex".into(), json!("rust"));
+        fields.remove("caseMode");
+    }
+    Continuation::new(ToolId::LocalSearch, lead)
+        .why("The identifier's other case styles.")
+        .build()
+}
+
+/// An empty search for a compound identifier: say when its other case
+/// styles match, so a spelling miss does not read as absence.
+pub(super) fn disclose_variants(
+    query: &LocalSearchQuery,
+    paths: &PathPolicy,
+    options: &TextSearchOptions,
+    next: &mut Option<Value>,
+    hints: &mut Vec<String>,
+    cancel: &impl CancellationCheck,
+) {
+    if query
+        .regex
+        .is_some_and(|regex| regex != LocalSearchQueryRegex::Literal)
+    {
+        return;
+    }
+    let Some(variants) = identifier_variants(&query.match_string) else {
+        return;
+    };
+    let count = variant_files(options.clone(), &variants, paths, cancel);
+    if count == 0 {
+        return;
+    }
+    hints.insert(
+        0,
+        format!(
+            "No match for {}; its other spellings match in {count} file(s): run hints.didYouMean.",
+            query.match_string
+        ),
+    );
+    if let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut() {
+        map.insert("didYouMean".into(), variants_lead(query, &variants));
+    }
+}
+
 /// Matches at which a line view leads to its per-file counts.
 pub(super) const LARGE_RESULT_MATCHES: u32 = 1_000;
 
@@ -755,7 +918,8 @@ pub(super) fn annotate_enclosing(
         }
         names.push(row_owners(&outline, matches, declaring));
     }
-    // Names go on in page order while the page stays within its budget.
+    // Names go on in page order while the page stays within its budget
+    // (the caller's budget already leaves out the rendered path prefixes).
     let mut used = json_bytes(&*files);
     let mut over_budget = 0usize;
     for (file, names) in files.iter_mut().zip(names) {
@@ -966,6 +1130,83 @@ pub(super) struct IgnoredMatches {
     pub(super) count: usize,
     /// The re-run stopped early (deadline or cap): there may be more.
     pub(super) cut: bool,
+    /// Why the first matches were skipped, distinct: `gen/.gitignore:2 '*'`
+    /// or `hidden .notes/`. A default-excluded directory is named by the
+    /// walk's pruned names instead.
+    pub(super) reasons: Vec<String>,
+}
+
+/// Probe matches whose skip reason the hint names.
+const EXPLAINED_MATCHES: usize = 8;
+/// Distinct skip reasons one hint names.
+const NAMED_REASONS: usize = 3;
+
+/// Why the default walk skipped `file` under `root`: the deciding ignore
+/// rule (deepest ignore file first; a `!` re-include there ends the search),
+/// else its first hidden component. `None` for a default-excluded directory.
+pub(super) fn skip_reason(root: &std::path::Path, file: &std::path::Path) -> Option<String> {
+    use ignore::Match;
+    use ignore::gitignore::GitignoreBuilder;
+    let shown = |path: &std::path::Path| {
+        path.strip_prefix(root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .replace('\\', "/")
+    };
+    let in_git = file.ancestors().any(|dir| dir.join(".git").exists());
+    for dir in file.ancestors().skip(1) {
+        let mut candidates = vec![dir.join(".ignore")];
+        if in_git {
+            candidates.push(dir.join(".gitignore"));
+            candidates.push(dir.join(".git/info/exclude"));
+        }
+        for source in candidates.into_iter().filter(|path| path.is_file()) {
+            let mut builder = GitignoreBuilder::new(dir);
+            if builder.add(&source).is_some() {
+                continue;
+            }
+            let Ok(rules) = builder.build() else {
+                continue;
+            };
+            match rules.matched_path_or_any_parents(file, false) {
+                Match::Ignore(glob) => {
+                    let pattern = glob.original();
+                    let line = std::fs::read_to_string(&source)
+                        .ok()
+                        .and_then(|text| {
+                            text.lines()
+                                .enumerate()
+                                .filter(|(_, line)| line.trim_end() == pattern)
+                                .last()
+                                .map(|(index, _)| index + 1)
+                        })
+                        .map(|line| format!(":{line}"))
+                        .unwrap_or_default();
+                    return Some(format!("{}{line} '{pattern}'", shown(&source)));
+                }
+                Match::Whitelist(_) => return hidden_component(root, file),
+                Match::None => {}
+            }
+        }
+        if dir.join(".git").exists() {
+            break;
+        }
+    }
+    hidden_component(root, file)
+}
+
+fn hidden_component(root: &std::path::Path, file: &std::path::Path) -> Option<String> {
+    let relative = file.strip_prefix(root).ok()?;
+    let mut prefix = std::path::PathBuf::new();
+    let count = relative.components().count();
+    for (index, part) in relative.components().enumerate() {
+        prefix.push(part);
+        if part.as_os_str().to_string_lossy().starts_with('.') {
+            let slash = if index + 1 < count { "/" } else { "" };
+            return Some(format!("hidden {}{slash}", prefix.to_string_lossy()));
+        }
+    }
+    None
 }
 
 /// Re-run an empty search with `noIgnore`, `hidden` and no default prune
@@ -988,13 +1229,23 @@ pub(super) fn ignored_probe(
     options.context_lines = Some(0);
     options.sort = Some("path".into());
     options.digest_max_bytes = None;
+    let root = std::path::PathBuf::from(&options.path);
     let started = std::time::Instant::now();
     let deadline = std::time::Duration::from_millis(IGNORED_PROBE_MS);
     let found = search_text_cancellable(options, Arc::new(paths.clone()), &|| {
         cancel.check().is_err() || started.elapsed() > deadline
     })
     .ok()?;
+    let mut reasons = Vec::new();
+    for file in found.files.iter().take(EXPLAINED_MATCHES) {
+        let reason = skip_reason(&root, &root.join(&file.path));
+        if let Some(reason) = reason.filter(|reason| !reasons.contains(reason)) {
+            reasons.push(reason);
+        }
+    }
+    reasons.truncate(NAMED_REASONS);
     Some(IgnoredMatches {
+        reasons,
         count: found.files.len(),
         cut: found
             .stats

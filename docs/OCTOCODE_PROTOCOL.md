@@ -102,7 +102,7 @@ External to local is one flow: `artifactSearch` maps a package to its repository
 ### 3.10 clasify: semantic judgment before reading
 - `clasify` (optional; needs a classification API key) judges unread candidates. **Scout** rates each item of a list result, **Locate** finds the line window that answers a question, and **Judge** answers typed questions about supplied state, including `sufficient` (does this snippet already answer?).
 - It returns verdicts and windows, never file bodies, plus the exact `hints.read` for what is worth opening. The provider gets the evidence, the questions, and any brief, never tokens, cursors, or snapshots.
-- It pays when it classifies an explicit list, locates an answer in a large known file, or screens for absence. It costs more when a literal can be guessed (searching the literal took 2.6× fewer bytes, 22× for a literal target) when it screens search snippets (scores stay flat, 0.16–0.38), and when it scouts PRs (a literal filter was 16× cheaper). Read to verify scores from 0.36 to 0.69: its errors fell there.
+- It pays when the target is described, not named: Scout over a 54-file search returned the answer first for 1.9–11.8 KB against 58 KB of unranked hits, and Locate in a 3 MB file read 16 KB. It costs more when the name is known (1.8 KB by search against 16 KB), for small files and short lists, and when it judges search snippets instead of files (scores stay flat, 0.16–0.38). Scores never prove absence. Read to verify scores from 0.36 to 0.69: its errors fell there. Measurements: [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md#at-a-glance).
 - Without a key, it leaves the tool list and every `hints.*`.
 - Modes, cache, and limits: [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md).
 

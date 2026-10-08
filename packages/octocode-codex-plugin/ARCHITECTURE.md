@@ -32,8 +32,8 @@ Before broad release, test the published pin on each supported operating system,
 
 1. Complete the repository release gates and publish compatible runtime packages in the order in `skills-dev/octocode-dev/docs/RELEASE.md`.
 2. Set the plugin version in this package and the same exact version in `.agents/plugins/marketplace.json`.
-3. Build and verify this package, then run `node packages/octocode-codex-plugin/scripts/release-check.ts`.
-4. From this package directory, run `npm pack` and inspect the archive. After owner approval, run `npm publish`. The prepublication hook verifies the package and checks that both pinned runtime packages exist in the registry.
+3. Build and verify this package (`yarn verify`), and confirm both pinned runtime packages exist on npm.
+4. From this package directory, run `npm pack` and inspect the archive. After owner approval, run `npm publish`.
 5. Make the catalog update available on GitHub after the package exists. Test the real marketplace installation against the published artifacts before announcing it.
 
 The catalog uses npm as its plugin source so GitHub does not need committed copies of generated skill bundles. Its name is `octocode`, and the plugin selector is `octocode@octocode`. A narrow root ignore exception tracks only the marketplace catalog under `.agents`.
