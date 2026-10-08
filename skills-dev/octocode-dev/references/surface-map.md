@@ -19,7 +19,7 @@ Unprefixed paths are relative to the monorepo root.
 | Prepare / dispatch | `crates/runtime/src/contracts/{prepare,validate}.rs`, `src/runtime/{dispatch,domain_dispatch,engine}.rs` | Defaults, normalization, routing |
 | Tool implementation | `crates/runtime/src/tools/<snake_tool>/` (`astTopology` → `ast_graph/`; `localFetch` also `tools/local_fetch.rs`; `clasify` runs from `run/`) | Business logic |
 | Providers / API | `crates/runtime/src/providers/{github,artifact,classification}/`, `runtime/github.rs` | Request count, auth, errors |
-| Engine primitives | `packages/octocode-native/crates/engine/` | ripgrep, AST, LSP, minify, secrets |
+| Engine primitives | `packages/octocode-native/crates/engine/` | text search, AST, LSP, minify, secrets |
 | Caching | `runtime/github_cache.rs`, `src/cache/`, `tools/gh_clone_repo/cache.rs`, `tests/tool_cache_contracts.rs` | Keys, TTL, invalidation |
 | Output shaping | `src/response/{pager,rows,stage,render,continuations,channels,pages}.rs`, `tools/result.rs` | Rows, evidence, `next.*` pages vs `hints.*` leads (`channels.rs`), compact CLI |
 | Security | `src/security/{content,walk,registry}.rs`, `src/policy/` | Redaction, path sandbox |

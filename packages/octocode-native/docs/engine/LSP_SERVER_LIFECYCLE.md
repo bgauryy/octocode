@@ -57,10 +57,10 @@ Known routing does not imply that a server is installed. The engine npm package 
 The native CLI owns a pinned managed manifest for `rust-analyzer` and `clangd`:
 
 ```bash
-octocode lsp-server list
-octocode lsp-server status path/to/file.ts
-octocode lsp-server install rust-analyzer --yes
-octocode lsp-server install clangd --yes
+npx octocode lsp-server list
+npx octocode lsp-server status path/to/file.ts
+npx octocode lsp-server install rust-analyzer --yes
+npx octocode lsp-server install clangd --yes
 ```
 
 Managed installation is explicit. `lsp.autoInstall` (`OCTOCODE_LSP_AUTO_INSTALL`: `prompt` by default, `off`, or `auto`) controls whether an install command may fetch without additional confirmation, and `lsp.cacheDir` (`OCTOCODE_LSP_CACHE_DIR`) moves the managed installs from `<octocode home>/lsp`; normal `lspSearch` execution does not download executables.

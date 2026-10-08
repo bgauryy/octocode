@@ -213,20 +213,6 @@ pub(crate) fn is_locate(question: &Value) -> bool {
     question.get("type").and_then(Value::as_str) == Some("locate")
 }
 
-/// Whether a resource reads whole-file chunks: `candidateEvidence:"fileChunks"`,
-/// or a search resource without one in a matrix that asks `locate` (locate
-/// needs source lines).
-pub(crate) fn reads_file_chunks(resource: &Value, questions: &[Value]) -> bool {
-    match candidate_evidence(resource) {
-        Some(evidence) => evidence == CandidateEvidence::FileChunks,
-        None => {
-            resource.get("candidateEvidence").is_none()
-                && resource::tool_of(resource).is_some_and(is_candidate_search_tool)
-                && questions.iter().any(is_locate)
-        }
-    }
-}
-
 /// The read tool a resource names.
 fn read_tool(tool: ResourceTool) -> ToolId {
     match tool {
@@ -301,7 +287,7 @@ const READ_SELECTORS: [&str; 7] = [
 /// One validated call's matrices as the runtime runs them: a lead's
 /// `{queries:[row]}` resource query becomes its row, implied fields are
 /// explicit (`fullContent` on a file read with no selector, `fileChunks` on a
-/// search that `locate` reads), and every matrix, resource, and question has
+/// search resource), and every matrix, resource, and question has
 /// an `id`.
 /// [`normalize`] over validated rows in the public shape (test fixtures).
 #[cfg(test)]
@@ -319,15 +305,14 @@ pub(crate) fn normalize_rows(rows: &mut [Value]) {
 
 pub(crate) fn normalize(queries: &mut [ClasifyQuery]) {
     for query in queries.iter_mut() {
-        let locate = query.questions.iter().any(asks_locate);
         for resource in &mut query.resources {
-            normalize_resource(resource, locate);
+            normalize_resource(resource);
         }
     }
     normalize_ids(queries);
 }
 
-fn normalize_resource(resource: &mut Resource, locate: bool) {
+fn normalize_resource(resource: &mut Resource) {
     let Resource::Variant1 {
         candidate_evidence,
         query,
@@ -347,7 +332,10 @@ fn normalize_resource(resource: &mut Resource, locate: bool) {
     {
         query.extra.insert("fullContent".into(), Value::Bool(true));
     }
-    if candidate_evidence.is_none() && locate && is_candidate_search_tool(tool) {
+    // Search candidates are judged on their files by default: snippets scored
+    // a 156-file scout's answer 0.69 in 18 calls, file chunks 0.97 in 4
+    // (2026-10-08). `candidateEvidence:"search"` keeps snippets.
+    if candidate_evidence.is_none() && is_candidate_search_tool(tool) {
         *candidate_evidence = Some(CandidateEvidence::FileChunks);
     }
 }

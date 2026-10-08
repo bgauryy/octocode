@@ -43,8 +43,8 @@ const MAX_PROCESS_CAPTURES: usize = 16;
 // most `maxFileCandidates` files of `maxFileChunkChars` sanitized evidence each,
 // and a matrix judges at most `maxCells` expanded pages × questions.
 use crate::tools::id::clasify_policy::{
-    MAX_CELLS as MAX_EXPANDED_CELLS, MAX_FILE_CANDIDATES as MAX_HYDRATED_CANDIDATES,
-    MAX_FILE_CHUNK_CHARS as MAX_HYDRATED_CHARS, MAX_RESOURCE_CHARS, PREFILTER_WINDOWS,
+    MAX_FILE_CANDIDATES as MAX_HYDRATED_CANDIDATES, MAX_FILE_CHUNK_CHARS as MAX_HYDRATED_CHARS,
+    MAX_PAGE_CHARS, MAX_PAGES, MAX_RESOURCE_CHARS, PREFILTER_WINDOWS,
 };
 /// Lines on each side of a hit that one hydrated window reads.
 pub(super) const HYDRATED_LINE_RADIUS: u64 = 60;
@@ -368,7 +368,9 @@ fn execute_query_verbose(
         .as_array()
         .ok_or(ExecutionError::WorkerFailed)?;
     let brief = Brief::of(query);
-    let candidate_limit = (MAX_EXPANDED_CELLS / questions.len().max(1)).max(1);
+    // Each page is one provider request with every question batched, so the
+    // matrix's resources share a page budget, not a cell budget.
+    let candidate_limit = (MAX_PAGES / resources.len().max(1)).max(1);
     let mut captured = capture_all(
         resources,
         &brief,
@@ -517,8 +519,7 @@ fn over_cell_limit(captured: &mut [CapturedResource<'_>], questions: usize) -> b
         .flat_map(|resource| resource.pages.iter())
         .filter(|page| matches!(page, CapturedPage::Ready { .. }))
         .count();
-    let expanded_cells = expanded_pages.saturating_mul(questions);
-    if expanded_cells <= MAX_EXPANDED_CELLS {
+    if expanded_pages <= MAX_PAGES {
         return false;
     }
     for resource in captured {
@@ -531,9 +532,9 @@ fn over_cell_limit(captured: &mut [CapturedResource<'_>], questions: usize) -> b
                 error: ClassificationError::new(
                     "classificationExpandedCellsExceeded",
                     format!(
-                        "Captured {expanded_pages} pages × {questions} questions = {expanded_cells} cells; the limit is {MAX_EXPANDED_CELLS}. No provider request was made."
+                        "Captured {expanded_pages} pages for {questions} questions; the limit is {MAX_PAGES} pages per call. No provider request was made."
                     ),
-                    "Reduce resources, questions, or search pageSize and retry.",
+                    "Reduce resources or search pageSize and retry.",
                 ),
                 context: context.clone(),
             };

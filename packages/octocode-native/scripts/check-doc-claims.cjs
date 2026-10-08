@@ -156,7 +156,9 @@ const retiredCliPatterns = [
   /(?:\boctocode(?:\.js)?|\$OCTO)\s+[^\n]*--(?:json-errors|redact-emails|pretty)\b/,
   /(?:\boctocode(?:\.js)?|\$OCTO)\s+config\s+--(?:add|remove|check|value-stdin)\b/,
   retiredQueriesFlag,
-  /\[\s*['"]tools['"]\s*,\s*['"][A-Za-z]/,
+  // argv for the retired `tools <toolName>` command; a folder list such as
+  // ['tools', 'bin'] names no camelCase tool.
+  /\[\s*['"]tools['"]\s*,\s*['"](?:[a-z]+[A-Z]\w*|clasify)['"]/,
 ];
 const schemaCliRoot = path.join(repoRoot, 'packages/octocode-mcp-cli');
 function hasRetiredCliGrammar(line, file) {
@@ -190,8 +192,8 @@ if (retiredCliSelfTest.some((sample) => !retiredCliPatterns.some((pattern) => pa
   fail('retired CLI grammar', 'the detector self-test no longer recognizes a retired command shape');
 }
 if (
-  retiredCliPatterns.some((pattern) =>
-    pattern.test("node packages/octocode/out/octocode.js schema localFetch --view query --select operation=x"),
+  ["node packages/octocode/out/octocode.js schema localFetch --view query --select operation=x", "for (const directory of ['tools', 'bin', 'tests'])"].some((sample) =>
+    retiredCliPatterns.some((pattern) => pattern.test(sample)),
   )
 ) {
   fail('retired CLI grammar', 'the detector self-test rejects the current schema grammar');
@@ -211,8 +213,6 @@ const ignoredDirs = new Set([
 const ignoredPaths = new Set([
   // Separate checkouts have their own validation; keep this scan in the current tree.
   path.join(repoRoot, '.claude/worktrees'),
-  // Dated validation reports record the commands each run used.
-  path.join(repoRoot, 'octocode-local-testing/validate/features'),
   path.join(repoRoot, 'packages/octocode-native/scripts/check-doc-claims.cjs'),
 ]);
 // The research skill's guidance checker lists retired grammar as forbidden

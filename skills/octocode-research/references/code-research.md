@@ -12,6 +12,7 @@ Load for consequential code claims (callers, imports, cycles, reachability, dele
 Pick surfaces (local, GitHub, packages, PR/history, docs/web) by the claim; name a skipped surface when the claim spans it.
 
 ## Proof ladder
+
 `candidate → exact evidence → claim-specific corroboration → verification → verdict`. Safe delete: lobby `PROVE` rule.
 
 | Finding | Minimum corroboration |
@@ -26,17 +27,13 @@ Pick surfaces (local, GitHub, packages, PR/history, docs/web) by the claim; name
 - Advocate/Critic: cite the strongest case for and against. Rebut the claim most likely to flip the decision.
 
 ## Root cause
-```text
-contract: actual + expected + authority + trigger + impact
--> reproduction or equivalent runtime evidence + symptom anchor
--> entry -> transformations -> state/dependencies -> output/consumers
--> two hypotheses: likely mechanism + plausible alternate
--> first boundary where actual diverges; exact reads there
--> AST/LSP/history/tests for reachability and "why now"
--> disconfirm the alternate; counterfactual: removing the cause removes the symptom
-```
 
-Report: `Root cause · Violated contract · Evidence (path:line / runtime) · Disconfirmation · Why now · Fix · Verification`.
+- Establish actual versus expected behavior and the contract supporting that expectation.
+- Reproduce the symptom or identify equivalent runtime evidence, then trace the first divergent boundary.
+- Test plausible competing explanations when they could change the conclusion. Use source, semantic references, history, or tests according to the missing evidence.
+- Check whether changing the suspected cause changes the symptom. Explain remaining uncertainty when that check cannot run.
+
+Report the cause, affected contract, deciding evidence, proposed fix, and verification. Include trigger, counterevidence, or change history when useful; the headings are flexible.
 
 Before answering: state corpus/ref; follow continuations or declare them unnecessary; separate syntax, semantic, history, artifact, and runtime proof; cite local `path:line` and remote URL/PR/commit; label `confirmed`/`likely`/`uncertain` with checks run and not run.
 

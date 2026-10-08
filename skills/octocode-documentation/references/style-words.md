@@ -4,15 +4,13 @@ Load when a specific word, short form, specialist term, or possibly exclusive te
 
 ```bash
 grep -iP "^[^\t]*allows you to" assets/google-word-list.tsv
-node scripts/style-lint.mjs docs/ --only word-list        # dont-use and avoid terms in prose
-node scripts/refresh-word-list.mjs --dry-run              # when an entry looks stale
 ```
 
 IF a word isn't in the list → THEN use Merriam-Webster's first spelling (`canceled`); for a technical term, use that technology's own docs.
 
 ## Replace on sight
 
-`style-lint.mjs --only word-list` flags every `dont-use` and `avoid` term with the guide's replacement. Terms the lint routes here, or that the list misses:
+The following examples help when no project convention decides the wording:
 
 | Don't use | Use instead |
 |---|---|

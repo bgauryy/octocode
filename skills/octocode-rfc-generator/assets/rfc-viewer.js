@@ -3,15 +3,9 @@
 'use strict';
 const MARKED = 'https://cdn.jsdelivr.net/npm/marked@18.0.14/lib/marked.umd.js';
 const MERMAID = 'https://cdn.jsdelivr.net/npm/mermaid@12.1.0/dist/mermaid.esm.min.mjs';
-const META = {
-  'RFC.md': ['⚖️', 'Decision'], 'PLAN.md': ['🧭', 'Plan'], 'IMPLEMENTATION.md': ['🛠️', 'Implementation'],
-  'PREREQUISITES.md': ['🧱', 'Prerequisites'], 'KPI.md': ['🎯', 'Acceptance & KPIs'],
-  'RESOURCES.md': ['📚', 'Sources'], 'AUDIT.md': ['🔎', 'Audit'], 'README.md': ['📄', 'Readme'],
-};
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const cls = (s) => esc(String(s).toLowerCase().split(/\s+/)[0]);
 
 let data = null;
 try { data = JSON.parse($('#rfc-data').textContent); } catch { /* template opened without data */ }
@@ -23,28 +17,14 @@ if (!data || !Array.isArray(data.files) || !data.files.length) {
 const files = data.files.map((f) => {
   const base = f.path.split('/').pop();
   const h1 = (f.content.match(/^#\s+(.+)$/m) || [])[1];
-  const done = (f.content.match(/^\s*[-*+]\s+\[[xX]\]/gm) || []).length;
-  const open = (f.content.match(/^\s*[-*+]\s+\[ \]/gm) || []).length;
-  const diagrams = (f.content.match(/^\s*(```|~~~)\s*mermaid/gm) || []).length;
-  const status = (f.content.match(/^\s*(?:[-*]\s*)?\**Status\**\s*:\**\s*`?([A-Za-z][\w -]{0,30})/mi) || [])[1];
-  const para = f.content.replace(/```[\s\S]*?```/g, '').split(/\n\s*\n/).map((p) => p.trim())
-    .find((p) => p && !/^(#|\||>|[-*]\s|\d+\.\s|<!--|\**[\w ]{1,24}\**\s*:)/.test(p)) || '';
-  const [icon, kind] = META[base] || ['📄', base.replace(/\.md$/i, '')];
-  return {
-    ...f, base, icon, kind, done, open, diagrams,
-    h1: h1 ? h1.replace(/[`*_]/g, '') : base,
-    status: status ? status.trim() : '',
-    words: f.content.split(/\s+/).length,
-    summary: para.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[`*_#>]/g, '').replace(/\s+/g, ' ').slice(0, 280),
-  };
+  const title = h1 ? h1.replace(/[`*_]/g, '') : base;
+  return { ...f, base, h1: title, kind: title, icon: '📄' };
 });
 const byPath = new Map(files.map((f) => [f.path, f]));
-const primary = files.find((f) => /^(RFC|PLAN)\.md$/i.test(f.base)) || files[0];
-const title = data.title || primary.h1;
-const statusText = primary.status;
+const primary = files[0];
+const title = primary.h1;
 document.title = `${title} · RFC`;
 $('#title').textContent = title;
-if (statusText) Object.assign($('#status'), { hidden: false, textContent: statusText, className: `badge ${cls(statusText)}` });
 
 // Theme: saved choice, else the OS preference.
 const setTheme = (t) => { document.documentElement.dataset.theme = t; try { localStorage.setItem('rfc-theme', t); } catch { /* private mode */ } };
@@ -115,7 +95,7 @@ async function initMarkdown() {
 let mermaidReady = null;
 const getMermaid = () => (mermaidReady ||= import(MERMAID).then((m) => m.default).catch(() => null));
 
-// Routes: #/ overview · #/<path> document · #/<path>@<slug> heading.
+// Routes: #/ opens the RFC; #/<path>@<slug> links to a section.
 function parseHash() {
   const h = decodeURIComponent(location.hash.replace(/^#\/?/, ''));
   const at = h.lastIndexOf('@');
@@ -131,38 +111,7 @@ function resolvePath(from, rel) {
 const slugify = (t) => t.toLowerCase().trim().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s+/g, '-');
 
 function renderNav(current) {
-  const items = files.map((f) => {
-    const total = f.done + f.open;
-    const meter = total ? `<div class="meter" title="${f.done}/${total} checklist items done"><i style="width:${Math.round((100 * f.done) / total)}%"></i></div>` : '';
-    return `<a href="${href(f.path)}" class="${current === f.path ? 'active' : ''}"${current === f.path ? ' aria-current="page"' : ''}><span class="ic">${f.icon}</span><span class="lbl">${esc(f.kind)}<span>${esc(f.path)}</span>${meter}</span></a>`;
-  });
-  $('#nav').innerHTML = `<a href="#/" class="${current ? '' : 'active'}"><span class="ic">🏠</span><span class="lbl">Overview<span>${files.length} documents</span></span></a>${items.join('')}`;
-  const when = new Date(data.generated || Date.now()).toLocaleString();
-  $('#sidefoot').innerHTML = `Built ${esc(when)}${data.root ? `<br><code>${esc(data.root)}</code>` : ''}<br>Edited a file? Run <code>render-rfc.mjs</code> again and reload.`;
-}
-
-function overview() {
-  const sum = (k) => files.reduce((a, f) => a + f[k], 0);
-  const done = sum('done'), total = done + sum('open'), diagrams = sum('diagrams');
-  const stats = (f) => [
-    f.status && `<span>${esc(f.status)}</span>`,
-    f.diagrams && `<span>◇ ${f.diagrams} diagram${f.diagrams > 1 ? 's' : ''}</span>`,
-    f.done + f.open && `<span>☑ ${f.done}/${f.done + f.open}</span>`,
-    `<span>${Math.max(1, Math.round(f.words / 230))} min read</span>`,
-  ].filter(Boolean).join('');
-  $('#page').innerHTML = `
-    <div class="hero"><div class="crumbs">RFC set · ${files.length} documents</div><h1 style="margin:0">${esc(title)}</h1>
-      <p>${esc(primary.summary || 'Open a document to start reading.')}</p>
-      <div class="metaline">${statusText ? `<span class="badge ${cls(statusText)}">${esc(statusText)}</span>` : ''}
-        <span class="badge">${diagrams} diagram${diagrams === 1 ? '' : 's'}</span>
-        ${total ? `<span class="badge">${done}/${total} checklist done</span>` : ''}</div></div>
-    <div class="cards">${files.map((f) => `
-      <a class="card" href="${href(f.path)}"><div class="top"><span class="ic">${f.icon}</span><div><h3>${esc(f.kind)}</h3><small style="color:var(--muted)">${esc(f.path)}</small></div></div>
-        <p>${esc(f.summary || f.h1)}</p><div class="stats">${stats(f)}</div></a>`).join('')}</div>
-    <p class="hint">Keys: <span class="k">/</span> search · <span class="k">[</span> <span class="k">]</span> previous / next document · <span class="k">g</span> overview · <span class="k">t</span> theme · <span class="k">Esc</span> close</p>`;
-  $('#toc').innerHTML = '';
-  renderNav(null);
-  scrollTo(0, 0);
+  $('#nav').innerHTML = files.map((f) => `<a href="${href(f.path)}" class="${current === f.path ? 'active' : ''}"><span class="lbl">${esc(f.h1)}</span></a>`).join('');
 }
 
 function decorate(art, path) {
@@ -181,7 +130,7 @@ function decorate(art, path) {
   $('#toc').innerHTML = toc.join('') || '<span style="color:var(--muted);font-size:13px;padding:0 10px">No sections</span>';
   art.querySelectorAll('table').forEach((t) => { const w = document.createElement('div'); w.className = 'tablewrap'; t.replaceWith(w); w.append(t); });
   art.querySelectorAll('li').forEach((li) => { if (li.querySelector(':scope > input[type=checkbox], :scope > p > input[type=checkbox]')) li.classList.add('task'); });
-  // Links: other RFC documents stay in the app; external links open a tab; other relative paths open the source file.
+  // Section links stay in the RFC; relative citations resolve from their original source.
   art.querySelectorAll('a[href]').forEach((a) => {
     const raw = a.getAttribute('href');
     if (a.classList.contains('anchor') || raw.startsWith('#/')) return;
@@ -190,7 +139,10 @@ function decorate(art, path) {
     const [file, frag] = raw.split('#');
     const target = resolvePath(path, decodeURIComponent(file));
     if (byPath.has(target)) a.href = href(target, frag && slugify(frag));
-    else if (data.root) { a.href = `file://${encodeURI(`${data.root.replace(/\/$/, '')}/${target}`)}`; a.title = 'Open source file'; }
+    else {
+      const sourceUrl = byPath.get(path)?.sourceUrl;
+      if (sourceUrl) a.href = new URL(raw, sourceUrl).href;
+    }
   });
   // Code: copy buttons. Mermaid: diagram cards (render later).
   let n = 0;
@@ -258,18 +210,16 @@ function spy() {
 
 let pendingTerm = '';
 async function show() {
-  const { path, slug } = parseHash();
+  const { path: requestedPath, slug } = parseHash();
+  const path = requestedPath || primary.path;
   document.body.classList.remove('menu');
-  if (!path) { overview(); return; }
   const f = byPath.get(path);
-  if (!f) { overview(); toast(`Not found: ${path}`); return; }
+  if (!f) { toast(`Not found: ${path}`); location.hash = href(primary.path); return; }
   const art = $('#page');
   if (art.dataset.path !== path) {
     art.dataset.path = path;
-    art.innerHTML = `${offline ? '<div class="offline">Offline: basic rendering. Diagrams show their source.</div>' : ''}<div class="crumbs"><a href="#/">Overview</a> › <span>${esc(f.kind)}</span> · <code>${esc(f.path)}</code>${f.status ? ` <span class="badge ${cls(f.status)}">${esc(f.status)}</span>` : ''}</div>${md(f.content)}`;
+    art.innerHTML = `${offline ? '<div class="offline">Basic rendering; diagram source is available below.</div>' : ''}${md(f.content)}`;
     decorate(art, path);
-    const i = files.indexOf(f), prev = files[i - 1], next = files[i + 1];
-    art.insertAdjacentHTML('beforeend', `<nav class="pager">${prev ? `<a href="${href(prev.path)}"><small>← Previous</small>${esc(prev.kind)}</a>` : '<span></span>'}${next ? `<a class="next" href="${href(next.path)}"><small>Next →</small>${esc(next.kind)}</a>` : ''}</nav>`);
     renderNav(path);
     spy();
     if (!slug) scrollTo(0, 0);
@@ -280,7 +230,7 @@ async function show() {
 }
 window.__rfcViewer = { files, render: (s) => md(s), slugify, resolvePath };
 
-// Search: every document, ranked by title/heading hits, then body hits.
+// Search: RFC headings and body text.
 const q = $('#q'), results = $('#results');
 let hits = [], active = 0;
 function search(term) {

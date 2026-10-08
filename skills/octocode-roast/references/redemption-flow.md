@@ -3,7 +3,8 @@
 Load after the autopsy when fixes are wanted; it keeps critique separate from mutation.
 
 ## Checkpoint
-When the user asked only for critique, present a compact menu and wait:
+
+For a critique-only request, describe useful repair options without applying them. An optional menu can help the user choose:
 
 ```text
 Redemption options
@@ -17,6 +18,7 @@ Choose: one number, several numbers, a category, all, more critique, or stop.
 If the original request already authorized fixes, map them to the findings and proceed within that scope. Otherwise wait for a selection.
 
 ## Execute selected repairs
+
 - Re-read the exact evidence and current file state.
 - Apply the smallest fix that addresses the mechanism.
 - Preserve unrelated behavior; avoid drive-by cleanup.
@@ -24,6 +26,9 @@ If the original request already authorized fixes, map them to the findings and p
 - For credential-shaped literals, remove the value, and advise rotation if real; claim exposure only with supporting evidence.
 
 ## Report
+
+Example summary; omit counts or fields that add no value:
+
 ```text
 Repairs completed: {count}
 Files modified: {count}

@@ -1,4 +1,5 @@
 # Method sources
+
 Load when you audit provenance or revisit a method. Checked 2026-09-24. One primary source per page; these sources inform the controls, none prescribes this exact protocol.
 
 | Page | Primary source | Finding applied |

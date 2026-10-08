@@ -18,6 +18,24 @@ Each agent keeps its own identity. All participants use the same database file. 
 Linked worktrees share a repository scope derived from Git’s canonical common directory.
 Independent clones and unrelated non-Git workspaces remain separate.
 
+## What you can do
+
+| Need | Commands and behavior |
+| --- | --- |
+| Identify collaborators | `join`, `binding`, `peers`, `set_status`, `heartbeat`, `resume`, `leave`: keep a separate live identity for each agent. |
+| Request work and finish it | `send_message`, `inbox`, `inbox wait`, `complete`: correlate the final answer and acknowledge handled work. |
+| Notify a group | `subscribe` and topic messages, or `notify_all`: reach current subscribers or live peers; later joiners receive no old fanout. |
+| Coordinate edits | `lock`, `lock_many`, `renew`, `unlock`, `locks`, `check_paths`, `check_write`: reserve files or trees, queue conflicts, and check ownership. |
+| Share larger evidence | `share_document`, `read_document`, `context`: publish immutable documents and discover relevant notes. |
+| Query history and findings | `record`, `fetch`, `activity`, `record_usage`: retain memories, events, Git evidence, and measured usage. |
+| Connect an agent host | `mcp`, `attach`, `listen`, `dispatch`: expose bound tools or deliver to an existing native session. `run` starts a new managed worker only when requested. |
+| Integrate host events | `host-config`, `host-hook`, `hook`, `confirm_delivery`, `completion-check`: preview setup, deliver context, and optionally check unfinished handling. |
+| Inspect and recover | `health`, `view`, `retry_delivery`: inspect delivery and explicitly recover uncertain attempts. |
+| Maintain storage | `db info`, `db protocol`, `db export`, `db retention`, `db compact`, `db migrate`, `prune`: inspect, back up, migrate, and maintain storage without dropping message history. |
+| Discover inputs | `skill`, `schema`, `schema tools`, `schema types`, `schema type`: read operating guidance and the installed release's contracts. |
+
+Use [the command reference](scripts/docs/COMMANDS.md) for examples and `<command> --help` for exact inputs. Choose the relevant feature; setup does not require running every command.
+
 ## Choose an entry point
 
 | Entry | Behavior | Identity lifecycle |
@@ -32,62 +50,45 @@ Independent clones and unrelated non-Git workspaces remain separate.
 Run the standalone package with npm:
 
 ```sh
-npx -y @octocodeai/octocode-agents-communication --help
+npx -y @octocodeai/octocode-agents-communication /cli --help
 npx -y @octocodeai/octocode-agents-communication /cli skill --json
 ```
 
-The default executable serves MCP over stdio. Use `/cli` for standalone operations:
-
-```sh
-npx -y @octocodeai/octocode-agents-communication /cli --help
-npx -y @octocodeai/octocode-agents-communication /cli send_message --help
-npx -y @octocodeai/octocode-agents-communication --managed --vendor generic --name reviewer --workspace /absolute/project
-```
+The bare executable starts MCP over stdio and requires an identity; a `--session required` error means none was supplied. Use `/cli` for operations or [configure a managed MCP connection](#connect-through-mcp).
 
 CLI inputs support typed flags or the existing positional JSON object. Add `--json` for machine output.
-Use `--workspace-root` for the invocation checkout (`--workspace` remains an alias).
-Programmatic consumers can import `runCommunicationMcp` from the package root and
-`createCommunicationCli` or `runCommunicationCli` from `@octocodeai/octocode-agents-communication/cli`.
+For `/cli`, use `--workspace-root` for the invocation checkout (`--workspace` remains an alias). The default MCP entry uses `--workspace`.
 The CLI bundles `octocode-mcp-cli`; no separate unpublished runtime dependency is needed.
-
-For a source checkout, build and exercise the local executable from the monorepo root:
-
-```sh
-yarn workspace @octocodeai/octocode-agents-communication build
-node packages/octocode-agents-communication/bin/octocode-agents-communication.mjs --help
-node packages/octocode-agents-communication/bin/octocode-agents-communication.mjs /cli --help
-```
-
-To test an unpublished npm archive, use its absolute path:
-
-```sh
-npx -y --package /absolute/package.tgz octocode-agents-communication /cli --help
-```
+`skill --json` returns `instructions`, `packageRoot`, and `referenceRoot`; read the operating guide and resolve its documentation filenames under `referenceRoot`.
 
 The companion skill is a separate lean guide in `skills/octocode-agents-communication`.
-Install it with `octocode skill install octocode-agents-communication --platform claude,codex --global`, then reload skill discovery.
+Install it with `npx -y octocode skill install octocode-agents-communication --platform claude,codex --global`, then reload skill discovery.
 
 The npm launcher requires Node.js 24.15+ (24.x) and Python 3.9+ with SQLite 3.42+ and FTS5.
-No pip packages are required. Set `OCTOCODE_PYTHON` to an interpreter path when needed.
+No pip packages or API key are required for the communication service. Set `OCTOCODE_PYTHON` to an interpreter path in the launching environment when needed; the launcher does not read this override from `<HOME>/.octocode/.env`.
 The direct Python CLI/MCP also works without Node.js.
 See [installation](scripts/docs/INSTALLATION.md) for bindings and portable runtime archives.
 
 ## Start with the CLI
 
-Repeat this setup in each participating agent. Replace the workspace and database paths with actual absolute paths:
+Use two participating sessions: `coordinator` sends the request and `api-reviewer` answers it. Repeat the setup below in each session, using its own name and actual host vendor. These POSIX shell helpers are session-local conveniences; on Windows, use the [CLI entry-point examples](scripts/docs/INTERFACES.md).
+
+Replace the workspace and database paths with actual absolute paths. Linked worktrees use their own checkout path and the same database:
 
 ```sh
 COMMUNICATION_WORKSPACE=/absolute/project
 COMMUNICATION_DB=/absolute/shared/communication.sqlite
+COMMUNICATION_NAME=coordinator
+COMMUNICATION_VENDOR=codex
 comm() {
   npx -y @octocodeai/octocode-agents-communication /cli "$@" --json --workspace-root "$COMMUNICATION_WORKSPACE" \
     --database "$COMMUNICATION_DB"
 }
 comm db info
-comm join '{"name":"api-reviewer","vendor":"codex"}'
+comm join --name "$COMMUNICATION_NAME" --vendor "$COMMUNICATION_VENDOR"
 ```
 
-`db info` inspects storage without creating it. `join` returns this agent's exact database `id`.
+In the recipient session, set `COMMUNICATION_NAME=api-reviewer` before joining. `db info` inspects storage without creating it. Omitting `--database` uses `<HOME>/.octocode/agents-communication/communication.sqlite`, or `<OCTOCODE_HOME>/agents-communication/communication.sqlite` when that override is set. `join` returns this agent's exact database `id` and its final unique name.
 Use the actual host as `vendor`; a model name does not identify the host.
 If the host already supplies a binding, reuse it and skip `join`.
 
@@ -96,11 +97,11 @@ Set `COMMUNICATION_SESSION` to your returned ID or supplied binding:
 ```sh
 COMMUNICATION_SESSION=EXACT_DB_AGENT_ID
 agent() { comm "$@" --session "$COMMUNICATION_SESSION"; }
-agent heartbeat '{"task":"Review API compatibility","status":"busy"}'
+agent heartbeat '{"ttlMs":600000,"task":"Review API compatibility","status":"busy"}'
 comm peers
 ```
 
-Address the recipient by its name from `peers` (live names are unique per repository) or its exact ID. In the sending agent, send a request:
+Confirm both sessions appear in `peers`. If a name was already taken, `join` returns a suffixed name; copy that exact name or ID. In `coordinator`, send the request to the recipient:
 
 ```sh
 agent send_message '{"to":"api-reviewer","body":"Review src/api.ts for compatibility.","reasoning":"Resolve API compatibility before handoff","key":"api-review-1","conversationId":"api-review"}'
@@ -112,23 +113,49 @@ In the recipient, read pending mail using its own binding:
 agent fetch '{"incoming":true,"type":"message","limit":20}'
 ```
 
-After doing the requested work, replace `RECEIVED_MESSAGE_ID` with `items[].data.messageId` and provide the final answer:
+After doing the requested work, use the request's `items[].data.messageId` as the number passed to `--message` and provide the final answer:
 
 ```sh
-agent complete '{"message":RECEIVED_MESSAGE_ID,"reply":"Reviewed src/api.ts; the response shape is compatible."}'
+agent complete --message RECEIVED_MESSAGE_ID --reply 'Reviewed src/api.ts; the response shape is compatible.'
 ```
 
 `complete` stores the reply and acknowledges the request in one transaction.
-The sender reads its incoming answer and completes that answer without another reply.
+In `coordinator`, read and acknowledge the answer without another reply:
+
+```sh
+agent fetch '{"incoming":true,"type":"message","limit":20}'
+agent complete --message ANSWER_MESSAGE_ID
+```
+
+Replace `ANSWER_MESSAGE_ID` with that answer's `data.messageId`.
 Use `data.messageId` for fetched records; `recordId` is only a history cursor.
 For informational mail (`replyRequired:false`), complete the handled ID without `reply`.
 Leave unfinished work pending.
 
-Raw identities expire after 60 seconds. Maintain presence with `heartbeat` while working.
-Use `heartbeat {"renewLeases":true}` to renew live owned leases too.
+Raw identities expire after 60 seconds by default; the setup heartbeat allows ten minutes for this walkthrough. Renew before expiry, choosing `ttlMs` to cover the next work interval (up to ten minutes). Use `heartbeat {"ttlMs":600000,"renewLeases":true}` to extend presence and live owned leases together.
 `inbox wait` is read-only; it never renews presence. Keep a raw wait shorter than remaining presence.
 For a maintained tool connection, use [managed MCP](#connect-through-mcp).
 When your process owns the lifecycle, run `agent leave` after finishing.
+
+## Coordinate edits and share evidence
+
+Before changing a shared path, acquire a reservation and check `ok:true`:
+
+```sh
+agent lock '{"path":"src/api.ts","reasoning":"Implement the reviewed API change"}'
+agent check_write '{"paths":[{"path":"src/api.ts"}]}'
+```
+
+Retain the returned `lease.id`. Use `lock_many` when several paths must be reserved together. A conflict returns a suggested `next` with `wait:true`; running it queues the request. Continue only after ownership is granted, and keep unfinished messages pending. Release completed work with `agent unlock --lease-id LEASE_ID`. An expired identity must resume and acquire fresh leases. Read [lease and lifecycle details](scripts/docs/WORKFLOW.md) for renewal and queue behavior.
+
+Publish larger evidence once, then notify its reader:
+
+```sh
+agent share_document '{"name":"api-review.md","content":"Verified API findings...","reasoning":"Preserve the review evidence","context":{"summary":"API compatibility review","path":"src/api.ts"}}'
+agent read_document '{"name":"api-review.md","limit":4096}'
+```
+
+Document names are immutable; use a new name for a revision. Follow every read continuation, including empty pages, and verify the retrieved content before relying on it. `context` discovers relevant notes. Saving a document or memory does not notify peers; use `send_message` for a handoff.
 
 ## Connect through MCP
 
@@ -193,6 +220,8 @@ For native endpoints and host-specific receipts, use [the service protocol](scri
 For Pi or structured edit guards, use [lease admission setup](scripts/docs/HOST_LEASE_GUARDS.md).
 Without an adapter, read the inbox through CLI/MCP. A database write alone does not wake a process.
 
+`run` can start a new managed Codex, Claude, or Pi worker when requested. Existing sessions use `attach`; use [host setup](scripts/docs/HOST_SETUP.md) for actual endpoints, host credentials, and lifecycle ownership. Optional Claude/Pi completion checks inspect unfinished handling; they do not acknowledge work automatically.
+
 ## Query unified records
 
 Messages, coordination, leases, documents, usage, memories, and events share this envelope:
@@ -204,13 +233,14 @@ Generic memory/event data preserves nested JSON, nulls, and booleans.
 Discover every type/field compactly or inspect one full type schema:
 
 ```sh
-comm schema types --compact
-comm schema type message
+npx -y @octocodeai/octocode-agents-communication /cli schema types --compact --json
+npx -y @octocodeai/octocode-agents-communication /cli schema type message --json
 agent record '{"type":"memory","branch":"feature/api","data":{"content":"API preserves the response shape","tags":["api"],"source":"src/api.ts"}}'
 agent fetch '{"type":"memory","search":"response shape","branch":"feature/api","limit":20}'
 ```
 
 The explicit branch labels the record; it does not switch the Git checkout.
+Record-type discovery needs no binding; version 0.1.0 rejects workspace, database, or session flags on `schema types` and `schema type`, so call them directly as shown.
 Record `path` retains the originating worktree, even when another worktree reads it.
 `record` saves repository-shared memories/events without notifying peers. Use `send_message` when another agent must act.
 Narrow fetches by type, sender/recipient, branch, time, text, or scalar payload fields.
@@ -234,6 +264,8 @@ comm view '{"open":true}'
 The dashboard reads an existing database, uses a loopback URL token, and stops with Ctrl+C.
 It shows full paginated history and operational views. Participant-scoped `fetch` exposes only permitted records.
 [Operations and recovery](scripts/docs/OPERATIONS.md) explains uncertain offers, expiry, snapshots, and retention.
+
+`db export` writes a verified snapshot to a new absolute path. Document files need a separate backup. `db retention` reports aged records and `db compact` reclaims unused space while retaining history; `prune` removes expired leases. Stop old clients before an explicit `db migrate`. If an existing WAL database rejects your Python runtime, follow the reported SQLite upgrade guidance and use the same compatible interpreter for every writer and hook.
 
 Only a successful `lock`/`lock_many` grants an advisory reservation.
 Leases, Git activity, and native host validation remain worktree-local.
@@ -264,6 +296,7 @@ From the monorepo root, use the package's maintainer scripts:
 
 ```sh
 yarn workspace @octocodeai/octocode-agents-communication build
+node packages/octocode-agents-communication/bin/octocode-agents-communication.mjs /cli --help
 yarn workspace @octocodeai/octocode-agents-communication verify
 yarn workspace @octocodeai/octocode-agents-communication pack:runtime
 ```
@@ -271,10 +304,15 @@ yarn workspace @octocodeai/octocode-agents-communication pack:runtime
 The build refreshes the shared config runtime and validates startup.
 Verification runs syntax, links, Python/Node regressions, and extracted CLI/MCP/reply/lease/export/restore checks.
 Packing writes a portable archive under the package's `out/` directory.
-The npm archive includes `dist/`, `bin/`, `scripts/`, the README, the license, and `OPERATING.md`. Portable runtime archives contain `scripts/` and `OPERATING.md`.
-The installable skill contains only `SKILL.md` and `README.md`; `src/` and `tests/` are maintainer-only.
+The npm archive includes `dist/`, `bin/`, `scripts/`, the README, architecture guide, license, and `OPERATING.md`. Portable runtime archives contain `scripts/` and `OPERATING.md`.
+The installable skill contains `SKILL.md`, `README.md`, and `output.md`; `src/` and `tests/` are maintainer-only.
 Local verification covers its own platform, not every host or operating system.
 
+To test an unpublished npm archive outside the repository:
+
+```sh
+npx -y --package /absolute/package.tgz octocode-agents-communication /cli --help
+```
 
 For an optional live model check, run from the monorepo root:
 

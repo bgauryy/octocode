@@ -77,7 +77,7 @@ test('release metadata, MCP pin, and marketplace agree', () => {
   assert.ok(extension.interface.displayName.length <= 30);
 });
 
-test('all public skills ship with local script imports and generated helpers', () => {
+test('all public skills ship with their local script imports', () => {
   const bundled = join(packageRoot, 'skills');
   assert.deepEqual(
     names(bundled),

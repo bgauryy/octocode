@@ -1,4 +1,5 @@
 # Agent loop and loop levels
+
 Load when you improve a subject with a validated frozen harness, or choose which loop to run.
 
 1. Before you change the subject, record the development baseline, harness hashes, comparable budget, and a failing case or below-target outcome.
@@ -12,6 +13,7 @@ Load when you improve a subject with a validated frozen harness, or choose which
 - First verify that the sensor measures the intended outcome at useful cost; if noise hides the expected effect, improve measurement first. A cheap leading proxy can guide development; final verification measures the user-visible outcome.
 
 ## Loop levels
+
 | Loop | Cycle | Owner | KPI | Actuators |
 |---|---|---|---|---|
 | Experiment (inner) | baseline → mutate → measure → keep or discard | Developer or optimizer; solvers get task inputs only | Primary metric | One file, prompt, or skill paragraph |

@@ -1,13 +1,13 @@
 ---
 name: octocode-architect
-description: "Use when an architecture decision or refactor needs evidence about boundaries, contracts, data/control flow, coupling, blast radius, cycles, reachability, performance, or maintainability. Not for evidence collection without a decision → octocode-research; a written proposal that needs review and sign-off → octocode-rfc-generator; behavior-preserving cleanup → octocode-clean-agentic-code."
+description: "Use when deciding or changing software architecture; good for tracing boundaries, contracts, data flow, coupling, cycles, reachability, performance, and refactor impact."
 ---
 
 # Octocode Architect
 
-tools: `octocode-mcp` / `npx octocode` — topology via the CLI-only beta `octocode astTopology` (`OCTOCODE_BETA=true`) or the `octocode graph` CLI
-related-skill: `octocode-research`
-output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+tools: `octocode-mcp` / `npx -y octocode` — topology via the CLI-only beta `npx octocode astTopology` (`OCTOCODE_BETA=true`) or the `npx octocode graph` CLI
+
+Optional beta topology uses `OCTOCODE_BETA`, configurable in `<HOME>/.octocode/.env`.
 
 Model the system, test architecture hypotheses against code and runtime evidence, then make the smallest authorized, verified improvement.
 
@@ -17,34 +17,31 @@ flowchart LR
     P --> E{"Edits authorized and seam proven?"}
     E -- yes --> C[CHANGE] --> V[VERIFY]
     E -- no --> R["Findings + plan"]
-    M -. "layers, ownership, blast radius" .-> L["architecture-lenses.md"]
-    M -. "path crosses trust or process boundary" .-> D["contract-data-flow-checks.md"]
-    P -. "correctness, complexity, concurrency" .-> A["algorithm-review.md"]
-    P -. "topology, cycles, dead code, hot paths" .-> T["architecture-analysis.md"]
-    C -. "before any source edit" .-> CD["change-discipline.md"]
-    V -. "agent-authored work" .-> AC["agent-defect-classes.md"]
-    V -. "class prevalence disputed" .-> AE["agent-defect-evidence.md"]
-    V -. "consequential result needs a decision record" .-> O["output-contracts.md"]
 ```
-Skill map: review-only requests take the `no` branch.
-
-Pages (load when its map edge applies): `references/architecture-lenses.md` · `references/contract-data-flow-checks.md` · `references/algorithm-review.md` · `references/architecture-analysis.md` · `references/change-discipline.md` · `references/agent-defect-classes.md` · `references/agent-defect-evidence.md` · `references/output-contracts.md`
 
 Scale rigor to consequence. Do not invent layers, abstractions, findings, or operational work to satisfy a checklist.
 
 ## Phases
-1. **FRAME**: state the decision, the quality attribute (correctness, performance, changeability, security, operability), scope, and consequence. Name the use case, contract owner, and smallest useful slice. An unresolved use case, owner, or contract is a decision gap, not permission to guess. Pin the review target (commit, branch, or working tree); when a sensor exists, run its baseline before findings.
-2. **MODEL**: map boundaries, contracts, and 1–3 representative flows from exact source. Trace `source → validate → transform → boundary → sink → observation`; at each hop name the data shape, owner, invariant, and failure mode. Separate declared architecture, observed structure, and inferred intent: only a declared rule directly proves a violation. Trace static, control, data, ownership, and runtime wiring separately; one lane cannot prove another.
-3. **PROVE**: a graph edge, code smell, folder name, or pattern preference is a hypothesis, not a flaw. Rate each finding `confirmed | likely | candidate | dismissed`: confirmed needs exact code plus an executed command or test; anything weaker names the missing decisive evidence. A fixture or test proves a hypothesis only if it could fail it: give every identity the hypothesis distinguishes (IDs, SHAs, paths, versions, roots) a distinct value, and make a negative test assert the specific error, not any rejection. When a sharper fixture contradicts a finding, dismiss it and keep the disproof.
-4. **CHANGE**: only when the request authorizes edits and evidence names a specific seam. Write `proven problem → harmed quality → seam → preserved contract → slice → sensor` first. Implement one reversible vertical slice; start with a failing assertion on the owned interface.
-5. **VERIFY**: rerun the pre-change checks on the production path and retrace the affected wiring in the diff. Exit status controls green, and a zero exit with an error in the payload is a failure. An improvement is kept only when a comparable rerun shows it: baseline → change one variable → rerun.
+
+| Phase | Useful result |
+|---|---|
+| Frame | The decision, intended benefit, scope, use case, and contract owner. Identify the revision or working tree; capture a baseline when claiming a measurable improvement. |
+| Model | Representative flows from source through validation, transformation, boundaries, and consumers. Note shapes, owners, invariants, and failure modes where they affect the decision. |
+| Prove | Evidence that supports or rejects each finding, plus remaining uncertainty. A graph edge or pattern preference alone does not establish a defect. |
+| Change | The smallest authorized change at the proven boundary. Add a focused test when it can detect the failure. |
+| Verify | Relevant checks on the actual production path and a review of affected wiring. Inspect both exit status and payload errors; use comparable before/after measurements for improvement claims. |
 
 ## Evidence rules
+
+- Separate declared rules, observed structure, and inferred intent. Static dependencies, control flow, data ownership, and runtime wiring answer different questions.
+- Match proof to the claim: source can establish a static fact; runtime and performance claims need execution evidence. Label candidates and name the missing decisive check.
+- Tests must distinguish the competing explanations. Use distinct IDs, paths, versions, or roots when their identity matters, and assert the specific failure. Keep disproof when a sharper fixture rejects a finding.
 - Topology edges are syntactic candidates. A type-only cycle is not runtime proof. Before any completeness or absence claim, read coverage signals and check consumers outside the scanned roots, and verify symbols separately with semantic references.
 - For repo, GitHub, package, or symbol evidence, use `octocode-research`; it owns tool selection and live schemas. This skill owns architecture analysis.
 - Algorithms: write the contract (`inputs + preconditions → postconditions + invariants → termination → cost`) before optimizing. Tests are evidence, not a proof of an invariant.
 
 ## Gates
+
 - Report a candidate, not a defect, when decisive scope, flow, symbol identity, runtime impact, or measurement remains unresolved.
 - Ask before public-contract rewires, cross-package moves, schema/storage migrations, or deletes/renames unless that exact scope is already authorized.
 - Keep cleanup caused by or directly adjacent to the change. Broader refactoring requires evidence, an acceptance sensor, and authorization.
@@ -52,8 +49,26 @@ Scale rigor to consequence. Do not invent layers, abstractions, findings, or ope
 - Unimplemented reachable paths fail explicitly. Tests prove outcomes, not merely calls.
 - Preserve concurrent work. Inspect the working tree, coordinate overlapping paths, and never stash, reset, overwrite, or discard another contributor's changes.
 
-## Output
-One finding note in chat. Requested source edits stay in the repo.
-Save one record only when asked. A decision that needs review and sign-off goes to `octocode-rfc-generator`. An HTML page is a second file only when a person asks for it. Detail: `references/output-contracts.md`.
+## Resources
 
-After editing this skill, run `node scripts/eval-architect.mjs --self-test` and `node scripts/eval-architect.mjs --json`, then the `octocode-skills` review. `README.md` § Sources lists where these rules come from.
+Load the page that answers the current question.
+
+| When needed | Read |
+|---|---|
+| Layers, ownership, blast radius | [architecture-lenses](references/architecture-lenses.md) |
+| Path crosses trust or process boundary | [contract-data-flow-checks](references/contract-data-flow-checks.md) |
+| Correctness, complexity, concurrency | [algorithm-review](references/algorithm-review.md) |
+| Topology, cycles, dead code, hot paths | [architecture-analysis](references/architecture-analysis.md) |
+| Before any source edit | [change-discipline](references/change-discipline.md) |
+| Agent-authored work | [agent-defect-classes](references/agent-defect-classes.md) |
+| Class prevalence disputed | [agent-defect-evidence](references/agent-defect-evidence.md) |
+| Consequential result needs a decision record | [output-contracts](references/output-contracts.md) |
+
+## Related skills
+
+- `octocode-research`: Use to verify code paths, callers, and external evidence.
+- `octocode-rfc-generator`: Use when a consequential choice needs a reviewed decision record.
+
+## Output
+
+See [output.md](output.md) for the response and saved-artifact format.

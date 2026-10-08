@@ -24,11 +24,17 @@ pub fn resolve_workspace_root_for_file(file_path: String) -> Result<String> {
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
         .map_or_else(|| PathBuf::from(&file_path), Path::to_path_buf);
-    let root = directory
+    let root = project_root_of_dir(&directory).unwrap_or(directory);
+    Ok(root.to_string_lossy().into_owned())
+}
+
+/// The nearest ancestor of `directory` (itself included) holding a project
+/// marker, or `None` when no ancestor has one.
+pub fn project_root_of_dir(directory: &Path) -> Option<PathBuf> {
+    directory
         .ancestors()
         .find(|dir| MARKERS.iter().any(|marker| dir.join(marker).exists()))
-        .unwrap_or(&directory);
-    Ok(root.to_string_lossy().into_owned())
+        .map(Path::to_path_buf)
 }
 
 #[cfg(test)]
@@ -44,6 +50,25 @@ mod tests {
         let root = std::env::temp_dir().join(format!("octocode_ws_{name}_{nanos}"));
         fs::create_dir_all(&root).expect("create temp dir");
         root
+    }
+
+    /// A source directory resolves to the project above it; a tree with no
+    /// marker has no project root.
+    #[test]
+    fn project_root_of_dir_walks_up_to_the_marker() {
+        let root = temp_dir("dir_marker");
+        fs::write(root.join("tsconfig.json"), b"{}").expect("write marker");
+        let src = root.join("src").join("cli");
+        fs::create_dir_all(&src).expect("create src");
+        let bare = temp_dir("dir_bare");
+        let found = project_root_of_dir(&src);
+        let none = project_root_of_dir(&bare);
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&bare);
+        assert_eq!(found, Some(root));
+        // The temp dir's ancestors may hold a marker on some hosts; only a
+        // found root must be an ancestor.
+        assert!(none.is_none_or(|dir| bare.starts_with(dir)));
     }
 
     #[test]

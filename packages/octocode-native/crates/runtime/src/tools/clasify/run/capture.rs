@@ -490,6 +490,14 @@ impl PageWalk<'_> {
         receipt: Option<Value>,
         outline_next: Option<Option<Value>>,
     ) -> Result<Step, ExecutionError> {
+        if self.pages.len() >= self.page_budget.max(1) {
+            // The page budget is spent: the next call resumes at this read.
+            self.remaining = Some(match self.range_rest.take() {
+                Some((origin, _)) => origin,
+                None => self.source.clone(),
+            });
+            return Ok(Step::Done);
+        }
         let (state, receipt, state_chars) = self.shrink(state, receipt)?;
         let left = self.remaining_chars();
         if state_chars <= self.budget.cap
@@ -511,8 +519,9 @@ impl PageWalk<'_> {
         }
         // Never classify an arbitrary prefix with the full page's source
         // receipt. The caller can choose a smaller complete section; no
-        // continuation replays a page that cannot fit.
-        if state_chars > left {
+        // continuation replays a page that cannot fit. A page over `cap`
+        // exceeds one provider request even when the call budget is left.
+        if state_chars > left || state_chars > self.budget.cap {
             self.pages.push(CapturedPage::Failed {
                 error: too_large(state_chars, self.budget.cap),
                 context,

@@ -1,50 +1,39 @@
-# Idea brief template
+# Idea brief
 
-Load when the user has agreed to save the record. Why: the file keeps the final findings, every agent, and the debate, which the chat brief does not replace. Ask first. Save under `.octocode/octocode-brainstorming/<date>-<slug>.md` only after a yes. Omit an empty section. This is a check, not a spec. Include `## Resources` when evidence was cited.
+Use when a saved research record is requested. Reuse that authorization; follow the requested destination, or default to `.octocode/octocode-brainstorming/<date>-<slug>.md`. Adapt this example to the decision and omit empty sections.
 
 ```markdown
-# Check: {one-sentence issue}
-| Field | Value |
-|---|---|
-| Mode | Validate / Generate / Map |
-| Created | {YYYY-MM-DD} |
-| Mark | strong / moderate / weak |
-| Decision | Build RFC / Prototype First / Narrow / Park / Do Not Build |
-| Research limits | {directions not run, and why} |
+# {Decision or question}
 
-## Frame
-- Issue: {one sentence}
-- Context: {what is already true, constraints, who is affected}
-- Decision: {what is still open}
-- Flip: {the result that would change the decision}
+## Context
 
-## Directions
-- {direction} — {question asked} — {kept or dropped, and why}
+The issue, constraints, known facts, and evidence that could change the choice. Include dates or versions only where they affect the evidence.
 
-## Checks
-- Context: {kept or dropped, and the constraint}
-- Evidence: {kept or dropped, and the sentence on the page}
-- Objection: {kept or dropped, and the contradicting direction}
-- Concession: {what changed, or the one drop}
+## Directions and findings
 
-## Final findings
-{What survived, the mark, the verdict, and what is still unknown.}
+| Direction | Conclusion and rationale | Deciding sources and relevant dates | Counterevidence, quality, and limits |
+|---|---|---|---|
 
-## Agents
-One block for every agent. A sequential pass counts. Leave none out.
-- **{who}** — direction {question}. Status {complete|partial|blocked}. {claim}. Assumes {context}. `{strong|moderate|weak}` {URL or path:line}. "{supporting sentence}". Falsifier: {what would drop it}.
+Include incomplete or blocked directions and material limits to independent review.
+Keep worker identities, search logs, tool inventories, and generated metadata out.
 
-## Debate
-- {side}: {claim, source, and whether it survived}
-- Concession: {what this side gave up}
-- Parent: {what stayed, and the one drop}
+## Comparison
 
-## Next step
-{One action: commit, run the smallest test, split, park, or stop.}
+Explain which directions survived, changed, or were rejected and why.
+Distinguish direct evidence from inference. Reconcile contradictions where
+possible and retain material dissent and credible alternatives.
 
-## RFC handoff
-{Build RFC only: problem, frame, evidence, alternatives, constraints, bounded first step, open questions, success signal.}
+## Recommendation
 
-## Resources
-- {path:line or URL} — {claim supported, author/org/date where unstable, mark}
+The best-supported choice, confidence, strongest objection, and remaining gaps.
+
+## Next action
+
+The smallest useful test, implementation step, narrower question, or reopening signal.
+For an RFC handoff, include the decision, constraints, alternatives, evidence,
+acceptance criteria, and unresolved questions that its author needs.
+
+## Sources
+
+- {URL or path} — {claim supported, relevant source/event date, quality or limits}
 ```

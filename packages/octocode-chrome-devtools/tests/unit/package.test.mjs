@@ -101,7 +101,11 @@ test('npm archive runs CLI and MCP alone and serves complete package guidance', 
       assert.equal(text, readFileSync(join(pkg, file), 'utf8'));
     }
     const guide = resolve(root, '../../skills/octocode-chrome-devtools');
-    assert.deepEqual(readdirSync(guide).sort(), ['README.md', 'SKILL.md']);
+    assert.deepEqual(readdirSync(guide).sort(), [
+      'README.md',
+      'SKILL.md',
+      'output.md',
+    ]);
   } finally {
     await client?.close();
     rmSync(work, { recursive: true, force: true });

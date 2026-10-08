@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from . import catalog, database, dispatch, timing, transport
 from .wire import Wire, encode, refusal
+from ._version import VERSION
 
 PROXY_INSTRUCTIONS = (
     'The host manages your identity, presence, live lease renewal and delivery. '
@@ -136,7 +137,7 @@ class CodexWorker(VendorWorker):
 
     def start(self):
         host = self.host
-        host.request('initialize', {'clientInfo': {'name': 'octocode-agents-communication', 'version': '0.1.0'}})
+        host.request('initialize', {'clientInfo': {'name': 'octocode-agents-communication', 'version': VERSION}})
         host.send({'method': 'initialized', 'params': {}})
         self.heartbeat()
         config = host.request('config/read', {'includeLayers': False}).get('config', {})

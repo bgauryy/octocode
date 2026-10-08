@@ -12,7 +12,7 @@ Load when the deliverable is unnamed, a human page needs its type, or for an ADR
 | document the whole codebase, one page per package | codebase-pack |
 | copyedit, style guide, tone, wording, sentence case | style-pass |
 
-- One primary mode. Two named deliverables are two gated targets, not one blended page.
+- Choose the purpose of each deliverable; combine sections only when the same reader needs them.
 - A named file in a style-pass carries its own write approval. A page that leaves style-pass is classified by deliverable.
 
 ## Page type ([Diátaxis](https://diataxis.fr/))
@@ -35,17 +35,17 @@ An ADR records an expensive-to-reverse choice already made: stack, schema, auth,
 - IF conventions conflict → THEN surface the conflict; don't invent a second scheme.
 - Sections: Status, Date, Context, Decision, Alternatives considered, Consequences.
 - Lifecycle: `PROPOSED → ACCEPTED → (SUPERSEDED | DEPRECATED)`. Keep Status accurate.
-- Link the ADR from `AGENTS.md` and architecture docs when agents reopen the debate. One screen long.
+- Link the ADR from the relevant index or architecture doc so readers can find the settled decision.
 - Verify: convention matched (or default justified); ≥1 alternative or explicit none; no secrets.
 
 ## Agent instruction files
 
-Spec: [agents.md](https://agents.md/). Exceed 100 lines only when the requester needs the detail.
+Spec: [agents.md](https://agents.md/). Keep the entry point concise and link substantial detail.
 
 - The closest nested `AGENTS.md` wins; nested files are shorter deltas.
 - Workflow: 1. Add `<workspace>/docs/` to the inventory. 2. Draft as an index. 3. Verify every linked path and command exists.
 - Sections, only where they add non-obvious value: package manager (one line); Commands table (task → command, file-scoped test or lint when available); External References table (need → path); Key Conventions (rules that prevent likely mistakes).
-- For Claude, symlink `CLAUDE.md` to `AGENTS.md`.
+- Share agent instructions through a symlink only when both hosts should read the same rules and the repository supports it.
 - Headings, bullets, tables. Omit welcome text, skill lists, linter-config restatements, README dumps, and code blocks beyond a one-line command.
 
-Next: outline gate → `references/write-verify.md`; wording → `references/style-pass.md`.
+Next: drafting → `references/write-verify.md`; wording → `references/style-pass.md`.

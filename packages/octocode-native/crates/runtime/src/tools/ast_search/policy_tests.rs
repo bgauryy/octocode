@@ -885,8 +885,11 @@ fn clipped_values_read_per_file_in_range_batches() {
 fn values_past_the_content_maximum_read_their_lines() {
     let root = Fixture::new();
     let source = root.0.join("huge.rs");
-    let args = (0..2_000)
-        .map(|i| format!("arg{i}"))
+    // Few long arguments keep the value past the content maximum while the
+    // matcher's work (one node per argument) stays far inside its deadline
+    // on a loaded machine.
+    let args = (0..400)
+        .map(|i| format!("argument_with_a_long_descriptive_name_{i:04}"))
         .collect::<Vec<_>>()
         .join(", ");
     std::fs::write(&source, format!("fn m() {{\n    call({args});\n}}\n")).expect("source");

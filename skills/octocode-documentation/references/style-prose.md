@@ -55,7 +55,7 @@ Load when judging tone, person, voice, tense, modal words, sentence shape, gramm
 
 ## Plain, translatable sentences
 
-- Aim under 26 words. Subject near the start, verb close behind.
+- Split dense sentences where the reader changes focus. Keep the subject and verb close.
 - One term per concept, capitalized the same way each time.
 - Keep helper words: "If the key is not found, **then**…"; "assumes **that** you have"; "all **of** the datasets"; "and **then** run the app".
 - No more than two stacked noun modifiers.

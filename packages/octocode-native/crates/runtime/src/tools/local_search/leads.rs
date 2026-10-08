@@ -12,7 +12,7 @@ use crate::tools::cancel::CancellationCheck;
 use crate::tools::id::ToolId;
 use crate::tools::local_fetch::MAX_READ_RANGES;
 use crate::tools::result::Continuation;
-use octocode_engine::{portable::search_ripgrep_cancellable, types::RipgrepSearchOptions};
+use octocode_engine::{portable::search_text_cancellable, types::TextSearchOptions};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
@@ -35,7 +35,7 @@ impl Coverage {
     pub(super) fn of(
         query: &LocalSearchQuery,
         stats: &SearchStats,
-        scanned: &octocode_engine::types::RipgrepStats,
+        scanned: &octocode_engine::types::TextSearchStats,
         root: &std::path::Path,
         output_root: &std::path::Path,
         skipped: &crate::policy::discovery::WalkSkips,
@@ -169,7 +169,7 @@ pub(super) struct Found<'a> {
     pub(super) layout: &'a Layout,
     pub(super) definition: Option<&'a Definition>,
     pub(super) symbol: Option<&'a str>,
-    pub(super) scanned: &'a octocode_engine::types::RipgrepStats,
+    pub(super) scanned: &'a octocode_engine::types::TextSearchStats,
     /// What the walk left out: policy-withheld and default-excluded files.
     pub(super) skipped: &'a crate::policy::discovery::WalkSkips,
     /// Nothing capped and no coverage gap.
@@ -186,7 +186,7 @@ impl Found<'_> {
         next: &mut Option<Value>,
         hints: &mut Vec<String>,
         warnings: &mut Vec<String>,
-        probe_options: Option<RipgrepSearchOptions>,
+        probe_options: Option<TextSearchOptions>,
         cancel: &impl CancellationCheck,
     ) {
         let query = self.query;
@@ -252,6 +252,20 @@ impl Found<'_> {
                 ));
                 add("includeIgnored".into(), excluded_lead(query));
             }
+        }
+        // Thousands of hits page for dozens of calls: one count call ranks
+        // the files first, so the next read or narrowing is chosen, not paged.
+        if self.first_page()
+            && !is_count_or_list_view(query)
+            && let Some(total) = self
+                .scanned
+                .match_count
+                .filter(|total| *total >= LARGE_RESULT_MATCHES)
+        {
+            add("countFiles".into(), count_lead(query));
+            hints.push(format!(
+                "{total} matches: run hints.countFiles to rank files by hits, or narrow path/include."
+            ));
         }
         // An unset `regex` is inferred from the text: say which reading ran
         // when the literal and regex readings differ.
@@ -426,7 +440,7 @@ pub(super) fn joined_path(
 pub(super) fn disclose_unsearched(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
-    probe_options: Option<RipgrepSearchOptions>,
+    probe_options: Option<TextSearchOptions>,
     excluded: Option<String>,
     next: &mut Option<Value>,
     hints: &mut Vec<String>,
@@ -488,7 +502,7 @@ pub(super) fn pruned_names(pruned: &[String]) -> String {
 /// pruned directories and the skipped generated files, each by name with
 /// its count (`2 dirs (target/, dist/) and 3 files (*.lock ×2, *.min.js)`).
 pub(super) fn excluded_names(
-    scanned: &octocode_engine::types::RipgrepStats,
+    scanned: &octocode_engine::types::TextSearchStats,
     skipped: &crate::policy::discovery::WalkSkips,
 ) -> Option<String> {
     let pruned = scanned.pruned_dirs.as_deref().unwrap_or_default();
@@ -523,6 +537,39 @@ pub(super) fn excluded_names(
 
 /// The same search with the default excludes off, from page 1: a result
 /// that found matches keeps its ignore and hidden settings.
+/// Matches at which a line view leads to its per-file counts.
+pub(super) const LARGE_RESULT_MATCHES: u32 = 1_000;
+
+/// Views that already answer per file (counts) or list paths.
+fn is_count_or_list_view(query: &LocalSearchQuery) -> bool {
+    matches!(
+        query.result_view,
+        LocalSearchQueryResultView::CountMatches
+            | LocalSearchQueryResultView::CountLines
+            | LocalSearchQueryResultView::Files
+            | LocalSearchQueryResultView::FilesWithout
+    )
+}
+
+/// The same search as per-file match counts, from page 1.
+pub(super) fn count_lead(query: &LocalSearchQuery) -> Value {
+    let mut lead = restart_fields(query);
+    if let Some(fields) = lead.as_object_mut() {
+        fields.insert("resultView".into(), json!("countMatches"));
+        for field in [
+            "contextLines",
+            "matchContentLength",
+            "pageSize",
+            "matchPageSize",
+        ] {
+            fields.remove(field);
+        }
+    }
+    Continuation::new(ToolId::LocalSearch, lead)
+        .why("Per-file match counts, most hits first.")
+        .build()
+}
+
 pub(super) fn excluded_lead(query: &LocalSearchQuery) -> Value {
     let mut lead = restart_fields(query);
     if let Some(fields) = lead.as_object_mut() {
@@ -622,12 +669,21 @@ pub(super) fn shown_outline(
     outline_of(&bytes, source, security)
 }
 
-/// The outline of a shown file's `bytes`, read within the parse cap.
+/// Largest file outlined for `enclosing` names. Parsing is linear (a 4.5 MB
+/// generated Rust file took 1 s of a 1.2 s search, 2026-10-08) and files this
+/// large are almost always generated; their hits keep no enclosing name.
+pub(super) const ENCLOSING_MAX_BYTES: usize = 1024 * 1024;
+
+/// The outline of a shown file's `bytes`, read within the parse cap; none
+/// for a file over [`ENCLOSING_MAX_BYTES`].
 pub(super) fn outline_of(
     bytes: &[u8],
     source: &std::path::Path,
     security: &ContentSecurity,
 ) -> Option<super::enclosing::Outline> {
+    if bytes.len() > ENCLOSING_MAX_BYTES {
+        return None;
+    }
     let limit = crate::tools::ast_search::MAX_PARSE_SOURCE_BYTES;
     let text = security.decode_source_bytes(bytes, limit).ok()?;
     super::enclosing::Outline::of(&text, &source.to_string_lossy())
@@ -657,6 +713,7 @@ pub(super) fn annotate_enclosing(
     let mut names: Vec<Vec<Option<super::types::Enclosing>>> = Vec::with_capacity(files.len());
     let mut definition = None;
     let mut unparsed_rows = 0usize;
+    let mut oversized_rows = 0usize;
     for (position, file) in files.iter().enumerate() {
         let Some(matches) = file.matches.as_ref().filter(|rows| !rows.is_empty()) else {
             names.push(Vec::new());
@@ -674,6 +731,10 @@ pub(super) fn annotate_enclosing(
             None => shown_outline(&source, expected(&source), security),
         };
         let Some(outline) = outline else {
+            if std::fs::metadata(&source).is_ok_and(|meta| meta.len() > ENCLOSING_MAX_BYTES as u64)
+            {
+                oversized_rows += matches.len();
+            }
             names.push(Vec::new());
             continue;
         };
@@ -709,7 +770,7 @@ pub(super) fn annotate_enclosing(
             }
         }
     }
-    let note = match (over_budget, unparsed_rows) {
+    let mut note = match (over_budget, unparsed_rows) {
         (0, 0) => None,
         (0, rows) => Some(format!(
             "Enclosing declarations (enclosing) are named for the first {ENCLOSING_MAX_FILES} files only; {rows} hit rows after them have none."
@@ -718,6 +779,15 @@ pub(super) fn annotate_enclosing(
             "Enclosing declarations (enclosing) omitted on {rows} later rows to keep the page within its size budget."
         )),
     };
+    if oversized_rows > 0 {
+        let oversized = format!(
+            "Enclosing declarations (enclosing) are not named in files over 1 MiB; {oversized_rows} hit rows there have none."
+        );
+        note = Some(match note {
+            Some(note) => format!("{note} {oversized}"),
+            None => oversized,
+        });
+    }
     (definition, note)
 }
 
@@ -901,7 +971,7 @@ pub(super) struct IgnoredMatches {
 /// Re-run an empty search with `noIgnore`, `hidden` and no default prune
 /// (files only, within [`IGNORED_PROBE_MS`]); `None` when it could not run.
 pub(super) fn ignored_probe(
-    mut options: RipgrepSearchOptions,
+    mut options: TextSearchOptions,
     paths: &PathPolicy,
     cancel: &impl CancellationCheck,
 ) -> Option<IgnoredMatches> {
@@ -920,7 +990,7 @@ pub(super) fn ignored_probe(
     options.digest_max_bytes = None;
     let started = std::time::Instant::now();
     let deadline = std::time::Duration::from_millis(IGNORED_PROBE_MS);
-    let found = search_ripgrep_cancellable(options, Arc::new(paths.clone()), &|| {
+    let found = search_text_cancellable(options, Arc::new(paths.clone()), &|| {
         cancel.check().is_err() || started.elapsed() > deadline
     })
     .ok()?;
@@ -1167,6 +1237,23 @@ pub(super) fn binary_file_list(paths: &[String], total: u32, root: &std::path::P
         "were"
     };
     format!("{names} {verb}")
+}
+
+#[cfg(test)]
+mod enclosing_cap_tests {
+    /// A file over the enclosing cap is not outlined (its hits keep no
+    /// `enclosing`); one at the cap still is.
+    #[test]
+    fn files_over_the_enclosing_cap_are_not_outlined() {
+        let security = crate::security::ContentSecurity;
+        let path = std::path::Path::new("big.rs");
+        let line = "fn f() {}\n";
+        let at_cap = line.repeat(super::ENCLOSING_MAX_BYTES / line.len());
+        assert!(super::outline_of(at_cap.as_bytes(), path, &security).is_some());
+        let over = format!("{at_cap}{line}{line}");
+        assert!(over.len() > super::ENCLOSING_MAX_BYTES);
+        assert!(super::outline_of(over.as_bytes(), path, &security).is_none());
+    }
 }
 
 #[cfg(test)]

@@ -340,7 +340,7 @@ Paging and errors: follow `next.nextPage`; unknown totals stay unknown, and an e
 
 - **Enable.** On by default. `local.enabled: false` (or `OCTOCODE_ENABLE_LOCAL=false`) turns the local surface off; `DISABLE_TOOLS` / `tools.disabled` hides single tools; `TOOLS_TO_RUN` is a strict allowlist. Removed compatibility names cannot come back through `TOOLS_TO_RUN` or `.octocoderc`. Settings: [CONFIGURATION.md](CONFIGURATION.md).
 - **Paths.** Relative paths resolve against the workspace root (`WORKSPACE_ROOT`, default the cwd). Allowed roots: the workspace root, `ALLOWED_PATHS` / `local.allowedPaths`, and the Octocode home; the home directory only when listed. In every local tool (`localSearch`, `localFetch`, `structureSearch`, `astSearch`, `astTopology`, `lspSearch`, `astRewrite`), a path outside the allowed roots (directly or through a symlink) fails with `outsideAllowedRoots`, and a missing path with `pathNotFound` (exit 3); the recovery hint is keyed on that code. Row paths are relative to the envelope `root` ([paths](TOOL_DATA_CONTRACT.md#paths-shared-fields-and-anchors)). When the root's `.git` HEAD is readable, `localSearch`, `localFetch`, and `structureSearch` report it once as `shared.commitSha` (per row when rows read different repositories); uncommitted edits are not reflected.
-- **Engines.** Native in-process ripgrep, walker, and structural engines; no external `rg`, `grep`, `find`, or `tree`. macOS, Linux, and Windows.
+- **Engines.** Native in-process text-search, walker, and structural engines; no external `rg`, `grep`, `find`, or `tree`. macOS, Linux, and Windows.
 - **Filters.** `include` globs are ORed; a bare word (no `/` or glob character) matches names that contain it, and a plain path also matches everything under it. `exclude` (≤100) adds to the default prune: a bare name skips that file or directory at any depth, and `dir/**` skips a path. The default prune covers dependency, build, cache, VCS, and credential directories (`node_modules`, `target`, `dist`, `.git`, `secrets`, …); `localSearch` also prunes editor, CI, and package-manager config (`.github`, `.vscode`, `.config`, …), which the structure and AST tools keep visible. `defaultExcludes: false` turns the prune off; `.gitignore` still hides ignored directories until `noIgnore: true`, and sensitive directories such as `secrets/` are never walked. `hidden` includes dot entries. `maxDepth` is 1–20 levels below `path` (1 = its children).
 - **Paging.** Result pages (`page` ≤1000, `pageSize`) in `localSearch`, `structureSearch`, `astSearch`, `astTopology`; per-file match pages (`matchPage`, `matchPageSize`) in `localSearch` and `astSearch` `match`; content windows (`unit`, `offset`, `length`) in `localFetch`. Use whole-response windows only when one result is still too large.
 
@@ -359,7 +359,7 @@ Lexical search. Outlines and metadata: `structureSearch`; syntax: `astSearch`; f
 | `unique` | `matchOnly` only: `off` (default), `list` (distinct values per file), `count` (frequencies). |
 | `contextLines` | 0–100; default 0 (`detailed`: 3). |
 | `matchContentLength` | 1–100,000 characters per snippet, clipped around the hit (`matchOnly`: per span); default 200 × (2·contextLines + 1), capped at 4000. |
-| `language` | ripgrep type: `ts`, `js`, `py`, `go`, … |
+| `language` | File type: `ts`, `js`, `py`, `go`, … |
 | `include`, `exclude`, `defaultExcludes`, `hidden`, `noIgnore`, `maxDepth` | [Shared local rules](#shared-local-rules). |
 | `sort`, `reverse` | `relevance` (default), `traversal`, `matchCount`, `path`, `modified`, `accessed`, `created`; `reverse` applies before pagination. |
 | `pageSize` | 1–1000 files; omitted: about 24 KB pages (path and count views: 100 files). |
@@ -371,7 +371,7 @@ Lexical search. Outlines and metadata: `structureSearch`; syntax: `astSearch`; f
 Coverage:
 
 - No readable file under `path`: `fileAccessFailed` (exit 5). Some unreadable paths: `isPartial`, `terminalLimit`, `stats.errorCount`/`firstError`; zero matches then prove nothing. Files open without following symlinks; a path replaced by a symlink or special file after the walk is a read error.
-- A file binary from its leading bytes (a NUL before any text, or after a short single-line header such as a font or database magic that matched nothing) is skipped, as rg does, without making the result partial; its matching bytes are not hits. Page 1 carries a `binarySkipped` warning (counts by extension) and `hints.binarySkipped`, a `structureSearch` `files` query listing those files (extensionless ones by name; it can also list same-extension text files).
+- A file binary from its leading bytes (a NUL before any text, or after a short single-line header such as a font or database magic that matched nothing) is skipped without making the result partial; its matching bytes are not hits. Page 1 carries a `binarySkipped` warning (counts by extension) and `hints.binarySkipped`, a `structureSearch` `files` query listing those files (extensionless ones by name; it can also list same-extension text files).
 - A file with real text before its first NUL is searched up to that byte: a `binaryFileSkipped` warning names it (`dir/{a,b}` per directory), and the result is `isPartial` (debug: `capped`, `capReason: binaryQuit`; `terminalLimit` when no other continuation exists).
 - Values with secret-shaped text replaced by `[REDACTED…]` carry a `redactedMatches` warning; they are not verbatim.
 
@@ -553,14 +553,14 @@ Results: paged; SCC and dead-cluster rows list member `files`. Dependency rows c
 
 `deadCode` rows and dead clusters (mutually importing unreachable files) are candidates; confirm with `lspSearch` before removal. In a reachable file an export stays live when an import or re-export chain consumes one of its public names (`import foo from` consumes `default`), or when same-file call and containment edges reach it from a live declaration, a module-level call, or a value escape (a syntax-aware reference other than the declaration, an export clause, or a call target; never comments or strings). JS/TS counts resolved references of the declaration's own symbol; other languages count identifier tokens by name. `viaHeuristic` names the basis: `reexport-chain`, `semantic-references` (JS/TS), `syntax-references`, or `qualified-path-name` (a Rust export kept live only by an unresolved `module::name` call; a qualified call that resolves through the caller's `use`/`mod` binding credits the export exactly). Callers are keyed by declaration identity (a method `run` and a function `run` do not share liveness), and an uncalled private caller keeps nothing live. Exports renamed at the export site carry `exportedAs`; namespace imports retain all target exports. Declaration IDs identify scoped occurrences; unresolved call references do not prove identity, and value-reference counts are conservative. A file whose extraction hit its deadline keeps its gathered facts and carries `graph.traversal.deadlineExceeded`.
 
-`octocode graph ingest|query` ([OCTOCODE_CLI.md](../packages/octocode/docs/OCTOCODE_CLI.md)) uses the same builder with persisted snapshots, symbol-level callers/callees/impact, and issue detectors. Its `deps`/`dependents`/`path`/`cycles` file sets match `astTopology` on the same tree, except `reexportVia` rows and Rust `mod` declarations (containment in `graph`).
+`npx octocode graph ingest|query` ([OCTOCODE_CLI.md](../packages/octocode/docs/OCTOCODE_CLI.md)) uses the same builder with persisted snapshots, symbol-level callers/callees/impact, and issue detectors. Its `deps`/`dependents`/`path`/`cycles` file sets match `astTopology` on the same tree, except `reexportVia` rows and Rust `mod` declarations (containment in `graph`).
 
 ### `astRewrite`
 
 CLI-only beta ([availability](#internal-external-and-hybrid-tools)). Preview is the default and applies nothing, but it can recover an interrupted transaction. Applies are serialized, snapshot-bound, and hash-guarded, with journal recovery; cross-file changes are not simultaneously visible. Structural matching skips text in comments and strings.
 
 ```bash
-octocode astRewrite '{"queries":[{"path":"/ABS/repo/src","pattern":"console.log($A)","rewrite":"logger.info($A)"}]}'
+npx octocode astRewrite '{"queries":[{"path":"/ABS/repo/src","pattern":"console.log($A)","rewrite":"logger.info($A)"}]}'
 ```
 
 | Field | Meaning |
@@ -697,7 +697,7 @@ An `lsp-servers.json` entry adds an extension or replaces a built-in server (ano
 
 ## Semantic assessment reference
 
-`clasify` takes 1–5 matrices in `queries[]`; each has optional `mainGoal` and `reasoning`, 1–25 `resources` (supplied `{value}` state or one unread `{tool,query}` read), and 1–25 `questions`, and results are keyed by query, resource, and question IDs. Read `octocode schema clasify --view query` before you write a call, and run `next.clasify` unchanged. Flows: LOCATE a described target in a large file, GATE a large fetch with `sufficient`, SCOUT an unread list, JUDGE a supplied `value` only when the label is the deliverable. Question types, limits, outputs, credentials, and handoffs: [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md).
+`clasify` takes 1–5 matrices in `queries[]`; each has optional `mainGoal` and `reasoning`, 1–25 `resources` (supplied `{value}` state or one unread `{tool,query}` read), and 1–25 `questions`, and results are keyed by query, resource, and question IDs. Read `npx octocode schema clasify --view query` before you write a call, and run `next.clasify` unchanged. Flows: LOCATE a described target in a large file, GATE a large fetch with `sufficient`, SCOUT an unread list, JUDGE a supplied `value` only when the label is the deliverable. Question types, limits, outputs, credentials, and handoffs: [OCTOCODE_CLASIFY.md](OCTOCODE_CLASIFY.md).
 
 Not for a known identifier or literal (use `localSearch`, `astSearch`, or `lspSearch`; an identifier target returns `hints.textSearch`), latency-sensitive work, or state you can decide yourself. A low score defers a candidate, never discards it; `sufficient` stops screening only when its read shows the deciding line; scores never prove absence.
 
@@ -715,6 +715,6 @@ Not for a known identifier or literal (use `localSearch`, `astSearch`, or `lspSe
 | Clone hit | Only with a clean working tree at the recorded HEAD; a modified cache returns `checkoutDirty` and keeps its files. Check `verified` before you trust cached bytes. |
 | Clone expiry | Clone activity evicts clean expired entries under their locks; modified checkouts are kept; directory-age sweeps never remove clones. |
 | Force refresh | `forceRefresh: true` bypasses the cache and re-clones or re-fetches. |
-| GitHub responses | Memory and disk caches, freshness, ETag revalidation, limits, the 24-hour sweep, `octocode cache status`/`clear`: [Cache storage and lifecycle](CONFIGURATION.md#cache-storage-and-lifecycle). |
+| GitHub responses | Memory and disk caches, freshness, ETag revalidation, limits, the 24-hour sweep, `npx octocode cache status`/`clear`: [Cache storage and lifecycle](CONFIGURATION.md#cache-storage-and-lifecycle). |
 | Response marker | With `debug: true`, a `ghGetFileContent` row whose files all came from its content cache has `cache: 1` (no other tool sets it; same on CLI and MCP). |
 | Live tools | `localSearch`, `localFetch`, `structureSearch`, `astSearch`, and `lspSearch` read the workspace directly and cache no results. |

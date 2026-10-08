@@ -6,7 +6,7 @@ explicit alternatives; a restart never authorizes replay of uncertain messages.
 ## Health
 
 ```sh
-agents-communication health '{"staleAfterMs":300000,"limit":25}' \
+npx -y @octocodeai/octocode-agents-communication /cli health '{"staleAfterMs":300000,"limit":25}' \
   --workspace /absolute/repo --database /absolute/communication.sqlite
 ```
 

@@ -3,14 +3,16 @@
 Load when a section explains a flow, structure, comparison, proportion, lifecycle, or schedule. Why: the diagram type and the section heading must name the same fact. Prose carries the evidence.
 
 ## Rules
+
 - **One message per diagram.** If you cannot state the message, drop the diagram.
 - **True data, drawn to scale.** Every number traces to a cited source. Mark computed or estimated figures.
-- **Small:** ≤15 nodes or ≤8 points. Split big pictures into an overview plus details. Label every non-obvious edge.
+- **Readable:** show one decision or relationship. Split big pictures into an overview plus details. Label every non-obvious edge.
 - **Same names** as the code, schema, and tables (tool names, `S1`, `Q1`).
 - **Beta types may not render.** When the argument rests on a `*-beta` chart, also give its numbers in a table.
 - **No decoration:** no diagram that restates one sentence, no meaningless colors.
 
 ## Type per purpose
+
 | Type (keyword) | Use for | Section heading |
 |---|---|---|
 | `flowchart` (`subgraph`) | decision trees, data or control flow, plan-step DAG, boundaries | Rationale and Alternatives; Reference-Level Explanation; Steps |
@@ -29,6 +31,7 @@ Load when a section explains a flow, structure, comparison, proportion, lifecycl
 | `kanban` | status snapshot (rare; prefer the plan table) | Steps |
 
 ## Starter shapes
+
 Replace every label and number with the RFC's own names and data. Plan steps as a DAG that mirrors each step's `Depends on:` field:
 
 ```mermaid
@@ -43,6 +46,6 @@ flowchart LR
 
 A measured series against a target: `xychart-beta` with `title "p95 latency (ms), lower is better"`, `x-axis [baseline, S2, S3, final]`, `y-axis "ms" 0 --> 400`, `bar [380, 260, 210, 190]`, `line [200, 200, 200, 200]`.
 
-Validator checks never prove a diagram is true; review data and scales by hand.
+Review diagram meaning, source data, and scales; rendering alone proves none of them.
 
-Next: return to the section being drafted in `references/rfc-template.md` or `references/rfc-implementation.md`.
+Next: return to the section being drafted in the [single-file RFC](../output.md#structure).

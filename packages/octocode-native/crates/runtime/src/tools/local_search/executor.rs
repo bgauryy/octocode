@@ -8,7 +8,7 @@ use crate::security::ContentSecurity;
 use crate::tools::cancel::CancellationCheck;
 use crate::tools::id::query_limits::local_search::{MATCH_PAGE_MAXIMUM, PAGE_MAXIMUM};
 use crate::tools::result::ToolError;
-use octocode_engine::{portable::search_ripgrep_cancellable, types::RipgrepSearchOptions};
+use octocode_engine::{portable::search_text_cancellable, types::TextSearchOptions};
 use serde_json::json;
 use std::sync::Arc;
 
@@ -112,13 +112,14 @@ pub fn execute_local_search(
         reusable,
         policy_key,
     );
-    let octocode_engine::types::RipgrepParseResult {
+    let octocode_engine::types::TextSearchResult {
         files: scanned,
         stats: scanned_stats,
     } = parsed;
     let stats = search_stats(&scanned_stats, total_files);
     let (mut files, shown_redacted) = project_files(query, &layout, scanned, &redacted);
     let symbol = searched_symbol(query, &layout);
+    let __t2 = std::time::Instant::now();
     let (definition, enclosing_note) = annotate_enclosing(
         &mut files,
         symbol,
@@ -160,6 +161,7 @@ pub fn execute_local_search(
         empty,
     }
     .add_leads(&mut next, &mut hints, &mut warnings, probe_options, cancel);
+    if std::env::var_os("OCTOCODE_LS_TIMING").is_some() { eprintln!("TIMING enclosing+leads {:?}", __t2.elapsed()); }
     if coverage.scope_miss
         && let Some(map) = next.get_or_insert_with(|| json!({})).as_object_mut()
     {
@@ -237,7 +239,7 @@ pub(super) struct Shaped {
 pub(super) fn shape_page(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
-    parsed: &mut octocode_engine::types::RipgrepParseResult,
+    parsed: &mut octocode_engine::types::TextSearchResult,
     output_root: &std::path::Path,
     page_budget: usize,
     expected_digest: &ExpectedDigest<'_>,
@@ -245,6 +247,7 @@ pub(super) fn shape_page(
     security: &ContentSecurity,
     cancel: &impl CancellationCheck,
 ) -> Result<Shaped, ToolError> {
+    let __t = std::time::Instant::now();
     let (mut redacted, redaction) = redact_scan(
         query,
         parsed,
@@ -255,6 +258,7 @@ pub(super) fn shape_page(
         cancel,
         stored_redaction,
     )?;
+    if std::env::var_os("OCTOCODE_LS_TIMING").is_some() { eprintln!("TIMING {} {:?}", "redact", __t.elapsed()); } let __t = std::time::Instant::now();
     order_files(query, &mut parsed.files);
     let layout = Layout::cut(query, paths, output_root, parsed, page_budget);
     for (index, _) in &layout.shown {
@@ -272,6 +276,7 @@ pub(super) fn shape_page(
         security,
         cancel,
     )?;
+    if std::env::var_os("OCTOCODE_LS_TIMING").is_some() { eprintln!("TIMING {} {:?}", "verify", __t.elapsed()); } let __t = std::time::Instant::now();
     Ok(Shaped {
         layout,
         redacted,
@@ -309,7 +314,7 @@ pub(super) fn settle(
 /// A scan with what every later stage needs from it.
 pub(super) struct Scanned {
     pub(super) validated: crate::policy::path::ValidatedPath,
-    pub(super) parsed: octocode_engine::types::RipgrepParseResult,
+    pub(super) parsed: octocode_engine::types::TextSearchResult,
     pub(super) digests: ScanDigests,
     /// Chars one page's rows may take.
     pub(super) page_budget: usize,
@@ -320,9 +325,9 @@ pub(super) struct Scanned {
     /// A stored scan's redaction to replay (see [`redact_scan`]).
     pub(super) stored_redaction: Option<Redaction>,
     /// A fresh scan small enough to store for this snapshot's later pages.
-    pub(super) reusable: Option<octocode_engine::types::RipgrepParseResult>,
+    pub(super) reusable: Option<octocode_engine::types::TextSearchResult>,
     /// The walk an empty result re-runs over what the defaults leave out.
-    pub(super) probe_options: Option<RipgrepSearchOptions>,
+    pub(super) probe_options: Option<TextSearchOptions>,
     pub(super) policy_key: String,
     /// What the walk left out: policy-withheld and default-excluded files.
     pub(super) skipped: crate::policy::discovery::WalkSkips,
@@ -348,12 +353,14 @@ pub(super) fn scan_query(
         || query.default_excludes.defaults())
     .then(|| options.clone());
     let policy_key = paths.identity();
+    let __t = std::time::Instant::now();
     let ScanOutput {
         parsed,
         digests,
         skipped,
         stored,
     } = scan(query, paths, options, &policy_key, cancel)?;
+    if std::env::var_os("OCTOCODE_LS_TIMING").is_some() { eprintln!("TIMING {} {:?}", "scan", __t.elapsed()); } let __t = std::time::Instant::now();
     // Pages are cut from serialized sizes so a default-layout page, with
     // the row around it, fits one response window. Sized by the canonical
     // root, not its spelling: a continuation names the same root relative
@@ -417,7 +424,7 @@ pub(super) fn search_options(
     query: &LocalSearchQuery,
     root: &std::path::Path,
     walk_threads: Option<u32>,
-) -> RipgrepSearchOptions {
+) -> TextSearchOptions {
     let view = query.result_view;
     let requested_sort = query.sort;
     let path_sort = matches!(
@@ -435,7 +442,7 @@ pub(super) fn search_options(
             LocalSearchQueryResultView::Files | LocalSearchQueryResultView::FilesWithout
         );
     let (case, regex, multiline) = (query.case_mode, query.regex_mode(), query.multiline);
-    RipgrepSearchOptions {
+    TextSearchOptions {
         path: root.to_string_lossy().into_owned(),
         pattern: query.match_string.to_string(),
         fixed_string: Some(regex == LocalSearchQueryRegex::Literal),
@@ -472,7 +479,9 @@ pub(super) fn search_options(
         ),
         exclude_dir: Some(PruneMode::SearchSafe.directories(query.default_excludes.defaults())),
         no_ignore: query.no_ignore,
-        hidden: query.hidden,
+        // `noIgnore` is the one "search everything" switch: it
+        // walks hidden files too unless `hidden` says otherwise.
+        hidden: query.hidden.or(query.no_ignore.filter(|all| *all)),
         max_depth: query.max_depth(),
         // The engine owns the relevance order (for a bare-identifier search,
         // source files declaring the name first; then count, then source
@@ -519,7 +528,7 @@ pub(super) type ScanDigests =
 /// A walk's matches, the stored digests a reused scan must still hash to,
 /// and what the walk left out.
 pub(super) struct ScanOutput {
-    pub(super) parsed: octocode_engine::types::RipgrepParseResult,
+    pub(super) parsed: octocode_engine::types::TextSearchResult,
     pub(super) digests: ScanDigests,
     pub(super) skipped: crate::policy::discovery::WalkSkips,
     /// What was stored with a reused scan: its query key and redaction.
@@ -540,7 +549,7 @@ pub(super) struct StoredDerived {
 pub(super) fn scan(
     query: &LocalSearchQuery,
     paths: &PathPolicy,
-    options: RipgrepSearchOptions,
+    options: TextSearchOptions,
     policy_key: &str,
     cancel: &impl CancellationCheck,
 ) -> Result<ScanOutput, ToolError> {
@@ -563,7 +572,7 @@ pub(super) fn scan(
             std::path::PathBuf::from(&options.path),
             query.default_excludes.defaults(),
         ));
-        let parsed = search_ripgrep_cancellable(options, walk.clone(), &|| cancel.check().is_err())
+        let parsed = search_text_cancellable(options, walk.clone(), &|| cancel.check().is_err())
             .map_err(|error| {
                 let message = error.to_string();
                 // Glob and file-type failures carry no typed kind from the engine yet.
@@ -595,26 +604,40 @@ pub(super) fn scan(
     })
 }
 
+fn is_count_view(query: &LocalSearchQuery) -> bool {
+    matches!(
+        query.result_view,
+        LocalSearchQueryResultView::CountMatches | LocalSearchQueryResultView::CountLines
+    )
+}
+
 /// The runtime's own orders (path, matchCount), then `reverse`. Engine-side
 /// time and relevance sorts already honour `reverse`; every order the
 /// runtime (re)establishes — path, matchCount, traversal — is reversed here,
 /// as the schema promises ("after sort, before pagination").
 pub(super) fn order_files(
     query: &LocalSearchQuery,
-    files: &mut [octocode_engine::types::RipgrepFile],
+    files: &mut [octocode_engine::types::TextSearchFile],
 ) {
-    match query.sort {
+    let sort = query.sort;
+    match sort {
         LocalSearchQuerySort::Path => files.sort_by(|a, b| a.path.cmp(&b.path)),
         LocalSearchQuerySort::MatchCount => files.sort_by(|a, b| {
             b.match_count
                 .cmp(&a.match_count)
                 .then_with(|| a.path.cmp(&b.path))
         }),
+        // A count view under relevance ranks the most hits first; the stable
+        // sort keeps the engine's relevance order (declaration before code,
+        // comment, string) among equal counts.
+        LocalSearchQuerySort::Relevance if is_count_view(query) => {
+            files.sort_by_key(|file| std::cmp::Reverse(file.match_count));
+        }
         _ => {}
     }
     if query.reverse.unwrap_or(false)
         && !matches!(
-            query.sort,
+            sort,
             LocalSearchQuerySort::Modified
                 | LocalSearchQuerySort::Accessed
                 | LocalSearchQuerySort::Created
@@ -627,7 +650,7 @@ pub(super) fn order_files(
 
 /// The response's totals from the scan.
 pub(super) fn search_stats(
-    scanned: &octocode_engine::types::RipgrepStats,
+    scanned: &octocode_engine::types::TextSearchStats,
     total_files: u32,
 ) -> SearchStats {
     SearchStats {
@@ -650,7 +673,7 @@ pub(super) fn search_stats(
 pub(super) fn project_files(
     query: &LocalSearchQuery,
     layout: &Layout,
-    scanned: Vec<octocode_engine::types::RipgrepFile>,
+    scanned: Vec<octocode_engine::types::TextSearchFile>,
     redacted: &Redacted,
 ) -> (Vec<SearchFile>, usize) {
     let match_only = query.result_view == LocalSearchQueryResultView::MatchOnly;
@@ -720,7 +743,7 @@ pub(super) fn project_files(
 
 /// Every candidate failed before it could be searched: there is no evidence,
 /// so this is an execution failure, not an empty result.
-pub(super) fn unreadable_scope(stats: &octocode_engine::types::RipgrepStats) -> ToolError {
+pub(super) fn unreadable_scope(stats: &octocode_engine::types::TextSearchStats) -> ToolError {
     let count = stats.error_count.unwrap_or(0);
     let first = stats.first_error.as_deref().unwrap_or("unknown error");
     ToolError {

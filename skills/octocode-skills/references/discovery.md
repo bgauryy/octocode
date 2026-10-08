@@ -46,4 +46,4 @@ Aggregators carry moderate confidence: verify each entry.
 
 Meta-skills (`find-skills`, `skills-discovery`, `skill-creator`) help mid-session; still gate writes.
 
-Next: to judge or rank, load `references/quality.md`; if a surface fails, load `references/recovery.md`.
+Compare candidate fit and report gaps using the review and rating guidance in [SKILL.md](../SKILL.md).

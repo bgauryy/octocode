@@ -56,7 +56,7 @@ impl From<&str> for ManageError {
 }
 
 /// `octocode config`: where configuration lives and which keys are loaded,
-/// never their values.
+/// never their values (`config get KEY` prints one value on request).
 pub fn show(runtime: &ToolRuntime, json_out: bool) -> u8 {
     let view = runtime.inspect_config();
     let config_file = view
@@ -142,8 +142,50 @@ pub fn show(runtime: &ToolRuntime, json_out: bool) -> u8 {
     for diagnostic in &view.diagnostics {
         println!("{diagnostic}");
     }
-    println!("Values are never printed.");
+    println!("Values are not shown here; `octocode config get KEY` prints one.");
     0
+}
+
+/// `config home`: the Octocode home directory, one line, for scripts and skills.
+pub fn home(runtime: &ToolRuntime, json_out: bool) -> u8 {
+    let home = &runtime.config().home;
+    if json_out {
+        return write_json(&json!({"home": home}), true);
+    }
+    println!("{}", home.display());
+    0
+}
+
+/// `config get KEY`: the resolved value on stdout (nothing else, so
+/// `$(octocode config get KEY)` captures it); exit 1 when unset.
+pub fn get(runtime: &ToolRuntime, key: &str, json_out: bool) -> u8 {
+    let config = runtime.config();
+    let value = config.env_value(key).filter(|value| !value.is_empty());
+    let source = value.map(|_| {
+        if config.dotenv.applied.iter().any(|applied| applied == key) {
+            config
+                .dotenv
+                .sources
+                .get(key)
+                .map_or("global", String::as_str)
+        } else {
+            "environment"
+        }
+    });
+    if json_out {
+        let code = write_json(
+            &json!({"key": key, "set": value.is_some(), "value": value, "source": source}),
+            true,
+        );
+        if code != 0 {
+            return code;
+        }
+    } else if let Some(value) = value {
+        println!("{value}");
+    } else {
+        eprintln!("{key}: unset");
+    }
+    if value.is_some() { 0 } else { 1 }
 }
 
 /// `config check KEY`: exit 0 when set, 1 when unset. A GitHub token key that

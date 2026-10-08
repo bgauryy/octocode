@@ -8,7 +8,7 @@ An install copies or symlinks a `SKILL.md` folder into a path the runtime scans.
 2. Resolve from the request and session; ask only for missing choices: providers, scope per provider (user / project / custom), project root, mode.
 3. Read third-party scripts and hooks. This read needs no separate approval.
 4. Per destination, run `ls "<dest>/<skill-name>"` and apply the conflict choice.
-5. Write after authority covers the plan. Add `[--mode copy|symlink|hybrid]` to the install command: it copies to `<octocode-home>/skills/<name>` and links vendors from that copy; `--mode` changes vendor destinations only.
+5. Apply the authorized plan. `--mode symlink` is the default; `copy` makes vendor copies, and `auto` uses the installer's platform default. The installer first copies the source to `<octocode-home>/skills/<name>`; mode controls vendor destinations. Check live help for supported options.
 6. Verify and give a reload hint.
 
 ## Destinations
@@ -34,8 +34,8 @@ Fetch → scan → gate before any destination write.
 2. Normalize the source and resolve destinations (steps 1–2 above).
 3. Inspect through `octocode-research`, then fetch: `npx -y octocode ghCloneRepo '{"queries":[{"owner":"OWNER","repo":"REPO","path":"PATH"}]}'` (add `"ref":"<ref>"`; omit `path` for the whole repository). The checkout stays in the Octocode cache at the result's `location.localPath`.
 4. Validate: the folder has `SKILL.md` with `name` + `description`.
-5. Safety-scan `SKILL.md`, `scripts/`, and hooks (`references/hooks.md`); flag risk before any write.
-6. To adapt, follow `references/skill-authoring.md` § Create a local skill. Reuse only license-allowed patterns and cite the source.
+5. Safety-scan `SKILL.md`, scripts, and any host hooks; flag risk before any write.
+6. To adapt, use the shared standard in `SKILL.md`. Reuse only license-allowed patterns and cite the source.
 7. Check conflicts (step 4 above).
 8. Write and verify `test -f <dest>/SKILL.md`.
 9. Report each destination result and how the runtime reloads skills.
@@ -59,8 +59,8 @@ node scripts/skill-sync.mjs --list-vendors
 
 ## Recovery
 
-- Missing parent dir: create it after approval; do not auto-create deep custom trees.
+- Missing parent directory: create it when the requested installation covers that destination.
 - Permission denied: report the path; offer another scope.
 - Partial multi-target: report per destination; do not roll back others without asking.
 - Invalid frontmatter: do not install.
-- 404 or permission errors on fetch: load `references/recovery.md`.
+- A missing or inaccessible source: check its path and access, then report the gap or use another source covered by the request.

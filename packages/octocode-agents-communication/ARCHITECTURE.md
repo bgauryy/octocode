@@ -39,7 +39,7 @@ Pi bound tools launch the CLI. Host hooks also use lifecycle and delivery method
 
 `catalog.json` owns public field definitions; `catalog.py` owns the tool profile presets. `schema.sql` owns persisted structure and invariants.
 Discovery combines these sources; no interface maintains a second command or record schema.
-The shared config copy is the only refreshed runtime module: `src/build.mjs` copies `scripts/octocode_config.py` from the config package.
+`src/build.mjs` refreshes `scripts/octocode_config.py` from the config package and generates `communication/_version.py` from `package.json`. CLI and MCP version reporting use that release version.
 
 ## Three representative flows
 

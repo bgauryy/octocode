@@ -25,10 +25,10 @@ Load when an unread saved artifact needs semantic location and a small direct re
 ```
 
 ```bash
-octocode clasify --input .octocode/clasify-request.json
+npx octocode clasify --input .octocode/clasify-request.json
 ```
 
-Inside the Octocode monorepo, use `node packages/octocode/out/octocode.js clasify --input .octocode/clasify-request.json`. With no installed executable, use `npx -y octocode clasify --input .octocode/clasify-request.json`.
+Run `npx -y octocode clasify --input .octocode/clasify-request.json`.
 
 Keep the clean-text artifact linked to its URL and extraction metadata. Cite the original URL and the verified saved source.
 

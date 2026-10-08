@@ -3,6 +3,7 @@
 Load when you want to understand a site, find smart links, map workflows, or analyze scraped data. Why: agents must navigate a local corpus instead of rereading raw pages.
 
 ## Data model
+
 - `AGENT_INDEX.json`: first-read contract, warnings, totals, search targets, pagination hints.
 - `graph/graph.json`: unified automation graph — pages, links, forms, buttons, tables, resources, pagination, typed edges, risks, confidence, and source evidence; validated by `schemas/graph.schema.json`. Prefer this for downstream bots/tools that need one portable file.
 - `indexes/pages-001.json`, `pages-002.json`, …: paginated *corpus* rows for large crawls (this skill's own output pagination — not the target site's).
@@ -11,6 +12,7 @@ Load when you want to understand a site, find smart links, map workflows, or ana
 - `extracts/resources.jsonl`: non-navigational assets — `script`, `stylesheet`, `image`, `media`, `feed` — read directly off tag attributes (`src`/`href`), not classified. Useful for third-party/tracking-script inventory or asset discovery; these never carry a `workflowType`.
 
 ## Workflow graph best practices
+
 - Treat links/actions as candidates, not proof; prefer visible labels, same-host links, and nodes with source evidence.
 - Score task paths: homepage → docs/feature/pricing/API/contact/examples/changelog/pagination; de-rank skip links, hash-only nav, and generic menus.
 - For “understand all website”, inspect graph quality of the bounded crawl before asking to expand.

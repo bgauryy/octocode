@@ -1,9 +1,5 @@
-# Octocode agentic prompts and flows
+# Octocode Agentic Prompts
 
-Write and repair what agents read and do: prompts, rules, tool descriptions, schemas, policies, handoffs, and multi-step agent flows (delegation, handoff, loops). The flow lives in `SKILL.md`.
+Improve prompts, tool instructions, and agent flows when their wording changes agent behavior.
 
-```bash
-npx -y octocode skill install octocode-agentic-prompts
-```
-
-Maintainers: run the `octocode-skills` review against this folder.
+Start with [SKILL.md](SKILL.md). See [output.md](output.md) for the result format.

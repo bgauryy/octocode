@@ -1,13 +1,9 @@
 ---
 name: octocode-scraping
-description: "Use when fetching public URLs or crawling a site into a local corpus for repeated queries: docs, pricing tables, link maps, or content extraction. Not for JS-rendered content or live interaction — use octocode-chrome-devtools."
+description: "Use when fetching public pages or building a reusable site corpus; good for documentation, pricing tables, link maps, and source-backed extraction."
 ---
 
 # Octocode Scraping
-
-tools: `npx octocode` / `octocode-mcp`
-related-skill: `octocode-chrome-devtools`
-output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
 
 ```mermaid
 flowchart LR
@@ -15,50 +11,60 @@ flowchart LR
     C -- "yes" --> S["Search corpus"]
     C -- "no" --> D["fetch.mjs direct html"]
     D --> N{"next.route chrome-devtools?"}
-    N -- "yes" --> B["Render once + har-ingest into same session"]
+    N -- "yes" --> B["Capture browser evidence in same session"]
     N -- "no" --> S
     B --> S
     S --> R["Read smallest span + cite"]
     R -- "hard stop" --> X["stop"]
-    F -. "when scope or route is unclear" .-> RS["references/route-selection.md"]
-    F -. "when legality, privacy, or account boundaries" .-> SP["references/scraping-policy.md"]
-    D -. "when choosing a provider or make an approved hosted call" .-> PR["references/providers.md"]
-    PR -. "human provider setup" .-> PD["docs/PROVIDERS.md"]
-    PR -. "add a vendor" .-> AV["docs/ADDING_A_VENDOR.md"]
-    B -. "when bridging a live browser" .-> BS["references/browser-scraping.md"]
-    S -. "for corpus layout and search order" .-> SC["references/session-corpus.md"]
-    S -. "when an unread artifact needs semantic location" .-> CS["references/clasify-screen.md"]
-    S -. "for graph or workflow analysis" .-> WA["references/website-analysis.md"]
-    R -. "for stdout and file contracts; extraction or citation quality" .-> DC["references/data-contract.md"]
-    R -. "when blocked, thin, oversized, or 2 same-class failures" .-> FR["references/failure-recovery.md"]
 ```
-Caption: search before refetching; escalate to a browser only on evidence; stop at the first hard stop; dotted edges load a page in `references/` or `docs/`.
 
-Verify facts in retained source text. Frame URL/domain, goal, depth, and output before fetching. Default to one public URL, `--mode html`, no explicit provider (bounded direct HTTP), `.octocode/tmp/scrape/{sessionId}`, and compact stdout. **CDP escalation:** when the result has `next.route: octocode-chrome-devtools` (blocked or thin application shell), or target text stays absent after checking wording and extraction quality, load `octocode-chrome-devtools`, render that URL once with Chrome's executor or snapshot/action helpers, then bridge with `scripts/har-ingest.mjs --session-dir <existing-session> --from-cdp-dir <run>`. Do not start a new scrape session. Live interaction belongs to `octocode-chrome-devtools`.
+Verify facts in retained source text. Establish the URL/domain, goal, scope, and output from the request. For an unspecified scope, start with one public URL, `--mode html`, bounded direct HTTP, and compact stdout. Sessions are saved in `.octocode/tmp/scrape/{sessionId}`.
+
+When output routes to `octocode-chrome-devtools`, or missing text points to a rendering gap, capture the needed browser evidence. Bridge it with `scripts/har-ingest.mjs --session-dir <existing-session> --from-cdp-dir <run>` so the evidence stays in the same corpus. Use the Chrome skill for live interaction.
 
 **Context gate:** query metadata and exact text first. When an unread saved artifact needs semantic location and a small direct read does not decide, use `references/clasify-screen.md`; the `octocode-research` clasify gate owns admission and result rules.
 
 For repo, package, or code claims, use `octocode-research`. Keep URL fetching and corpus extraction in this skill.
 
-Ask before auth, cookie/profile transfer, hosted spend, anti-bot escalation, crawl expansion (depth, max pages, rate), CAPTCHA/MFA, personal-data export, form submits, purchases, sends, deletes, or account changes. Stop after two same-class failures, a hosted `403`, an auth/challenge gate, one failed CDP escalation, or enough saved evidence. Stop before expanding a crawl whose summary is not yet useful. Cite artifact paths plus URL metadata, never raw dumps.
+The optional hosted provider needs `SCRAPING_ANT`; set it in `<HOME>/.octocode/.env` if used. Direct public fetching needs no key. Never print the value.
+
+Use the user's existing authorization for collection and browser actions. Ask only when a new effect exceeds it, such as paid usage, account access, data export, or a wider crawl. Respect authentication challenges, robots policy, server pacing, and provider hard stops. Retry when a changed diagnosis or input can help within the task budget; repeated identical failures need a new approach. Stop collecting once the evidence answers the task. Cite artifact paths and source URLs.
 
 ## Route
 
-- When fetching/crawling/extracting, run `scripts/fetch.mjs --url <u> [--mode html] [--crawl --same-domain --max-pages <n>] [--no-raw]`; when a brief is also needed, run `scripts/fetch-and-brief.mjs --url <u>`.
-- Before routing/spend → `scripts/provider-check.mjs [--provider <p>]`; credit status → `scripts/provider-usage.mjs`. Both sanitize secrets.
-- When navigating a saved session, run `scripts/corpus-inspect.mjs --session-dir <d> [--page <n>]`; for bounded text search, run `scripts/corpus-find.mjs --session-dir <d> --query <t>`. Retrieve the smallest sufficient source span.
+- When fetching or crawling, run `scripts/fetch.mjs --url <u> [--mode html] [--crawl --same-domain --max-pages <n>] [--no-raw]`; inspect the saved session when a brief is needed.
+- Check a hosted provider with `scripts/provider-check.mjs` before using it; `scripts/provider-usage.mjs` reports credits. For a saved session, start with `scripts/corpus-inspect.mjs --session-dir <d>` or `scripts/corpus-find.mjs --session-dir <d> --query <t>`.
 - Choose navigation candidates from observed labels, destination URLs, scores and source evidence. Read the deciding source, then fetch the selected allowed URL or hand interaction to Chrome. After each transition, update the graph from fresh evidence; ranking is a hint, not permission to submit a form.
 - When a query has more results, follow each executable `next.*` query continuation; `scripts/source-query.mjs` pages original JSON, text or binary bytes. Oversized query values carry full-value continuations.
-- When querying static DOM/assets/paths, run `scripts/dom-find.mjs`, `scripts/resource-list.mjs`, or `scripts/graph-navigate.mjs` with `--session-dir <d>`.
-- Local field proof → `scripts/corpus-run.mjs --session-dir <d> --roots cdp,extracts --regex <re>` or `--script <file>`.
-- When handing a corpus to a live browser, run `scripts/har-ingest.mjs --session-dir <d> --export-packet`.
-- When field names are unclear, run `scripts/schema-helper.mjs --intent "extract pricing and features"`.
-- When an old transcript names `scripts/scrapingant-fetch.mjs`, `scripts/scrapingant-check.mjs`, or `scripts/scrapingant-usage.mjs`, treat them as forwarding shims and use the neutral scripts above.
+- For specific corpus work, use `scripts/dom-find.mjs` (DOM), `scripts/resource-list.mjs` (assets), `scripts/graph-navigate.mjs` (links), `scripts/corpus-run.mjs` (local proof), or `scripts/har-ingest.mjs` (browser handoff). Choose extraction fields from the actual question and verify them in saved source text.
 
-Every runnable script accepts `--help`. Before changing scripts or providers, read `scripts/README.md`; shared modules live in `scripts/lib/`, vendored env resolution in `scripts/octocode-config.mjs`, and JSON contracts in `scripts/schemas/`.
+Every runnable script accepts `--help`. Before changing scripts or providers, read `scripts/README.md`; shared modules live in `scripts/lib/`, and JSON contracts in `scripts/schemas/`.
 
-After corpus-search changes, run `node --test scripts/tests/corpus-find.test.mjs`; after fetch/session changes, run `node --test scripts/tests/fetch-session.test.mjs`; after robots/pacing/body-cap changes, run `node --test scripts/tests/http-policy.test.mjs`; after navigation/pagination changes, run `node --test scripts/tests/navigation-pagination.test.mjs`; after CDP client changes, run `node --test scripts/tests/cdp-client.test.mjs`. These finite local regressions need no browser or hosted provider; they do not replace a live browser check for CDP integration changes.
+Run the tests in `scripts/tests/` that cover changed behavior. A CDP integration change also needs a live browser check.
+
+## Resources
+
+Load the page that answers the current question.
+
+| When needed | Read |
+|---|---|
+| When scope or route is unclear | [route-selection](references/route-selection.md) |
+| When legality, privacy, or account boundaries | [scraping-policy](references/scraping-policy.md) |
+| When choosing a provider or make an approved hosted call | [providers](references/providers.md) |
+| Human provider setup | [PROVIDERS](docs/PROVIDERS.md) |
+| Add a vendor | [ADDING_A_VENDOR](docs/ADDING_A_VENDOR.md) |
+| When bridging a live browser | [browser-scraping](references/browser-scraping.md) |
+| For corpus layout and search order | [session-corpus](references/session-corpus.md) |
+| When an unread artifact needs semantic location | [clasify-screen](references/clasify-screen.md) |
+| For graph or workflow analysis | [website-analysis](references/website-analysis.md) |
+| For stdout and file contracts; extraction or citation quality | [data-contract](references/data-contract.md) |
+| When blocked, thin, oversized, or repeatedly failing | [failure-recovery](references/failure-recovery.md) |
+
+## Related skills
+
+- `octocode-chrome-devtools`: Use when rendering or interaction requires a live browser.
+- `octocode-research`: Use when the fetched material supports a code or package claim.
 
 ## Output
-One answer in chat, with the cited path. A fetch writes one session under `<output>/tmp/scrape/`.
-Add a report under `<output>/octocode-scraping/` only when the task asks for a report. Approved source edits keep their paths.
+
+See [output.md](output.md) for the response and saved-artifact format.

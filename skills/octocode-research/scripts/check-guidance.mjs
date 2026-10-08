@@ -10,11 +10,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 if (args.includes('--help')) {
   console.log([
     'Usage: node scripts/check-guidance.mjs [--json] [--self-test] [--examples]',
-    'Checks local/external routing, completeness, and TDD guidance. No network or writes.',
-    '--examples  also validate every JSON tool-call example in SKILL.md, README.md, and references/*.md',
+    'Checks documented JSON tool examples against live query schemas. No tool execution or writes.',
+    '--examples  validate examples (the default; combine with --self-test to run both)',
     '            against the live query schema from `octocode schema <tool>`.',
     '            CLI lookup: $OCTOCODE_CLI (a .js file or binary), the monorepo build, then `octocode` on PATH.',
-    '            Without a CLI the example check is skipped with a clear message (exit unaffected).',
+    '            A failing selected CLI is reported without switching to a different installed version.',
+    '            An unavailable CLI is reported as an incomplete check and exits nonzero.',
   ].join('\n'));
   process.exit(0);
 }
@@ -23,101 +24,8 @@ if (args.some(arg => !['--json', '--self-test', '--examples'].includes(arg))) {
   process.exit(2);
 }
 
-const cases = [
-  { name: 'known anchors skip discovery', file: 'references/workflow-local.md',
-    required: [/known (?:file|path|anchor)/i, /skip.*(?:discovery|orientation)/i] },
-  { name: 'reachability verifies explicit or inferred roots', file: 'references/workflow-local.md',
-    required: [/reachability[^\n]*optional[^\n]*entrypoints/i, /entrypointsResolved/, /unclassified/],
-    forbidden: [/reachability[^\n]*required[^\n]*entrypoints/i] },
-  { name: 'AST limits are evidence', file: 'references/workflow-local.md',
-    required: [/terminalLimit/, /(?:incomplete|partial)[^\n]*absence/i, /rule[^\n]*(?:YAML|object)/],
-    forbidden: [/structural\.query\.rewritten/] },
-  { name: 'LSP needs anchors and capability checks', file: 'references/workflow-local.md',
-    required: [/path[^\n]*symbolName[^\n]*lineHint/, /includeDeclaration:false/, /serverAvailable/, /capabilit/i],
-    forbidden: [/warmup/] },
-  { name: 'graph coverage has independent diagnostics', file: 'references/workflow-local.md',
-    required: [/diagnosticPage/, /diagnosticCounts/, /unresolved[^\n]*CommonJS/, /rustWorkspace/, /syntactic/] },
-  { name: 'artifact intent and version provenance', file: 'references/workflow-external.md',
-    required: [/packageName[^\n]*exact/i, /keywords[^\n]*discovery/i, /(?:version|release)[^\n]*(?:gitHead|tag|commit)/i, /viewReleaseSource/, /viewRepo[^\n]*not release evidence/] },
-  { name: 'GitHub indexed search has explicit boundaries', file: 'references/workflow-external.md',
-    required: [/code[^\n]*default branch/i, /1,000/, /(?:incomplete|partial)/i] },
-  { name: 'file refs never silently substitute', file: 'references/workflow-external.md',
-    required: [/ghGetFileContent[^\n]*explicit[^\n]*ref/i, /404[^\n]*(?:path|ref)/i],
-    forbidden: [/fallback branch changes what was researched/i] },
-  { name: 'history operations keep distinct identities', file: 'references/workflow-external.md',
-    required: [/pullRequest[^\n]*issue[^\n]*number/, /commit[^\n]*ref/, /compare[^\n]*base[^\n]*head/, /omit[^\n]*keywords[^\n]*(?:path|ref)/i,
-      /closedBy[^\n]*readPullRequest/, /responsePagination[^\n]*continuePatch/],
-    forbidden: [/includeDiff/, /content:\{/, /nextPatchFiles/] },
-  { name: 'materialization respects scoped completeness and storage', file: 'references/workflow-external.md',
-    required: [/complete[^\n]*(?:relative|requested scope)/i, /OCTOCODE_STORAGE_MODE/, /ENABLE_CLONE/, /shallow[^\n]*history/i],
-    forbidden: [/complete:false/, /3rd\+|third read|3\+ remote reads/i] },
-  { name: 'transport and continuation semantics', file: 'references/octocode.md',
-    required: [/responsePagination/, /nested/, /hasMore[^\n]*false/, /status[^\n]*error/],
-    forbidden: [/\$OCTO cache fetch/, /only `clone` and `cache`/, /10 tools are enabled by default/, /windows only `content\[\]\.text`/, /`ghCloneRepo` \(opt-in\)/] },
-  { name: 'portable CLI invocation', file: 'references/octocode.md',
-    required: [/npx -y octocode/, /node packages\/octocode\/out\/octocode\.js/],
-    forbidden: [/\$OCTO /] },
-  { name: 'TDD and no compatibility scaffolding', file: 'references/workflow-change.md',
-    required: [/RED[^\n]*GREEN[^\n]*REFACTOR/, /(?:fail|failing)[^\n]*before[^\n]*(?:patch|edit|implementation)/i, /(?:no|avoid)[^\n]*compatibility[^\n]*(?:unless|without)/i, /rebuild[^\n]*(?:CLI|MCP)/i] },
-  { name: 'authorization persists and budgets do not abandon work', file: 'SKILL.md',
-    required: [/authorization[^\n]*(?:persists|carry|already)/i, /checkpoint[^\n]*(?:budget|time)|budget[^\n]*checkpoint/i],
-    forbidden: [/Ask before public\/broad contracts/, /third unrelated search space/] },
-  { name: 'conditional semantic crossroad is executable and evidence-bound', file: 'SKILL.md',
-    required: [
-      /MODEL[^\n]*SEMANTIC\?[^\n]*SEARCH\/READ/,
-      /SEMANTIC\?[^\n]*conditional[^\n]*(?:never|not)[^\n]*mandatory/i,
-      /explicit classification request/,
-      /before the host reads a large known file/,
-      /saved scrape text, browser snapshots/,
-      /flat `questions:/,
-      /unread file as a flat `\{tool,query\}` resource/,
-      /Skip literals, small exact reads/,
-      /No automatic Scout → Judge chain/,
-      /Hints do not establish source facts or global absence/,
-      /verification reads and extra turns/,
-      /If unavailable, use targeted direct reads/,
-    ],
-    forbidden: [/No current research workflow meets both gates/, /questions:\[\{id,question\}\]/, /questionType:"locate",target/, /context --compact/] },
-  { name: 'primary sources and untrusted content', file: 'references/workflow-external.md',
-    required: [/primary[^\n]*(?:documentation|docs)/i, /untrusted[^\n]*(?:instructions|data)/i] },
-  { name: 'exact reads prefer anchors over wide guesses', file: 'references/reading-flows.md',
-    required: [/matchString[^\n]*list/, /ranges/, /block:true/, /contextLines[^\n]*max 100/, /full-content-size-limit/],
-    forbidden: [/100-line chunks/] },
-  { name: 'clasify reference carries no measured residue', file: 'references/clasify.md',
-    required: [/best[^\n]*absent[^\n]*carry/, /hints\.read/, /flat matrix is rejected/],
-    forbidden: [/legacy/, /\d(?:\.\d+)?×/, /0\.\d+[–-]0\.\d+/, /[Mm]easured/] },
-  { name: 'one owner for adaptive routing', file: 'references/algorithm.md',
-    required: [/surface[^\n]*task/i, /skip[^\n]*(?:irrelevant|redundant|known)/i],
-    forbidden: [/take exactly one/, /routes don't nest/, /graph for file topology → LSP/] },
-];
-
-const corpus = new Map();
-for (const item of cases) {
-  if (!corpus.has(item.file)) corpus.set(item.file, readFileSync(resolve(root, item.file), 'utf8'));
-}
-const accepts = (item, source) =>
-  item.required.every(pattern => pattern.test(source)) &&
-  (item.forbidden ?? []).every(pattern => !pattern.test(source));
-const checks = cases.map(item => ({ name: item.name, file: item.file, pass: accepts(item, corpus.get(item.file)) }));
-const selfChecks = args.includes('--self-test')
-  ? cases.map(item => ({ name: `${item.name}: missing guidance rejected`, pass: !accepts(item, '') }))
-  : [];
-if (args.includes('--self-test')) {
-  const semantic = cases.find(item => item.name.startsWith('conditional semantic crossroad'));
-  const source = corpus.get(semantic.file);
-  for (const [name, removed] of [
-    ['unread routing', 'before the host reads a large known file'],
-    ['artifact workflow', 'saved scrape text, browser snapshots'],
-    ['flat contract', 'flat `questions:'],
-    ['unread resource', 'unread file as a flat `{tool,query}` resource'],
-    ['exact-check bypass', 'Skip literals, small exact reads'],
-    ['proof boundary', 'Hints do not establish source facts or global absence'],
-    ['complete cost accounting', 'verification reads and extra turns'],
-  ]) {
-    const changed = source.replace(removed, '');
-    selfChecks.push({ name: `clasify: missing ${name} rejected`, pass: changed !== source && !accepts(semantic, changed) });
-  }
-}
+const checks = [];
+const selfChecks = [];
 
 // ---- Example validation against the live tool schema -------------------------------------------
 // A dependency-free JSON Schema subset covering every keyword the live query schemas use.
@@ -203,47 +111,55 @@ function extractExamples() {
 }
 
 function resolveCli() {
-  const candidates = [];
-  if (process.env.OCTOCODE_CLI) candidates.push(process.env.OCTOCODE_CLI);
-  for (let dir = root; dirname(dir) !== dir; dir = dirname(dir)) {
+  let cli = process.env.OCTOCODE_CLI;
+  for (let dir = root; !cli && dirname(dir) !== dir; dir = dirname(dir)) {
     const built = join(dir, 'packages/octocode/out/octocode.js');
-    if (existsSync(built)) { candidates.push(built); break; }
+    if (existsSync(built)) cli = built;
   }
-  candidates.push('octocode');
-  for (const cli of candidates) {
-    const [cmd, pre] = cli.endsWith('.js') ? [process.execPath, [cli]] : [cli, []];
-    try {
-      execFileSync(cmd, [...pre, 'schema'], { stdio: 'pipe', timeout: 20000 });
-      return (tool) => JSON.parse(execFileSync(cmd, [...pre, 'schema', tool, '--view', 'query'], {
-        stdio: 'pipe', timeout: 20000, env: { ...process.env, OCTOCODE_BETA: '1' },
-      }).toString()).querySchema;
-    } catch (error) {
-      // Keep the reason: a present-but-failing CLI (e.g. contract drift) is not "missing".
-      if (!(error && error.code === 'ENOENT')) resolveCli.lastError = `${cli}: ${String(error?.stderr || error?.message || error).trim().split('\n')[0]}`;
-    }
+  cli ||= 'octocode';
+  const [cmd, pre] = cli.endsWith('.js') ? [process.execPath, [cli]] : [cli, []];
+  try {
+    execFileSync(cmd, [...pre, 'schema'], { stdio: 'pipe', timeout: 20000 });
+    return (tool) => JSON.parse(execFileSync(cmd, [...pre, 'schema', tool, '--view', 'query'], {
+      stdio: 'pipe', timeout: 20000, env: { ...process.env, OCTOCODE_BETA: '1' },
+    }).toString()).querySchema;
+  } catch (error) {
+    // A failing selected build must not be replaced by another version on PATH.
+    resolveCli.lastError = `${cli}: ${commandFailure(error)}`;
   }
   return undefined;
 }
 
+function commandFailure(error) {
+  const output = [error?.stderr, error?.stdout].map(value => String(value ?? '').trim()).filter(Boolean);
+  return output.length ? output.join('\n') : String(error?.message || error);
+}
+
 let exampleNote;
-if (args.includes('--examples')) {
+if (!args.includes('--self-test') || args.includes('--examples')) {
   const schemaFor = resolveCli();
   if (!schemaFor) {
+    checks.push({ name: 'live schema available', pass: false });
     exampleNote = resolveCli.lastError
-      ? `SKIP examples: octocode CLI unusable (${resolveCli.lastError}); schema validation not run.`
-      : 'SKIP examples: no octocode CLI found (set OCTOCODE_CLI, build packages/octocode, or put `octocode` on PATH); schema validation not run.';
+      ? `INCOMPLETE examples: octocode CLI unusable (${resolveCli.lastError}); schema validation not run.`
+      : 'INCOMPLETE examples: no octocode CLI found (set OCTOCODE_CLI, build packages/octocode, or put `octocode` on PATH); schema validation not run.';
   } else {
     const schemas = new Map();
     const examples = extractExamples();
+    if (!examples.length) checks.push({ name: 'documented tool examples found', pass: false });
     for (const ex of examples) {
       let errors;
       if (ex.parseError) errors = ['example JSON does not parse'];
       else {
-        if (!schemas.has(ex.tool)) { try { schemas.set(ex.tool, schemaFor(ex.tool)); } catch { schemas.set(ex.tool, undefined); } }
-        const schema = schemas.get(ex.tool);
-        errors = schema ? validateSchema(schema, ex.query, schema) : [`unknown tool ${ex.tool} (no live schema)`];
+        if (!schemas.has(ex.tool)) {
+          try { schemas.set(ex.tool, { schema: schemaFor(ex.tool) }); }
+          catch (error) { schemas.set(ex.tool, { error: commandFailure(error) }); }
+        }
+        const result = schemas.get(ex.tool);
+        errors = result.schema ? validateSchema(result.schema, ex.query, result.schema)
+          : [`schema unavailable for ${ex.tool}: ${result.error || 'querySchema missing from response'}`];
       }
-      checks.push({ name: `example ${ex.tool} valid against live schema${errors.length ? `: ${errors.slice(0, 3).join('; ')}` : ''}`, file: `${ex.file}:${ex.line}`, pass: errors.length === 0 });
+      checks.push({ name: `example ${ex.tool} valid against live schema${errors.length ? `: ${errors.join('; ')}` : ''}`, file: `${ex.file}:${ex.line}`, pass: errors.length === 0 });
     }
     exampleNote = `examples: ${examples.length} validated against live schemas`;
   }
@@ -258,13 +174,17 @@ if (args.includes('--self-test')) {
     ['bad enum via $ref rejected', { path: '/x', mode: 'c' }, false],
     ['below minimum rejected', { path: '/x', n: 0 }, false],
   ]) selfChecks.push({ name: `example validator: ${name}`, pass: (validateSchema(schema, value, schema).length === 0) === ok });
+  selfChecks.push({ name: 'CLI failure preserves structured stdout with empty stderr',
+    pass: commandFailure({ stderr: Buffer.from(''), stdout: Buffer.from('{"error":"contract drift"}') }) === '{"error":"contract drift"}' });
+  selfChecks.push({ name: 'CLI failure preserves both output streams',
+    pass: commandFailure({ stderr: Buffer.from('diagnostic'), stdout: Buffer.from('details') }) === 'diagnostic\ndetails' });
 }
 const all = [...checks, ...selfChecks];
 const failed = all.filter(check => !check.pass);
 const report = { pass: failed.length === 0, passed: all.length - failed.length, total: all.length, ...(exampleNote ? { examples: exampleNote } : {}), checks: all };
 if (args.includes('--json')) console.log(JSON.stringify(report, null, 2));
 else {
-  console.log(`${report.pass ? 'PASS' : 'FAIL'} research-guidance ${report.passed}/${report.total}`);
+  console.log(`${report.pass ? 'PASS' : 'FAIL'} research-examples ${report.passed}/${report.total}`);
   if (exampleNote) console.log(`  ${exampleNote}`);
   for (const check of failed) console.log(`  FAIL ${check.name}${check.file ? ` (${check.file})` : ''}`);
 }

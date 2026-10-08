@@ -1133,7 +1133,7 @@ async fn search_resource_fans_out_candidates_from_only_the_requested_page() {
     let input = json!({
         "id":"search-page",
         "reasoning":"Judge one search page.","mainGoal":"Decide the next read.",
-        "resources":[{"id":"hits","tool":"localSearch","query":{
+        "resources":[{"id":"hits","candidateEvidence":"search","tool":"localSearch","query":{
             "path":root,"matchString":"needle","mainGoal": "test", "reasoning":"Find hits.",
             "resultView":"paginated","pageSize":2
         }}],
@@ -1294,8 +1294,10 @@ async fn file_chunk_scout_judges_every_hit_cluster_of_a_clipped_file() {
     for _ in 0..11 {
         body.push_str("needle marker\n");
     }
+    // Long filler lines keep the file over one page, so it is judged by
+    // hit windows rather than whole.
     for _ in 0..390 {
-        body.push_str("filler line\n");
+        body.push_str(&format!("filler line {}\n", "x".repeat(80)));
     }
     body.push_str("needle decides the answer\n");
     workspace.write("src/only.txt", body);
@@ -1355,11 +1357,12 @@ async fn file_chunk_scout_judges_every_hit_cluster_of_a_clipped_file() {
 }
 
 /// Two hit clusters of one file within a window radius are judged as one
-/// contiguous page: one provider call instead of two. A span too large for
-/// one bounded page falls back to one page per cluster.
+/// contiguous page: one provider call instead of two (a small file is one
+/// whole page). A span too large for one bounded page falls back to one page
+/// per cluster.
 #[tokio::test]
 async fn file_chunk_scout_judges_near_clusters_of_one_file_in_one_call() {
-    for (filler, calls) in [("filler line", 1u64), (&*"long filler ".repeat(9), 2)] {
+    for (filler, calls) in [("filler line", 1u64), (&*"long filler ".repeat(18), 2)] {
         let server = MockServer::builder().start().await;
         Mock::given(method("POST"))
             .and(path("/v1/systemone"))
@@ -1439,7 +1442,7 @@ async fn file_chunk_scout_judges_near_clusters_of_one_file_in_one_call() {
 }
 
 #[tokio::test]
-async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
+async fn file_chunk_scout_hydrates_the_candidate_cap_and_returns_exact_reads() {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
         .and(path("/v1/systemone"))
@@ -1448,11 +1451,11 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
             "answers":{"answer":{"type":"noul","noul":0.7}},
             "usage":{"input_tokens":3,"output_tokens":1}
         })))
-        .expect(5)
+        .expect(40)
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    for index in 0..8 {
+    for index in 0..45 {
         workspace.write(
             &format!("src/candidate{index}.txt"),
             format!("header\nneedle marker\nbody-only fact {index}\nfooter\n"),
@@ -1470,7 +1473,7 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
         "resources":[{"id":"hits",
             "tool":"localSearch","candidateEvidence":"fileChunks","query":{
                 "path":root,"matchString":"needle","mainGoal": "test", "reasoning":"Find candidates.",
-                "resultView":"paginated","pageSize":20
+                "resultView":"paginated","pageSize":50
             }
         ,"maxChars":20_000}],
         "questions":[{"id":"relevant",
@@ -1483,7 +1486,7 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
         .expect("hydrated scout");
     let query = &outcome.structured_content["queries"][0];
     let pages = query["resources"][0]["pages"].as_array().unwrap();
-    assert_eq!(pages.len(), 5, "{query}");
+    assert_eq!(pages.len(), 40, "{query}");
     for page in pages {
         assert_eq!(page["hints"]["read"]["tool"], "localFetch", "{page}");
         // An exact replay states no confidence.
@@ -1511,22 +1514,17 @@ async fn file_chunk_scout_hydrates_five_candidates_and_returns_exact_reads() {
         "{}",
         fetched.structured_content
     );
-    // Every page shares the bounded-chunk limit, so the resource states it once.
+    // Each small file is judged whole, so no page claims a bounded chunk.
     assert!(
-        query["resources"][0]["limitations"]
-            .as_array()
-            .is_some_and(|limits| limits.iter().any(|v| {
-                v.as_str()
-                    .is_some_and(|v| v.contains("bounded candidate chunk"))
-            })),
+        !query.to_string().contains("bounded candidate chunk"),
         "{query}"
     );
     let resume = &query["next"]["clasify"]["queries"][0]["resources"][0];
     assert_eq!(resume["candidateEvidence"], "fileChunks");
     assert_eq!(resume["query"]["page"], 2);
-    assert_eq!(resume["query"]["pageSize"], 5);
+    assert_eq!(resume["query"]["pageSize"], 40);
     let requests = server.received_requests().await.unwrap();
-    assert_eq!(requests.len(), 5);
+    assert_eq!(requests.len(), 40);
     for request in requests {
         let sent: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
         let state = &sent["state"];
@@ -1674,16 +1672,16 @@ async fn unjudged_hit_windows_state_their_error_once_and_batch_per_file() {
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    // Five files with seven far hit clusters each: more windows than the
-    // page budget judges.
+    // Ten files over one page each, with seven far hit clusters each: more
+    // windows than the page budget judges.
     let hits = (0..7).map(|step| 10 + step * 400).collect::<Vec<u64>>();
-    for file in 0..5 {
+    for file in 0..10 {
         let mut body = String::new();
         for line in 1..=2500 {
             body.push_str(if hits.contains(&line) {
                 "needle marker\n"
             } else {
-                "filler line\n"
+                "filler line padded so the file stays over one page\n"
             });
         }
         workspace.write(&format!("src/f{file}.txt"), body);
@@ -1740,7 +1738,7 @@ async fn unjudged_hit_windows_state_their_error_once_and_batch_per_file() {
     }
     // Judged pages name their window (`line`..`endLine`); together with the
     // batched reads they cover every hit of every file.
-    for file in 0..5 {
+    for file in 0..10 {
         let path = format!("src/f{file}.txt");
         let mut spans = Vec::new();
         for page in &pages {
@@ -1771,18 +1769,23 @@ async fn unjudged_hit_windows_state_their_error_once_and_batch_per_file() {
     runtime.close().await;
 }
 
+/// Wide search pages share the matrix page budget: each resource judges its
+/// share of candidates and `next.clasify` resumes the rest; nothing fails.
 #[tokio::test]
-async fn expanded_cells_fail_before_any_provider_request() {
+async fn wide_search_pages_share_the_page_budget_and_resume() {
     let server = MockServer::builder().start().await;
     Mock::given(method("POST"))
-        .respond_with(ResponseTemplate::new(500))
-        .expect(0)
+        .and(path("/v1/systemone"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "model":"resolved",
+            "answers":{"answer_0":{"type":"noul","noul":0.7},"answer_1":{"type":"noul","noul":0.6}},
+            "usage":{"input_tokens":3,"output_tokens":1}
+        })))
         .mount(&server)
         .await;
     let workspace = Workspace::new();
     for root in ["a", "b"] {
-        // Six matches per root with pageSize 5: each search has a next page.
-        for index in 0..6 {
+        for index in 0..31 {
             workspace.write(
                 &format!("{root}/candidate{index}.txt"),
                 "needle\nbody evidence\n",
@@ -1793,11 +1796,11 @@ async fn expanded_cells_fail_before_any_provider_request() {
         json!({
             "id":id,"tool":"localSearch","candidateEvidence":"search","query":{
                 "path":workspace.workspace.join(root),"matchString":"needle","mainGoal": "test", "reasoning":"Find candidates.",
-                "pageSize":5
+                "pageSize":30
             }
         })
     };
-    let questions = (0..3)
+    let questions = (0..2)
         .map(|index| {
             json!({
                 "id":format!("q{index}"),"type":"yesno","ask":format!("Check {index}?")
@@ -1807,35 +1810,34 @@ async fn expanded_cells_fail_before_any_provider_request() {
     let runtime = provider_runtime(&workspace, &server);
     let outcome = runtime
         .execute(
-            "expanded-cells".into(),
+            "wide-pages".into(),
             "clasify".into(),
             verbose(json!({
-                "id":"expanded-cells","reasoning":"Exercise the runtime expansion gate.","mainGoal":"Decide the next read.",
+                "id":"wide-pages","reasoning":"Exercise the page budget.","mainGoal":"Decide the next read.",
                 "resources":[resource("a","a"),resource("b","b")],"questions":questions
             })),
         )
         .await
-        .expect("structured expansion failure");
-    let resources = outcome.structured_content["queries"][0]["resources"]
-        .as_array()
-        .unwrap();
+        .expect("bounded wide pages");
+    let query = &outcome.structured_content["queries"][0];
+    let resources = query["resources"].as_array().unwrap();
+    let judged = resources
+        .iter()
+        .flat_map(|r| r["pages"].as_array().unwrap())
+        .filter(|page| page.get("answers").is_some())
+        .count();
+    assert!(judged > 0 && judged <= 48, "{query}");
     assert!(
         resources
             .iter()
             .flat_map(|r| r["pages"].as_array().unwrap())
-            .all(|page| { page["error"]["errorCode"] == "classificationExpandedCellsExceeded" }),
-        "{}",
-        outcome.structured_content
+            .all(|page| page["error"]["errorCode"] != "classificationExpandedCellsExceeded"),
+        "{query}"
     );
-    // No page was judged, so a continuation past them would skip them for good.
     assert!(
-        outcome.structured_content["queries"][0]
-            .get("next")
-            .is_none(),
-        "{}",
-        outcome.structured_content
+        query.pointer("/next/clasify").is_some(),
+        "the rest resumes: {query}"
     );
-    assert!(server.received_requests().await.unwrap().is_empty());
     runtime.close().await;
 }
 
@@ -2084,7 +2086,7 @@ async fn snippet_continuations_visit_every_file_and_match_page_before_completing
     let runtime = provider_runtime(&workspace, &server);
     let mut input = json!({
         "id":"matrix-1","reasoning":"Cover every file and match page.","mainGoal":"Decide the next read.",
-        "resources":[{"id":"files","tool":"localSearch","query":{
+        "resources":[{"id":"files","candidateEvidence":"search","tool":"localSearch","query":{
             "mainGoal": "test", "reasoning":"Page snippets.","path":root,"matchString":"marker",
             "pageSize":1,"matchPageSize":1,"sort":"path"
         }}],
@@ -2588,7 +2590,7 @@ async fn gh_search_code_resource_is_judged_without_a_context_contract_violation(
     ]);
     let input = json!({
         "reasoning":"Judge the code-search hits.","mainGoal":"Where the semaphore is acquired.",
-        "resources":[{"id":"hits","tool":"ghSearchCode","query":{
+        "resources":[{"id":"hits","candidateEvidence":"search","tool":"ghSearchCode","query":{
             "owner":"o","repo":"r","keywords":["semaphore"]
         }}],
         "questions":[{"id":"relevant","type":"yesno","ask":"Does this acquire the semaphore?"}]
@@ -2936,7 +2938,7 @@ async fn search_candidates_above_max_chars_never_reach_the_provider() {
     let runtime = provider_runtime(&workspace, &server);
     let input = json!({
         "id":"capped","reasoning":"Bound candidate evidence.","mainGoal":"Decide the next read.",
-        "resources":[{"id":"hits","maxChars":1,"tool":"localSearch","query":{
+        "resources":[{"id":"hits","maxChars":1,"candidateEvidence":"search","tool":"localSearch","query":{
             "path":root,"matchString":"needle","sort":"path","pageSize":3,"reasoning":"Find hits."
         }}],
         "questions":[{"id":"relevant","type":"yesno","ask":"Relevant?"}]
@@ -2981,7 +2983,7 @@ async fn search_candidates_past_the_remaining_budget_resume_without_skips() {
     let runtime = provider_runtime(&workspace, &server);
     let mut input = json!({
         "id":"budget","reasoning":"Bound candidate evidence.","mainGoal":"Decide the next read.",
-        "resources":[{"id":"hits","maxChars":1100,"tool":"localSearch","query":{
+        "resources":[{"id":"hits","maxChars":1100,"candidateEvidence":"search","tool":"localSearch","query":{
             "path":root,"matchString":"needle","sort":"path","pageSize":3,"reasoning":"Find hits."
         }}],
         "questions":[{"id":"relevant","type":"yesno","ask":"Relevant?"}]
@@ -3849,15 +3851,16 @@ async fn provider_refusal_is_stated_once_and_keeps_every_captured_read() {
         .mount(&server)
         .await;
     let workspace = Workspace::new();
-    // Eight files, each with three hit clusters far apart: five hydrate (the
-    // fileChunks cap), and their fifteen windows exceed the page budget.
-    for file in 0..8 {
+    // 43 files, each with three hit clusters far apart: 40 hydrate (the
+    // fileChunks cap), and their windows exceed the page budget.
+    for file in 0..43 {
         let mut body = String::new();
         for line in 1..=900 {
+            // Long filler keeps each file over one page (hit windows, not whole).
             body.push_str(if line % 400 == 10 {
                 "needle marker\n"
             } else {
-                "filler line\n"
+                "filler line with enough padding to keep this file over one page\n"
             });
         }
         workspace.write(&format!("src/f{file}.txt"), body);

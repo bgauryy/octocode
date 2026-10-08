@@ -329,6 +329,8 @@ mod tests {
             ("tools/gh_search_code/code_output.rs", 1),
             // A provider call made only under debug (last-modified lookup).
             ("tools/gh_get_file_content/mod.rs", 1),
+            // A replayed lead row drops its `debug:false` echo; no output branch.
+            ("tools/clasify/context.rs", 1),
             // The `debug` accessor of each artifact query form.
             ("providers/artifact/types.rs", 4),
             // Debug-gated output not yet moved into core's verbose classes.

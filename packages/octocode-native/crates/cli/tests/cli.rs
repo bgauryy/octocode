@@ -297,6 +297,11 @@ fn tool_help_uses_canonical_core_short_descriptions() {
                 .collect::<Vec<_>>()
                 .join(" ");
             assert!(text.contains(description), "{name} {flag}: {text}");
+            assert_eq!(
+                text.contains("Beta, disabled by default (set OCTOCODE_BETA=true"),
+                tool["beta"] == true,
+                "{name} {flag} names the beta gate exactly when the tool is beta: {text}"
+            );
         }
     }
 }
@@ -449,7 +454,7 @@ fn config_shows_files_and_keys_but_never_values() {
     assert!(text.contains("\nconfig\n  global "), "{text}");
     assert!(text.contains("\n.env\n  global "), "{text}");
     assert!(
-        text.contains("Values are never printed."),
+        text.contains("Values are not shown here; `octocode config get KEY` prints one."),
         "missing no-values note: {text}"
     );
 }
@@ -512,6 +517,23 @@ fn install_writes_npx_latest_and_never_octo_mcp() {
         preview.get("config").is_none(),
         "dry-run must not expose saved configuration: {preview}"
     );
+    let text = workspace
+        .cli()
+        .args(["install", "--ide", "cursor", "--dry-run"])
+        .output()
+        .expect("dry-run text");
+    assert!(text.status.success(), "{}", stderr(&text));
+    let text = stdout(&text);
+    assert!(
+        text.starts_with("Dry run for cursor: nothing written.\n"),
+        "{text}"
+    );
+    assert!(
+        text.contains("\n  action   add the octocode entry\n"),
+        "{text}"
+    );
+    assert!(text.contains("\n  command  npx "), "{text}");
+    assert!(!text.contains('{'), "dry-run text is not JSON: {text}");
     let config = workspace.home.join(".cursor").join("mcp.json");
     assert!(!config.exists(), "dry-run must not write");
 

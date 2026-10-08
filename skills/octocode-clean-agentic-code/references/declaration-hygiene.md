@@ -37,4 +37,4 @@ Load for redundant or aliased types, interfaces, enums, schemas, or protocol sha
 - Internal monorepo packages use `workspace:*` (or the configured protocol), never a pin; a pin breaks local resolution.
 - A dependency removal or version change needs explicit consent first. Unused-only removals in an approved batch may proceed.
 
-Next: run the batch with `references/cleanup-playbook.md`.
+Next: run the batch with [lobby workflow](../SKILL.md#workflow).

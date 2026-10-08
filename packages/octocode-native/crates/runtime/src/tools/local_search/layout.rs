@@ -51,7 +51,7 @@ impl Layout {
         query: &LocalSearchQuery,
         paths: &PathPolicy,
         output_root: &std::path::Path,
-        parsed: &mut octocode_engine::types::RipgrepParseResult,
+        parsed: &mut octocode_engine::types::TextSearchResult,
         page_budget: usize,
     ) -> Self {
         let view = query.result_view;
@@ -157,7 +157,7 @@ impl Layout {
     /// budget, so a walk never pages a hot file ten rows at a time.
     pub(super) fn stream(
         query: &LocalSearchQuery,
-        files: &[octocode_engine::types::RipgrepFile],
+        files: &[octocode_engine::types::TextSearchFile],
         matches_per: u32,
         show_all: bool,
         page_budget: usize,
@@ -255,14 +255,14 @@ impl PageCosts {
         }
     }
 
-    pub(super) fn clipped(&self, matched: &octocode_engine::types::RipgrepMatch) -> bool {
+    pub(super) fn clipped(&self, matched: &octocode_engine::types::TextSearchMatch) -> bool {
         match self.match_only_limit {
             Some(limit) => matched.value.chars().nth(limit).is_some(),
             None => matched.original_chars.is_some(),
         }
     }
 
-    pub(super) fn file(&self, file: &octocode_engine::types::RipgrepFile) -> usize {
+    pub(super) fn file(&self, file: &octocode_engine::types::TextSearchFile) -> usize {
         let path = crate::tools::stream_page::json_text_chars(&file.path) + self.prefix_chars;
         let entry = path + FILE_ENTRY_CHARS;
         if file.matches.iter().any(|m| self.clipped(m)) {
@@ -272,7 +272,7 @@ impl PageCosts {
         }
     }
 
-    pub(super) fn row(&self, matched: &octocode_engine::types::RipgrepMatch) -> usize {
+    pub(super) fn row(&self, matched: &octocode_engine::types::TextSearchMatch) -> usize {
         let row = row_chars(matched, self.match_only_limit, self.match_only);
         if self.clipped(matched) {
             // Its line range, and a share of the extra read every
@@ -340,7 +340,7 @@ pub(super) const FILE_ENTRY_CHARS: usize = 25;
 
 /// Serialized chars of one match row as a page shows it, with its separator.
 pub(super) fn row_chars(
-    matched: &octocode_engine::types::RipgrepMatch,
+    matched: &octocode_engine::types::TextSearchMatch,
     display_cap: Option<usize>,
     span_rows: bool,
 ) -> usize {
@@ -353,7 +353,7 @@ pub(super) fn row_chars(
 
 /// Most chars a streamed file entry's `pagination` can take: its later rows
 /// are named as at most [`MAX_MORE_LINES`] lines plus a count.
-pub(super) fn pagination_chars(file: &octocode_engine::types::RipgrepFile) -> usize {
+pub(super) fn pagination_chars(file: &octocode_engine::types::TextSearchFile) -> usize {
     let digits = |n: u64| n.checked_ilog10().map_or(1, |log| log as usize + 1);
     let total = file.matches.len();
     let widest_line = file.matches.iter().map(|m| m.line).max().unwrap_or(0);
@@ -375,9 +375,9 @@ pub(super) fn pagination_chars(file: &octocode_engine::types::RipgrepFile) -> us
 
 /// Whether every file entry, with all its rows, fits `budget` chars.
 pub(super) fn fits_within(
-    files: &[octocode_engine::types::RipgrepFile],
+    files: &[octocode_engine::types::TextSearchFile],
     budget: usize,
-    entry_chars: impl Fn(&octocode_engine::types::RipgrepFile) -> usize,
+    entry_chars: impl Fn(&octocode_engine::types::TextSearchFile) -> usize,
 ) -> bool {
     let mut used = 0usize;
     files.iter().all(|file| {
@@ -389,9 +389,9 @@ pub(super) fn fits_within(
 /// Serialized sizes a streamed page is cut by.
 pub(super) struct StreamCosts<'a> {
     /// A file entry around its rows.
-    pub(super) file: &'a dyn Fn(&octocode_engine::types::RipgrepFile) -> usize,
+    pub(super) file: &'a dyn Fn(&octocode_engine::types::TextSearchFile) -> usize,
     /// One match row.
-    pub(super) row: &'a dyn Fn(&octocode_engine::types::RipgrepMatch) -> usize,
+    pub(super) row: &'a dyn Fn(&octocode_engine::types::TextSearchMatch) -> usize,
 }
 
 /// Rows one page shows: (file index, rank-order row range), in page order.
@@ -421,7 +421,7 @@ pub(super) fn streamed_layout(q: &LocalSearchQuery) -> bool {
 /// rows on one page are always one contiguous rank range, and its later
 /// rows follow on later pages.
 pub(super) fn stream_pages(
-    files: &[octocode_engine::types::RipgrepFile],
+    files: &[octocode_engine::types::TextSearchFile],
     per_file: usize,
     whole: bool,
     budget: usize,

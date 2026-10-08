@@ -26,7 +26,7 @@ import { nativeCommand, resolveNativeBin } from '../../native-delegate.js';
 type EnvRequirement = 'required' | 'recommended' | 'optional';
 
 interface EnvParam {
-  /** Environment variable name, e.g. "TAVILY_API_KEY" */
+  /** Environment variable name, e.g. "GH_TOKEN" */
   key: string;
   /** Short human-readable description */
   description: string;
@@ -34,7 +34,7 @@ interface EnvParam {
   required: EnvRequirement;
   /**
    * Group tag — when set, AT LEAST ONE var in the group must be present.
-   * e.g. "web-search" means tavily OR serper OR exa is enough.
+   * e.g. "github-token" accepts either supported token variable.
    */
   group?: string;
   /** Where to get the key */
@@ -63,30 +63,6 @@ interface SkillEnvStatus {
 
 // ─── Static registry ──────────────────────────────────────────────────────────
 
-const WEB_SEARCH_PARAMS: EnvParam[] = [
-  {
-    key: 'TAVILY_API_KEY',
-    description: 'Tavily — curated/deep web research',
-    required: 'recommended',
-    group: 'web-search',
-    link: 'https://app.tavily.com/',
-  },
-  {
-    key: 'SERPER_API_KEY',
-    description: 'Serper — broad Google SERP results',
-    required: 'recommended',
-    group: 'web-search',
-    link: 'https://serper.dev/',
-  },
-  {
-    key: 'EXA_API_KEY',
-    description: 'Exa — neural/AI-native search, category filters',
-    required: 'recommended',
-    group: 'web-search',
-    link: 'https://dashboard.exa.ai/',
-  },
-];
-
 // Token and credential names come from the config contract, in precedence order.
 const GITHUB_TOKEN_PARAMS: EnvParam[] = ENV_TOKEN_VARS.map((key, index) => ({
   key,
@@ -105,7 +81,7 @@ const CLASSIFICATION_KEY_PARAMS: EnvParam[] = configFieldEnvNames(
   key,
   description:
     index === 0
-      ? 'Semantic assessment — optional two-agent RFC review'
+      ? 'Optional semantic classification and evidence routing'
       : 'Semantic assessment key (alternate name)',
   required: 'optional',
   group: 'classification-key',
@@ -113,18 +89,41 @@ const CLASSIFICATION_KEY_PARAMS: EnvParam[] = configFieldEnvNames(
 }));
 
 /**
- * Canonical env param requirements per skill.
- * Skills not listed here need no env params.
+ * Credential readiness for skills. Optional runtime settings stay in their docs.
  */
 export const SKILL_ENV_PARAMS: Record<string, EnvParam[]> = {
-  'octocode-brainstorming': WEB_SEARCH_PARAMS,
-  'octocode-research': GITHUB_TOKEN_PARAMS,
+  'octocode-brainstorming': [
+    {
+      key: 'TAVILY_API_KEY',
+      description:
+        'Optional Tavily integration; connected web tools can use their own authentication',
+      required: 'optional',
+    },
+    {
+      key: 'EXA_API_KEY',
+      description: 'Optional Exa integration',
+      required: 'optional',
+    },
+    {
+      key: 'SERPER_API_KEY',
+      description: 'Optional Serper integration',
+      required: 'optional',
+    },
+  ],
+  'octocode-research': [...GITHUB_TOKEN_PARAMS, ...CLASSIFICATION_KEY_PARAMS],
   'octocode-rfc-generator': [
     ...GITHUB_TOKEN_PARAMS,
     ...CLASSIFICATION_KEY_PARAMS,
   ],
   'octocode-roast': GITHUB_TOKEN_PARAMS,
-  // eval, agentic-prompts, skills, subagent: no special env params
+  'octocode-scraping': [
+    {
+      key: 'SCRAPING_ANT',
+      description:
+        'Optional ScrapingAnt provider; direct public fetching needs no key',
+      required: 'optional',
+    },
+  ],
 };
 
 // ─── Runtime status check ─────────────────────────────────────────────────────
@@ -266,10 +265,9 @@ export function getSkillsEnvStatus(skillNames: string[]): SkillEnvStatus[] {
 
 // ─── Display helpers ──────────────────────────────────────────────────────────
 
-/** Human-readable group label, e.g. "web-search" → "web search (at least one)" */
+/** Human-readable credential group label. */
 export function groupLabel(group: string): string {
   const labels: Record<string, string> = {
-    'web-search': 'web search (at least one of three)',
     'github-token': `GitHub token (one of ${ENV_TOKEN_VARS.join(', ')})`,
     'classification-key': `classification key (one of ${configFieldEnvNames('classification.api').join(', ')})`,
   };

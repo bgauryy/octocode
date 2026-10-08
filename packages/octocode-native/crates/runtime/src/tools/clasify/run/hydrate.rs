@@ -243,29 +243,77 @@ pub(super) fn snap_to_declarations(
     (snapped_start, snapped_end)
 }
 
-/// Declaration spans of each local candidate file, for snapping its hydrated
-/// windows. Read through the path policy; a file it refuses, a file too
-/// large to outline, or a language without an outline has none.
-pub(super) fn local_declaration_spans(
+/// One local candidate file as hydration sees it.
+#[derive(Clone, Debug, Default)]
+pub(super) struct LocalFile {
+    /// Declaration spans, for snapping hit windows (none without an outline).
+    pub(super) spans: Vec<(usize, usize)>,
+    pub(super) lines: u64,
+    pub(super) chars: usize,
+    /// Judged as one whole-file page instead of hit windows ([`fill_whole_files`]).
+    pub(super) whole: bool,
+}
+
+/// Each local candidate file, read through the path policy; a file it
+/// refuses or a file too large to outline has no entry (it keeps hit windows).
+pub(super) fn local_files(
     paths: &PathPolicy,
     security: &crate::security::ContentSecurity,
     candidates: &[Value],
-) -> HashMap<String, Vec<(usize, usize)>> {
+) -> HashMap<String, LocalFile> {
     candidates
         .iter()
         .filter_map(|candidate| {
-            let file = candidate.pointer("/results/0/data/files/0")?;
-            let path = candidate_identity(&json!({"tool":ToolId::LocalSearch.as_str()}), file)?;
+            let path = local_candidate_path(candidate)?;
             let validated = paths.validate_read(&path).ok()?;
             let text = crate::tools::source::read_text(
                 &validated.canonical,
                 octocode_engine::signatures::MAX_PARSE_SIZE,
                 security,
             )?;
-            let spans = crate::tools::local_fetch::declaration_spans(&text, &path)?;
-            Some((path, spans))
+            let file = LocalFile {
+                spans: crate::tools::local_fetch::declaration_spans(&text, &path)
+                    .unwrap_or_default(),
+                lines: text.lines().count() as u64,
+                chars: text.chars().count(),
+                whole: false,
+            };
+            Some((path, file))
         })
         .collect()
+}
+
+fn local_candidate_path(candidate: &Value) -> Option<String> {
+    let file = candidate.pointer("/results/0/data/files/0")?;
+    candidate_identity(&json!({"tool":ToolId::LocalSearch.as_str()}), file)
+}
+
+/// Mark the files judged whole and return the budget they leave. Smallest
+/// first, a file is judged whole when it fits an even share of the budget
+/// still left (at most one page), so the budget a small file does not use
+/// flows to the larger ones. Hit windows judge only the lines near hits; a
+/// whole file also judges the lines between them, where a described target
+/// that does not contain the searched literal lives.
+pub(super) fn fill_whole_files(files: &mut HashMap<String, LocalFile>, budget: usize) -> usize {
+    let mut order = files
+        .iter()
+        .filter(|(_, file)| file.chars > 0)
+        .map(|(path, file)| (file.chars, path.clone()))
+        .collect::<Vec<_>>();
+    order.sort_unstable();
+    let mut left = budget;
+    let count = order.len();
+    for (index, (chars, path)) in order.into_iter().enumerate() {
+        let share = (left / (count - index)).min(MAX_HYDRATED_CHARS);
+        if chars > share {
+            break;
+        }
+        left -= chars;
+        if let Some(file) = files.get_mut(&path) {
+            file.whole = true;
+        }
+    }
+    left
 }
 
 pub(super) fn local_window_read(path: &str, (start, end): (u64, u64), max_bytes: usize) -> Value {
@@ -485,6 +533,20 @@ pub(super) fn github_candidate_read(candidate: &Value, max_bytes: usize) -> Opti
     ))
 }
 
+/// The whole-file form of a GitHub candidate read: the same file and byte
+/// budget without the anchor or line window.
+fn github_whole_read(read: &Value) -> Option<Value> {
+    if read["tool"] != ToolId::GhGetFileContent.as_str() {
+        return None;
+    }
+    let mut whole = read.clone();
+    let query = whole.get_mut("query")?.as_object_mut()?;
+    for field in ["matchString", "contextLines", "ranges"] {
+        query.remove(field);
+    }
+    Some(whole)
+}
+
 pub(super) fn candidate_read(
     source: &Value,
     candidate: &Value,
@@ -561,8 +623,9 @@ pub(super) fn bounded_search_source(
     let local = tool_of(source) == Some(ToolId::LocalSearch);
     let original_size = match query.get("pageSize").and_then(Value::as_u64) {
         Some(size) => size,
-        // A list tool's first page starts at offset 0 under any page size.
-        None if list && page <= 1 => u64::MAX,
+        // A first page starts at offset 0 under any page size, so it widens
+        // to the candidate bound.
+        None if page <= 1 => u64::MAX,
         // A later page with an unknown default cannot be re-paged safely;
         // the expanded-cell check still bounds provider work. A localSearch
         // page after the first without `pageSize` is cut by the response
@@ -756,6 +819,7 @@ pub(super) fn hydrate_candidate(
     hits: &[u64],
     anchored: bool,
     whole: bool,
+    entire: bool,
     dispatcher: &DomainDispatcher,
     execution: &ExecutionContext,
 ) -> Option<Vec<CapturedPage>> {
@@ -781,10 +845,12 @@ pub(super) fn hydrate_candidate(
             let evidence = provider_state(&read, hydrated_state.clone());
             let evidence_chars = evidence_chars(&evidence);
             let mut context = hydrated_receipt.unwrap_or_else(|| fallback_context(&read));
-            crate::tools::clasify::context::append_limitation(
-                &mut context,
-                "Only a bounded candidate chunk was assessed; unread file content may change the verdict.",
-            );
+            if !entire {
+                crate::tools::clasify::context::append_limitation(
+                    &mut context,
+                    "Only a bounded candidate chunk was assessed; unread file content may change the verdict.",
+                );
+            }
             if !anchored {
                 crate::tools::clasify::context::append_limitation(
                     &mut context,
@@ -852,6 +918,8 @@ pub(super) struct HydrationJob {
     parts: Vec<Value>,
     /// Hit lines of the candidate, so a cut window narrows onto its hits.
     hits: Vec<u64>,
+    /// `read` is the whole file.
+    entire: bool,
 }
 
 impl HydrationJob {
@@ -861,6 +929,7 @@ impl HydrationJob {
             anchored,
             parts: Vec::new(),
             hits: Vec::new(),
+            entire: false,
         }
     }
 
@@ -871,7 +940,7 @@ impl HydrationJob {
         dispatcher: &DomainDispatcher,
         execution: &ExecutionContext,
     ) -> Vec<CapturedPage> {
-        let hydrate = |read, whole| {
+        let hydrate = |read, whole, entire| {
             hydrate_candidate(
                 source,
                 candidate.clone(),
@@ -879,40 +948,55 @@ impl HydrationJob {
                 &self.hits,
                 self.anchored,
                 whole,
+                entire,
                 dispatcher,
                 execution,
             )
         };
-        if let Some(pages) = hydrate(self.read.clone(), !self.parts.is_empty()) {
+        if let Some(pages) = hydrate(self.read.clone(), !self.parts.is_empty(), self.entire) {
             return pages;
         }
         self.parts
             .iter()
-            .filter_map(|part| hydrate(part.clone(), false))
+            .filter_map(|part| hydrate(part.clone(), false, false))
             .flatten()
             .collect()
     }
 }
 
-/// Reads for each candidate: local candidates get one window per hit
-/// cluster within `page_budget` pages in all; others get their one read.
+/// Reads for each candidate: a local file marked whole is one page (its hit
+/// windows are the fallback when it does not fit), other local candidates get
+/// one window per hit cluster within `page_budget` pages in all; others get
+/// their one read.
 pub(super) fn candidate_jobs(
     source: &Value,
     candidates: &[Value],
     max_bytes: usize,
     page_budget: usize,
-    declarations: &HashMap<String, Vec<(usize, usize)>>,
+    files: &HashMap<String, LocalFile>,
 ) -> Vec<Option<Vec<HydrationJob>>> {
     if tool_of(source) != Some(ToolId::LocalSearch) {
         return candidates
             .iter()
             .map(|candidate| {
-                candidate_read(source, candidate, max_bytes)
-                    .map(|read| vec![HydrationJob::single(read)])
+                candidate_read(source, candidate, max_bytes).map(|(read, anchored)| {
+                    // A GitHub file within its share is judged whole; the
+                    // anchored window is the fallback when it does not fit.
+                    match github_whole_read(&read) {
+                        Some(whole) => vec![HydrationJob {
+                            read: whole,
+                            anchored,
+                            parts: vec![read],
+                            hits: Vec::new(),
+                            entire: true,
+                        }],
+                        None => vec![HydrationJob::single((read, anchored))],
+                    }
+                })
             })
             .collect();
     }
-    allotted_windows(candidates, page_budget)
+    allotted_windows(candidates, page_budget, files)
         .into_iter()
         .zip(candidates)
         .map(|(entry, candidate)| {
@@ -924,12 +1008,26 @@ pub(super) fn candidate_jobs(
             windows.truncate(taken);
             // Judge a file's windows in source order.
             windows.sort_unstable();
-            let read = |window| {
+            let read = |window, max_bytes| {
                 let mut read = local_window_read(&path, window, max_bytes);
                 inherit_search_goal(&mut read, source);
                 read
             };
-            let spans = declarations.get(&path).map_or(&[][..], Vec::as_slice);
+            let file = files.get(&path);
+            if let Some(file) = file.filter(|file| file.whole) {
+                return Some(vec![HydrationJob {
+                    read: read((1, file.lines.max(1)), MAX_HYDRATED_CHARS),
+                    anchored: true,
+                    parts: windows
+                        .iter()
+                        .map(|window| read(*window, max_bytes))
+                        .collect(),
+                    hits,
+                    entire: true,
+                }]);
+            }
+            let read = |window| read(window, max_bytes);
+            let spans = file.map_or(&[][..], |file| file.spans.as_slice());
             Some(
                 merge_near_windows(windows.clone())
                     .into_iter()
@@ -951,6 +1049,7 @@ pub(super) fn candidate_jobs(
                                 Vec::new()
                             },
                             hits: hits.clone(),
+                            entire: false,
                         }
                     })
                     .collect(),
@@ -964,27 +1063,43 @@ pub(super) fn candidate_jobs(
 pub(super) type AllottedWindows = (String, Vec<(u64, u64)>, usize);
 
 /// [`AllottedWindows`] per candidate; `None` without a usable file identity.
+/// A whole file is one page and keeps every window (its fallback), so the
+/// page budget goes to the files judged by windows.
 pub(super) fn allotted_windows(
     candidates: &[Value],
     page_budget: usize,
+    files: &HashMap<String, LocalFile>,
 ) -> Vec<Option<AllottedWindows>> {
     let windows = candidates
         .iter()
         .map(|candidate| {
             let file = candidate.pointer("/results/0/data/files/0")?;
             let path = candidate_identity(&json!({"tool":ToolId::LocalSearch.as_str()}), file)?;
-            Some((path, hit_cluster_windows(candidate_hit_lines(file))))
+            let whole = files.get(&path).is_some_and(|file| file.whole);
+            Some((path, hit_cluster_windows(candidate_hit_lines(file)), whole))
         })
         .collect::<Vec<_>>();
+    let wholes = windows
+        .iter()
+        .filter(|entry| entry.as_ref().is_some_and(|(_, _, whole)| *whole))
+        .count();
     let clusters = windows
         .iter()
-        .map(|entry| entry.as_ref().map_or(0, |(_, windows)| windows.len()))
+        .map(|entry| match entry {
+            Some((_, windows, false)) => windows.len(),
+            _ => 0,
+        })
         .collect::<Vec<_>>();
-    let taken = allocate_windows(&clusters, page_budget);
+    let taken = allocate_windows(&clusters, page_budget.saturating_sub(wholes));
     windows
         .into_iter()
         .zip(taken)
-        .map(|(entry, taken)| entry.map(|(path, windows)| (path, windows, taken.max(1))))
+        .map(|(entry, taken)| {
+            entry.map(|(path, windows, whole)| {
+                let taken = if whole { windows.len() } else { taken.max(1) };
+                (path, windows, taken)
+            })
+        })
         .collect()
 }
 
@@ -995,11 +1110,12 @@ pub(super) fn unjudged_windows(
     source: &Value,
     candidates: &[Value],
     page_budget: usize,
+    files: &HashMap<String, LocalFile>,
 ) -> Vec<Vec<(u64, u64)>> {
     if tool_of(source) != Some(ToolId::LocalSearch) {
         return vec![Vec::new(); candidates.len()];
     }
-    allotted_windows(candidates, page_budget)
+    allotted_windows(candidates, page_budget, files)
         .into_iter()
         .map(|entry| {
             entry
@@ -1199,22 +1315,25 @@ pub(super) fn hydrate_candidates(
             None
         });
     }
-    let declarations = if local {
-        local_declaration_spans(&dispatcher.paths, &dispatcher.security, &candidates)
+    let mut files = if local {
+        local_files(&dispatcher.paths, &dispatcher.security, &candidates)
     } else {
         HashMap::new()
     };
-    let planned = candidate_jobs(source, &candidates, 1, page_budget, &declarations)
+    // Whole files take their own size; window pages share what is left.
+    let left = fill_whole_files(&mut files, budget);
+    let windowed = candidate_jobs(source, &candidates, 1, page_budget, &files)
         .iter()
         .flatten()
-        .map(Vec::len)
-        .sum::<usize>();
-    let max_bytes = budget
-        .checked_div(planned.max(1))
-        .unwrap_or(budget)
+        .flatten()
+        .filter(|job| !job.entire)
+        .count();
+    let max_bytes = left
+        .checked_div(windowed.max(1))
+        .unwrap_or(left)
         .clamp(1, MAX_HYDRATED_CHARS);
-    let jobs = candidate_jobs(source, &candidates, max_bytes, page_budget, &declarations);
-    let unjudged = unjudged_windows(source, &candidates, page_budget);
+    let jobs = candidate_jobs(source, &candidates, max_bytes, page_budget, &files);
+    let unjudged = unjudged_windows(source, &candidates, page_budget, &files);
     let originals = if local {
         candidates.clone()
     } else {
@@ -1593,7 +1712,13 @@ mod tests {
         let candidate = json!({"results":[{"data":{"files":[{
             "path":"src/coop.rs","matches":[{"line":129},{"line":136},{"line":271},{"line":291},{"line":310}]
         }]}}]});
-        let spans = HashMap::from([("src/coop.rs".to_owned(), vec![(343, 364)])]);
+        let spans = HashMap::from([(
+            "src/coop.rs".to_owned(),
+            LocalFile {
+                spans: vec![(343, 364)],
+                ..LocalFile::default()
+            },
+        )]);
         let jobs = candidate_jobs(&source, std::slice::from_ref(&candidate), 4_000, 10, &spans);
         let [Some(jobs)] = &jobs[..] else {
             panic!("one candidate");
@@ -1631,7 +1756,7 @@ mod tests {
         }]}}]});
         let candidates = std::slice::from_ref(&candidate);
         let judged = candidate_jobs(&source, candidates, 4_000, 1, &HashMap::new());
-        let mut unjudged = unjudged_windows(&source, candidates, 1);
+        let mut unjudged = unjudged_windows(&source, candidates, 1, &HashMap::new());
         assert_eq!(unjudged.len(), 1);
         assert_eq!(unjudged[0].len(), 2, "{unjudged:?}");
         let pages =
@@ -1656,7 +1781,98 @@ mod tests {
             );
         }
         // A budget that covers every cluster leaves nothing unjudged.
-        assert!(unjudged_windows(&source, candidates, 10)[0].is_empty());
+        assert!(unjudged_windows(&source, candidates, 10, &HashMap::new())[0].is_empty());
+    }
+
+    /// Smallest first, files that fit an even share of the budget left are
+    /// judged whole; the budget a small file does not use goes to the rest.
+    #[test]
+    fn whole_files_fill_the_budget_smallest_first() {
+        let file = |chars| LocalFile {
+            lines: 100,
+            chars,
+            ..LocalFile::default()
+        };
+        let mut files = HashMap::from([
+            ("a.rs".to_owned(), file(1_000)),
+            ("b.rs".to_owned(), file(MAX_HYDRATED_CHARS)),
+            ("c.rs".to_owned(), file(MAX_HYDRATED_CHARS + 1)),
+        ]);
+        let left = fill_whole_files(&mut files, 1_000 + 2 * MAX_HYDRATED_CHARS);
+        assert!(files["a.rs"].whole && files["b.rs"].whole);
+        assert!(
+            !files["c.rs"].whole,
+            "a file over one page keeps hit windows"
+        );
+        assert_eq!(left, MAX_HYDRATED_CHARS);
+        // An even share decides: two equal files that do not both fit stay windowed.
+        let mut files = HashMap::from([
+            ("a.rs".to_owned(), file(600)),
+            ("b.rs".to_owned(), file(600)),
+        ]);
+        assert_eq!(fill_whole_files(&mut files, 1_000), 1_000);
+        assert!(!files["a.rs"].whole && !files["b.rs"].whole);
+    }
+
+    /// A GitHub candidate is read whole within its byte share; the anchored
+    /// window is its fallback when the file does not fit.
+    #[test]
+    fn a_github_candidate_is_read_whole_with_its_anchored_window_as_fallback() {
+        let source =
+            json!({"tool":"ghSearchCode","query":{"owner":"o","repo":"r","keywords":["timer"]}});
+        let candidate = json!({"results":[{"data":{"files":[
+            {"owner":"o","repo":"r","path":"src/timer.rs","matches":[{"value":"fn arm_timer() {"}]}
+        ]}}]});
+        let jobs = candidate_jobs(&source, &[candidate], 4_000, 10, &HashMap::new());
+        let [job] = &jobs[0].as_ref().expect("job")[..] else {
+            panic!("one job");
+        };
+        assert!(job.entire);
+        assert!(
+            job.read["query"].get("matchString").is_none(),
+            "{}",
+            job.read
+        );
+        assert_eq!(job.read["query"]["length"], 4_000);
+        let [anchored] = &job.parts[..] else {
+            panic!("one fallback");
+        };
+        // The fallback is a bounded window: the anchor, or the opening lines.
+        assert!(
+            anchored["query"].get("matchString").is_some()
+                || anchored["query"].get("ranges").is_some(),
+            "{anchored}"
+        );
+    }
+
+    /// A whole file is one page over every line, with its hit windows as the
+    /// fallback, and leaves no hit window unjudged.
+    #[test]
+    fn a_whole_file_is_one_page_with_its_windows_as_fallback() {
+        let source =
+            json!({"tool":"localSearch","query":{"path":"src","matchString":"task budget"}});
+        let candidate = json!({"results":[{"data":{"files":[{
+            "path":"src/a.rs","matches":[{"line":10},{"line":300}]
+        }]}}]});
+        let files = HashMap::from([(
+            "src/a.rs".to_owned(),
+            LocalFile {
+                lines: 364,
+                chars: 9_000,
+                whole: true,
+                ..LocalFile::default()
+            },
+        )]);
+        let candidates = std::slice::from_ref(&candidate);
+        let jobs = candidate_jobs(&source, candidates, 4_000, 1, &files);
+        let [job] = &jobs[0].as_ref().expect("jobs")[..] else {
+            panic!("one whole-file job");
+        };
+        assert!(job.entire);
+        assert_eq!(span(&job.read), (1, 364));
+        assert_eq!(job.read["query"]["length"], MAX_HYDRATED_CHARS);
+        assert_eq!(job.parts.len(), 2, "both hit windows stay as the fallback");
+        assert!(unjudged_windows(&source, candidates, 1, &files)[0].is_empty());
     }
 
     #[test]

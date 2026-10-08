@@ -3,6 +3,7 @@
 Load when choosing `--provider`, checking routes, adding a vendor, or making an approved hosted call. Why: choose a supported route without unintended spend.
 
 ## Contract
+
 `fetch({ url, pageId, config, apiKey })` → `FetchResponse` (`scripts/schemas/provider.schema.json`). Corpus and analyzers must not branch on vendor names.
 
 | Provider | Modes | Key | Best for |
@@ -12,8 +13,9 @@ Load when choosing `--provider`, checking routes, adding a vendor, or making an 
 | `scrapingant` | html, markdown, extended, extract | `SCRAPING_ANT` | Hosted anti-bot / markdown / extract: **explicit only** |
 
 ## ScrapingAnt (only after the user approves hosted spend)
+
 A hosted call is an explicit, paid choice.
-- Env key `SCRAPING_ANT` resolves through vendored `scripts/octocode-config.mjs` (`propagateOctocodeEnv`). Never print the key.
+- The optional hosted provider needs `SCRAPING_ANT` in its process environment. It may be stored in `<HOME>/.octocode/.env`; never print the value.
 - `--mode html`: `/v2/general` · `markdown`: `/v2/markdown` · `extended`: `/v2/extended` · `extract`: `/v2/extract`. Usage: `provider-usage.mjs` → `/v2/usage` (sanitized).
 
 ```bash

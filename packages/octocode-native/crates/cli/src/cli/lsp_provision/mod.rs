@@ -511,7 +511,7 @@ pub async fn run(
         return 5;
     };
     let platform = platform_id();
-    // `names` carries the optional file-path argument for status/which.
+    // `names` carries the optional file-path argument for status.
     match action {
         "list" => run_list(&root, &platform, json),
         "install" => {
@@ -529,7 +529,7 @@ pub async fn run(
         }
         "uninstall" => run_uninstall(&root, &platform, names, json),
         "clean" => run_clean(&root, yes, json),
-        "status" | "which" => run_status(
+        "status" => run_status(
             &discovery,
             &root,
             &platform,

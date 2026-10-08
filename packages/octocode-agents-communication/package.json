@@ -1,6 +1,6 @@
 {
   "name": "@octocodeai/octocode-agents-communication",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "MCP server and /cli operations for durable cross-vendor agent coordination.",
   "type": "module",
@@ -27,6 +27,7 @@
     "scripts",
     "OPERATING.md",
     "README.md",
+    "ARCHITECTURE.md",
     "LICENSE",
     "!scripts/**/__pycache__",
     "!scripts/**/*.pyc"

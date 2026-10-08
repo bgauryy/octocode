@@ -41,4 +41,4 @@ At each edge record owner, visibility (model/tool/runtime/human), lifetime (call
 
 Capture the redacted effective boundary, change the smallest owning layer, then rerun the same trace (cold call, next turn, failure path; resume, compaction, root/worker). Never bloat the base prompt to hide a loader, reducer, or serializer bug. Record: `Surface | Running (package + version + entrypoint/config) | Flow | Visibility/lifetime | Observed input (redacted, or unavailable + reason) | Owner to change`.
 
-Next: occupancy `../context/context-budget.md`; tool definitions `../tools/tool-contracts.md`.
+Next: occupancy `../context-management/context-budget.md`; tool definitions `../tools/tool-contracts.md`.

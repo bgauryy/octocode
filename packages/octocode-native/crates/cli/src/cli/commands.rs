@@ -10,7 +10,7 @@ use octocode_native::tools::id::ToolId;
 /// from a file, or from stdin) executed against the tool's contract.
 #[derive(Args, Debug)]
 pub(super) struct ToolArgs {
-    /// Raw JSON query object, e.g. '{"queries":[…]}'. See `octocode schema <tool>`.
+    /// JSON query: one query object, or '{"queries":[…]}' to batch. Fields: `octocode schema <tool> --view query`.
     pub query: Option<String>,
     /// Read the JSON query from a file, or from stdin with `-`.
     #[arg(long, value_name = "FILE|-", conflicts_with = "query")]
@@ -59,13 +59,22 @@ pub(super) struct ToolCommand {
     pub args: ToolArgs,
 }
 
-/// `(name, shortDescription)` for every tool in the embedded contract. Both
-/// are generated constants, so building the argument parser never parses the
+/// `(name, about)` for every tool in the embedded contract: its
+/// `shortDescription`, led by the beta gate for a beta tool. Both come from
+/// generated constants, so building the argument parser never parses the
 /// multi-megabyte contract.
-fn contract_tools() -> impl Iterator<Item = (&'static str, &'static str)> {
-    ToolId::ALL
-        .into_iter()
-        .map(|tool| (tool.as_str(), tool.short_description()))
+fn contract_tools() -> impl Iterator<Item = (&'static str, String)> {
+    ToolId::ALL.into_iter().map(|tool| {
+        let about = tool.short_description();
+        let about = if tool.is_beta() {
+            format!(
+                "Beta, disabled by default (set OCTOCODE_BETA=true or local.beta:true). {about}"
+            )
+        } else {
+            about.to_owned()
+        };
+        (tool.as_str(), about)
+    })
 }
 
 fn contract_tool_name(name: &str) -> Option<&'static str> {
@@ -146,7 +155,11 @@ pub(super) enum AuthCommand {
         json: bool,
     },
     /// Remove stored GitHub credentials from Octocode home and the OS store.
-    Logout,
+    Logout {
+        /// Emit JSON output.
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -168,7 +181,7 @@ pub(super) enum Command {
         #[arg(long, value_name = "FIELD=VALUE", requires = "tool")]
         select: Option<String>,
     },
-    /// Show configuration files and loaded keys (never values), or edit the global .env.
+    /// Show configuration files and loaded keys, print the home path, or get and set .env keys.
     #[command(args_conflicts_with_subcommands = true, disable_help_subcommand = true)]
     Config {
         #[command(subcommand)]
@@ -249,11 +262,11 @@ pub(super) enum Command {
         #[arg(value_enum)]
         action: CacheAction,
     },
-    /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `clean`, `status`, `which`).
+    /// Manage auto-downloadable language servers (`list`, `install`, `uninstall`, `clean`, `status`).
     #[command(name = "lsp-server", hide = true)]
     LspServer {
-        /// Subcommand: `list`, `install <name...>`, `uninstall <name...>`, `clean`, `status [file]`, or `which [file]`.
-        #[arg(value_parser = ["list", "install", "uninstall", "clean", "status", "which"])]
+        /// Subcommand: `list`, `install <name...>`, `uninstall <name...>`, `clean`, or `status [file]`.
+        #[arg(value_parser = ["list", "install", "uninstall", "clean", "status"])]
         action: String,
         /// Server names for install/uninstall (e.g. `rust-analyzer`, `clangd`).
         names: Vec<String>,
@@ -302,9 +315,25 @@ pub(super) enum ConfigCommand {
         #[arg(long, default_value_t = 900, value_parser = clap::value_parser!(u64).range(30..=3600))]
         idle_timeout: u64,
     },
+    /// Print the Octocode home directory (holds the global .env, .octocoderc, skills, and caches).
+    Home {
+        /// Print JSON.
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print a key's resolved value (environment, then workspace .env, then global .env); exit 1 when unset.
+    Get {
+        /// Environment key, e.g. `OCTOCODE_CLASSIFICATION_API`.
+        key: String,
+        /// Print JSON: key, value, and source (`environment`, `project`, or `global`).
+        #[arg(long)]
+        json: bool,
+    },
     /// Set a key in the global .env: `set KEY VALUE`, or `set KEY --stdin` to keep secrets out of shell history.
     Set {
+        /// Environment key, e.g. `OCTOCODE_CLASSIFICATION_API`.
         key: String,
+        /// Value to store; omit with `--stdin`.
         value: Option<String>,
         /// Read the value from stdin.
         #[arg(long, conflicts_with = "value")]
@@ -315,6 +344,7 @@ pub(super) enum ConfigCommand {
     },
     /// Remove every assignment of a key from the global .env.
     Unset {
+        /// Environment key to remove, e.g. `OCTOCODE_BETA`.
         key: String,
         /// Print JSON.
         #[arg(long)]
@@ -322,6 +352,7 @@ pub(super) enum ConfigCommand {
     },
     /// Exit 0 when a key is set (from the environment or a .env file), 1 when unset; never prints the value.
     Check {
+        /// Environment key, e.g. `GITHUB_TOKEN`.
         key: String,
         /// Print JSON.
         #[arg(long)]

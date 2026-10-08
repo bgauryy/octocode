@@ -20,7 +20,7 @@ Set `OCTOCODE_PYTHON` to an absolute interpreter path if Python is not on PATH.
 The optional lean skill ships in the `octocode` package:
 
 ```sh
-octocode skill install octocode-agents-communication --platform claude,codex --global --dry-run
+npx octocode skill install octocode-agents-communication --platform claude,codex --global --dry-run
 ```
 
 Inspect the destination plan, then repeat without `--dry-run` and reload skill discovery.

@@ -4,7 +4,7 @@
 home-directory resolution, `.env` policy, and the configuration contract
 (`config-contract.json`), shared by the Octocode CLI launcher, MCP server,
 extensions, and standalone skills. Settings are resolved by the native runtime
-from the same contract; `octocode config` shows what it resolved.
+from the same contract; `npx octocode config` shows what it resolved.
 
 ## Public API
 

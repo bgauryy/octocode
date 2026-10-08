@@ -1,4 +1,5 @@
 import { execute } from './runtime.mjs';
+import manifest from '../../package.json' with { type: 'json' };
 export async function runCommunicationMcp(argv = process.argv.slice(2)) {
   if (argv.includes('--help') || argv.includes('-h')) {
     console.log(`@octocodeai/octocode-agents-communication — MCP stdio server (default)
@@ -19,7 +20,7 @@ Programmatic exports: package root (MCP), package/cli (CLI).
 Requires Node 24.15+ (24.x) and Python 3.9+.`);
     return 0;
   }
-  if (argv.includes('--version')) { console.log('0.1.0'); return 0; }
+  if (argv.includes('--version')) { console.log(manifest.version); return 0; }
   await execute(['mcp', ...argv], { stream: true });
   return 0;
 }

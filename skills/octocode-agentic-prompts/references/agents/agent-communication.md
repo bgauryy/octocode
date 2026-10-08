@@ -4,7 +4,7 @@ Load when agents delegate, hand off, work asynchronously, or expose capabilities
 
 | Need | Use | Keep explicit |
 |---|---|---|
-| Focused internal subtask | Typed local call | Parent owns the user conversation and final synthesis | <!-- style-lint: ignore-line the-user -->
+| Focused internal subtask | Typed local call | Parent owns the user conversation and final synthesis |
 | Specialist assists parent | Manager-as-tool | Input/output contract; parent retains control |
 | Specialist takes over | Handoff | Receiver, transfer condition, filtered context, return or terminal rule |
 | Independent remote agent | A2A | Agent Card, capabilities, task lifecycle, artifacts, auth |
@@ -43,4 +43,4 @@ Change gate: candidate version → semantic and byte diff → rerun held-out beh
 
 Source: [A2A spec](https://a2a-protocol.org/dev/specification/).
 
-Next: cross-app or Zod packet `cross-app-contracts.md`; validate a base with `octocode-eval-benchmark` (fallback `../flow/validate-output.md`). Delegation topology: `octocode-subagent`.
+Next: cross-app or Zod packet `cross-app-contracts.md`; validate a base with `octocode-eval-benchmark` (fallback [verification guidance](../../SKILL.md#verify)). Use the host's authorized delegation tools and check their live input and lifecycle contracts.

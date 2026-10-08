@@ -1,14 +1,14 @@
 use super::types::{StructuralDiagnostic, StructuralQueryExplanation};
 use std::sync::OnceLock;
 
-/// Describes how the ripgrep pre-filter is applied before AST parsing.
+/// Describes how the text pre-filter is applied before AST parsing.
 #[derive(Debug, PartialEq)]
 pub(super) enum Prefilter {
     /// No safe literal anchor — must parse all candidate files.
     None,
-    /// Single literal anchor; ripgrep uses `--fixed-strings` for fastest path.
+    /// Single literal anchor; searched as a fixed string (fastest path).
     Single(String),
-    /// Union of literals from `any:` branches; ripgrep uses regex alternation.
+    /// Union of literals from `any:` branches; searched as a regex alternation.
     /// A file must contain at least one to match any alternative — sound prefilter.
     Union(Vec<String>),
 }
@@ -47,7 +47,7 @@ impl<'a> StructuralQuery<'a> {
         self.rule.is_some()
     }
 
-    /// Returns the full prefilter descriptor for the ripgrep candidate-selection step.
+    /// Returns the full prefilter descriptor for the text candidate-selection step.
     pub(super) fn prefilter(&self) -> Prefilter {
         match (self.pattern, self.rule) {
             (Some(pattern), _) => match derive_literal_anchor(pattern) {

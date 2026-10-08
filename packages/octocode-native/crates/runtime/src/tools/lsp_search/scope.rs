@@ -22,8 +22,8 @@ use super::failure::LspFailure;
 use super::render::{uri_to_path, word_pattern};
 use crate::policy::path::PathPolicy;
 use crate::tools::cancel::CancellationCheck;
-use octocode_engine::portable::search_ripgrep_cancellable;
-use octocode_engine::types::RipgrepSearchOptions;
+use octocode_engine::portable::search_text_cancellable;
+use octocode_engine::types::TextSearchOptions;
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -375,19 +375,19 @@ async fn scan_text(
     if symbol.trim().is_empty() {
         return Ok(None);
     }
-    let options = RipgrepSearchOptions {
+    let options = TextSearchOptions {
         path: root.to_owned(),
         pattern: word_pattern(symbol),
         files_only: Some(true),
         include: (!include.is_empty()).then(|| include.to_vec()),
-        ..RipgrepSearchOptions::default()
+        ..TextSearchOptions::default()
     };
     let filter = Arc::new(policy.clone());
     let base = root.to_owned();
     let scanned = blocking_cancellable(cancel, move |stopped| {
         let started = Instant::now();
         let bounded = || stopped() || started.elapsed() > TEXT_SCAN_BUDGET;
-        search_ripgrep_cancellable(options, filter, &bounded)
+        search_text_cancellable(options, filter, &bounded)
             .ok()
             .filter(|_| started.elapsed() <= TEXT_SCAN_BUDGET)
             .map(|parsed| {

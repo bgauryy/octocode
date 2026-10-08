@@ -4,7 +4,7 @@
 
 ## Build inputs and outputs
 
-`scripts/build.ts` stages canonical `skills/` with the CLI's `stageSkills` helper, adds `src/skills/`, and substitutes the current CLI version and Node.js range in onboarding. Build the CLI first so generated skill helpers exist. It emits `.claude-plugin/plugin.json`, `.mcp.json`, `skills/`, and `LICENSE` in this package. Generated copies are ignored by Git and included explicitly in the npm archive. Do not edit them directly.
+`scripts/build.ts` stages canonical `skills/` with the CLI's `stageSkills` helper, adds `src/skills/`, and substitutes the current CLI version and Node.js range in onboarding. Build the CLI first when runtime prerequisites need refreshing. It emits `.claude-plugin/plugin.json`, `.mcp.json`, `skills/`, and `LICENSE` in this package. Generated copies are ignored by Git and included explicitly in the npm archive. Do not edit them directly.
 
 `package.json` owns the plugin version. `src/plugin.json` owns Claude metadata. The build pins the current `octocode-mcp` version exactly; it leaves credentials and working directory out of the manifest. MCP inherits the user's active project context and uses native credential discovery. No install lifecycle script is required on a user's machine.
 

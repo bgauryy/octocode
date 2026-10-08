@@ -27,7 +27,7 @@ export async function verifyStealth(cdp) {
 }
 `;
   writeFileSync(join(chrome, 'undercover.mjs'), stealth);
-  copyFileSync(resolve(scripts, '../../../packages/octocode-chrome-devtools/scripts/dom-actionability.mjs'), join(chrome, 'dom-actionability.mjs'));
+  writeFileSync(join(chrome, 'dom-actionability.mjs'), 'export async function waitForPageReady() { return true; }\n');
   mkdirSync(join(root, '.octocode'));
   copyFileSync(join(chrome, 'dom-actionability.mjs'), join(root, '.octocode/dom-actionability.mjs'));
   const tracePath = join(root, 'trace.json');
@@ -58,7 +58,7 @@ finally { writeFileSync(${JSON.stringify(tracePath)}, JSON.stringify(calls)); }
   return { root, lib, tracePath };
 }
 
-test('explicit CDP provider executes the generated native-default runner through navigation and body capture', async () => {
+test('explicit CDP provider executes the generated runner through navigation and body capture', async () => {
   const f = fixture(0);
   try {
     const { resolveProvider } = await import(pathToFileURL(join(f.lib, 'providers.mjs')));
@@ -70,7 +70,7 @@ test('explicit CDP provider executes the generated native-default runner through
     assert.equal(result.body, '<html>verified CDP fixture</html>');
     assert.equal(existsSync(join(f.root, '.octocode/undercover.mjs')), false);
     assert.deepEqual(JSON.parse(readFileSync(f.tracePath, 'utf8')), [
-      'Page.enable', 'Network.enable', 'Page.getFrameTree', 'Page.navigate', 'Page.enable', 'Runtime.evaluate', 'Runtime.evaluate',
+      'Page.enable', 'Network.enable', 'Page.getFrameTree', 'Page.navigate', 'Runtime.evaluate',
     ]);
     assert.equal(existsSync(join(f.root, '.octocode/tmp/cdp-provider/success-runner.mjs')), false);
     assert.equal(existsSync(join(f.root, '.octocode/tmp/cdp-provider/success-body.html')), false);

@@ -54,7 +54,7 @@ for (const arg of argv) {
   }
 }
 
-const nativePkg = JSON.parse(readFileSync(NATIVE_PKG_PATH, 'utf8')); 
+const nativePkg = JSON.parse(readFileSync(NATIVE_PKG_PATH, 'utf8'));
 
 /** Packages that should resolve to this workspace during development. */
 const WORKSPACE_RESOLUTIONS = Object.fromEntries(
@@ -65,7 +65,9 @@ const agentTestingResolution = localAgentTestingResolution(ROOT);
 const DEV_RESOLUTIONS = {
   ...WORKSPACE_RESOLUTIONS,
   ...(coreResolution ? { [OCTOCODE_CORE_PACKAGE]: coreResolution } : {}),
-  ...(agentTestingResolution ? { [AGENT_TESTING_PACKAGE]: agentTestingResolution } : {}),
+  ...(agentTestingResolution
+    ? { [AGENT_TESTING_PACKAGE]: agentTestingResolution }
+    : {}),
 };
 
 const pkg = JSON.parse(readFileSync(PKG_PATH, 'utf8'));
@@ -102,18 +104,36 @@ for (const [name, spec] of Object.entries(DEV_RESOLUTIONS)) {
   }
 }
 
-if (!coreResolution) {
-  console.warn(
-    `⚠ ${OCTOCODE_CORE_PACKAGE} sibling not found at ../octocode-mcp-host/packages/octocode-core; keeping the current registry resolution.`
-  );
-}
-if (!agentTestingResolution) {
-  console.warn(
-    `⚠ ${AGENT_TESTING_PACKAGE} sibling not found at ../octocode-agent/packages/octocode-agent-testing; keeping the current registry resolution.`
-  );
+const removedStale = [];
+// A missing sibling keeps a registry resolution, but a local link to it is
+// stale: it would make `yarn install` fail on a path that no longer exists.
+for (const [name, resolution, sibling] of [
+  [
+    OCTOCODE_CORE_PACKAGE,
+    coreResolution,
+    '../octocode-mcp-host/packages/octocode-core',
+  ],
+  [
+    AGENT_TESTING_PACKAGE,
+    agentTestingResolution,
+    '../octocode-agent/packages/octocode-agent-testing',
+  ],
+]) {
+  if (resolution) continue;
+  if (isLocalResolution(pkg.resolutions[name])) {
+    delete pkg.resolutions[name];
+    removedStale.push(name);
+    console.warn(
+      `⚠ ${name} sibling not found at ${sibling}; removed its stale local resolution.`
+    );
+  } else {
+    console.warn(
+      `⚠ ${name} sibling not found at ${sibling}; keeping the current registry resolution.`
+    );
+  }
 }
 
-if (added.length === 0) {
+if (added.length === 0 && removedStale.length === 0) {
   console.log('✓ Local dev resolutions already set — nothing to do.');
   for (const [name, spec] of alreadySet) {
     console.log(`  · resolutions.${name}: "${spec}"`);
@@ -133,6 +153,9 @@ console.log(
 );
 for (const name of added) {
   console.log(`  + resolutions.${name}: "${DEV_RESOLUTIONS[name]}"`);
+}
+for (const name of removedStale) {
+  console.log(`  - resolutions.${name} (stale local link)`);
 }
 if (alreadySet.length > 0) {
   console.log('\n  Already set:');

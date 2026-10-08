@@ -30,7 +30,6 @@ Rejected: <viable alternative and evidence-based reason>
 ```text
 Major: <one finding or none>
 Impact: <what else moves if wrong>
-Housekeeping/Bookkeeping: <done, missing, or N/A>
 Verification: <checks and observed results>
 Verdict: block | merge-ok | approve
 ```
@@ -40,7 +39,7 @@ For architecture findings, add only decision-changing fields:
 Model: <owners, allowed arrows, representative flow>
 Finding: <expected boundary → mechanism → impact → exact proof, or the missing decisive evidence>
 Alternate/Confidence: <killed or unresolved> / confirmed | likely | candidate | dismissed
-Dismissed: <hypothesis → fixture or command that disproved it>
+Alternatives: <credible option and the deciding reason it was rejected>
 Refactor: <quality attribute, seam, vertical slices, preserved contract, rollback>
 Hot path: <workload/budget, end-to-end baseline, attributed cost, comparable result>
 ```

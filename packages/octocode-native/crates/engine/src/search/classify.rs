@@ -23,7 +23,7 @@ use crate::signatures::extractor::{AST_EXECUTION_TIMEOUT, parse_before};
 use crate::signatures::languages::find_entry;
 use crate::text::file_extension::extension_of;
 use crate::text::utf8_offsets::LineIndex;
-use crate::types::{RipgrepFile, RipgrepMatch};
+use crate::types::{TextSearchFile, TextSearchMatch};
 
 /// Default cap on how many files get parsed for classification per search, so
 /// a broad query in a huge tree cannot pay an unbounded parse cost.
@@ -39,7 +39,7 @@ pub const DEFAULT_CLASSIFY_MAX_FILE_BYTES: u64 = 1_000_000;
 /// and classifying its match positions. Files past the cap, unsupported
 /// extensions, unreadable/unparseable files, and work past the shared deadline
 /// are left unlabeled. This optional ranking budget never removes search hits.
-pub fn classify_ripgrep_files(files: &mut [RipgrepFile], cap: usize) {
+pub fn classify_text_files(files: &mut [TextSearchFile], cap: usize) {
     let deadline = Instant::now() + AST_EXECUTION_TIMEOUT;
     for file in files.iter_mut().take(cap) {
         if Instant::now() >= deadline {
@@ -96,7 +96,7 @@ fn score_hint_for(kind: &str) -> f64 {
 fn classify_file_matches_before(
     content: &str,
     ext: &str,
-    matches: &mut [RipgrepMatch],
+    matches: &mut [TextSearchMatch],
     deadline: Instant,
 ) {
     let Some(entry) = find_entry(ext) else {
@@ -264,10 +264,10 @@ fn is_declaration_kind(k: &str) -> bool {
         || k == "impl_item"
 }
 
-/// Convert a 1-based line + 0-based UTF-16 column (ripgrep's unit, see
+/// Convert a 1-based line + 0-based UTF-16 column (the search's unit, see
 /// `byte_to_utf16_offset`) to a byte offset, clamped to the line.
 ///
-/// ripgrep sniffs and strips a leading BOM before matching, so its line-1
+/// The search sniffs and strips a leading BOM before matching, so its line-1
 /// columns exclude it; the shared `LineIndex` hides the BOM from row-0
 /// columns the same way, so the offset lands on the matched text.
 fn position_to_byte(content: &str, index: &LineIndex, line: u32, column: u32) -> Option<usize> {
@@ -285,7 +285,7 @@ mod tests {
 
     /// Classify every match in `matches` in place. No-op when the extension
     /// has no grammar or the file does not parse.
-    fn classify_file_matches(content: &str, ext: &str, matches: &mut [RipgrepMatch]) {
+    fn classify_file_matches(content: &str, ext: &str, matches: &mut [TextSearchMatch]) {
         classify_file_matches_before(
             content,
             ext,
@@ -294,8 +294,8 @@ mod tests {
         );
     }
 
-    fn m(line: u32, column: u32) -> RipgrepMatch {
-        RipgrepMatch {
+    fn m(line: u32, column: u32) -> TextSearchMatch {
+        TextSearchMatch {
             line,
             column,
             value: String::new(),
@@ -381,13 +381,13 @@ mod tests {
         }
         drop(f);
 
-        let mut files = vec![RipgrepFile {
+        let mut files = vec![TextSearchFile {
             path: path.to_string_lossy().into_owned(),
             match_count: 1,
             matches: vec![m(1, 16)],
             source: None,
         }];
-        classify_ripgrep_files(&mut files, DEFAULT_CLASSIFY_FILE_CAP);
+        classify_text_files(&mut files, DEFAULT_CLASSIFY_FILE_CAP);
         // Skipped by the size guard -> match left unlabeled.
         assert_eq!(files[0].matches[0].kind, None);
 
@@ -401,13 +401,13 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("Upper.TS");
         std::fs::write(&path, "// note\nexport function fallback() {}\n").unwrap();
-        let mut files = vec![RipgrepFile {
+        let mut files = vec![TextSearchFile {
             path: path.to_string_lossy().into_owned(),
             match_count: 1,
             matches: vec![m(1, 3)],
             source: None,
         }];
-        classify_ripgrep_files(&mut files, DEFAULT_CLASSIFY_FILE_CAP);
+        classify_text_files(&mut files, DEFAULT_CLASSIFY_FILE_CAP);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(files[0].matches[0].kind.as_deref(), Some(KIND_COMMENT));
     }
@@ -418,8 +418,8 @@ mod tests {
     }
 
     #[test]
-    fn match_columns_are_utf16_like_ripgrep_reports_them() {
-        // ripgrep columns are UTF-16 code units (`byte_to_utf16_offset`). Each
+    fn match_columns_are_byte_offsets_within_the_line() {
+        // Search columns are UTF-16 code units (`byte_to_utf16_offset`). Each
         // emoji is 2 units but 1 char, so counting chars drifts right by one per
         // emoji: five emoji push `b` into the trailing comment.
         let src = "const a = \"😀😀😀😀😀\", b=1;//cc\n";
@@ -434,8 +434,8 @@ mod tests {
     }
 
     #[test]
-    fn bom_bearing_files_map_ripgrep_columns_onto_the_matched_text() {
-        // ripgrep strips a leading BOM, so line-1 columns exclude it.
+    fn bom_bearing_files_map_search_columns_onto_the_matched_text() {
+        // The search strips a leading BOM, so line-1 columns exclude it.
         let src = "\u{feff}a;//c\nb;\n";
         // Column 2 is the comment; counting the BOM would land on `;`.
         assert_eq!(classify_one(src, "ts", 1, 2).as_deref(), Some(KIND_COMMENT));
@@ -449,15 +449,15 @@ mod tests {
     }
 
     #[test]
-    fn ripgrep_reports_bom_free_columns_that_classify_maps_back() {
-        use crate::search::ripgrep_search::tests::search;
-        use crate::types::RipgrepSearchOptions;
+    fn search_reports_bom_free_columns_that_classify_maps_back() {
+        use crate::search::text_search::tests::search;
+        use crate::types::TextSearchOptions;
         let dir =
             std::env::temp_dir().join(format!("octocode-classify-bom-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("bom.ts");
         std::fs::write(&path, "\u{feff}// needle\nconst needle = 1;\n").unwrap();
-        let result = search(RipgrepSearchOptions {
+        let result = search(TextSearchOptions {
             path: dir.to_string_lossy().into_owned(),
             pattern: "needle".to_owned(),
             ..Default::default()
@@ -469,7 +469,7 @@ mod tests {
         let first = matches.iter().find(|m| m.line == 1).expect("line-1 hit");
         assert_eq!(
             first.column, 3,
-            "ripgrep strips the BOM from line-1 columns"
+            "the search strips the BOM from line-1 columns"
         );
         classify_file_matches(content, "ts", &mut matches);
         let kinds = matches

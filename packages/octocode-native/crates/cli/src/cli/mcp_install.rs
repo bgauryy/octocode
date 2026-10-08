@@ -232,11 +232,7 @@ fn install(client: &ClientSpec, config_path: &Path, args: &InstallArgs) -> Resul
         if args.json {
             println!("{preview}");
         } else {
-            println!(
-                "{}\n{}",
-                config_path.display(),
-                serde_json::to_string_pretty(&preview).map_err(|_| "Cannot encode preview.")?
-            );
+            println!("{}", dry_run_text(client, config_path, &server, &existing));
         }
         return Ok(0);
     }
@@ -370,6 +366,46 @@ impl Existing {
             Some(_) => Self::Different,
         }
     }
+}
+
+/// The `install --dry-run` preview on a terminal: what would change and the
+/// entry's launch command, never env values.
+fn dry_run_text(
+    client: &ClientSpec,
+    config_path: &Path,
+    server: &Value,
+    existing: &Existing,
+) -> String {
+    let words = |value: Option<&Value>| -> Vec<String> {
+        match value {
+            Some(Value::String(word)) => vec![word.clone()],
+            Some(Value::Array(items)) => items
+                .iter()
+                .filter_map(Value::as_str)
+                .map(str::to_owned)
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    let mut command = words(server.get(client.shape.command_key()));
+    command.extend(words(server.get("args")));
+    let env = server
+        .get(client.shape.env_key())
+        .and_then(Value::as_object)
+        .map(|env| env.keys().cloned().collect::<Vec<_>>().join(", "))
+        .filter(|keys| !keys.is_empty())
+        .unwrap_or_else(|| "none".to_owned());
+    let action = match existing {
+        Existing::Absent => "add the octocode entry",
+        Existing::Same => "none: the entry already matches",
+        Existing::Different => "replace the existing octocode entry",
+    };
+    format!(
+        "Dry run for {}: nothing written.\n  config   {}\n  action   {action}\n  command  {}\n  env      {env}\nRun without --dry-run to write it.",
+        client.id,
+        config_path.display(),
+        command.join(" ")
+    )
 }
 
 /// Shared "already installed" response. An identical entry is a successful

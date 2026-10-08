@@ -38,7 +38,6 @@ Skills are the default entry point for research, architecture, and eval work:
 | Architecture decisions | [octocode-architect](skills/octocode-architect/SKILL.md) |
 | Benchmark/keep-discard | [octocode-eval-benchmark](skills/octocode-eval-benchmark/SKILL.md) |
 | Semantic judgment affecting the next read | [octocode-research clasify gate](skills/octocode-research/references/clasify.md) |
-| Local worker offload | [octocode-subagent](skills/octocode-subagent/SKILL.md) |
 | Loaded context audit | [octocode-context-audit](skills-dev/octocode-context-audit/SKILL.md) |
 | Open Rust/AST/LSP implementation choices | [rust-best-practices](skills-dev/rust-best-practices/SKILL.md) plus native architecture/engine docs |
 
@@ -58,7 +57,7 @@ Authored `@octocodeai/octocode-core` → generated `@octocodeai/config` → nati
 - Never hand-write tool wire types: no interface Zod/TS copies or native serde query/result structs. Use generated types; accessor `impl` blocks are allowed. TS imports config `/schema` or `/mcp`, never core directly. Keep open output payloads open; tighten them in core.
 - Implement new fields/discriminators and declare them in native `contracts/field-effect-coverage.json`. Public limit changes intentionally trip pinned-limit tests. Name shared/recursive vocabulary in core with `.meta({ title: "Name" })`.
 - Fingerprint drift fails closed at MCP startup and CLI `schema`. Regenerate/rebuild; do not override drift for production.
-- All config flows through `@octocodeai/config`; do not duplicate home/env/dotenv handling. Skills use injected `octocode-config.mjs`.
+- Package config flows through `@octocodeai/config`; do not duplicate home/env/dotenv handling. Standalone skill scripts use their process environment; skill authoring rules live in `skills/octocode-skills/SKILL.md`.
 - Publish core first; `yarn workspace @octocodeai/config check:core-contract-sync:published` is a release gate.
 
 ## Build and verification
@@ -83,6 +82,6 @@ Public skills live in [skills/](skills/README.md); tested skills in `skills-beta
 
 - User docs: [docs/](docs/README.md), [protocol](docs/OCTOCODE_PROTOCOL.md), [handoffs](docs/TOOL_DATA_CONTRACT.md), [configuration](docs/CONFIGURATION.md), [authentication](docs/AUTHENTICATION.md), [security](docs/SECURITY.md). Edit source docs, not build copies or generated settings.
 - Developer docs: [development](skills-dev/octocode-dev/docs/DEVELOPMENT.md), [config changes](skills-dev/octocode-dev/docs/ADDING_CONFIG.md), [tool quality](skills-dev/octocode-dev/docs/TOOL_QUALITY.md), [automation scripts](skills-dev/octocode-dev/scripts/README.md). Each package owns its architecture.
-- Benchmark: [unified harness](packages/octocode-benchmark/compare/unified/README.md), [results](packages/octocode-benchmark/compare/unified/RESULTS.md). Functional suites: [octocode-local-testing](octocode-local-testing/README.md); cloned repos are not committed.
+- Benchmark: [CLI matchups](packages/octocode-benchmark/README.md), [skill](packages/octocode-benchmark/skills/octocode-benchmark/SKILL.md), [results](packages/octocode-benchmark/results/SUMMARY.md). Functional suites: [octocode-local-testing](octocode-local-testing/README.md); cloned repos are not committed.
 
 Use `npx -y` to avoid prompts and bounded deadlines for slow calls. On macOS, use `gtimeout` or `perl -e 'alarm N; exec @ARGV' -- cmd`.

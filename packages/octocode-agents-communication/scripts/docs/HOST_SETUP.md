@@ -60,7 +60,7 @@ Passive mail uses `noReply:true`; action uses `prompt_async`. Submission does no
 
 ## Install messaging hooks
 
-Use native delivery when an existing host binding supports it. For a host with local lifecycle hooks, `host-config` generates a raw messaging fallback for Claude, Codex, Grok, or Cursor. Skill installation and hook installation are separate steps. Keep the installed npm package or extracted runtime archive at a stable path for host hooks.
+Use native delivery when an existing host binding and its installed version have been verified. Codex documents its app-server methods; Pi documents its extension API. Claude's messaging socket and Grok's leader-socket envelope are version-specific local transports. For a host with documented local lifecycle hooks, `host-config` generates a raw messaging route for Claude, Codex, Grok, or Cursor. Skill installation and hook installation are separate steps. Keep the installed npm package or extracted runtime archive at a stable path for host hooks.
 
 1. Choose the recipient’s actual worktree and one database path shared by all participants. Generate a preview from the installed CLI (replace paths and `claude` with the actual host):
 

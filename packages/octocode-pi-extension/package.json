@@ -32,10 +32,10 @@
   },
   "files": [
     "dist/**",
+    "!dist/**/*.map",
     "themes/**",
     "subagents/**",
     "docs/**",
-    "!docs/roadmap/**",
     "README.md",
     "LICENSE"
   ],
@@ -77,9 +77,9 @@
     ]
   },
   "peerDependencies": {
-    "@earendil-works/pi-ai": ">=0.99.2",
-    "@earendil-works/pi-coding-agent": ">=0.99.2",
-    "@earendil-works/pi-tui": ">=0.99.2",
+    "@earendil-works/pi-ai": "^0.99.2",
+    "@earendil-works/pi-coding-agent": "^0.99.2",
+    "@earendil-works/pi-tui": "^0.99.2",
     "typebox": "*"
   },
   "publishConfig": {

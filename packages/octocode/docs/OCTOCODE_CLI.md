@@ -5,7 +5,7 @@ the Octocode MCP server. One binary — `npx octocode` — exposes every researc
 tool under its canonical tool name, plus a small set of system commands.
 
 ```text
-octocode <toolName> '<json>'   ──► native Rust runtime ──► GitHub, local, packages, LSP
+npx octocode <toolName> '<json>'   ──► native Rust runtime ──► GitHub, local, packages, LSP
 octocode-mcp tool call         ──► native Rust runtime ──► (same tools, same contracts)
 ```
 
@@ -29,8 +29,8 @@ JSON mode, text on stderr otherwise.
 | `localFetch` | Read a local file: pagination, line ranges, match filtering, minification. |
 | `structureSearch` | Directory outlines and file discovery by name or metadata. |
 | `astSearch` | Structural (ast-grep) search, declarations, and syntax trees. |
-| `astTopology` | Dependency graph analysis for paths, cycles, reachability, dead code, and drift. |
-| `astRewrite` | Structural find-and-replace; previews before writing. |
+| `astTopology` | Beta (`OCTOCODE_BETA=true`): dependency graph analysis for paths, cycles, reachability, dead code, and drift. |
+| `astRewrite` | Beta (`OCTOCODE_BETA=true`): structural find-and-replace; previews before writing. |
 | `lspSearch` | Definitions, references, hover, call/type hierarchy, diagnostics. |
 | `ghSearchRepo` | GitHub repository search. |
 | `ghSearchCode` | GitHub indexed code search. |
@@ -40,24 +40,27 @@ JSON mode, text on stderr otherwise.
 | `ghGetHistoryItem` | Read one PR, issue, commit, or comparison. |
 | `ghCloneRepo` | Clone a repository into the local cache for offline analysis. |
 | `artifactSearch` | Package lookup/discovery across 8 registries. |
-| `clasify` | Apply Noul, Choice, or Score questions across `resources[] × questions[]`, or batch independent matrices in `queries[]`. Requires a classification key (`OCTOCODE_CLASSIFICATION_API`). |
+| `clasify` | Apply `locate`, `sufficient`, `relevant`, `supports`, `adds`, `yesno`, `choice`, or `score` questions across `resources[] × questions[]`, or batch independent matrices in `queries[]`. Requires a classification key (`OCTOCODE_CLASSIFICATION_API`). |
 
 ### System
 
 | Command | Purpose |
 |---|---|
 | `schema [tool]` | No name: compact catalog of every enabled tool with fields and agent instructions. With a name: the full input contract (default `--view full`). `--view variants` lists branch names, selectors, and examples; `--view query` prints the self-contained query schema, and `--select FIELD=VALUE` (or `variant=NAME`, `--view query` only) keeps one union branch. Indented on a terminal, one line on a pipe. Output validation schemas remain internal. |
-| `config` | Config file paths, `.env` paths, loaded key names, and config warnings (`--json`). `config set KEY VALUE` (or `set KEY --stdin`), `config unset KEY`, `config check KEY` (exit 0 = set, 1 = unset), `config view` (local settings UI). Values are never printed. |
-| `auth` | GitHub auth: `status` (`--json`), `login` (device flow; `--refresh`, `--force`, `--hostname`, `--json`), `logout`. See [`auth`](#auth--github-authentication). |
+| `config` | Config file paths, `.env` paths, loaded key names, and config warnings (`--json`). `config home` (home path), `config get KEY` (resolved value; exit 1 = unset), `config set KEY VALUE` (or `set KEY --stdin`), `config unset KEY`, `config check KEY` (exit 0 = set, 1 = unset), `config view` (local settings UI). Only `config get` prints a value. |
+| `auth` | GitHub auth: `status` (`--json`), `login` (device flow; `--refresh`, `--force`, `--hostname`, `--json`), `logout` (`--json`). See [`auth`](#auth--github-authentication). |
 | `install` | Write or check MCP client configuration for supported IDEs and agent hosts. |
 | `skill` | List, install, check, inspect, or remove bundled Octocode Agent Skills. Runs in the npm launcher; the native binary forwards `skill` to it. |
 | `graph` | `graph ingest <path>` builds a persisted code graph under `<workspace>/.octocode/graph/`; `graph query <op>` answers bounded questions from it. See [`graph`](#graph--persisted-code-graph). |
 | `help` | Print help for any command. |
 
 Hidden maintenance commands (still available, not part of the agent surface):
-`cache <status|clear>` and `lsp-server <list|install|uninstall|clean|status|which>`.
+`cache <status|clear>` and `lsp-server <list|install|uninstall|clean|status>`.
 
-Use `npx octocode <command> --help` for the live command help.
+Use `npx octocode <command> --help` for the live command help. A tool's help
+(`npx octocode localFetch --help`, or `npx octocode help localFetch`) ends with its
+required fields, by variant when the tool has several, and one runnable example.
+`npx octocode skill <subcommand> --help` shows that subcommand's usage and flags.
 
 `npx octocode schema` (and a bare `npx octocode` on a pipe) carries agent instructions in the catalog's `instructions` field. A bare `npx octocode` on a terminal, `--help`, `-h`, and `help` print the command reference. Instructions come from the shared MCP contract and reflect runtime tool availability; classification guidance is omitted when classification is disabled.
 
@@ -160,7 +163,7 @@ removes cached GitHub responses. See
 ## `graph` — persisted code graph
 
 Parse a repository **once**, then answer structural questions in milliseconds
-without re-reading source. Local tools must be enabled. `octocode graph --help`
+without re-reading source. Local tools must be enabled. `npx octocode graph --help`
 prints this workflow for agents.
 
 ```bash
@@ -194,7 +197,8 @@ On files, `deps` and `dependents` follow imports; on symbols, they follow calls.
   `pkg:react` (package). An `@<line>` suffix appears only when a name repeats.
   Absolute paths, bare names, and `Class.method` also resolve. An ambiguous
   reference exits 2 and lists `candidates`.
-- **Output:** one JSON object, indented on a terminal. Lists carry `total`
+- **Output:** readable text on a terminal; one JSON object on a pipe or with
+  `--json`. Lists carry `total`
   and `results`. A cut adds `truncated` and `next`, a paste-ready command. Use
   `--limit` and `--offset` to page.
 - **Exit codes:** `0` ok · `1` empty · `2` bad input or ambiguous · `3` no graph
@@ -353,7 +357,7 @@ Other results:
 npx octocode install --ide cursor
 npx octocode install --ide claude-code --check
 npx octocode install --ide claude-desktop --force
-npx octocode install --ide cursor --dry-run   # print the config without writing
+npx octocode install --ide cursor --dry-run   # preview the change; --json for the entry
 ```
 
 Supported clients (`install --list`): Cursor, Claude Desktop, Claude Code,
@@ -362,7 +366,7 @@ Gemini CLI, Goose, Kiro. Use the exact id from `--list`; a partial id such as
 `claude` is rejected with the ids it names (`claude-code`, `claude-desktop`).
 Other flags: `--method npx|bunx|pnpm`, `--enable-local true|false`,
 `--rollback <file.bak>`. Run
-`octocode install --help` for the full list.
+`npx octocode install --help` for the full list.
 
 ---
 
@@ -456,7 +460,7 @@ the canonical command syntax.
 `ok` / `stale` / `broken` / `not-installed` plus env readiness: `needs-config`
 means a required setting is missing; `partial` means the skill works but an
 optional setting would unlock more. A GitHub token stored by
-`octocode auth login` or a `gh` login counts as set; the native runtime
+`npx octocode auth login` or a `gh` login counts as set; the native runtime
 reports it. `check` exits 1 on stale, broken, or needs-config; run
 `skill check --fix` to repair installs.
 
@@ -519,7 +523,7 @@ npx octocode ghSearchCode '{"queries":[{"keywords":["ZodObject"],"owner":"colinh
 npx octocode ghSearchHistory '{"queries":[{"operation":"pullRequest","owner":"bgauryy","repo":"octocode","state":"merged","pageSize":10}]}'
 npx octocode ghGetHistoryItem '{"queries":[{"operation":"pullRequest","owner":"bgauryy","repo":"octocode","number":123,"sections":["patches","comments"]}]}'
 npx octocode ghSearchHistory '{"queries":[{"operation":"commit","owner":"bgauryy","repo":"octocode","path":"packages/octocode/src","since":"2024-01-01T00:00:00Z"}]}'
-npx octocode ghGetHistoryItem '{"queries":[{"operation":"compare","owner":"bgauryy","repo":"octocode","base":"v1.0.0","head":"v2.0.0"}]}'
+npx octocode ghGetHistoryItem '{"queries":[{"operation":"compare","owner":"bgauryy","repo":"octocode","base":"8.0.0","head":"9.1.0"}]}'
 ```
 
 ### Agent or script mode
@@ -540,18 +544,29 @@ tool from discovery until a key resolves.
 
 ## Global configuration
 
-`octocode config` prints the home, the global and project `.octocoderc` and
+`npx octocode config` prints the home, the global and project `.octocoderc` and
 `.env` paths (with whether each exists), the loaded key names, and config
 warnings such as unknown keys. The global `.env` is `<HOME>/.octocode/.env`, or
 the `.env` under `OCTOCODE_HOME` when overridden.
 
 ```bash
-octocode config --json
-octocode config set OCTOCODE_BETA true
-octocode config set OCTOCODE_CLASSIFICATION_API --stdin
-octocode config check OCTOCODE_CLASSIFICATION_API --json
-octocode config unset OCTOCODE_BETA --json
+npx octocode config --json
+npx octocode config home
+npx octocode config get OCTOCODE_BETA
+npx octocode config set OCTOCODE_BETA true
+npx octocode config set OCTOCODE_CLASSIFICATION_API --stdin
+npx octocode config check OCTOCODE_CLASSIFICATION_API --json
+npx octocode config unset OCTOCODE_BETA --json
 ```
+
+`home` prints the Octocode home directory on one line (`--json`: `{"home"}`).
+`get KEY` prints the key's resolved value on one line and nothing else, so a
+script or skill can capture it with `$(npx octocode config get KEY)`; it resolves
+like the runtime does (process environment, then a trusted workspace `.env`,
+then the global `.env`) and exits `1` with nothing on stdout when the key is
+unset. `--json` returns `key`, `set`, `value`, and `source` (`environment`,
+`project`, or `global`). `get` prints secrets too: run it inside a script, not
+where an agent transcript or log records stdout.
 
 `set` replaces every assignment for the named key with one assignment.
 `--stdin` reads a single line, up to 64 KiB, without placing the value in
@@ -578,10 +593,10 @@ boolean and exits `1` when unset; for an unset GitHub token key it also names
 | `--help` | Show command help. |
 | `--version` | Show CLI version. |
 | `--input <file>` / `--input -` | Read a tool's JSON query from a file, or from stdin. |
-| `--json` | Tool commands: JSON on a terminal too (pipes always get JSON). System commands: JSON output and JSON errors. |
+| `--json` | Tool and `graph` commands: JSON on a terminal too (pipes always get JSON). System commands: JSON output and JSON errors. |
 
-Output follows the terminal: tools, `schema`, and `graph` print readable text or
-indented JSON on a terminal and single-line JSON on a pipe. Errors follow the
+Output follows the terminal: tools and `graph` print readable text, and `schema`
+indented JSON, on a terminal; all three print single-line JSON on a pipe. Errors follow the
 output: the `{"kind":"octocode.toolError","version":1,"error":"…"}` envelope on
 stdout in JSON mode (with `tool` and `details` when known, and `errorCode` for a
 tool call's error: `invalidInput` for a rejected query), text on stderr
@@ -635,7 +650,7 @@ not aliased. Every other setting is in the
 |---|---|
 | `<toolName> '<json>'` | Direct terminal access to the same named tools exposed through MCP, with identical query contracts. |
 | `schema <name>` | The schema contract for that tool. Do not guess fields. |
-| `schema` | The full tool catalog with availability. MCP clients see only the available tools, minus the CLI-only `ghCloneRepo` and `astRewrite`. |
+| `schema` | The full tool catalog with availability. MCP clients see only the available tools, minus the CLI-only `ghCloneRepo`, `astTopology`, and `astRewrite`. |
 | `install --ide <client>` | Writes MCP client configuration so editors and assistants can call `octocode-mcp`. |
 | `auth` | Manages credentials used by both CLI and MCP flows. |
 | `skill` | Installs bundled Agent Skills locally; no MCP transport required. |

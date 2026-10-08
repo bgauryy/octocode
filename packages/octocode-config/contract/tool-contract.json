@@ -9,6 +9,7 @@
         "broadenSearch",
         "callers",
         "clasify",
+        "countFiles",
         "didYouMean",
         "exploreClone",
         "findFile",
@@ -242,7 +243,7 @@
     "versionNotFound": "notFound",
     "workspaceRootInvalid": "execution"
   },
-  "fingerprint": "19fd5d45f42140025cead74d97b18dd8cb0ad096daed0019bf0de8b15e25f61f",
+  "fingerprint": "698b2313c511e28f7550ca8b8bf754125b47d2ba6f05953c0b491f4f169d510d",
   "limits": {
     "maxInputArrayItems": 100
   },
@@ -772,7 +773,7 @@
                         "additionalProperties": false,
                         "properties": {
                           "candidateEvidence": {
-                            "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                            "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                             "enum": [
                               "search",
                               "fileChunks"
@@ -787,9 +788,9 @@
                             "type": "string"
                           },
                           "maxChars": {
-                            "default": 80000,
+                            "default": 1000000,
                             "description": "Evidence cap per resource; default is the maximum. A unit over it fails with its hints.read; next.clasify reads the rest.",
-                            "maximum": 80000,
+                            "maximum": 1000000,
                             "minimum": 1,
                             "type": "integer"
                           },
@@ -2959,7 +2960,7 @@
                                           "additionalProperties": false,
                                           "properties": {
                                             "candidateEvidence": {
-                                              "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                              "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                               "enum": [
                                                 "search",
                                                 "fileChunks"
@@ -2974,9 +2975,9 @@
                                               "type": "string"
                                             },
                                             "maxChars": {
-                                              "default": 80000,
+                                              "default": 1000000,
                                               "description": "Evidence cap per resource; default is the maximum. A unit over it fails with its hints.read; next.clasify reads the rest.",
-                                              "maximum": 80000,
+                                              "maximum": 1000000,
                                               "minimum": 1,
                                               "type": "integer"
                                             },
@@ -8658,7 +8659,7 @@
                                           "additionalProperties": false,
                                           "properties": {
                                             "candidateEvidence": {
-                                              "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                              "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                               "enum": [
                                                 "search",
                                                 "fileChunks"
@@ -8673,9 +8674,9 @@
                                               "type": "string"
                                             },
                                             "maxChars": {
-                                              "default": 80000,
+                                              "default": 1000000,
                                               "description": "Evidence cap per resource; default is the maximum. A unit over it fails with its hints.read; next.clasify reads the rest.",
-                                              "maximum": 80000,
+                                              "maximum": 1000000,
                                               "minimum": 1,
                                               "type": "integer"
                                             },
@@ -12705,7 +12706,7 @@
                   "additionalProperties": false,
                   "properties": {
                     "candidateEvidence": {
-                      "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                      "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                       "enum": [
                         "search",
                         "fileChunks"
@@ -12720,9 +12721,9 @@
                       "type": "string"
                     },
                     "maxChars": {
-                      "default": 80000,
+                      "default": 1000000,
                       "description": "Evidence cap per resource; default is the maximum. A unit over it fails with its hints.read; next.clasify reads the rest.",
-                      "maximum": 80000,
+                      "maximum": 1000000,
                       "minimum": 1,
                       "type": "integer"
                     },
@@ -12870,9 +12871,11 @@
           "ghGetFileContent"
         ],
         "maxCells": 25,
-        "maxFileCandidates": 5,
-        "maxFileChunkChars": 12000,
-        "maxResourceChars": 80000,
+        "maxFileCandidates": 40,
+        "maxFileChunkChars": 32000,
+        "maxPageChars": 80000,
+        "maxPages": 48,
+        "maxResourceChars": 1000000,
         "maxTotalCells": 50,
         "prefilterWindowLines": 600,
         "prefilterWindows": 3,
@@ -14041,7 +14044,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -14056,7 +14059,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -20935,7 +20938,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -20950,7 +20953,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -28260,7 +28263,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -28275,7 +28278,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -36172,7 +36175,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -36187,7 +36190,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -43479,7 +43482,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -43494,7 +43497,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -51876,7 +51879,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -51891,7 +51894,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -62030,7 +62033,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -62045,7 +62048,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -69064,7 +69067,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -69079,7 +69082,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -74907,11 +74910,11 @@
                   "type": "array"
                 },
                 "invertMatch": {
-                  "description": "Select non-matching lines (rg -v); with resultView \"files\" this lists files having any non-matching line. For files lacking the pattern use \"filesWithout\" without invertMatch.",
+                  "description": "Select non-matching lines; with resultView \"files\" this lists files having any non-matching line. For files lacking the pattern use \"filesWithout\" without invertMatch.",
                   "type": "boolean"
                 },
                 "language": {
-                  "description": "ripgrep type, e.g. \"ts\".",
+                  "description": "File type, e.g. \"ts\".",
                   "type": "string"
                 },
                 "mainGoal": {
@@ -74961,7 +74964,7 @@
                   "type": "string"
                 },
                 "noIgnore": {
-                  "description": "Search ignored files.",
+                  "description": "Search ignored, hidden.",
                   "type": "boolean"
                 },
                 "page": {
@@ -75854,7 +75857,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -75869,7 +75872,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -82429,11 +82432,11 @@
             "type": "array"
           },
           "invertMatch": {
-            "description": "Select non-matching lines (rg -v); with resultView \"files\" this lists files having any non-matching line. For files lacking the pattern use \"filesWithout\" without invertMatch.",
+            "description": "Select non-matching lines; with resultView \"files\" this lists files having any non-matching line. For files lacking the pattern use \"filesWithout\" without invertMatch.",
             "type": "boolean"
           },
           "language": {
-            "description": "ripgrep type, e.g. \"ts\".",
+            "description": "File type, e.g. \"ts\".",
             "type": "string"
           },
           "mainGoal": {
@@ -82483,7 +82486,7 @@
             "type": "string"
           },
           "noIgnore": {
-            "description": "Search ignored files.",
+            "description": "Search ignored, hidden.",
             "type": "boolean"
           },
           "page": {
@@ -83842,7 +83845,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -83857,7 +83860,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -90483,7 +90486,7 @@
                       "type": "integer"
                     },
                     "noIgnore": {
-                      "description": "Search ignored files.",
+                      "description": "Search ignored, hidden.",
                       "type": "boolean"
                     },
                     "operation": {
@@ -90644,7 +90647,7 @@
                       "type": "integer"
                     },
                     "noIgnore": {
-                      "description": "Search ignored files.",
+                      "description": "Search ignored, hidden.",
                       "type": "boolean"
                     },
                     "operation": {
@@ -91725,7 +91728,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -91740,7 +91743,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -99706,7 +99709,7 @@
                 "type": "integer"
               },
               "noIgnore": {
-                "description": "Search ignored files.",
+                "description": "Search ignored, hidden.",
                 "type": "boolean"
               },
               "operation": {
@@ -99867,7 +99870,7 @@
                 "type": "integer"
               },
               "noIgnore": {
-                "description": "Search ignored files.",
+                "description": "Search ignored, hidden.",
                 "type": "boolean"
               },
               "operation": {
@@ -102075,7 +102078,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -102090,7 +102093,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -111585,7 +111588,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -111600,7 +111603,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -120086,7 +120089,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -120101,7 +120104,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },
@@ -127560,7 +127563,7 @@
                                     "additionalProperties": false,
                                     "properties": {
                                       "candidateEvidence": {
-                                        "description": "Search only: snippets, or ≤5 files × ≤12000 chars; fileChunks enables locate (automatic for search resources with locate).",
+                                        "description": "Search only. Default fileChunks: ≤40 files, each judged whole when it fits ≤32000 chars, else near its hits. search: snippets only, no locate.",
                                         "enum": [
                                           "search",
                                           "fileChunks"
@@ -127575,7 +127578,7 @@
                                         "type": "string"
                                       },
                                       "maxChars": {
-                                        "maximum": 80000,
+                                        "maximum": 1000000,
                                         "minimum": 1,
                                         "type": "integer"
                                       },

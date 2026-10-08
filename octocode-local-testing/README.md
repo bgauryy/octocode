@@ -3,7 +3,7 @@
 End-to-end checks for the local MCP tools (`structureSearch`, `localSearch`,
 `localFetch`, `astSearch`, `lspSearch`) against the repo's **built** MCP server
 (`packages/octocode-mcp/dist/index.js` + the native addons), plus the CLI-only
-beta `astTopology` through the built CLI (`packages/octocode/out/octocode.js`). Tracked: harness, fixtures and validation reports (`validate/*/REPORT.md`). Not tracked: the cloned repos (see [repos/README.md](repos/README.md)), generated large fixtures, and raw run output.
+beta `astTopology` through the built CLI (`packages/octocode/out/octocode.js`). Tracked: harness, fixtures and validation scripts (`validate/`). Not tracked: the cloned repos (see [repos/README.md](repos/README.md)), generated large fixtures, and raw run output.
 
 ```sh
 node skills-dev/octocode-dev/scripts/dev.mjs build:dev                              # from the repo root, after changing native

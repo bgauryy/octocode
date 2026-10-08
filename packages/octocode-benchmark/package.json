@@ -14,13 +14,10 @@
   },
   "scripts": {
     "build": "echo 'Source-only benchmark package; no build artifacts required'",
-    "lint": "node --check compare/unified/run.mjs && node --check compare/unified/judge.mjs && node --check compare/unified/report.mjs && node --check compare/unified/lib.mjs && node --check compare/unified/isolation.mjs && node --check compare/unified/verdict.mjs && node --check compare/unified/reflect.mjs && node --check compare/unified/smoke.mjs && node --check compare/unified/harness.test.mjs",
+    "lint": "python3 -c \"import ast,sys; [ast.parse(open(f).read(), f) for f in sys.argv[1:]]\" compare/bin/*.py skills/octocode-benchmark/scripts/*.py && bash -n compare/bin/octoc && bash -n compare/bin/octoc-npm && bash -n compare/bin/ghc && bash -n compare/bin/ghm && bash -n compare/bin/rtkm && bash -n skills/octocode-benchmark/scripts/check-prereqs.sh && bash -n skills/octocode-benchmark/scripts/measure.sh",
     "typecheck": "echo 'No TypeScript sources; see lint'",
-    "test": "node compare/unified/lib.mjs --self-test && node --test compare/unified/harness.test.mjs",
+    "test": "python3 compare/bin/test_instrumentation.py",
     "verify": "yarn lint && yarn typecheck && yarn test"
   },
-  "type": "module",
-  "dependencies": {
-    "@octocodeai/config": "workspace:*"
-  }
+  "type": "module"
 }

@@ -16,6 +16,7 @@ Load to remove legacy test iterations, skipped tests, rigid mocks, redundant stu
 Read the candidate and replacement tests before you judge overlap.
 
 ## Excision
+
 1. List candidates; diff each suffixed file against its base.
 2. Keep any block that exercises a path the base misses.
 3. Delete in one batch; run the package's tests.
@@ -39,4 +40,4 @@ Read the candidate and replacement tests before you judge overlap.
 - Name files `<domain>-<what-is-under-test>.test.ts`, never with an iteration number or date.
 - Compare coverage and behavioral cases before and after; restore lost coverage through a public contract.
 
-Next: run the batch with `references/cleanup-playbook.md`.
+Next: run the batch with [lobby workflow](../SKILL.md#workflow).

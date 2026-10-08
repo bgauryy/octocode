@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // skill-sync — plan/symlink a local skill folder into vendor skill dirs.
-// Default is dry-run. Writes require explicit --approve (human gate).
+// Default is dry-run. Use --approve when the user's request covers the planned writes.
 // Usage:
 //   node skill-sync.mjs <skill-dir> [--platforms top|all|claude,cursor,...]
 //   node skill-sync.mjs <skill-dir> --platforms top --approve
@@ -12,6 +12,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readlinkSync,
   realpathSync,
@@ -28,11 +29,11 @@ import {
   resolve,
   sep,
 } from 'node:path';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const HOME = process.env.HOME || process.env.USERPROFILE || homedir();
+const USER_SKILL_HOME = process.env.HOME || process.env.USERPROFILE || homedir();
 const isWin = process.platform === 'win32';
 
 /** User-scope vendor skill roots (global). Project scope is out of band — pass --project-root. */
@@ -40,49 +41,49 @@ const VENDORS = {
   codex: {
     id: 'codex',
     label: 'Codex / shared agents',
-    user: join(HOME, '.agents', 'skills'),
+    user: join(USER_SKILL_HOME, '.agents', 'skills'),
     project: '.agents/skills',
     notes: 'Codex default in Octocode CLI; shared cross-agent dir',
   },
   claude: {
     id: 'claude',
     label: 'Claude Code',
-    user: join(HOME, '.claude', 'skills'),
+    user: join(USER_SKILL_HOME, '.claude', 'skills'),
     project: '.claude/skills',
-    notes: 'Claude Code skill frontmatter hooks run here',
+    notes: '',
   },
   cursor: {
     id: 'cursor',
     label: 'Cursor',
-    user: join(HOME, '.cursor', 'skills'),
+    user: join(USER_SKILL_HOME, '.cursor', 'skills'),
     project: '.cursor/skills',
-    notes: 'Native Cursor skills; SKILL.md hooks frontmatter not executed',
+    notes: '',
   },
   opencode: {
     id: 'opencode',
     label: 'OpenCode',
-    user: join(HOME, '.config', 'opencode', 'skills'),
+    user: join(USER_SKILL_HOME, '.config', 'opencode', 'skills'),
     project: '.opencode/skills',
     notes: '',
   },
   pi: {
     id: 'pi',
     label: 'Pi',
-    user: join(HOME, '.pi', 'agent', 'skills'),
+    user: join(USER_SKILL_HOME, '.pi', 'agent', 'skills'),
     project: '.pi/skills',
     notes: 'pi install /local/path may store a path reference instead of copying',
   },
   copilot: {
     id: 'copilot',
     label: 'GitHub Copilot',
-    user: join(HOME, '.copilot', 'skills'),
+    user: join(USER_SKILL_HOME, '.copilot', 'skills'),
     project: '.github/skills',
     notes: '',
   },
   gemini: {
     id: 'gemini',
     label: 'Gemini CLI',
-    user: join(HOME, '.gemini', 'skills'),
+    user: join(USER_SKILL_HOME, '.gemini', 'skills'),
     project: '.gemini/skills',
     notes: 'Also honors ~/.agents/skills on some setups',
   },
@@ -104,14 +105,14 @@ function usage() {
   return `skill-sync <skill-dir> [options]
 
 Symlink a local skill folder into vendor skill directories.
-Default is dry-run (plan only). Writes require --approve after human OK.
+Default is dry-run (plan only). Use --approve when the request covers the plan.
 
 Options:
   --platforms <list>   top | all | comma ids (default: top)
                        top = claude,cursor,codex
   --project-root <dir> also plan/write project-scope destinations under <dir>
   --name <skill-name>  override destination folder name (default: source folder)
-  --approve            human approved — perform symlink writes
+  --approve            apply the authorized symlink plan
   --force              replace existing destination (only with --approve)
   --list-vendors       print vendor map and exit
   --self-test          run path-safety regression checks and exit
@@ -156,6 +157,7 @@ function parseArgs(argv) {
     } else rest.push(a);
   }
   out.skillDir = rest[0] || null;
+  if (rest.length > 1) { console.error('Expected one skill directory.'); process.exit(1); }
   return out;
 }
 
@@ -247,12 +249,25 @@ function runSelfTest() {
     failures.push('platform ids must de-duplicate');
   }
 
-  return { ok: failures.length === 0, checks: 16, failures };
+  const temp = mkdtempSync(join(tmpdir(), 'skill-sync-'));
+  try {
+    const dangling = join(temp, 'dangling');
+    symlinkSync(join(temp, 'absent'), dangling, isWin ? 'junction' : 'dir');
+    if (inspectDest(dangling).state !== 'symlink') failures.push('dangling symlink must remain a conflict');
+    const result = applyRow({ destDir: temp, destPath: dangling, action: 'conflict-symlink', reason: 'dangling link' }, temp, { force: false });
+    if (result.result !== 'blocked' || !lstatSync(dangling).isSymbolicLink()) failures.push('unapproved conflict was changed');
+    const nested = join(temp, 'parent', 'source');
+    mkdirSync(nested, { recursive: true });
+    const protectedResult = applyRow({ destDir: temp, destPath: join(temp, 'parent'), action: 'conflict-dir', reason: 'contains source' }, nested, { force: true });
+    if (protectedResult.result !== 'blocked' || !existsSync(nested)) failures.push('source-containing destination was not protected');
+  } finally { rmSync(temp, { recursive: true, force: true }); }
+  return { ok: failures.length === 0, failures };
 }
 
 function inspectDest(destPath) {
-  if (!existsSync(destPath)) return { state: 'missing' };
-  const st = lstatSync(destPath);
+  let st;
+  try { st = lstatSync(destPath); }
+  catch (err) { if (err.code === 'ENOENT') return { state: 'missing' }; throw err; }
   if (st.isSymbolicLink()) {
     let target = null;
     try {
@@ -364,6 +379,11 @@ function applyRow(row, sourcePath, { force }) {
     if (!force) {
       return { ...row, result: 'blocked', detail: `${row.reason} (pass --force with --approve)` };
     }
+    const canonicalDest = join(realpathSync(dirname(destPath)), basename(destPath));
+    const sourceRelative = relative(canonicalDest, realpathSync(sourcePath));
+    if (!sourceRelative || (!isAbsolute(sourceRelative) && sourceRelative !== '..' && !sourceRelative.startsWith(`..${sep}`))) {
+      return { ...row, result: 'blocked', detail: 'destination contains the source skill' };
+    }
     rmSync(destPath, { recursive: true, force: true });
     atomicSymlink(sourcePath, destPath);
     return { ...row, result: 'replaced', detail: 'force replaced with symlink' };
@@ -378,7 +398,7 @@ function printVendors(asJson) {
       id,
       label: v.label,
       user: v.user,
-      userRelativePath: relative(HOME, v.user).split(sep).join('/'),
+      userRelativePath: relative(USER_SKILL_HOME, v.user).split(sep).join('/'),
       project: v.project,
       notes: v.notes,
       top: TOP.includes(id),
@@ -428,7 +448,7 @@ function main() {
     process.exit(1);
   }
   if (args.force && !args.approve) {
-    console.error('--force requires --approve (human gate).');
+    console.error('--force requires --approve to apply replacements.');
     process.exit(1);
   }
 
@@ -459,15 +479,14 @@ function main() {
     nameMismatch: fmName && fmName !== skillName ? true : false,
     platforms: platformIds,
     projectRoot: args.projectRoot ? resolve(args.projectRoot) : null,
-    humanApprovalRequired: !args.approve,
     rows,
   };
 
   if (!args.approve) {
     if (args.json) {
-      console.log(JSON.stringify({ ok: true, ...plan, hint: 'Re-run with --approve after human OK' }, null, 2));
+      console.log(JSON.stringify({ ok: true, ...plan, hint: 'Re-run with --approve when the request covers this plan' }, null, 2));
     } else {
-      console.log('DRY-RUN — no writes. Human must approve, then re-run with --approve.\n');
+      console.log('DRY-RUN — no writes. Use --approve to apply the authorized plan.\n');
       console.log(`Source:  ${sourcePath}`);
       console.log(`Name:    ${skillName}${fmName && fmName !== skillName ? ` (frontmatter name: ${fmName})` : ''}`);
       console.log(`Targets: ${platformIds.join(', ')}`);
@@ -478,7 +497,7 @@ function main() {
         console.log(`  → ${r.destPath}`);
         console.log(`  ${r.reason}`);
       }
-      console.log('\nAfter human approval:');
+      console.log('\nTo apply when authorized:');
       console.log(`  node ${join(HERE, 'skill-sync.mjs')} ${args.skillDir} --platforms ${args.platforms} --approve`);
     }
     process.exit(0);

@@ -53,7 +53,7 @@ External to local is one flow: `artifactSearch` maps a package to its repository
 - Each tool's input schema, description, and output schema is authored once in `@octocodeai/octocode-core` (Zod). `@octocodeai/config` generates the JSON contract and the Rust and TypeScript types, and the native runtime embeds them.
 - MCP and the CLI run the same native code, so their output is the same.
 - If the core and native contract fingerprints differ, the MCP server refuses to start.
-- Hosts resend every tool definition on every request, so `tools/list` shows a slim view of the same contract (`publishedInputSchema`): merged operation variants, full descriptions only on primary fields, and no validation-only bounds or fields agents copy from `next.*` and `hints.*`. The canonical schema still validates every call, and its errors list every valid field. `octocode schema` shows it.
+- Hosts resend every tool definition on every request, so `tools/list` shows a slim view of the same contract (`publishedInputSchema`): merged operation variants, full descriptions only on primary fields, and no validation-only bounds or fields agents copy from `next.*` and `hints.*`. The canonical schema still validates every call, and its errors list every valid field. `npx octocode schema` shows it.
 - Why: agents learn one shape per tool, and drift is caught before it reaches a user.
 
 ### 3.2 Optional brief for multi-call research
@@ -116,13 +116,13 @@ External to local is one flow: `artifactSearch` maps a package to its repository
 - Rate limits are respected: `retryAfterSeconds` and `resetEpochSeconds` are reported, and a local circuit breaker refuses calls ("request not sent") until the window resets. Details: [CONFIGURATION.md](CONFIGURATION.md#cache-storage-and-lifecycle).
 
 ### 3.13 The Rust layer: local efficiency
-- One native engine runs search (ripgrep libraries), parsing and structural matching (tree-sitter), minification, redaction, the LSP client pool, the dependency graph, and the GitHub and registry clients. There is nothing extra to install.
+- One native engine runs text search (an in-process regex walker), parsing and structural matching (tree-sitter), minification, redaction, the LSP client pool, the dependency graph, and the GitHub and registry clients. There is nothing extra to install.
 - MCP loads it in process through napi, so calls are warm. The CLI is a native binary.
 - Concurrent rows share one walk-thread budget, with parse size limits and deadlines on rewrites.
 
 ## 4. Strengths and limits
 
-Earlier scripted tool-level comparisons measured single tool calls, not agent outcomes. Agent-against-agent results, including where Octocode loses, are in the [benchmark results](../packages/octocode-benchmark/compare/unified/RESULTS.md).
+Earlier scripted tool-level comparisons measured single tool calls, not agent outcomes. Agent-against-agent results, including where Octocode loses, are in the [benchmark results](../packages/octocode-benchmark/results/SUMMARY.md).
 
 | Where Octocode wins | Evidence |
 |---|---|

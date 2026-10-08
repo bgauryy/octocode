@@ -1,88 +1,90 @@
 ---
 name: octocode-brainstorming
-description: "Use when an issue, idea, or open decision needs a check from more than one direction: separate the context, test the evidence, and try to drop the claim before acting. Not for implementing a settled decision or a single known lookup."
+description: "Use when an idea, claim, or open decision needs exploration from several directions; good for independent subagent research, fresh web evidence, alternatives, assumption checks, and reasoned recommendations."
 ---
 
 # Octocode Brainstorming
 
-tools: `npx octocode` / `octocode-mcp`
-related-skill: `octocode-research`
-output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
-
-Think from two or three directions, then check context, evidence, and the objection before acting. The same worksheet is for an agent or a human. Code, repository, and package checks go to `octocode-research`.
+Investigate different directions with several subagents, test their evidence, and explain what supports the final recommendation. Use `octocode-research` for code, repository, and package facts.
 
 ```mermaid
 flowchart LR
-  F["FRAME"] --> H["THINK"] --> C["CHECK"] --> M["MEASURE"] --> G["DECIDE"]
-  C -- "a direction is empty" --> H
-  M -- "a claim flips" --> H
-  F -. "named exploratory practice" .-> EX["exploratory.md"]
-  C -. "momentum or a source list" .-> RS["research.md"]
-  G -. "user agrees to save the record" .-> BT["brief-template.md"]
+  F[Frame decision and constraints] --> Q[Assign independent questions]
+  Q --> A[Subagent: promising approaches]
+  Q --> B[Subagent: alternatives and current landscape]
+  Q --> C[Subagent: objections and failure cases]
+  A --> V[Verify sources, freshness, and counterevidence]
+  B --> V
+  C --> V
+  V --> S[Compare each direction and its rationale]
+  S --> D{Enough evidence to decide?}
+  D -- yes --> R[Recommend and explain uncertainty]
+  D -- deciding gap --> G[Targeted follow-up]
+  D -- evidence unavailable --> R
+  G --> V
 ```
-Caption: Frame the issue. Check two or three directions. Measure context, evidence, and the objection before the verdict.
 
-## FRAME
-Write this before any search. Ask one question only when the answer would change the directions.
+## Frame the decision
 
-- Issue: one sentence.
-- Context: what is already true, the constraints, and who is affected.
-- Decision: what is still open.
-- Flip: the result that would change that decision.
+Establish the issue, known context, constraints, open choice, and evidence that could change it. For changing facts, identify the relevant time window, version, or market. Ask only when a missing constraint materially changes the research.
 
-## Modes
-The mode chooses the directions. Name it in the brief.
+## Choose independent directions
 
-- Validate, for a claim, a defect, or "is this true": the claim as stated, the strongest objection, and the missing evidence.
-- Generate, for an open "what should we do": a response inside the current context, a response from another field, and the objection to the favorite.
-- Map, for "what already exists": the current context, the existing alternatives, and an adjacent field.
+Use several subagents for substantive brainstorming research. Size the team to the distinct questions and available capacity; the diagram's roles are examples. Each worker investigates a different direction, not the same query under another label.
 
-A claim or a defect with no named mode uses Validate. An open idea uses Generate. A landscape question uses Map.
+- For a claim: investigate the supporting case, strongest objection, and missing causal evidence.
+- For an open idea: explore promising approaches, alternatives or adjacent fields, and practical failure cases.
+- For a landscape: investigate existing solutions, recent developments, and unmet needs or adoption constraints.
 
-## THINK
-Take two or three directions from the mode. A direction is a different question, not a synonym. On each one, invert the cause and effect, borrow another field, or extend a kept direction. Cap the set at three. A fourth direction needs a reason written in the brief. Keep a direction only when it changes the search or the decision. Defer judgment until MEASURE. This split is diverge, then converge (Boyles, Harvard Business School Online, 2022). Several directions, then a check that can drop one, is Tree of Thoughts (Yao et al., arXiv:2305.10601).
+Give each worker the decision, constraints, bounded question, and expected evidence. Let workers form initial assessments independently before cross-checking one another. Require a concise rationale, deciding sources, counterevidence, uncertainty, and what would change the conclusion; private reasoning transcripts are unnecessary.
 
-Exploratory research is these directions. The 18+ practice stays opt-in: load `references/exploratory.md` before FRAME only when the requester asks for that practice or names a presence. Do not start it unasked. The vow blocks every step: no dose, source, preparation, or how to obtain or use a substance. On distress, real use as an emergency, or a medical question, stop and answer in plain language. A presence never lifts a limit the task already set.
+Use the host's available delegation tools and respect its limits. If workers are unavailable or prohibited, investigate the directions sequentially and disclose the reduced independence. Never report sequential passes as separate agents. A simple factual lookup can go directly to research.
 
-## CHECK
-Run every kept direction. When the host can start workers, dispatch them through `octocode-subagent` before you wait. One direction, one worker. The parent keeps the verdict. When the host cannot start workers, or a human is doing the pass, run the directions one at a time. Do not merge them into one search.
+## Research with current sources
 
-Each direction returns one packet: `claim`, `context it assumes`, `source` (URL or path:line), `sentence that supports it`, and `what would falsify it`.
+- Use available **Tavily, Exa, Serper, or host web/search tools** according to the question and coverage. Combine or switch tools when they can expose new evidence or resolve a gap; using every provider is not a quota.
+- Search results discover sources. Fetch and inspect the underlying pages before using their claims. Distinct providers returning the same page or syndicated story are one source.
+- Verify changing facts against current primary sources. Check publication/update dates, event dates, applicable versions, and later corrections or releases. State an as-of date when freshness affects the recommendation. Undated or inaccessible evidence remains uncertain.
+- Use older sources for stable methods or prior art when still applicable. Recency alone does not establish quality. Use local evidence for workspace claims and external sources when they can change the decision.
+- Reframe weak searches or change the evidence source when useful. Report unresolved coverage instead of filling gaps from memory. Use [research surfaces](references/research.md) for momentum, papers, or landscape discovery.
 
-Look in this order. Use the written context and local files first when the issue is in this workspace. Use `octocode-research` for code. Then use an official doc, a specification, a standard, a paper, a dated announcement, or a primary article. A snippet, a forum, or a marketing page is a lead until that page is fetched. For a dated momentum signal, load `references/research.md`.
+Provider setup belongs to the tool or connector. Direct integrations may use `TAVILY_API_KEY`, `EXA_API_KEY`, or `SERPER_API_KEY` from `<HOME>/.octocode/.env`; use only the variable that the selected client supports. Pass credentials through the host without displaying them. Connected tools can manage their own authentication, and a missing provider key does not block other available search tools.
 
-A web direction calls one vendor. Send `content-type: application/json`. HTTP 200 means the engine answered. On 401 or 403, switch vendor and report invalid auth. On 429 or 5xx, fall back to the host web tool and continue. Read the key from the process environment, workspace `.octocode/.env`, or the Octocode home `.env`. Never print the key or the authorization header. Ask for 1 to 8 results. Give two web directions two different vendors when more than one key works.
+## Check quality and reasoning
 
-- **Serper** — wide ranked results. `POST https://google.serper.dev/search`. Header `x-api-key` is `SERPER_API_KEY`. Body: `{"q":"<question>","num":5,"gl":"us","hl":"en"}`. Read `organic[].title`, `link`, and `snippet`.
-- **Tavily** — articles. `POST https://api.tavily.com/search`. Header `Authorization: Bearer` is `TAVILY_API_KEY`. Body: `{"query":"<question>","max_results":5,"search_depth":"basic"}`. Set `search_depth` to `advanced` when `max_results` is 4 to 8. Read `results[].title`, `url`, `content`, and `score`.
-- **Exa** — papers. `POST https://api.exa.ai/search`. Header `x-api-key` is `EXA_API_KEY`, not Bearer. Body: `{"query":"<question>","type":"auto","numResults":5,"contents":{"text":{"maxCharacters":240}}}`. Read `results[].title`, `url`, `text`, and `score`.
+Each worker connects evidence to a conclusion and explains its limits. The parent checks deciding sources and compares:
 
-## MEASURE
-Score every packet with three checks. A check that keeps every claim is unfinished. Name at least one drop or one concession.
+| Check | Question |
+|---|---|
+| Relevance | Does the evidence address this question, scope, and constraints? |
+| Authority and method | Is the source in a position to know, and does its method support the claim? |
+| Freshness | Is the fact current for the relevant date and version? |
+| Independence | Are supporting sources independent, or repeating the same origin? |
+| Counterevidence | What conflicts with the conclusion, and which evidence is stronger? |
 
-- Context: the claim fits the FRAME constraints. Drop it when it ignores a known constraint.
-- Evidence: the supporting sentence is on the fetched page or file. Drop it when the source is only a snippet, a forum, or a marketing page, or the sentence does not say the claim.
-- Objection: another direction contradicts it, or name the check that was not run. Drop it when the objection has the stronger source.
+Distinguish observed facts, vendor claims, and inference. Vendor documentation can establish an advertised feature; independent performance or adoption claims need suitable independent evidence. Resolve contradictions by evidence quality, not agent votes or result counts. Retain material dissent and mark partial or blocked directions.
 
-Marks. `strong`: context fits, and two directions cite the same canonical source, or one primary page was fetched and the objection did not beat it. `moderate`: context fits, one primary page, and the objection is still open. `weak`: no fetched primary page. Canonicalize a URL before a comparison: drop the tracking parameters and the fragment. Rank inside one engine. Serper rank, Tavily score, and Exa score use different scales, so do not add them. Agreement without a second source is not proof.
+## Synthesize and decide
 
-## DECIDE
-One of `Build RFC`, `Prototype First`, `Narrow`, `Park`, or `Do Not Build`.
+For each direction, explain its conclusion, why the evidence supports it, the strongest objection, confidence, and whether it changes the recommendation. Revise or drop unsupported claims; keep alternatives that remain credible.
 
-- Build RFC: commit. The issue, the context, and the flip are specific, the prior art is grounded, the first step is bounded, and the largest unknown is a design tradeoff. Hand that packet to `octocode-rfc-generator`. For a defect, Build RFC means change the code on this theory.
-- Prototype First: run the smallest test that can change the decision.
-- Narrow: the brief holds more than one issue. Split it.
-- Park: not now. Name the signal that would reopen it.
-- Do Not Build: the claim did not survive. For a defect, do not change the code on this theory.
+The parent owns the final judgment. Recommend the best-supported direction and the smallest useful next action: a prototype, further research, a narrower scope, an RFC, or a reason to stop. State unresolved uncertainty and the check most likely to change the decision. Stop exploring when further available research cannot usefully change the result.
 
-Zero prior art is a risk, not a reason to commit.
+## Resources
 
-## Gate
-Pause when fewer than two directions were checked, the brief holds unrelated issues, the evidence is too thin or conflicting for a mark above `weak`, or the next pass cannot change the decision. Otherwise state the uncertainty and name the smallest step that can change the decision.
+| When needed | Read |
+|---|---|
+| Momentum, papers, or landscape sources | [research](references/research.md) |
+| A saved brief is requested | [brief-template](references/brief-template.md) |
 
-## Related routes
-`octocode-subagent` runs a direction when the host can start a worker. `octocode-research` owns code evidence. `octocode-rfc-generator` takes a Build RFC verdict. `octocode-eval-benchmark` owns a measured experiment. `octocode-skills` owns a change to this folder.
+## Related skills
+
+- `octocode-research`: Use for code or repository facts that decide a direction.
+- `octocode-rfc-generator`: Use once a consequential option is ready for a written decision.
+- `octocode-eval-benchmark`: Use when an experiment must measure the options.
+- `octocode-scraping`: Fetch public sources or build a reusable research corpus.
+- `octocode-chrome-devtools`: Inspect sources that need rendering or live browser access.
 
 ## Output
-One brief in chat: frame, directions, packets, the three checks, the mark, the verdict, and the next step. End with `Sources` when a source was cited. Omit an empty section.
-Then ask the user whether to save the record. Do not write the file until the user says yes. On a yes, save one file under `<output>/octocode-brainstorming/` in the shape of `references/brief-template.md`. The file keeps the final findings, every agent, and the debate. A sequential pass is an agent too. Leave none of them out.
+
+Use [output.md](output.md) for the comparison and recommendation, including each direction's rationale and evidence limits.

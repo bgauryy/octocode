@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.30.0",
-    "@modelcontextprotocol/server": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.1.0",
     "@octocodeai/config": "20.1.0",
     "@types/node": "^24.13.4",
     "esbuild": "^0.28.2",

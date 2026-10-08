@@ -13,10 +13,10 @@ pub struct GrammarCapability {
     pub graph_facts: bool,
 }
 
-// ── ripgrep_parser types ──────────────────────────────────────────────────────
+// ── text_parser types ──────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
-pub struct RipgrepMatch {
+pub struct TextSearchMatch {
     /// 1-based line number.
     pub line: u32,
     /// 0-based column offset of the first submatch.
@@ -45,12 +45,12 @@ pub struct RipgrepMatch {
 }
 
 #[derive(Debug, Clone)]
-pub struct RipgrepFile {
+pub struct TextSearchFile {
     pub path: String,
     pub match_count: u32,
-    pub matches: Vec<RipgrepMatch>,
+    pub matches: Vec<TextSearchMatch>,
     /// The bytes this file's values came from, when the search was asked to
-    /// prove them ([`RipgrepSearchOptions::digest_max_bytes`]).
+    /// prove them ([`TextSearchOptions::digest_max_bytes`]).
     pub source: Option<SearchedSource>,
 }
 
@@ -66,7 +66,7 @@ pub struct SearchedSource {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct RipgrepStats {
+pub struct TextSearchStats {
     pub match_count: Option<u32>,
     pub matched_lines: Option<u32>,
     pub files_matched: Option<u32>,
@@ -84,8 +84,8 @@ pub struct RipgrepStats {
     pub binary_files: Option<Vec<String>>,
     pub binary_file_count: Option<u32>,
     /// Files binary from their leading bytes (a NUL before any text, or
-    /// after a short header that matched nothing), skipped like rg skips
-    /// them. Nothing text-searchable was lost, so they are not a coverage gap.
+    /// after a short header that matched nothing), skipped as opaque
+    /// binary. Nothing text-searchable was lost, so they are not a coverage gap.
     pub skipped_binary_count: Option<u32>,
     /// `skipped_binary_count` per lowercased extension ("" for none), most
     /// files first.
@@ -105,19 +105,19 @@ pub struct BinaryExtensionCount {
 }
 
 #[derive(Debug, Clone)]
-pub struct RipgrepParseResult {
-    pub files: Vec<RipgrepFile>,
-    pub stats: RipgrepStats,
+pub struct TextSearchResult {
+    pub files: Vec<TextSearchFile>,
+    pub stats: TextSearchStats,
 }
 
-/// Options for the in-process ripgrep search (`searchRipgrep`). Field semantics
-/// mirror the ripgrep CLI flags the old `RipgrepCommandBuilder` emitted, so the
-/// search behaves identically to shelling out to `rg`.
+/// Options for Octocode's in-process text search. Each field is one search
+/// behaviour; the CLI-style flags in field docs (`-C`, `-g`, `-t`) name the
+/// familiar equivalent.
 #[derive(Debug, Clone, Default)]
-pub struct RipgrepSearchOptions {
+pub struct TextSearchOptions {
     /// Search root: a directory (recursive) or a single file.
     pub path: String,
-    /// The search pattern (rg's positional pattern / `keywords`).
+    /// The search pattern (`matchString`).
     pub pattern: String,
 
     // ── match flags ──────────────────────────────────────────────────────────
@@ -151,7 +151,7 @@ pub struct RipgrepSearchOptions {
     // ── filters ──────────────────────────────────────────────────────────────
     /// Context lines around each match (`-C`).
     pub context_lines: Option<u32>,
-    /// Restrict to a ripgrep file type, e.g. `ts`, `py` (`-t`).
+    /// Restrict to a file type, e.g. `ts`, `py` (`-t`).
     pub lang_type: Option<String>,
     /// Include globs (`-g <glob>`).
     pub include: Option<Vec<String>>,
@@ -179,9 +179,9 @@ pub struct RipgrepSearchOptions {
     /// unlabeled matches on unsupported/unparseable files.
     pub classify_matches: Option<bool>,
 
-    // ── only-matching (rg -o) ──────────────────────────────────────────────
+    // ── only-matching ──────────────────────────────────────────────
     /// Emit one match per *submatch* with `value` set to the matched span
-    /// (not the whole line) — ripgrep's `-o`/`--only-matching`. The win on a
+    /// (not the whole line). The win on a
     /// minified one-liner: line mode can only count hits, this enumerates them.
     pub only_matching: Option<bool>,
     /// With `only_matching`, collapse duplicate values per file, preserving
@@ -207,7 +207,7 @@ pub struct RipgrepSearchOptions {
     /// `sort` is `traversal`, which always walks on one thread.
     pub walk_threads: Option<u32>,
     /// Hash each kept file of at most this many bytes while it is searched
-    /// and report it as [`RipgrepFile::source`], so a caller can prove the
+    /// and report it as [`TextSearchFile::source`], so a caller can prove the
     /// values later without reading the file again. `None` hashes nothing.
     pub digest_max_bytes: Option<u64>,
 }

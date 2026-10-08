@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Instrumented Octocode arm (the anchor): the LOCAL monorepo build of the octocode CLI.
+# The research command is `octocode <tool> '<json>'`; this wrapper only captures its
+# output. Build first (`yarn build` at the repo root) and pin the commit in the report.
+# OCTO_CLI overrides the build path.
+set -euo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OCTO_LOG="${OCTO_LOG:-$PWD/tmp/octocode-run.jsonl}"
+OCTO_ARTIFACT_DIR="${OCTO_ARTIFACT_DIR:-${OCTO_LOG%.jsonl}-artifacts}"
+OCTO_PY="${OCTO_PY:-python3}"
+OCTO_CLI="${OCTO_CLI:-$HERE/../../../octocode/out/octocode.js}"
+
+# The label is the command as the model writes it; it is what model-out counts.
+label="octocode $(printf '%s ' "$@" | sed 's/ *$//')"
+exec "$OCTO_PY" "$HERE/instrument_command.py" \
+  --log "$OCTO_LOG" \
+  --artifact-dir "$OCTO_ARTIFACT_DIR" \
+  --label "$label" \
+  -- node "$OCTO_CLI" "$@"

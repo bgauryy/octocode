@@ -606,7 +606,7 @@ mod contract_owner_tests {
     fn output_contract_rejects_rows_without_an_index() {
         let error = validate_output(
             "localSearch",
-            &json!({"results":[{"data":{"searchEngine":"rg","files":[]}}]}),
+            &json!({"results":[{"data":{"searchEngine":"native","files":[]}}]}),
         )
         .expect_err("rows require an index");
         assert!(
@@ -620,11 +620,11 @@ mod contract_owner_tests {
     #[test]
     fn output_contract_accepts_tool_data_with_or_without_debug_meta() {
         for row in [
-            json!({"index":0,"data":{"searchEngine":"rg","files":[]}}),
+            json!({"index":0,"data":{"searchEngine":"native","files":[]}}),
             json!({
                 "index":0,
                 "meta":{"evidence":{"kind":"lexical","confidence":"medium"}},
-                "data":{"searchEngine":"rg","files":[]}
+                "data":{"searchEngine":"native","files":[]}
             }),
         ] {
             validate_output("localSearch", &json!({"results":[row]}))

@@ -336,7 +336,7 @@ fn mcp_result(result: ToolOutcome) -> Result<Value, RuntimeError> {
 /// The batch parallelism budget: how many threads one batch runs its
 /// queries on, and how many cores each query's parallel directory walk may
 /// use. Read-only rows fan out one thread per query; mutating and
-/// self-scheduled tools stay ordered. Each localSearch ripgrep walk also runs
+/// self-scheduled tools stay ordered. Each localSearch text walk also runs
 /// its own worker pool, which defaults to every core, so concurrent walks
 /// split the cores instead of stacking full pools. Measured on a 5-query
 /// localSearch batch over the native crates (12 cores, optimized build): one

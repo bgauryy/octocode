@@ -19,7 +19,7 @@ Load when a saved artifact is unread and a literal search or small read does not
 }]}
 ```
 
-4. Run `octocode clasify --input .octocode/clasify-request.json` (monorepo: `node packages/octocode/out/octocode.js`; else `npx -y octocode`). MCP `clasify` takes the same JSON.
+4. Run `npx -y octocode clasify --input .octocode/clasify-request.json`. MCP `clasify` takes the same JSON.
 5. Merge nearby windows into at most five `localFetch` ranges and verify the deciding source. For snapshot JSON, read the whole ref object.
 6. Follow the `next.clasify` page unchanged. A negative page result is not site-wide absence.
 

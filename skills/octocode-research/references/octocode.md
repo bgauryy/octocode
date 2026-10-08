@@ -3,9 +3,9 @@
 Load when invocation, availability, or recovery is unclear. Live `schema` output is authoritative. Per-flow diagrams (local, GitHub, history, external → local, pages, hints, clasify): [OCTOCODE_WORKFLOWS.md](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_WORKFLOWS.md).
 
 ```bash
-node packages/octocode/out/octocode.js schema          # or: npx -y octocode schema
-node packages/octocode/out/octocode.js schema localSearch        # variants with runnable examples
-node packages/octocode/out/octocode.js schema localSearch --view query
+npx octocode schema
+npx octocode schema localSearch        # variants with runnable examples
+npx octocode schema localSearch --view query
 ```
 
 `debug:true` adds diagnostics and receipts. MCP and the CLI both take `{ "queries": [query, ...] }` (clasify too); a bare query runs as one row. On validation failure fix the named field.
@@ -24,6 +24,7 @@ The default catalog contains 12 tools; a classification key adds `clasify`. `OCT
 `ghCloneRepo`, `astTopology` and `astRewrite` are CLI-only; MCP never lists them. `ghCloneRepo` needs persistent storage (the default). `astTopology` and `astRewrite` need `OCTOCODE_BETA=true`; `clasify` needs a classification key (`OCTOCODE_CLASSIFICATION_API`). Check reach with `schema` (`availability`), `auth status`, and `lsp-server status <file>`; report an unavailable tool as a gap, not as empty.
 
 ## Output and recovery
+
 - A row `status` `error` names its repair: its `hints.text` tip, `hints.repair` lead, or `next.restart` page. Check hoisted `shared` before calling a field missing.
 - `next.*` pages sit in rows and nested payloads; they carry fields schemas omit. Coverage claims run every page.
 - `hints.*` holds `hints.text` tips and leads (`read`, `readPullRequest`, `viewRepo`, `clasify`, …); skipping one never leaves a result incomplete.

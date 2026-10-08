@@ -2499,7 +2499,7 @@ fn many_text_cut_files_are_a_count_with_a_lossless_listing() {
 }
 
 /// Files binary from their leading bytes (a font's magic, then a NUL)
-/// are outside a text search, as rg skips them: no partial result, a
+/// are outside a text search: no partial result, a
 /// count grouped by extension instead of every path, and an exact
 /// structureSearch continuation that lists them all.
 #[test]
@@ -2595,8 +2595,8 @@ fn an_extensionless_leading_nul_binary_is_listed_by_basename() {
 
 #[test]
 fn opaque_binary_files_in_scope_do_not_make_a_search_partial() {
-    // An object-file header puts a NUL before any text: rg skips such
-    // files and nothing text-searchable is lost, so only their count is
+    // An object-file header puts a NUL before any text: such files are
+    // skipped and nothing text-searchable is lost, so only their count is
     // disclosed.
     let body = search_fixture(
         &[
@@ -2742,10 +2742,10 @@ fn cancellation_during_the_walk_reports_cancelled() {
 #[test]
 fn clipped_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
     let security = ContentSecurity::new();
-    let mut file = octocode_engine::types::RipgrepFile {
+    let mut file = octocode_engine::types::TextSearchFile {
         path: "gone.txt".into(),
         match_count: 1,
-        matches: vec![octocode_engine::types::RipgrepMatch {
+        matches: vec![octocode_engine::types::TextSearchMatch {
             line: 1,
             column: 0,
             value: "…token = ghp_abcdefghijklmnop".into(),
@@ -2784,10 +2784,10 @@ fn clipped_secret_guard_fails_closed_when_the_match_line_is_gone() {
     let root = tempfile::tempdir().expect("fixture directory");
     let source = root.path().join("shrunk.txt");
     fs::write(&source, "one line now\n").expect("fixture");
-    let mut file = octocode_engine::types::RipgrepFile {
+    let mut file = octocode_engine::types::TextSearchFile {
         path: "shrunk.txt".into(),
         match_count: 1,
-        matches: vec![octocode_engine::types::RipgrepMatch {
+        matches: vec![octocode_engine::types::TextSearchMatch {
             line: 40,
             column: 0,
             value: "…token = ghp_abcdefghijklmnop".into(),
@@ -3550,4 +3550,99 @@ fn a_key_file_rewritten_under_its_stamp_restarts_a_replayed_page() {
     )
     .expect_err("changed key file");
     assert_eq!(error.code, "staleSnapshot");
+}
+
+/// Count views rank the most hits first under the default sort; equal
+/// counts keep relevance order. Other views keep relevance.
+#[test]
+fn count_views_order_by_count_under_the_default_sort() {
+    use super::executor::order_files;
+    let file = |path: &str, match_count| octocode_engine::types::TextSearchFile {
+        path: path.into(),
+        match_count,
+        matches: Vec::new(),
+        source: None,
+    };
+    // Engine relevance order: the declaring files first.
+    let relevance = || {
+        vec![
+            file("decl.rs", 3),
+            file("tie_b.rs", 38),
+            file("big.rs", 155),
+            file("tie_a.rs", 38),
+        ]
+    };
+    for view in ["countMatches", "countLines"] {
+        let mut files = relevance();
+        order_files(
+            &ls_query(serde_json::json!({"resultView": view}), None),
+            &mut files,
+        );
+        let order: Vec<_> = files.iter().map(|f| f.path.as_str()).collect();
+        assert_eq!(
+            order,
+            ["big.rs", "tie_b.rs", "tie_a.rs", "decl.rs"],
+            "{view}"
+        );
+    }
+    let mut files = relevance();
+    order_files(&ls_query(serde_json::json!({}), None), &mut files);
+    assert_eq!(files[0].path, "decl.rs", "a line view keeps relevance");
+}
+
+/// `noIgnore` is the one "search everything" switch: it
+/// also walks hidden files. An explicit `hidden:false` still wins.
+#[test]
+fn no_ignore_also_walks_hidden_files() {
+    use super::executor::search_options;
+    let root = std::path::Path::new(".");
+    let all = search_options(
+        &ls_query(serde_json::json!({"noIgnore": true}), None),
+        root,
+        None,
+    );
+    assert_eq!((all.no_ignore, all.hidden), (Some(true), Some(true)));
+    let plain = search_options(&ls_query(serde_json::json!({}), None), root, None);
+    assert_ne!(plain.hidden, Some(true));
+    let kept = search_options(
+        &ls_query(serde_json::json!({"noIgnore": true, "hidden": false}), None),
+        root,
+        None,
+    );
+    assert_eq!(kept.hidden, Some(false));
+}
+
+/// A line view with thousands of hits leads to the per-file counts first: one
+/// call ranks the files instead of paging every hit. Small results, later
+/// pages, and count views get no such lead.
+#[test]
+fn a_large_line_result_leads_to_per_file_counts() {
+    let many = "needle\n".repeat(1_200);
+    let body = search_fixture(
+        &[("big.txt", &many), ("small.txt", "needle\n")],
+        ls_query(serde_json::json!({"matchString":"needle"}), None),
+    );
+    let lead = &body["next"]["countFiles"];
+    assert_eq!(lead["tool"], "localSearch", "{body}");
+    let row = lead.pointer("/query/queries/0").unwrap_or(&lead["query"]);
+    assert_eq!(row["resultView"], "countMatches", "{lead}");
+    assert!(
+        row.get("page").is_none() && row.get("snapshot").is_none(),
+        "{lead}"
+    );
+    let hints = body["hints"].to_string();
+    assert!(hints.contains("hints.countFiles"), "{body}");
+    let small = search_fixture(
+        &[("a.txt", "needle\n")],
+        ls_query(serde_json::json!({"matchString":"needle"}), None),
+    );
+    assert!(small["next"].get("countFiles").is_none(), "{small}");
+    let counts = search_fixture(
+        &[("big.txt", &many)],
+        ls_query(
+            serde_json::json!({"matchString":"needle","resultView":"countMatches"}),
+            None,
+        ),
+    );
+    assert!(counts["next"].get("countFiles").is_none(), "{counts}");
 }

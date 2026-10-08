@@ -173,7 +173,10 @@ test('Pi inbox pages maximum escaped messages without loss or buffer overflow',a
  for(const tool of tools){
   const definition=catalog.tools.find(item=>item.name===tool.name);
   assert.equal(tool.description,definition.description);
-  assert.deepEqual(tool.parameters,definition.inputSchema);
+  const expected=structuredClone(definition.inputSchema);
+  for(const keyword of ['oneOf','anyOf','allOf','enum','const','not'])delete expected[keyword];
+  assert.deepEqual(tool.parameters,expected);
+  assert.deepEqual(catalog.tools.find(item=>item.name===tool.name).inputSchema,definition.inputSchema);
  }
  assert.deepEqual(handlers.get('cache_warming_decision')({type:'cache_warming_decision',action:'warm',warmCost:0.01,missCost:1,continuationProbability:1}),{action:'stop'});
  const inbox=tools.find(tool=>tool.name==='inbox');

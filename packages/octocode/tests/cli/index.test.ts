@@ -6,6 +6,9 @@ const mocks = vi.hoisted(() => ({
   resolve: vi.fn((): string | null => '/native/octocode'),
   skillHandler: vi.fn(),
   schemaHandler: vi.fn(),
+  toolHelp: vi.fn(async (_bin: string, name: string) =>
+    name === 'clasify' ? 0 : undefined
+  ),
 }));
 
 vi.mock('../../src/cli/native-delegate.js', async importOriginal => ({
@@ -20,6 +23,9 @@ vi.mock('../../src/cli/commands/config-view.js', () => ({
 }));
 vi.mock('../../src/cli/commands/skill.js', () => ({
   skillCommand: { name: 'skill', options: [], handler: mocks.skillHandler },
+}));
+vi.mock('../../src/cli/commands/tool-help.js', () => ({
+  runToolHelp: mocks.toolHelp,
 }));
 vi.mock('../../src/cli/commands/schema.js', () => ({
   schemaCommand: { name: 'schema', handler: mocks.schemaHandler },
@@ -114,11 +120,16 @@ describe('runCLI native boundary', () => {
     ]);
     expect(mocks.schemaHandler).toHaveBeenCalledTimes(1);
 
+    // Tool help is the binary's help plus the catalog's input section.
     await runCLI(['clasify', '--help']);
-    expect(mocks.delegate).toHaveBeenLastCalledWith('/native/octocode', [
-      'clasify',
-      '--help',
+    await runCLI(['help', 'clasify']);
+    expect(mocks.toolHelp.mock.calls).toEqual([
+      ['/native/octocode', 'schema'],
+      ['/native/octocode', 'schema'],
+      ['/native/octocode', 'clasify'],
+      ['/native/octocode', 'clasify'],
     ]);
+    expect(mocks.delegate).toHaveBeenCalledTimes(3);
   });
 
   it('renders the schema catalog for a bare invocation on a pipe', async () => {

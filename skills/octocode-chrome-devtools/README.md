@@ -1,9 +1,7 @@
-# Chrome DevTools skill
+# Octocode Chrome Devtools
 
-Guidance only. Browser execution, CLI, MCP, references and tests live in the `@octocodeai/octocode-chrome-devtools` package.
+Use a live browser for interactive pages, authenticated state, or browser diagnostics.
 
-Run `octocode-chrome-devtools /cli --help` to discover commands and `octocode-chrome-devtools /cli skill --json` to read complete operating guidance. Default `octocode-chrome-devtools` starts MCP stdio. Run both from the workspace cwd.
+Start with [SKILL.md](SKILL.md). See [output.md](output.md) for the result format.
 
-In this monorepo, build with `yarn workspace @octocodeai/octocode-chrome-devtools build`. Without a linked executable, use `node /absolute/repo/packages/octocode-chrome-devtools/bin/octocode-chrome-devtools.mjs /cli --help`. The package is currently private and is not published to npm; local installation uses its built folder.
-
-The skill folder has no scripts, dependencies or copied implementation. Install the package separately from this guidance. Agent instructions are in [SKILL.md](SKILL.md).
+Browser execution is supplied by `@octocodeai/octocode-chrome-devtools`; use its `skill` command for runtime setup.

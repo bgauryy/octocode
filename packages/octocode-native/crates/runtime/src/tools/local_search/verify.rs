@@ -68,7 +68,7 @@ impl Redaction {
 #[allow(clippy::too_many_arguments)]
 pub(super) fn redact_scan(
     query: &LocalSearchQuery,
-    parsed: &mut octocode_engine::types::RipgrepParseResult,
+    parsed: &mut octocode_engine::types::TextSearchResult,
     output_root: &std::path::Path,
     expected_digest: &ExpectedDigest<'_>,
     paths: &crate::policy::path::PathPolicy,
@@ -162,7 +162,7 @@ fn read_key_scan_bytes(source: &std::path::Path) -> Option<Vec<u8>> {
 /// redaction computes; `None` (no read, other bytes) redacts afresh.
 fn replay_redaction(
     query: &LocalSearchQuery,
-    parsed: &mut octocode_engine::types::RipgrepParseResult,
+    parsed: &mut octocode_engine::types::TextSearchResult,
     output_root: &std::path::Path,
     expected_digest: &ExpectedDigest<'_>,
     paths: &crate::policy::path::PathPolicy,
@@ -238,7 +238,7 @@ pub(super) type Outlines =
 #[allow(clippy::too_many_arguments)]
 pub(super) fn verify_shown(
     query: &LocalSearchQuery,
-    parsed: &mut octocode_engine::types::RipgrepParseResult,
+    parsed: &mut octocode_engine::types::TextSearchResult,
     layout: &Layout,
     output_root: &std::path::Path,
     expected_digest: &ExpectedDigest<'_>,
@@ -260,6 +260,9 @@ pub(super) fn verify_shown(
     }
     let mut unverified = false;
     let mut files_with_rows = 0usize;
+    // Outlines are parsed after the checks, in parallel: one tree-sitter
+    // parse per shown file was the page's slowest serial step.
+    let mut to_outline: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
     for (index, rows) in &layout.shown {
         let file = &mut parsed.files[*index];
         cancel.check().map_err(ToolError::cancelled)?;
@@ -306,8 +309,7 @@ pub(super) fn verify_shown(
             Verification::Changed => return Err(changed_since_scan(query)),
         }
         if let Some(bytes) = bytes {
-            let outline = super::leads::outline_of(&bytes, &source, security);
-            outlines.insert(source, outline);
+            to_outline.push((source, bytes));
         }
         for (matched, before) in file.matches.iter().zip(before) {
             if matched.value != before {
@@ -315,7 +317,50 @@ pub(super) fn verify_shown(
             }
         }
     }
+    outlines.extend(parallel_outlines(to_outline, security));
     Ok(unverified)
+}
+
+/// The outline of each read file, parsed on scoped threads; order-free.
+fn parallel_outlines(
+    files: Vec<(std::path::PathBuf, Vec<u8>)>,
+    security: &ContentSecurity,
+) -> Vec<(std::path::PathBuf, Option<super::enclosing::Outline>)> {
+    if files.len() < 2 {
+        return files
+            .into_iter()
+            .map(|(source, bytes)| {
+                let outline = super::leads::outline_of(&bytes, &source, security);
+                (source, outline)
+            })
+            .collect();
+    }
+    let workers = std::thread::available_parallelism()
+        .map_or(4, std::num::NonZeroUsize::get)
+        .min(files.len());
+    let per_worker = files.len().div_ceil(workers);
+    let mut files = files;
+    std::thread::scope(|scope| {
+        let mut tasks = Vec::with_capacity(workers);
+        while !files.is_empty() {
+            let chunk: Vec<_> = files.drain(..per_worker.min(files.len())).collect();
+            tasks.push(scope.spawn(move || {
+                chunk
+                    .into_iter()
+                    .map(|(source, bytes)| {
+                        let outline = super::leads::outline_of(&bytes, &source, security);
+                        (source, outline)
+                    })
+                    .collect::<Vec<_>>()
+            }));
+        }
+        // A worker that panicked leaves its files without enclosing names.
+        tasks
+            .into_iter()
+            .filter_map(|task| task.join().ok())
+            .flatten()
+            .collect()
+    })
 }
 
 /// Remove `…` window markers and `...` truncation suffixes from a value line.
@@ -342,7 +387,7 @@ pub(super) fn strip_clip_markers(line: &str) -> &str {
 /// `Changed` and the values must not be shown. Cancellation stops the read
 /// and returns the reason.
 pub(super) fn guard_clipped_secrets(
-    file: &mut octocode_engine::types::RipgrepFile,
+    file: &mut octocode_engine::types::TextSearchFile,
     source: &std::path::Path,
     expected: Option<Option<super::manifest::Digest>>,
     shown: std::ops::Range<usize>,
@@ -366,7 +411,7 @@ pub(super) fn guard_clipped_secrets(
 /// when a shown value needs its source lines.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn guard_read<R: std::io::Read>(
-    file: &mut octocode_engine::types::RipgrepFile,
+    file: &mut octocode_engine::types::TextSearchFile,
     source: &std::path::Path,
     open: impl FnOnce() -> std::io::Result<R>,
     expected: Option<Option<super::manifest::Digest>>,
@@ -697,8 +742,8 @@ mod verification_tests {
     use super::*;
     use crate::tools::cancel::NeverCancel;
 
-    fn hit(line: u32, value: &str) -> octocode_engine::types::RipgrepMatch {
-        octocode_engine::types::RipgrepMatch {
+    fn hit(line: u32, value: &str) -> octocode_engine::types::TextSearchMatch {
+        octocode_engine::types::TextSearchMatch {
             line,
             column: 0,
             value: value.into(),
@@ -715,9 +760,9 @@ mod verification_tests {
     }
 
     fn file_with(
-        matches: Vec<octocode_engine::types::RipgrepMatch>,
-    ) -> octocode_engine::types::RipgrepFile {
-        octocode_engine::types::RipgrepFile {
+        matches: Vec<octocode_engine::types::TextSearchMatch>,
+    ) -> octocode_engine::types::TextSearchFile {
+        octocode_engine::types::TextSearchFile {
             path: "source.txt".into(),
             match_count: matches.len() as u32,
             matches,

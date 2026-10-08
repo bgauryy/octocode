@@ -5,6 +5,7 @@ Load when a live browser step joins a scrape — auth, clicks, JS-only page, HAR
 Owner for the **cross-skill playbook** (chrome `SKILL.md` only points here). Live CDP = `octocode-chrome-devtools`; this skill owns corpus + process.
 
 ## Session IDs (do not mix)
+
 | Kind | Handle | Reuse |
 |---|---|---|
 | Scrape corpus | `.octocode/tmp/scrape/{sessionId}/` | same id for fetch → process → `corpus-run` |
@@ -12,10 +13,11 @@ Owner for the **cross-skill playbook** (chrome `SKILL.md` only points here). Liv
 | CDP artifacts | `.octocode/tmp/chrome-devtools/<run>/` | pass to `har-ingest --from-cdp-dir` |
 
 ## Playbook (one sessionId + one port)
+
 1. **Map** — `fetch.mjs` → corpus + `AGENT_INDEX.json` + `graph/graph.json`.
 2. **Packet** — `har-ingest.mjs --export-packet` → `extracts/bridge-handoff.json`.
 3. **Live DOM** — chrome `page-snapshot` → `dom-operations-check` (`--keep-tab`). Static only: `dom-find.mjs`.
-4. **Click/fill** — same tab or `graph-actionability-check`; ask before destructive submits.
+4. **Click/fill** — use the same tab and verify actionability. Apply only actions covered by the user's authorization; inspect uncertain results before retrying.
 5. **Measure** — `performance`/`network`/`storage-measure-check` with `MEASURE_EXISTING=1`.
 6. **Query** — `measure-query --dir|--latest`; HAR → `har-pager`; then deep HAR only if needed.
 7. **Process** — `har-ingest.mjs --session-dir <session> --from-cdp-dir <run>` (chrome alias `har-ingest-to-scrape`).

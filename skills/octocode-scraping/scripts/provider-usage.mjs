@@ -1,12 +1,10 @@
 #!/usr/bin/env node
-import { propagateOctocodeEnv } from './octocode-config.mjs';
 
 const args = process.argv.slice(2);
 if (args.includes('--help') || args.includes('-h')) {
   console.log('Usage: provider-usage.mjs\nReports ScrapingAnt plan and remaining credits from /v2/usage. Needs SCRAPING_ANT; sanitized output, never prints the key.');
   process.exit(0);
 }
-propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 const apiKey = process.env.SCRAPING_ANT?.trim();
 if (!apiKey) {
   console.error(JSON.stringify({ ok: false, provider: 'scrapingant', error: 'SCRAPING_ANT missing' }, null, 2));

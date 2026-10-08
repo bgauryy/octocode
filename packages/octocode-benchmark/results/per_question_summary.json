@@ -1,0 +1,988 @@
+{
+  "dataset": "local-build octocode v18.1.1, 30 questions x 3 passes; octocode anchor shared across baselines",
+  "campaigns": {
+    "gh": "full-gh-143806-2026-08-07",
+    "rtk": "full-rtk-162848-2026-08-07",
+    "headroom": "full-134213-2026-08-07"
+  },
+  "octocode_chars_crosscheck_mismatches": [
+    [
+      21,
+      65467.7,
+      52256.0
+    ]
+  ],
+  "rows": [
+    {
+      "q": 1,
+      "chars": {
+        "octocode": 14697.333333333334,
+        "gh": 19772.666666666668,
+        "rtk": 27925.0,
+        "headroom": 28201.666666666668
+      },
+      "elapsed_ms": {
+        "octocode": 3749.8636666666666,
+        "gh": 1292.807,
+        "rtk": 1949.7093333333332,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.777777777777779,
+        "octocode_vs_gh": 10.0,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 9.333333333333334,
+        "gh": 10.0,
+        "rtk": 10.0,
+        "headroom": 9.666666666666666
+      },
+      "ratio_vs_octocode": {
+        "gh": 1.3453234146783997,
+        "rtk": 1.900004535970244,
+        "headroom": 1.9188288124829902
+      }
+    },
+    {
+      "q": 2,
+      "chars": {
+        "octocode": 19159.333333333332,
+        "gh": 730.6666666666666,
+        "rtk": 26361.0,
+        "headroom": 1321.6666666666667
+      },
+      "elapsed_ms": {
+        "octocode": 14601.768666666665,
+        "gh": 1040.6706666666666,
+        "rtk": 946.5886666666667,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 10.0,
+        "octocode_vs_gh": 10.0,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 10.0,
+        "gh": 9.666666666666666,
+        "rtk": 10.0,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 0.03813633042207453,
+        "rtk": 1.3758829465186682,
+        "headroom": 0.06898291520233829
+      }
+    },
+    {
+      "q": 3,
+      "chars": {
+        "octocode": 9586.333333333334,
+        "gh": 7920.666666666667,
+        "rtk": 27777.333333333332,
+        "headroom": 75103.33333333333
+      },
+      "elapsed_ms": {
+        "octocode": 6091.342000000001,
+        "gh": 1514.1270000000002,
+        "rtk": 1793.1113333333335,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 10.0,
+        "octocode_vs_gh": 10.0,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 10.0,
+        "gh": 10.0,
+        "rtk": 10.0,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 0.8262456969992003,
+        "rtk": 2.8975972738968667,
+        "headroom": 7.834417052053269
+      }
+    },
+    {
+      "q": 4,
+      "chars": {
+        "octocode": 26201.333333333332,
+        "gh": 131764.33333333334,
+        "rtk": 136621.0,
+        "headroom": 257472.33333333334
+      },
+      "elapsed_ms": {
+        "octocode": 17082.70433333333,
+        "gh": 4467.863333333334,
+        "rtk": 2331.53,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.222222222222221,
+        "octocode_vs_gh": 9.333333333333334,
+        "octocode_vs_rtk": 9.0,
+        "octocode_vs_headroom": 9.333333333333334,
+        "gh": 8.0,
+        "rtk": 10.0,
+        "headroom": 7.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 5.028917103455296,
+        "rtk": 5.214276627143657,
+        "headroom": 9.826688209251438
+      }
+    },
+    {
+      "q": 5,
+      "chars": {
+        "octocode": 48933.0,
+        "gh": 151486.33333333334,
+        "rtk": 70432.0,
+        "headroom": 135064.33333333334
+      },
+      "elapsed_ms": {
+        "octocode": 2066.3276666666666,
+        "gh": 3417.821,
+        "rtk": 4116.725333333334,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.555555555555555,
+        "octocode_vs_gh": 10.0,
+        "octocode_vs_rtk": 9.666666666666666,
+        "octocode_vs_headroom": 9.0,
+        "gh": 9.333333333333334,
+        "rtk": 9.0,
+        "headroom": 8.666666666666666
+      },
+      "ratio_vs_octocode": {
+        "gh": 3.0957908432618755,
+        "rtk": 1.4393558539227107,
+        "headroom": 2.7601891021056004
+      }
+    },
+    {
+      "q": 6,
+      "chars": {
+        "octocode": 14592.666666666666,
+        "gh": 42904.666666666664,
+        "rtk": 53565.0,
+        "headroom": 41147.333333333336
+      },
+      "elapsed_ms": {
+        "octocode": 29636.452,
+        "gh": 3148.1236666666664,
+        "rtk": 3048.3789999999995,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 8.666666666666666,
+        "octocode_vs_gh": 8.666666666666666,
+        "octocode_vs_rtk": 8.666666666666666,
+        "octocode_vs_headroom": 8.666666666666666,
+        "gh": 10.0,
+        "rtk": 10.0,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 2.9401525880579285,
+        "rtk": 3.6706793366531136,
+        "headroom": 2.819726803417242
+      }
+    },
+    {
+      "q": 7,
+      "chars": {
+        "octocode": 8761.0,
+        "gh": 9072.333333333334,
+        "rtk": 10854.666666666666,
+        "headroom": 15959.666666666666
+      },
+      "elapsed_ms": {
+        "octocode": 4477.351333333333,
+        "gh": 1360.6656666666668,
+        "rtk": 792.4763333333334,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.88888888888889,
+        "octocode_vs_gh": 10.0,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 9.666666666666666,
+        "gh": 10.0,
+        "rtk": 10.0,
+        "headroom": 8.333333333333334
+      },
+      "ratio_vs_octocode": {
+        "gh": 1.0355362782026405,
+        "rtk": 1.238975763801697,
+        "headroom": 1.821671803066621
+      }
+    },
+    {
+      "q": 8,
+      "chars": {
+        "octocode": 14574.333333333334,
+        "gh": 23946.666666666668,
+        "rtk": 63101.0,
+        "headroom": 59135.333333333336
+      },
+      "elapsed_ms": {
+        "octocode": 22876.673,
+        "gh": 2152.3703333333337,
+        "rtk": 2305.5466666666666,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 10.0,
+        "octocode_vs_gh": 10.0,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 10.0,
+        "gh": 10.0,
+        "rtk": 10.0,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 1.643071152482675,
+        "rtk": 4.329597694577225,
+        "headroom": 4.057498341833817
+      }
+    },
+    {
+      "q": 9,
+      "chars": {
+        "octocode": 16399.0,
+        "gh": 55361.666666666664,
+        "rtk": 66358.33333333333,
+        "headroom": 73324.66666666667
+      },
+      "elapsed_ms": {
+        "octocode": 15171.285666666668,
+        "gh": 2326.7286666666664,
+        "rtk": 1646.165,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.666666666666666,
+        "octocode_vs_gh": 9.333333333333334,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 9.666666666666666,
+        "gh": 9.0,
+        "rtk": 9.666666666666666,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 3.3759172307254506,
+        "rtk": 4.046486574384617,
+        "headroom": 4.471288899729658
+      }
+    },
+    {
+      "q": 10,
+      "chars": {
+        "octocode": 12245.666666666666,
+        "gh": 13200.333333333334,
+        "rtk": 10552.0,
+        "headroom": 9377.0
+      },
+      "elapsed_ms": {
+        "octocode": 6187.983333333334,
+        "gh": 1370.8056666666664,
+        "rtk": 1486.1226666666669,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.88888888888889,
+        "octocode_vs_gh": 10.0,
+        "octocode_vs_rtk": 9.666666666666666,
+        "octocode_vs_headroom": 10.0,
+        "gh": 9.0,
+        "rtk": 6.333333333333333,
+        "headroom": 6.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 1.077959550317119,
+        "rtk": 0.8616925715218989,
+        "headroom": 0.7657402618613387
+      }
+    },
+    {
+      "q": 11,
+      "chars": {
+        "octocode": 25508.333333333332,
+        "gh": 93020.66666666667,
+        "rtk": 376969.6666666667,
+        "headroom": 522136.0
+      },
+      "elapsed_ms": {
+        "octocode": 15920.491999999998,
+        "gh": 3113.583666666666,
+        "rtk": 4044.6150000000002,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.88888888888889,
+        "octocode_vs_gh": 9.666666666666666,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 10.0,
+        "gh": 10.0,
+        "rtk": 9.666666666666666,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 3.646677556354133,
+        "rtk": 14.778294674942831,
+        "headroom": 20.46923227703365
+      }
+    },
+    {
+      "q": 12,
+      "chars": {
+        "octocode": 17036.333333333332,
+        "gh": 82359.66666666667,
+        "rtk": 98514.33333333333,
+        "headroom": 82695.0
+      },
+      "elapsed_ms": {
+        "octocode": 16380.971666666666,
+        "gh": 2619.0303333333336,
+        "rtk": 2354.5383333333334,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.555555555555555,
+        "octocode_vs_gh": 9.333333333333334,
+        "octocode_vs_rtk": 9.333333333333334,
+        "octocode_vs_headroom": 10.0,
+        "gh": 9.333333333333334,
+        "rtk": 10.0,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 4.834354027666361,
+        "rtk": 5.782601890078069,
+        "headroom": 4.8540374493729095
+      }
+    },
+    {
+      "q": 13,
+      "chars": {
+        "octocode": 19546.666666666668,
+        "gh": 10644.0,
+        "rtk": 10721.0,
+        "headroom": 483844.6666666667
+      },
+      "elapsed_ms": {
+        "octocode": 5148.487666666667,
+        "gh": 5457.645666666666,
+        "rtk": 4276.682666666667,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 10.0,
+        "octocode_vs_gh": 10.0,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 10.0,
+        "gh": 7.333333333333333,
+        "rtk": 9.666666666666666,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 0.5445429740791269,
+        "rtk": 0.5484822646657571,
+        "headroom": 24.75330832196453
+      }
+    },
+    {
+      "q": 14,
+      "chars": {
+        "octocode": 7596.333333333333,
+        "gh": 10390.333333333334,
+        "rtk": 8311.666666666666,
+        "headroom": 6092.666666666667
+      },
+      "elapsed_ms": {
+        "octocode": 1174.7793333333334,
+        "gh": 1010.2583333333332,
+        "rtk": 443.7223333333333,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.88888888888889,
+        "octocode_vs_gh": 10.0,
+        "octocode_vs_rtk": 9.666666666666666,
+        "octocode_vs_headroom": 10.0,
+        "gh": 10.0,
+        "rtk": 8.0,
+        "headroom": 1.6666666666666667
+      },
+      "ratio_vs_octocode": {
+        "gh": 1.367809030672693,
+        "rtk": 1.0941682390627057,
+        "headroom": 0.8020536223616658
+      }
+    },
+    {
+      "q": 15,
+      "chars": {
+        "octocode": 7378.333333333333,
+        "gh": 4893.333333333333,
+        "rtk": 4835.666666666667,
+        "headroom": 4769.333333333333
+      },
+      "elapsed_ms": {
+        "octocode": 1830.1540000000002,
+        "gh": 415.2513333333333,
+        "rtk": 389.8413333333333,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.88888888888889,
+        "octocode_vs_gh": 10.0,
+        "octocode_vs_rtk": 9.666666666666666,
+        "octocode_vs_headroom": 10.0,
+        "gh": 10.0,
+        "rtk": 9.666666666666666,
+        "headroom": 8.666666666666666
+      },
+      "ratio_vs_octocode": {
+        "gh": 0.6632030720578269,
+        "rtk": 0.6553873955274453,
+        "headroom": 0.6463971086514569
+      }
+    },
+    {
+      "q": 16,
+      "chars": {
+        "octocode": 10731.333333333334,
+        "gh": 23578.0,
+        "rtk": 1057962.3333333333,
+        "headroom": 959744.6666666666
+      },
+      "elapsed_ms": {
+        "octocode": 8080.917666666665,
+        "gh": 3394.1589999999997,
+        "rtk": 4559.252333333333,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.777777777777779,
+        "octocode_vs_gh": 9.333333333333334,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 10.0,
+        "gh": 9.666666666666666,
+        "rtk": 10.0,
+        "headroom": 4.666666666666667
+      },
+      "ratio_vs_octocode": {
+        "gh": 2.1971174753059577,
+        "rtk": 98.58628937069018,
+        "headroom": 89.43386966515499
+      }
+    },
+    {
+      "q": 17,
+      "chars": {
+        "octocode": 15108.666666666666,
+        "gh": 232759.66666666666,
+        "rtk": 179720.0,
+        "headroom": 6844626.666666667
+      },
+      "elapsed_ms": {
+        "octocode": 20503.588333333337,
+        "gh": 3125.7206666666666,
+        "rtk": 2715.482,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 8.222222222222221,
+        "octocode_vs_gh": 8.333333333333334,
+        "octocode_vs_rtk": 8.0,
+        "octocode_vs_headroom": 8.333333333333334,
+        "gh": 7.0,
+        "rtk": 8.333333333333334,
+        "headroom": 8.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 15.405705334686493,
+        "rtk": 11.895159511097384,
+        "headroom": 453.0265189957199
+      }
+    },
+    {
+      "q": 18,
+      "chars": {
+        "octocode": 12772.333333333334,
+        "gh": 12177.666666666666,
+        "rtk": 8243.666666666666,
+        "headroom": 7614.0
+      },
+      "elapsed_ms": {
+        "octocode": 4710.040333333333,
+        "gh": 1028.328,
+        "rtk": 427.1033333333333,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.555555555555555,
+        "octocode_vs_gh": 9.333333333333334,
+        "octocode_vs_rtk": 9.666666666666666,
+        "octocode_vs_headroom": 9.666666666666666,
+        "gh": 10.0,
+        "rtk": 10.0,
+        "headroom": 4.666666666666667
+      },
+      "ratio_vs_octocode": {
+        "gh": 0.953441031395986,
+        "rtk": 0.6454315316961139,
+        "headroom": 0.5961322650520656
+      }
+    },
+    {
+      "q": 19,
+      "chars": {
+        "octocode": 16525.333333333332,
+        "gh": 179626.66666666666,
+        "rtk": 166805.66666666666,
+        "headroom": 186059.0
+      },
+      "elapsed_ms": {
+        "octocode": 6849.104333333333,
+        "gh": 3240.921,
+        "rtk": 2164.7063333333335,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.333333333333334,
+        "octocode_vs_gh": 9.666666666666666,
+        "octocode_vs_rtk": 9.333333333333334,
+        "octocode_vs_headroom": 9.0,
+        "gh": 10.0,
+        "rtk": 10.0,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 10.869775697918348,
+        "rtk": 10.093936582217202,
+        "headroom": 11.259016459577216
+      }
+    },
+    {
+      "q": 20,
+      "chars": {
+        "octocode": 15816.333333333334,
+        "gh": 48996.333333333336,
+        "rtk": 114466.66666666667,
+        "headroom": 80465.33333333333
+      },
+      "elapsed_ms": {
+        "octocode": 4756.5233333333335,
+        "gh": 1824.7473333333335,
+        "rtk": 1739.463,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 10.0,
+        "octocode_vs_gh": 10.0,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 10.0,
+        "gh": 10.0,
+        "rtk": 10.0,
+        "headroom": 9.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 3.09783135577146,
+        "rtk": 7.237244199034753,
+        "headroom": 5.087483403232945
+      }
+    },
+    {
+      "q": 21,
+      "chars": {
+        "octocode": 65467.666666666664,
+        "gh": 297100.0,
+        "rtk": 430306.6666666667,
+        "headroom": 310655.0
+      },
+      "elapsed_ms": {
+        "octocode": 37542.35533333333,
+        "gh": 5124.544666666667,
+        "rtk": 4853.828,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 6.25,
+        "octocode_vs_gh": 5.5,
+        "octocode_vs_rtk": 6.666666666666667,
+        "octocode_vs_headroom": 6.333333333333333,
+        "gh": 10.0,
+        "rtk": 9.333333333333334,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 4.538118053186561,
+        "rtk": 6.572812024256249,
+        "headroom": 4.745166825353992
+      }
+    },
+    {
+      "q": 22,
+      "chars": {
+        "octocode": 53622.333333333336,
+        "gh": 12610.666666666666,
+        "rtk": 425890.0,
+        "headroom": 13236.666666666666
+      },
+      "elapsed_ms": {
+        "octocode": 4176.052000000001,
+        "gh": 2052.2239999999997,
+        "rtk": 1514.9046666666666,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 8.222222222222221,
+        "octocode_vs_gh": 8.333333333333334,
+        "octocode_vs_rtk": 8.333333333333334,
+        "octocode_vs_headroom": 8.0,
+        "gh": 10.0,
+        "rtk": 10.0,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 0.23517564198996685,
+        "rtk": 7.942399622048027,
+        "headroom": 0.24684988220082427
+      }
+    },
+    {
+      "q": 23,
+      "chars": {
+        "octocode": 17085.0,
+        "gh": 212408.33333333334,
+        "rtk": 182346.33333333334,
+        "headroom": 170490.33333333334
+      },
+      "elapsed_ms": {
+        "octocode": 14422.221666666665,
+        "gh": 2474.5203333333334,
+        "rtk": 1741.6223333333335,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 7.777777777777778,
+        "octocode_vs_gh": 7.333333333333333,
+        "octocode_vs_rtk": 8.0,
+        "octocode_vs_headroom": 8.0,
+        "gh": 7.333333333333333,
+        "rtk": 8.0,
+        "headroom": 8.333333333333334
+      },
+      "ratio_vs_octocode": {
+        "gh": 12.432445615061946,
+        "rtk": 10.672890449712224,
+        "headroom": 9.97894839527851
+      }
+    },
+    {
+      "q": 24,
+      "chars": {
+        "octocode": 16067.0,
+        "gh": 70767.33333333333,
+        "rtk": 114118.66666666667,
+        "headroom": 72038.0
+      },
+      "elapsed_ms": {
+        "octocode": 6127.804666666667,
+        "gh": 2628.5759999999996,
+        "rtk": 3310.8953333333334,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.777777777777779,
+        "octocode_vs_gh": 9.333333333333334,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 10.0,
+        "gh": 7.333333333333333,
+        "rtk": 8.333333333333334,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 4.40451442916122,
+        "rtk": 7.102674218377213,
+        "headroom": 4.4835999253127525
+      }
+    },
+    {
+      "q": 25,
+      "chars": {
+        "octocode": 15775.0,
+        "gh": 17807.333333333332,
+        "rtk": 26187.333333333332,
+        "headroom": 21315.333333333332
+      },
+      "elapsed_ms": {
+        "octocode": 2707.233,
+        "gh": 1873.2493333333332,
+        "rtk": 1548.7723333333333,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 8.666666666666666,
+        "octocode_vs_gh": 8.666666666666666,
+        "octocode_vs_rtk": 8.333333333333334,
+        "octocode_vs_headroom": 9.0,
+        "gh": 8.333333333333334,
+        "rtk": 9.666666666666666,
+        "headroom": 9.666666666666666
+      },
+      "ratio_vs_octocode": {
+        "gh": 1.1288325409403064,
+        "rtk": 1.660052826201796,
+        "headroom": 1.3512097200211304
+      }
+    },
+    {
+      "q": 26,
+      "chars": {
+        "octocode": 16594.333333333332,
+        "gh": 66256.0,
+        "rtk": 50292.333333333336,
+        "headroom": 24088.666666666668
+      },
+      "elapsed_ms": {
+        "octocode": 7465.799,
+        "gh": 4183.928666666667,
+        "rtk": 1256.8266666666666,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 8.333333333333334,
+        "octocode_vs_gh": 8.666666666666666,
+        "octocode_vs_rtk": 8.333333333333334,
+        "octocode_vs_headroom": 8.0,
+        "gh": 9.0,
+        "rtk": 10.0,
+        "headroom": 10.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 3.9926882670791235,
+        "rtk": 3.030693208524999,
+        "headroom": 1.4516200309342548
+      }
+    },
+    {
+      "q": 27,
+      "chars": {
+        "octocode": 7929.666666666667,
+        "gh": 8780.333333333334,
+        "rtk": 14515.333333333334,
+        "headroom": 12124.0
+      },
+      "elapsed_ms": {
+        "octocode": 3889.6946666666663,
+        "gh": 1627.0893333333333,
+        "rtk": 1397.7206666666668,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.222222222222221,
+        "octocode_vs_gh": 9.333333333333334,
+        "octocode_vs_rtk": 9.0,
+        "octocode_vs_headroom": 9.333333333333334,
+        "gh": 9.666666666666666,
+        "rtk": 10.0,
+        "headroom": 9.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 1.107276472319139,
+        "rtk": 1.8305098995333977,
+        "headroom": 1.5289419479591406
+      }
+    },
+    {
+      "q": 28,
+      "chars": {
+        "octocode": 62423.333333333336,
+        "gh": 1472373.6666666667,
+        "rtk": 6964357.666666667,
+        "headroom": 835869.6666666666
+      },
+      "elapsed_ms": {
+        "octocode": 14624.794333333333,
+        "gh": 5713.409666666666,
+        "rtk": 7996.086666666667,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 7.222222222222222,
+        "octocode_vs_gh": 5.666666666666667,
+        "octocode_vs_rtk": 7.666666666666667,
+        "octocode_vs_headroom": 8.333333333333334,
+        "gh": 9.333333333333334,
+        "rtk": 7.0,
+        "headroom": 7.666666666666667
+      },
+      "ratio_vs_octocode": {
+        "gh": 23.586911945319592,
+        "rtk": 111.56657766860683,
+        "headroom": 13.390340150584716
+      }
+    },
+    {
+      "q": 29,
+      "chars": {
+        "octocode": 41495.0,
+        "gh": 100556.66666666667,
+        "rtk": 211918.0,
+        "headroom": 108554.0
+      },
+      "elapsed_ms": {
+        "octocode": 11497.426666666666,
+        "gh": 3682.812,
+        "rtk": 1843.7243333333336,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.555555555555555,
+        "octocode_vs_gh": 9.0,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 9.666666666666666,
+        "gh": 9.333333333333334,
+        "rtk": 9.333333333333334,
+        "headroom": 9.666666666666666
+      },
+      "ratio_vs_octocode": {
+        "gh": 2.4233441780134153,
+        "rtk": 5.1070731413423305,
+        "headroom": 2.6160742258103387
+      }
+    },
+    {
+      "q": 30,
+      "chars": {
+        "octocode": 33689.333333333336,
+        "gh": 32215.0,
+        "rtk": 117538.66666666667,
+        "headroom": 35424.333333333336
+      },
+      "elapsed_ms": {
+        "octocode": 11068.639000000001,
+        "gh": 2059.671333333333,
+        "rtk": 4173.111333333333,
+        "headroom": null
+      },
+      "correct": {
+        "octocode": 9.88888888888889,
+        "octocode_vs_gh": 9.666666666666666,
+        "octocode_vs_rtk": 10.0,
+        "octocode_vs_headroom": 10.0,
+        "gh": 9.666666666666666,
+        "rtk": 10.0,
+        "headroom": 9.0
+      },
+      "ratio_vs_octocode": {
+        "gh": 0.9562373847310721,
+        "rtk": 3.4888985633434912,
+        "headroom": 1.051499980211343
+      }
+    }
+  ],
+  "overall": {
+    "per_instance_char_ratio": {
+      "gh": {
+        "n": 90,
+        "geo_mean": 2.0139661492854004,
+        "median": 2.240487514863258,
+        "octocode_leaner": 68
+      },
+      "rtk": {
+        "n": 90,
+        "geo_mean": 3.2172557557986647,
+        "median": 3.0642766435479145,
+        "octocode_leaner": 68
+      },
+      "headroom": {
+        "n": 90,
+        "geo_mean": 2.7327431332016943,
+        "median": 3.1642106572156936,
+        "octocode_leaner": 65
+      }
+    },
+    "chars_mean": {
+      "octocode": 22110.62222222222,
+      "gh": 114849.4,
+      "rtk": 368585.63333333336,
+      "headroom": 382598.35555555555
+    },
+    "chars_total_over_questions": {
+      "octocode": 663319,
+      "gh": 3445482,
+      "rtk": 11057569,
+      "headroom": 11477951
+    },
+    "pooled_char_ratio": {
+      "gh": {
+        "ratio": 5.194308818888458,
+        "top_q": 28,
+        "top_share": 0.427334598371626,
+        "loo_ratio": 3.283614007098297
+      },
+      "rtk": {
+        "ratio": 16.670070594525708,
+        "top_q": 28,
+        "top_share": 0.6298271949889408,
+        "loo_ratio": 6.811854088842982
+      },
+      "headroom": {
+        "ratio": 17.303825813234063,
+        "top_q": 17,
+        "top_share": 0.5963282876397332,
+        "loo_ratio": 7.14787491707934
+      }
+    },
+    "correct_mean": {
+      "octocode": 9.267657992565056,
+      "gh": 9.269662921348315,
+      "rtk": 9.4,
+      "headroom": 8.655555555555555
+    },
+    "correct_median": {
+      "octocode": 10.0,
+      "gh": 10.0,
+      "rtk": 10.0,
+      "headroom": 10.0
+    },
+    "correct_instances": {
+      "octocode": 269,
+      "gh": 89,
+      "rtk": 90,
+      "headroom": 90
+    },
+    "correct_note": "Correctness = blind judge score 0-10 over every judged instance (30 questions x 3 passes per matchup; octocode judged in all 3 matchups). gh is from its campaign's de-blinded aggregate which is missing 1 instance (pass1-Q21), so gh/octocode counts are 89/269 not 90/270.",
+    "chars_median_per_question": {
+      "octocode": 16233.0,
+      "gh": 37559.83333333333,
+      "rtk": 68395.16666666666,
+      "headroom": 72681.33333333334
+    },
+    "char_ratio_geo_mean_vs_octocode": {
+      "gh": 2.0352103966225363,
+      "rtk": 3.896614779803413,
+      "headroom": 3.497224769782083
+    },
+    "char_ratio_median_vs_octocode": {
+      "gh": 2.4233441780134153,
+      "rtk": 4.046486574384617,
+      "headroom": 4.057498341833817
+    },
+    "octocode_leaner_count": {
+      "gh": 23,
+      "rtk": 26,
+      "headroom": 24
+    },
+    "elapsed_ms_mean_per_question": {
+      "octocode": 10693.961022222222,
+      "gh": 2624.721788888889,
+      "rtk": 2438.9751111111113,
+      "headroom": null
+    },
+    "timing_note": "elapsed_ms is wall-clock summed per question (mean over passes). Captured for octocode/rtk/gh only (Headroom ghc path logs none). NOT a fair latency metric: octocode runs via `npx` which re-bootstraps per call, inflating its time; gh/rtk are native binaries. Network/GitHub variance also dominates. Chars are the headline."
+  }
+}

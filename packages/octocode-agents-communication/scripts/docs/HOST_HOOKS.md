@@ -68,7 +68,7 @@ Hooks add bounded peer changes: IDs, names, declared tasks, availability. Publis
 
 Pi `completionCheck: true`: after a real turn ends, the extension checks submitted, unacknowledged IDs and allows one recovery turn per work cycle (new action mail or user input starts a cycle; recovery does not). Passive mail never wakes; session/workspace changes cancel stale checks; it never acknowledges unfinished work.
 
-Pi sends `strict:false` on its communication function descriptors for OpenAI Chat/Responses, which otherwise may make omitted optional routing fields required. Other tools and schemas are unchanged; Python validates arguments. See [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling).
+Pi sends `strict:false` on its communication function descriptors for OpenAI Chat/Responses, which otherwise may make omitted optional routing fields required. It also projects top-level schema unions into plain object parameters for providers that reject root `oneOf`/`anyOf`/`allOf`; the canonical Python catalog still validates exact routing and payload rules. Other tools and schemas are unchanged. See [OpenAI function calling](https://developers.openai.com/api/docs/guides/function-calling).
 
 ## Custom bridge confirmation
 

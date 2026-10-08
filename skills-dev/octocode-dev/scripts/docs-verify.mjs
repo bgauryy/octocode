@@ -27,6 +27,10 @@ const DEFAULT_TOOL_NAMES = PUBLIC_TOOL_NAMES.filter(name => {
   return !isCliOnlyTool(name);
 });
 const DEFAULT_TOOL_COUNT = DEFAULT_TOOL_NAMES.length;
+// CLI listing: every tool except beta tools while the beta gate is off.
+const CLI_DEFAULT_TOOL_COUNT = PUBLIC_TOOL_NAMES.filter(
+  name => !isBetaTool(name) || DEFAULT_CONFIG.local.beta
+).length;
 const DOC_ROOTS = [
   path.join(ROOT, 'docs'),
   ...fs
@@ -269,7 +273,7 @@ function validatePrimaryToolGuidance() {
       required: [
         `**${DISCOVERABLE_TOOL_COUNT} tools in the full discovery catalog.**`,
         `| MCP, no flags | ${DEFAULT_TOOL_COUNT} of ${DISCOVERABLE_TOOL_COUNT} |`,
-        `| CLI, no flags | ${DISCOVERABLE_TOOL_COUNT} discoverable |`,
+        `| CLI, no flags | ${CLI_DEFAULT_TOOL_COUNT} of ${DISCOVERABLE_TOOL_COUNT} |`,
         '| `ghSearchRepo` |',
         '| `ghSearchCode` |',
         '| `ghStructure` |',
@@ -433,8 +437,7 @@ const RETIRED_SCAN_ROOTS = [
   'skills-beta',
   '.octocode/GOTCHAS.md',
   'octocode-local-testing/harness',
-  'packages/octocode-benchmark/compare/unified/questions',
-  'packages/octocode-benchmark/compare/unified/references',
+  'packages/octocode-benchmark/compare/github-questions',
   'octocode-local-testing/validate/local',
   'octocode-local-testing/validate/github/tasks.json',
 ];

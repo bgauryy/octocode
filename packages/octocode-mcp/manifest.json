@@ -35,7 +35,7 @@
   "tools": [
     {
       "name": "clasify",
-      "description": "Classify supplied state or locate answers in unread resources without returning bodies (conditional: requires OCTOCODE_CLASSIFICATION_API)"
+      "description": "Locate a described target, rank an unread list, or judge supplied state; returns no bodies (conditional: requires OCTOCODE_CLASSIFICATION_API)"
     },
     {
       "name": "ghSearchRepo",

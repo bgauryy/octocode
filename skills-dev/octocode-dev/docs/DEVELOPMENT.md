@@ -2,7 +2,7 @@
 
 This page owns the monorepo map, the contract pipeline, build commands, development-only environment variables, and ownership rules. Repository-wide agent rules are in `<repo>/AGENTS.md`. The tool concept is in `<repo>/docs/OCTOCODE_PROTOCOL.md`.
 
-Other dev docs: [ADDING_CONFIG.md](ADDING_CONFIG.md) (new settings), [TOOL_CONNECTIONS.md](TOOL_CONNECTIONS.md) (every `next.*` page and `hints.*` lead), [TOOL_QUALITY.md](TOOL_QUALITY.md) (acceptance criteria), [RELEASE.md](RELEASE.md) (release gates), [scripts/README.md](../scripts/README.md) (root automation), and the [benchmark results](../../../packages/octocode-benchmark/compare/unified/RESULTS.md).
+Other dev docs: [ADDING_CONFIG.md](ADDING_CONFIG.md) (new settings), [TOOL_CONNECTIONS.md](TOOL_CONNECTIONS.md) (every `next.*` page and `hints.*` lead), [TOOL_QUALITY.md](TOOL_QUALITY.md) (acceptance criteria), [RELEASE.md](RELEASE.md) (release gates), [scripts/README.md](../scripts/README.md) (root automation), and the [benchmark results](../../../packages/octocode-benchmark/results/SUMMARY.md).
 
 ## Runtime flow
 
@@ -31,7 +31,7 @@ Versions come from each `package.json`. Workspace packages version independently
 | `packages/octocode-claude-plugin` | `@octocodeai/claude-plugin` | 0.1.0 | Claude Code manifest, local MCP launch config, public skills, GitHub CLI onboarding. The marketplace points to the npm package. See its `ARCHITECTURE.md`. |
 | `packages/octocode-codex-plugin` | `@octocodeai/codex-plugin` | 0.1.0 | Codex plugin metadata, local MCP launch config, public skills, onboarding; reuses native auth and CLI skill staging. See its `ARCHITECTURE.md`. |
 | `packages/octocode-skill-installer` | `@octocodeai/octocode-skill-installer` (private) | 0.1.0 | Library bundled into the CLI: canonical skill copies, per-platform links or copies, upgrades, conflict policy, atomic replacement. |
-| `packages/octocode-benchmark` | `@octocodeai/octocode-benchmark` (private) | 20.0.0 | Unified agent benchmark: pinned questions, Octocode MCP vs `rg` + `gh`, blind Opus judge. Start at `<repo>/packages/octocode-benchmark/compare/unified/README.md`. |
+| `packages/octocode-benchmark` | `@octocodeai/octocode-benchmark` (private) | 20.0.0 | CLI research benchmark: 30 GitHub questions, Octocode CLI vs `gh` / `gh` + RTK / `gh` + Headroom, blind judge, measured characters. Start at `<repo>/packages/octocode-benchmark/README.md`. |
 | `packages/octocode-agents-communication` | `@octocodeai/octocode-agents-communication` | 0.1.0 | Session identity, path leases, messages. |
 
 Native Cargo crates under `crates/`:
@@ -39,7 +39,7 @@ Native Cargo crates under `crates/`:
 | Crate dir | Cargo name | Owns |
 |---|---|---|
 | `runtime` | `octocode-native` | Tool catalog, validation, config resolution, GitHub auth, providers, security, response shaping, pagination, `clasify`; `build.rs` embeds `packages/octocode-config/contract/` |
-| `engine` | `octocode-engine` | Primitives: ripgrep search, tree-sitter AST and rewrite, LSP client pool, minification, secret scanning, code graph |
+| `engine` | `octocode-engine` | Primitives: text search, tree-sitter AST and rewrite, LSP client pool, minification, secret scanning, code graph |
 | `github` | `octocode-github` | GitHub REST/GraphQL transport, bounded provider operations, credential traits |
 | `cli` | `octocode-cli` | The native `octocode` binary: tool commands, `schema`, `config`, `auth`, `graph`, `skill`, `install` |
 | `runtime-napi` | `octocode-runtime-napi` | N-API adapter the MCP server loads in-process |
@@ -47,7 +47,7 @@ Native Cargo crates under `crates/`:
 Other folders:
 
 - `skills/`: public Agent Skills installed by `octocode skill install`. `skills-beta/` holds tested unpublished skills; `skills-dev/` holds skills for work on this repo.
-- `octocode-local-testing/` (not a package): `harness/` runs end-to-end suites against the built MCP server (`node octocode-local-testing/harness/run-all.mjs`); `validate/` holds reports; `repos/` holds pinned clones. See `<repo>/octocode-local-testing/README.md`. Benchmark results: `<repo>/docs/BENCHMARKS.md` (pending).
+- `octocode-local-testing/` (not a package): `harness/` runs end-to-end suites against the built MCP server (`node octocode-local-testing/harness/run-all.mjs`); `validate/` holds validation scripts; `repos/` holds pinned clones. See `<repo>/octocode-local-testing/README.md`. Benchmark results: `<repo>/docs/BENCHMARKS.md` (pending).
 
 ## Concept to code
 
@@ -67,7 +67,7 @@ Where each part of [the protocol](../../../docs/OCTOCODE_PROTOCOL.md) lives. Nat
 | Snapshot identity | `crates/runtime/src/tools/local_search/cursor.rs`; response tokens in `crates/runtime/src/response/pager.rs` |
 | Path sandbox and directory pruning | `crates/runtime/src/policy/path.rs`, `policy/prune.rs` |
 | Secret scanning and redaction | `crates/engine/src/security/`, `crates/runtime/src/security/content.rs` |
-| Search and ranking | `crates/engine/src/search/` (`ripgrep_search.rs`, `relevance.rs`) |
+| Search and ranking | `crates/engine/src/search/` (`text_search.rs`, `relevance.rs`) |
 | Minification | `crates/engine/src/minify/` |
 | AST and rewrite | `crates/engine/src/structural/`, `crates/runtime/src/tools/ast_*` |
 | LSP | `crates/engine/src/lsp/`, `crates/runtime/src/tools/lsp_search/` |

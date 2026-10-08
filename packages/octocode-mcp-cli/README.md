@@ -58,7 +58,7 @@ registerOn(server, spec);
 
 ## Octocode tools
 
-`packages/octocode` is the terminal launcher. A call is `octocode <tool> '<json>'`. That process does not speak MCP. [examples/octocode-cli.ts](examples/octocode-cli.ts) spawns the built `packages/octocode-mcp` server and turns `tools/list` into this CLI.
+`packages/octocode` is the terminal launcher. A call is `npx octocode <tool> '<json>'`. That process does not speak MCP. [examples/octocode-cli.ts](examples/octocode-cli.ts) spawns the built `packages/octocode-mcp` server and turns `tools/list` into this CLI.
 
 ```bash
 node examples/octocode-cli.ts

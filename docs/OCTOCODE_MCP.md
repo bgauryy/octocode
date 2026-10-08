@@ -50,11 +50,11 @@ The discovery catalog has 16 tools. With default settings and no provider key, M
 | Package | `artifactSearch` |
 | Semantic assessment | `clasify` |
 
-- `ghCloneRepo`, `astTopology`, and `astRewrite` are never registered on MCP, with or without `OCTOCODE_BETA`. No MCP description or lead names the beta tools; the shared prompt names them only in its `<cli>` section. Run them as `octocode astTopology` / `octocode astRewrite` with `OCTOCODE_BETA=true`; `astRewrite` applies only with the complete set of preview hashes.
+- `ghCloneRepo`, `astTopology`, and `astRewrite` are never registered on MCP, with or without `OCTOCODE_BETA`. No MCP description or lead names the beta tools; the shared prompt names them only in its `<cli>` section. Run them as `npx octocode astTopology` / `npx octocode astRewrite` with `OCTOCODE_BETA=true`; `astRewrite` applies only with the complete set of preview hashes.
 - `clasify` needs a nonblank classification key and a passing startup provider check; otherwise it is left out. See [Clasify availability](OCTOCODE_CLASIFY.md#availability).
 - GitHub discovery is three tools with no `operation` field: `ghSearchRepo` (repositories), `ghSearchCode` (indexed code), `ghStructure` (repository tree). Removed compatibility names cannot be re-enabled.
 - Every tool takes up to 5 `queries` per call. MCP publishes input schemas, titles, and descriptions, not output schemas.
-- Server instructions are one prompt for every surface and tool subset, at most 2,000 characters (`MAX_MCP_INSTRUCTION_CHARS`), because hosts truncate near 2 KB. The grammar inventory and `schema` guidance are CLI-only; MCP clients get schemas through `tools/list`. `octocode schema` prints the live CLI catalog.
+- Server instructions are one prompt for every surface and tool subset, at most 2,000 characters (`MAX_MCP_INSTRUCTION_CHARS`), because hosts truncate near 2 KB. The grammar inventory and `schema` guidance are CLI-only; MCP clients get schemas through `tools/list`. `npx octocode schema` prints the live CLI catalog.
 
 ## Configuration
 

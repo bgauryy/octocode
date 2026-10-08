@@ -5,7 +5,7 @@ use std::time::Duration;
 use grep_matcher::Matcher;
 use grep_pcre2::RegexMatcherBuilder;
 
-use super::ripgrep_search::{
+use super::text_search::{
     ACTIVE_PCRE2_WORKERS, MAX_ACTIVE_PCRE2_WORKERS, PCRE2_DEADLINE_GRACE,
     PCRE2_MAX_JIT_STACK_BYTES, PCRE2_SEARCH_DEADLINE, Pcre2WorkerSlot, release_worker_slot,
     try_acquire_worker_slot,

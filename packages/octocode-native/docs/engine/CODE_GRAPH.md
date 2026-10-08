@@ -38,7 +38,7 @@ Reusable deterministic algorithms are in `src/graph/algorithms.rs`:
 
 ## Persisted graphs (CLI)
 
-`octocode graph ingest <path>` runs the same `build_graph` linker as
+`npx octocode graph ingest <path>` runs the same `build_graph` linker as
 `astTopology`. It projects the result into file, symbol, and package nodes with
 `contains`, `imports`, and `calls` edges, and publishes an immutable snapshot:
 

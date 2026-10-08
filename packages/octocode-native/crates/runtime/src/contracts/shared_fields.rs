@@ -59,6 +59,10 @@ fn can_share_field(key: &str, value: &Value) -> bool {
         // pages and between CLI and MCP consumers.
         "totalMatchRows",
         "returnedMatchRows",
+        // Per-file counts are the count views' evidence: equal counts on a
+        // page (common on later pages) must not move into `shared`.
+        "matchCount",
+        "matchedLineCount",
     ];
     !EXCLUDED.contains(&key)
         && !ROW_FIELDS.contains(&key)
@@ -139,6 +143,20 @@ pub(crate) fn hoist(rows: &mut [Value]) -> Option<Map<String, Value>> {
 mod tests {
     use crate::contracts::validate_output;
     use serde_json::json;
+
+    /// A count is per-file evidence: equal counts on one page stay on each
+    /// row, so a count view reads the same on every page (no `shared` lookup).
+    #[test]
+    fn per_file_counts_are_never_hoisted() {
+        let mut rows = vec![json!({"index":0,"data":{"files":[
+            {"path":"a.rs","matchCount":9,"matchedLineCount":9,"note":"same"},
+            {"path":"b.rs","matchCount":9,"matchedLineCount":9,"note":"same"}
+        ]}})];
+        let shared = super::hoist(&mut rows).expect("an identical non-count field still hoists");
+        assert!(!shared.contains_key("matchCount") && !shared.contains_key("matchedLineCount"));
+        assert_eq!(rows[0]["data"]["files"][1]["matchCount"], 9);
+        assert_eq!(rows[0]["data"]["files"][0]["matchedLineCount"], 9);
+    }
 
     /// The checked-out head is a row field stated once in `shared`; it never
     /// belongs on nested entries such as localFetch `blocks`.

@@ -6,6 +6,7 @@ import sys
 import time
 from pathlib import Path
 from . import catalog
+from ._version import VERSION
 
 MAX_FRAME = 8 * 1024 * 1024
 
@@ -56,7 +57,7 @@ def _arguments(argv=None):
     for name in ('trace', 'managed', 'compact'):
         parser.add_argument('--' + name, action='store_true')
     parser.add_argument('-h', '--help', action='store_true')
-    parser.add_argument('-V', '--version', action='version', version='agents-communication 0.1.0 (Python)')
+    parser.add_argument('-V', '--version', action='version', version='agents-communication ' + VERSION + ' (Python)')
     parser.add_argument('args', nargs='*')
     args = parser.parse_intermixed_args(argv)
     if args.duration_ms is not None and args.duration_ms < 0:

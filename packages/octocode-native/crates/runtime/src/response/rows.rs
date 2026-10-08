@@ -1017,6 +1017,10 @@ fn rewrite_paths(value: &mut Value, depth: usize, base: Option<&str>) {
                 map.shift_remove("absolutePath");
                 map.shift_remove("uri");
                 map.insert("path".into(), json!(path));
+            } else if let Some(Value::String(path)) = map.get_mut("path")
+                && let Some(clean) = without_dot_segments(path)
+            {
+                *path = clean;
             }
             for (key, child) in map {
                 if !matches!(key.as_str(), "next" | "location") {
@@ -1031,6 +1035,26 @@ fn rewrite_paths(value: &mut Value, depth: usize, base: Option<&str>) {
         }
         _ => {}
     }
+}
+
+/// A relative `path` without its `.` segments (`./src/a.ts` → `src/a.ts`),
+/// so a row names a file the way the tools spell it whatever the caller
+/// typed; `None` when there is nothing to drop. `..` stays: collapsing it is
+/// not lexical across symlinks.
+fn without_dot_segments(path: &str) -> Option<String> {
+    if Path::new(path).is_absolute() || !path.split('/').any(|segment| segment == ".") {
+        return None;
+    }
+    let kept = path
+        .split('/')
+        .filter(|segment| *segment != ".")
+        .collect::<Vec<_>>()
+        .join("/");
+    Some(if kept.is_empty() {
+        ".".to_owned()
+    } else {
+        kept
+    })
 }
 
 #[cfg(test)]
@@ -1141,7 +1165,7 @@ mod tests {
             json!({"path":"/r","matchString":"x"}),
             json!({"files":[{"path":"a.rs"}],"stats":{"matchCount":1,"filesScanned":9},
                 "pagination":{"currentPage":1,"totalPages":1,"hasMore":false},
-                "snapshot":"s","searchEngine":"rg","truncated":false,
+                "snapshot":"s","searchEngine":"native","truncated":false,
                 "diagnostics":[{"severity":"info","message":"routine"},{"severity":"warning","message":"keep"}]}),
         );
         assert!(row.get("cache").is_none(), "{row}");
@@ -1375,6 +1399,23 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn relative_row_paths_drop_dot_segments_only() {
+        let row = |path: &str| json!({"data": {"path": path, "matches": [{"path": path}]}});
+        let value = envelope(vec![row("./src/a.ts"), row("src/./b/../c.ts"), row(".")]);
+        let paths = value["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["data"]["path"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert_eq!(paths, ["src/a.ts", "src/b/../c.ts", "."]);
+        assert_eq!(
+            value["results"][0]["data"]["matches"][0]["path"],
+            "src/a.ts"
+        );
+    }
 
     fn error_hint(tool: &str, query: &Value, code: &str, message: &str) -> String {
         let mut row = json!({

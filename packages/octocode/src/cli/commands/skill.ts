@@ -49,8 +49,115 @@ Examples:
   octocode skill check --fix`);
 }
 
+interface SubcommandHelp {
+  about: string;
+  usage: readonly string[];
+  /** One row per flag in SUBCOMMAND_FLAGS (help aside): [flag, description]. */
+  options: readonly (readonly [string, string])[];
+  examples: readonly string[];
+}
+
+const PLATFORM_HELP = () =>
+  `Platforms, comma-separated: ${formatSkillPlatformHelp()}`;
+
+export const SUBCOMMAND_HELP: Record<string, () => SubcommandHelp> = {
+  list: () => ({
+    about: 'Bundled skills with install status and platform links',
+    usage: ['octocode skill list [--json]'],
+    options: [['--json', 'Print JSON']],
+    examples: ['octocode skill list'],
+  }),
+  info: () => ({
+    about: "A skill's SKILL.md and env readiness",
+    usage: ['octocode skill info <name> [--json]'],
+    options: [['--json', 'Print JSON']],
+    examples: ['octocode skill info octocode-research'],
+  }),
+  install: () => ({
+    about: 'Install bundled skills, or add a local skill to the canonical home',
+    usage: [
+      'octocode skill install <name>... [OPTIONS]',
+      'octocode skill install --all [OPTIONS]',
+      'octocode skill install --add <dir> [OPTIONS]',
+    ],
+    options: [
+      ['--add <dir>', 'Add a local skill directory to the canonical home'],
+      ['--all', 'Install every bundled skill'],
+      ['--platform <P>', PLATFORM_HELP()],
+      ['--global', "Link into each platform's global scope"],
+      ['--project-dir <DIR>', "Link into each platform's project scope"],
+      ['--path <DIR>', 'Copy straight to a custom destination'],
+      ['--mode <MODE>', 'symlink (default), copy, or auto'],
+      ['--force', 'Replace a differing install'],
+      ['--upgrade', 'Refresh changed bundled content, keep destination edits'],
+      ['--dry-run', 'Preview without writing'],
+      ['--json', 'Print JSON (errors too)'],
+    ],
+    examples: [
+      'octocode skill install --all --platform claude,cursor --global',
+      'octocode skill install octocode-research --platform codex --project-dir .',
+      'octocode skill install --add ./skills/my-skill --platform claude --global',
+    ],
+  }),
+  remove: () => ({
+    about: 'Remove skills: home copy and platform links',
+    usage: [
+      'octocode skill remove <name>... [OPTIONS]',
+      'octocode skill remove --all [OPTIONS]',
+    ],
+    options: [
+      ['--all', 'Remove every installed skill'],
+      ['--platform <P>', PLATFORM_HELP()],
+      ['--force', 'Also delete real directories, not only links'],
+      ['--dry-run', 'Preview without writing'],
+      ['--json', 'Print JSON (errors too)'],
+    ],
+    examples: [
+      'octocode skill remove octocode-research --platform pi --dry-run',
+    ],
+  }),
+  check: () => ({
+    about: 'Verify installs, platform links, and env readiness',
+    usage: ['octocode skill check [<name>...] [OPTIONS]'],
+    options: [
+      ['--platform <P>', PLATFORM_HELP()],
+      ['--workspace', 'Also check <cwd>/.agents/skills'],
+      ['--fix', 'Refresh stale or broken installs in place'],
+      ['--dry-run', 'With --fix: preview without writing'],
+      ['--no-env', 'Skip env readiness'],
+      ['--json', 'Print JSON (errors too)'],
+    ],
+    examples: ['octocode skill check', 'octocode skill check --fix --dry-run'],
+  }),
+};
+
+function printSubcommandHelp(command: string): void {
+  const help = SUBCOMMAND_HELP[command]!();
+  const width = Math.max(
+    ...help.options.map(([flag]) => flag.length),
+    '-h, --help'.length
+  );
+  const row = (flag: string, text: string) =>
+    `  ${flag.padEnd(width)}  ${text}`;
+  console.log(
+    [
+      help.about,
+      '',
+      `Usage: ${help.usage[0]}`,
+      ...help.usage.slice(1).map(line => `       ${line}`),
+      '',
+      'Options:',
+      ...help.options.map(([flag, text]) => row(flag, text)),
+      row('-h, --help', 'Print help'),
+      '',
+      'Examples:',
+      ...help.examples.map(line => `  ${line}`),
+    ].join('\n')
+  );
+}
+
 /** Flags each subcommand reads; any other skill flag is a usage error there. */
-const SUBCOMMAND_FLAGS: Record<string, readonly string[]> = {
+export const SUBCOMMAND_FLAGS: Record<string, readonly string[]> = {
   list: ['json'],
   info: ['json'],
   check: ['platform', 'workspace', 'fix', 'dry-run', 'no-env', 'json'],
@@ -144,6 +251,14 @@ export const skillCommand = {
       process.exitCode = EXIT.USAGE;
     };
     const command = subcommand(args);
+    if (
+      getBool(args.options, 'help') &&
+      command !== undefined &&
+      SUBCOMMANDS.has(command)
+    ) {
+      printSubcommandHelp(command);
+      return;
+    }
     if (getBool(args.options, 'help') || command === undefined) {
       printBundledSkillHelp();
       if (command === undefined && !getBool(args.options, 'help'))

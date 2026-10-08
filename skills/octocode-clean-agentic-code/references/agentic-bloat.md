@@ -45,4 +45,4 @@ Changing the guarded code may change behavior.
 | New `console.log`, `print(`, `dbg!`, `println!` in non-CLI code | Report: output is observable |
 | `sleep(` or a retry loop around a failing call | Report: it hides the root cause |
 
-Next: reinvention and scope creep → `references/agentic-defects.md`; batch → `references/cleanup-playbook.md`.
+Next: reinvention and scope creep → `references/agentic-defects.md`; batch → [lobby workflow](../SKILL.md#workflow).

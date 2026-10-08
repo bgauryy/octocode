@@ -47,7 +47,7 @@
               "query": {
                 "path": "/ABS/repo/docs/guide.md"
               },
-              "maxChars": 80000,
+              "maxChars": 1000000,
               "prefilter": [
                 "retry"
               ]
@@ -118,7 +118,7 @@
                 "path": "lib/core/Axios.js",
                 "fullContent": true
               },
-              "maxChars": 80000
+              "maxChars": 1000000
             }
           ],
           "questions": [
@@ -184,7 +184,7 @@
                 "matchString": "registerHandler",
                 "pageSize": 5
               },
-              "maxChars": 80000
+              "maxChars": 1000000
             }
           ],
           "questions": [
@@ -326,7 +326,7 @@
               "query": {
                 "path": "/ABS/repo/docs/guide.md"
               },
-              "maxChars": 80000,
+              "maxChars": 1000000,
               "prefilter": [
                 "retry"
               ]
@@ -397,7 +397,7 @@
                 "path": "lib/core/Axios.js",
                 "fullContent": true
               },
-              "maxChars": 80000
+              "maxChars": 1000000
             }
           ],
           "questions": [
@@ -463,7 +463,7 @@
                 "matchString": "registerHandler",
                 "pageSize": 5
               },
-              "maxChars": 80000
+              "maxChars": 1000000
             }
           ],
           "questions": [
@@ -4052,11 +4052,11 @@
     },
     "accepted": false,
     "messages": [
-      "Expanded resources × questions produces 30 cells; maximum is 25 (a fileChunks resource counts as 5 resources)."
+      "Resources × questions produces 30 cells; maximum is 25."
     ]
   },
   {
-    "id": "clasify.cell-limit-file-chunks",
+    "id": "clasify.cell-limit-questions",
     "tool": "clasify",
     "input": {
       "queries": [
@@ -4065,15 +4065,12 @@
           "reasoning": "Freeze the rejection wording native repeats.",
           "resources": [
             {
-              "id": "hits",
-              "tool": "localSearch",
-              "query": {
-                "mainGoal": "Find candidates.",
-                "reasoning": "Exercise the fixture.",
-                "path": "/r",
-                "matchString": "x"
-              },
-              "candidateEvidence": "fileChunks"
+              "id": "r0",
+              "value": "v0"
+            },
+            {
+              "id": "r1",
+              "value": "v1"
             }
           ],
           "questions": [
@@ -4106,6 +4103,41 @@
               "id": "q5",
               "type": "yesno",
               "ask": "Is this relevant?"
+            },
+            {
+              "id": "q6",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q7",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q8",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q9",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q10",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q11",
+              "type": "yesno",
+              "ask": "Is this relevant?"
+            },
+            {
+              "id": "q12",
+              "type": "yesno",
+              "ask": "Is this relevant?"
             }
           ]
         }
@@ -4113,7 +4145,7 @@
     },
     "accepted": false,
     "messages": [
-      "Expanded resources × questions produces 30 cells; maximum is 25 (a fileChunks resource counts as 5 resources)."
+      "Resources × questions produces 26 cells; maximum is 25."
     ]
   },
   {
@@ -4287,7 +4319,7 @@
     },
     "accepted": false,
     "messages": [
-      "Expanded matrices produce 75 cells in total; maximum is 50 (a fileChunks resource counts as 5 resources)."
+      "Matrices produce 75 cells in total; maximum is 50."
     ]
   },
   {

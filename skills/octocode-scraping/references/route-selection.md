@@ -2,18 +2,20 @@
 
 Load before a broad crawl, an extract schema, or workflow analysis, or when the fetch route is unclear. Better inputs give smaller corpora; the cheapest route that can prove the claim wins. Why: choose the smallest route that can prove the goal.
 
-## Ask
-Goal · scope (one URL / list / same-domain max-pages) · output shape · evidence strictness · boundaries (auth, personal data, forms, CAPTCHA, rate limits).
+## Establish scope
+
+Use the request and session to establish the goal, URLs or crawl bounds, output, and account/data boundaries. Ask only for a missing choice that changes the work.
 
 Vague request: apply the lobby defaults, no auth, no broad crawl; return the session path and the next search targets.
 
 ## Route tree
+
 Installing chrome-devtools never changes the default, and `SCRAPING_ANT` never auto-selects.
 
 ```mermaid
 flowchart TD
     Q{Need?} -- public static page --> D[direct html; prove from corpus]
-    D -- thin or JS shell --> C[one chrome-devtools capture; bridge into same corpus]
+    D -- thin or JS shell --> C[chrome-devtools capture; bridge into same corpus]
     Q -- auth / clicks / network / screenshots --> C
     Q -- markdown / extended / extract --> H[scrapingant + key; ask if new spend]
 ```

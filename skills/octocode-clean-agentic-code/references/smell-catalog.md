@@ -1,6 +1,6 @@
 # Smell Catalog
 
-Load to classify a target as dead, duplicate, or kludge. Comments: `references/doc-config-hygiene.md`. Tests: `references/test-hygiene.md`. Agent-authored code: `references/agentic-defects.md`.
+Load to classify a target as dead, duplicate, or kludge. Comments: [text and config hygiene](text-config-hygiene.md). Tests: `references/test-hygiene.md`. Agent-authored code: `references/agentic-defects.md`.
 
 | Class | Signal | Delete only when |
 |---|---|---|
@@ -17,4 +17,4 @@ Load to classify a target as dead, duplicate, or kludge. Comments: `references/d
 | Prototype patch | `Object.assign(prototype, …)` outside tests | The patched object is internal and owned |
 | Dead env check | Always true in deployed config | Confirmed on all deployment targets |
 
-Next: TRIAGE and EXCISE in `references/cleanup-playbook.md`.
+Next: the [lobby workflow](../SKILL.md#workflow).

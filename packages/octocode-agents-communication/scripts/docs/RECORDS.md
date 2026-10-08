@@ -17,8 +17,8 @@ Memory and event data also allow arbitrary JSON fields.
 | `data.messageId` | Reply or complete |
 | `data.leaseId` | Lease commands |
 
-`comm schema types --compact` lists all types and fields.
-`comm schema type message` returns one schema, semantics, and example.
+`npx -y @octocodeai/octocode-agents-communication /cli schema types --compact --json` lists all types and fields.
+`npx -y @octocodeai/octocode-agents-communication /cli schema type message --json` returns one schema, semantics, and example. These discovery commands take no workspace, database, or session flags in 0.1.0; invoke them directly instead of the bound `comm` helper.
 Current v4 writers emit full coordination and lease snapshots.
 Migrated history retains its original data; absent historical fields are unknown.
 In/out records describe the same worktree agent entering/leaving, with the same name and vendor.

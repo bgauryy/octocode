@@ -31,7 +31,7 @@ pub struct PathPolicy {
 
 /// A search walk enters a directory the policy admits and reads a file it
 /// admits for reading.
-impl octocode_engine::portable::RipgrepPathFilter for PathPolicy {
+impl octocode_engine::portable::TextSearchPathFilter for PathPolicy {
     fn allows(&self, path: &Path, is_dir: bool) -> bool {
         if is_dir {
             self.validate(path).is_ok()

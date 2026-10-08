@@ -3,6 +3,7 @@
 Load after fetch/crawl/extract or before searching saved output. Why: normalized local corpus without dumping pages into chat.
 
 ## Layout
+
 ```text
 .octocode/tmp/scrape/{sessionId}/
   AGENT_INDEX.json   # read first
@@ -14,6 +15,7 @@ Load after fetch/crawl/extract or before searching saved output. Why: normalized
 ```
 
 ## Search order
+
 1. `AGENT_INDEX.json` (warnings / thinHints / `bridge-handoff.json`); stop on warnings unless partial evidence is acceptable
 2. `indexes/` (paginate only when the target is not on the first page) + `graph/` candidates
 3. If present, `cdp/` + `extracts/cdp-*.jsonl` before thin `text/*.clean.part-*.md`

@@ -3,10 +3,11 @@
 Load when independent modules or risk categories make delegation worthwhile: divide inspection without duplicating or dropping findings. If the host lacks workers, run the same domains sequentially.
 
 ## Route
-Delegation cost and worker mechanics: `octocode-subagent`.
+
+Use the host's worker tools only when delegation is authorized. Otherwise inspect the domains sequentially.
 1. Split only independent inspection/inventory domains with no shared mutable state, such as security, architecture, or performance.
 2. Give each worker a bounded scope and evidence contract.
-3. Deduplicate after every required worker returns or is marked partial. <!-- style-lint: ignore-line passive-voice -->
+3. Deduplicate after every required worker returns or is marked partial.
 
 Each worker returns this compact contract:
 

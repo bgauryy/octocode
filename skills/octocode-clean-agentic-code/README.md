@@ -1,11 +1,5 @@
 # Octocode Clean Agentic Code
 
-Remove dead weight, agent residue, instruction cruft, and test debt without changing observable behavior. The flow lives in `SKILL.md`.
+Remove proven redundancy from code and instructions while preserving behavior.
 
-## Install
-
-```bash
-npx -y octocode skill install octocode-clean-agentic-code
-```
-
-Maintainers: run the `octocode-skills` review against this folder.
+Start with [SKILL.md](SKILL.md). See [output.md](output.md) for the result format.

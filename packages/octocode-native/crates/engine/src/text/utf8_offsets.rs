@@ -67,7 +67,7 @@ pub(crate) fn hide_bom_in_line(row: usize, line: &str, byte_column: usize) -> (&
 /// - [`LineIndex::new`]: the LSP rule. `\r\n`, `\n`, and a lone `\r` each end
 ///   a line, as language servers count lines. A text ending in a line break
 ///   has a final empty line.
-/// - [`LineIndex::tree_sitter`]: `\n` only, as tree-sitter rows and ripgrep
+/// - [`LineIndex::tree_sitter`]: `\n` only, as tree-sitter rows and the text search
 ///   line numbers count lines. `\r\n` keeps its `\r` on the line; a lone `\r`
 ///   and U+2028/U+2029 do not break.
 ///
@@ -105,7 +105,7 @@ impl LineIndex {
     }
 
     /// `\n` only, aligned with tree-sitter rows: every position derived from
-    /// a syntax tree (or a ripgrep line) must use this rule, or a lone `\r`
+    /// a syntax tree (or a text-search line) must use this rule, or a lone `\r`
     /// shifts every later line against the grammar's own row numbering.
     pub(crate) fn tree_sitter(content: &str) -> Self {
         Self::build(content, false)

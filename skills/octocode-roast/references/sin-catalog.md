@@ -3,6 +3,7 @@
 Load when building or ranking the inventory.
 
 ## Tiers
+
 | Tier | Examples |
 |---|---|
 | Capital offense (critical) | Confirmed credential exposure, injection/RCE, auth/access bypass; data loss/corruption; disabled security controls on a reachable production path. Requires mechanism, reachability, impact, exact evidence; redact secrets. |
@@ -12,6 +13,7 @@ Load when building or ranking the inventory.
 | Misdemeanor (minor) | Stale TODOs, debug output, commented dead code, style preferences with no demonstrated impact. Mention only when signal remains. |
 
 ## Leads by ecosystem
+
 Candidate patterns for `octocode-research`, not conclusions.
 
 | Ecosystem | High-signal leads |
@@ -26,6 +28,7 @@ Candidate patterns for `octocode-research`, not conclusions.
 Exclude docs, examples, fixtures, generated files, and tests unless in scope.
 
 ## Rank findings
+
 For each candidate ask:
 1. Is the mechanism proven?
 2. Is the path reachable and in scope?

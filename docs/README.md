@@ -16,6 +16,6 @@ Each topic has one owner doc; other docs link to it instead of repeating it. The
 | [AUTHENTICATION.md](AUTHENTICATION.md) | GitHub tokens, OAuth, `gh` passthrough, Enterprise, the `clasify` key, npm credentials |
 | [SECURITY.md](SECURITY.md) | Input validation, secret redaction, filesystem policy, credentials, egress |
 
-Skills: [skills/](../skills/README.md) (published), [skills-beta/](../skills-beta/README.md) (tested, unpublished). Install them with [`octocode skill`](../packages/octocode/docs/OCTOCODE_CLI.md#skill--agent-skills).
+Skills: [skills/](../skills/README.md) (published), [skills-beta/](../skills-beta/README.md) (tested, unpublished). Install them with [`npx octocode skill`](../packages/octocode/docs/OCTOCODE_CLI.md#skill--agent-skills).
 
 Working on this repository: [AGENTS.md](../AGENTS.md) and [DEVELOPMENT.md](../skills-dev/octocode-dev/docs/DEVELOPMENT.md), which links the dev docs and the package map.

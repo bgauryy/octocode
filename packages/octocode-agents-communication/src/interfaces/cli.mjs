@@ -1,7 +1,19 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { defineCli, defineCommand, commandToken, parseCommandInput, runCli } from 'octocode-mcp-cli';
 import { execute, python, script } from './runtime.mjs';
+import manifest from '../../package.json' with { type: 'json' };
+const maxInputBytes = 8 * 1024 * 1024;
+async function readStdin() {
+  const chunks = [];
+  let bytes = 0;
+  for await (const chunk of process.stdin) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    bytes += buffer.length;
+    if (bytes > maxInputBytes) throw new Error('JSON input exceeds 8 MiB');
+    chunks.push(buffer);
+  }
+  return Buffer.concat(chunks, bytes).toString('utf8');
+}
 const flagProperty = name => name.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
 const transportDescriptions = {
   workspaceRoot: 'Checkout root for this invocation; defaults to the current directory.',
@@ -73,7 +85,7 @@ export function createCommunicationCli() {
     payloadSchemas.set(command, payloadSchema);
     return command;
   });
-  return defineCli({ name: 'npx -y @octocodeai/octocode-agents-communication /cli', version: '0.1.0',
+  return defineCli({ name: 'npx -y @octocodeai/octocode-agents-communication /cli', version: manifest.version,
     instructions: 'Durable cross-vendor communication. Start with join --name <unique-name> --vendor generic --json; reuse its id with --session. Before edits acquire leases with lock or lock_many. Every command has --help and --help --json. Use --json for machine output and copy next.input for every page. --workspace-root selects the invocation checkout; --workspace is accepted as an alias. The default package entry serves MCP; this /cli route runs operations without closing your identity.', commands });
 }
 export async function runCommunicationCli(argv = process.argv.slice(2), io) {
@@ -89,8 +101,8 @@ export async function runCommunicationCli(argv = process.argv.slice(2), io) {
   // Existing JSON invocations remain valid; all values still pass shared schema validation.
   const position = args[1]?.startsWith('{') || args[1] === '-' ? 1 : -1;
   if (command && position !== -1) {
-    const raw = args[position] === '-' ? readFileSync(0, 'utf8') : args[position];
-    if (Buffer.byteLength(raw) > 8 * 1024 * 1024) throw new Error('JSON input exceeds 8 MiB');
+    const raw = args[position] === '-' ? await readStdin() : args[position];
+    if (Buffer.byteLength(raw) > maxInputBytes) throw new Error('JSON input exceeds 8 MiB');
     const input = JSON.parse(raw);
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('JSON input must be an object');
     // Validate before converting JSON to text flags, so coercion cannot hide bad types.

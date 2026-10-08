@@ -8,22 +8,22 @@ Node addon. The CLI runs without Node; Node consumers load the runtime from `.`
 or `./runtime`.
 
 ```sh
-$ octocode --version
+$ npx octocode --version
 octocode 20.0.0
 
-$ octocode schema
+$ npx octocode schema
 {"kind":"octocode.toolCatalog","toolCount":16,"tools":[…]}      # availability + compact fields per tool
 
-$ octocode schema localSearch
+$ npx octocode schema localSearch
 {"name":"localSearch","shortDescription":"…","querySchema":{…},"run":"…"}  # complete tool contract
 
-$ octocode localSearch '{"queries":[{"matchString":"ToolRuntime","path":"src/","resultView":"matchOnly","reasoning":"Locate the runtime entry."}]}'
+$ npx octocode localSearch '{"queries":[{"matchString":"ToolRuntime","path":"src/","resultView":"matchOnly","reasoning":"Locate the runtime entry."}]}'
 {"results":[{"data":{"searchEngine":"rg","files":[…]}}]}
 ```
 
 Every tool is a first-class command under its canonical name — the same name
 and the same JSON query contract as the MCP server. There are no per-tool flag
-wrappers and no aliases. `octocode schema` (tool contracts, descriptions,
+wrappers and no aliases. `npx octocode schema` (tool contracts, descriptions,
 examples, agent instructions) is served by the `octocode` npm launcher, which
 joins the core-owned presentation with this binary's hidden machine `catalog`
 (availability, field lists, enforcement fingerprint); the binary embeds no
@@ -34,8 +34,6 @@ presentation of its own.
 ### Via npm (recommended — pre-built binary, no compilation)
 
 ```sh
-npm install -g @octocodeai/octocode-native
-# or
 npx @octocodeai/octocode-native --version
 ```
 
@@ -160,46 +158,46 @@ yarn workspace @octocodeai/octocode-native platforms:check
 
 ```sh
 # discover availability + canonical workflow, then one tool's contract
-octocode schema
-octocode schema localFetch
-octocode schema ghSearchHistory --view query --select operation=commit   # workflow + one union branch
+npx octocode schema
+npx octocode schema localFetch
+npx octocode schema ghSearchHistory --view query --select operation=commit  # workflow + one union branch
 
 # local file read (paginated; exit 6 + a re-runnable next.* continuation in the JSON)
-octocode localFetch '{"queries":[{"path":"src/cli/mod.rs","ranges":["1-50"],"reasoning":"Read the dispatch entry."}]}'
+npx octocode localFetch '{"queries":[{"path":"src/cli/mod.rs","ranges":["1-50"],"reasoning":"Read the dispatch entry."}]}'
 
 # continue a paginated read: re-run results[].data.next.continue.query verbatim
-octocode localFetch '{"queries":[{"path":"src/cli/mod.rs","unit":"lines","offset":50,"reasoning":"Continue the read."}]}'
+npx octocode localFetch '{"queries":[{"path":"src/cli/mod.rs","unit":"lines","offset":50,"reasoning":"Continue the read."}]}'
 
 # lexical / regex search
-octocode localSearch '{"queries":[{"matchString":"ToolRuntime","path":"src/","resultView":"matchOnly","reasoning":"Locate the runtime entry."}]}'
+npx octocode localSearch '{"queries":[{"matchString":"ToolRuntime","path":"src/","resultView":"matchOnly","reasoning":"Locate the runtime entry."}]}'
 
 # structural AST match
-octocode astSearch '{"queries":[{"operation":"match","path":"src/","pattern":"pub async fn $NAME","language":"rust","reasoning":"List async entry points."}]}'
+npx octocode astSearch '{"queries":[{"operation":"match","path":"src/","pattern":"pub async fn $NAME","language":"rust","reasoning":"List async entry points."}]}'
 
 # structural rewrite (preview first; apply requires snapshot + expectedHashes from the preview)
-octocode astRewrite '{"queries":[{"path":"src/","language":"rust","ruleKind":"pattern","pattern":"dbg!($X)","rewrite":"$X","reasoning":"Strip debug macros."}]}'
+npx octocode astRewrite '{"queries":[{"path":"src/","language":"rust","ruleKind":"pattern","pattern":"dbg!($X)","rewrite":"$X","reasoning":"Strip debug macros."}]}'
 
 # LSP — go to definition
-octocode lspSearch '{"queries":[{"operation":"definition","path":"src/cli/mod.rs","symbolName":"dispatch","lineHint":244,"reasoning":"Jump to dispatch."}]}'
+npx octocode lspSearch '{"queries":[{"operation":"definition","path":"src/cli/mod.rs","symbolName":"dispatch","lineHint":244,"reasoning":"Jump to dispatch."}]}'
 
 # read a remote GitHub file (no clone required)
-octocode ghGetFileContent '{"queries":[{"owner":"cli","repo":"cli","path":"README.md","reasoning":"Read upstream docs."}]}'
+npx octocode ghGetFileContent '{"queries":[{"owner":"cli","repo":"cli","path":"README.md","reasoning":"Read upstream docs."}]}'
 
 # GitHub repository / code search
-octocode ghSearchRepo '{"queries":[{"keywords":["ast-grep"],"reasoning":"Find pattern-matching repos."}]}'
+npx octocode ghSearchRepo '{"queries":[{"keywords":["ast-grep"],"reasoning":"Find pattern-matching repos."}]}'
 
 # PR / issue / commit history
-octocode ghSearchHistory '{"queries":[{"operation":"pullRequest","owner":"octocodeai","repo":"octocode","keywords":["fix"],"reasoning":"Find fix PRs."}]}'
-octocode ghGetHistoryItem '{"queries":[{"operation":"pullRequest","owner":"octocodeai","repo":"octocode","number":42,"reasoning":"Read PR 42."}]}'
+npx octocode ghSearchHistory '{"queries":[{"operation":"pullRequest","owner":"octocodeai","repo":"octocode","keywords":["fix"],"reasoning":"Find fix PRs."}]}'
+npx octocode ghGetHistoryItem '{"queries":[{"operation":"pullRequest","owner":"octocodeai","repo":"octocode","number":42,"reasoning":"Read PR 42."}]}'
 
 # package lookup
-octocode artifactSearch '{"queries":[{"type":"crates","packageName":"clap","reasoning":"Confirm the clap crate."}]}'
+npx octocode artifactSearch '{"queries":[{"type":"crates","packageName":"clap","reasoning":"Confirm the clap crate."}]}'
 
 # large queries from a file instead of shell-quoted JSON
-octocode clasify --input query.json
+npx octocode clasify --input query.json
 ```
 
-Exact field names per tool come from `octocode schema <tool>` — the examples
+Exact field names per tool come from `npx octocode schema <tool>` — the examples
 above elide required fields for brevity.
 
 ## Commands
@@ -238,7 +236,7 @@ the MCP server tool of the same name.
 | `config` | Config paths, loaded key names, and warnings — values are never printed (`--json`). `set KEY VALUE` / `set KEY --stdin`, `unset KEY`, `check KEY`, `view`. |
 | `auth` | `status` (`--json`), `login` (device flow; `--refresh`, `--force`, `--hostname`), `logout`. |
 | `install` | Add the MCP server to an agent client: `--ide <id>` with an exact id from `--list`. |
-| `skill <args…>` | Pass-through to the `octocode skill` Node CLI. |
+| `skill <args…>` | Pass-through to the `npx octocode skill` Node CLI. |
 | `help` | Print help. |
 
 Hidden maintenance commands (not part of the agent surface, still available):
@@ -263,11 +261,11 @@ Hidden maintenance commands (not part of the agent surface, still available):
 | | `octocode-native` (this package) | `octocode` (Node CLI) |
 |---|---|---|
 | **Runtime** | Native binary, no runtime required | Requires Node ≥ 24 + npm |
-| **Install** | `npm i -g @octocodeai/octocode-native` | `npm i -g octocode` |
+| **Run** | `npx @octocodeai/octocode-native` | `npx octocode` |
 | **Startup (help/auth)** | ~8 ms | ~120 ms |
 | **Startup (tool call)** | ~160 ms | ~330 ms |
 | **Binary size** | ~50 MB release | 1 KB entry + node_modules |
-| **Query interface** | Raw JSON per tool (`octocode <tool> '<json>'`) | Same, plus `schema` views |
+| **Query interface** | Raw JSON per tool (`npx octocode <tool> '<json>'`) | Same, plus `schema` views |
 | **Output** | Text on a terminal, single-line JSON on a pipe | Same — the Node CLI is a launcher |
 | **Environments without Node** | ✓ Standalone | ✗ Node required |
 | **Interactive UI** | Plain text | Menus, spinners, colored headers |

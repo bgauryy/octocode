@@ -50,7 +50,7 @@ test('release metadata, MCP pin, and marketplace agree', () => {
   });
 });
 
-test('all public skills ship with local script imports and generated helpers', () => {
+test('all public skills ship with their local script imports', () => {
   const bundled = join(packageRoot, 'skills');
   assert.deepEqual(
     names(bundled),

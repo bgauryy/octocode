@@ -5,7 +5,7 @@
 //! `maxChars` bounds the evidence submitted for classification.
 use super::evidence::{file_evidence, is_file_read};
 use super::hydrate::default_search_page_size;
-use super::{CONTROL_FIELDS, CapturedPage};
+use super::{CONTROL_FIELDS, CapturedPage, MAX_PAGE_CHARS};
 use crate::tools::clasify::resource::tool_of;
 use crate::tools::clasify::transport::ClassificationError;
 use crate::tools::id::ToolId;
@@ -92,9 +92,9 @@ pub(super) fn too_large(chars: usize, cap: usize) -> ClassificationError {
     ClassificationError::new(
         "classificationContextTooLarge",
         format!(
-            "The captured page is {chars} characters, above maxChars {cap}; no classification was run."
+            "The captured page is {chars} characters, above the {cap}-character page limit; no classification was run."
         ),
-        "Select a smaller complete section, reduce the read page size, or raise maxChars within its limit.",
+        "Select a smaller complete section or reduce the read page size.",
     )
 }
 
@@ -454,9 +454,10 @@ pub(super) fn restore_chunk(mut next: Value, size: Option<&Value>) -> Value {
 }
 
 /// What one `capture_pages` call may spend. `left` is this call's share;
-/// `cap` is the resource's whole `maxChars`, which a fresh call (the
-/// continuation) gets. A page within `cap` but over `left` is deferred; a
-/// page over `cap` must shrink or fail. `defer` defers even a first page
+/// `cap` is the largest page: one provider request (`maxPageChars`), or less
+/// when `maxChars` is smaller. A page
+/// within `cap` but over `left` is deferred; a page over `cap` must shrink or
+/// fail. `defer` defers even a first page
 /// over `left` (a later prefilter window after the shared budget is spent).
 #[derive(Clone, Copy)]
 pub(super) struct CaptureBudget {
@@ -466,10 +467,10 @@ pub(super) struct CaptureBudget {
 }
 
 impl CaptureBudget {
-    pub(super) const fn whole(cap: usize) -> Self {
+    pub(super) fn whole(max_chars: usize) -> Self {
         Self {
-            left: cap,
-            cap,
+            left: max_chars,
+            cap: max_chars.min(MAX_PAGE_CHARS),
             defer: false,
         }
     }

@@ -129,9 +129,17 @@ async function scoutFlows() {
     const resource = firstResource(first);
     const pages = resource?.pages ?? [];
     const got = pages.map(p => pageId(resource, p));
-    check(`${label}: executes with answers and hints.read on every page`, !first.isError && pages.length > 0 && pages.every(p => p.answers && p.hints?.read), first.text.slice(0, 200));
+    // A page without hints.read implies localFetch of its own path and lines.
+    const readable = p => p.hints?.read || (p.path && p.line && p.endLine);
+    check(`${label}: executes with answers and a read on every page`, !first.isError && pages.length > 0 && pages.every(p => p.answers && readable(p)), first.text.slice(0, 200));
     const mapped = want.map(id => got.filter(g => g.endsWith(id)).length);
-    check(`${label}: each direct candidate is exactly one page`, mapped.every(n => n === 1) && got.length === want.length, JSON.stringify({ want, got }).slice(0, 220));
+    // Search resources judge files: a large file may be judged in several hit
+    // windows, so each candidate has at least one page and no page is foreign.
+    const fileChunks = t.tool === 'localSearch' || t.tool === 'ghSearchCode';
+    const covered = fileChunks
+      ? mapped.every(n => n >= 1) && got.every(g => want.some(id => g.endsWith(id)))
+      : mapped.every(n => n === 1) && got.length === want.length;
+    check(`${label}: each direct candidate is judged, with no foreign page`, covered, JSON.stringify({ want, got }).slice(0, 220));
     // Continuations reach new candidates only: none of call 1 repeats.
     const next = first.sc?.queries?.[0]?.next?.clasify;
     if (next && t.tool !== 'localSearch') {
@@ -141,11 +149,13 @@ async function scoutFlows() {
     }
     let reads = 0;
     for (const p of pages.slice(0, 3)) {
-      const read = await raw(p.hints.read.tool, p.hints.read.query);
+      // A page without hints.read implies localFetch of its own path and lines.
+      const lead = p.hints?.read ?? { tool: 'localFetch', query: { queries: [{ path: p.path, ranges: [`${p.line}-${p.endLine}`] }] } };
+      const read = await raw(lead.tool, lead.query);
       const id = pageId(resource, p).split(/[/#@:]/).pop();
       if (!read.isError && read.text.includes(id)) reads += 1;
     }
-    check(`${label}: hints.read runs verbatim on its candidate`, reads === Math.min(3, pages.length), `${reads}/${Math.min(3, pages.length)}`);
+    check(`${label}: each page's read runs on its candidate`, reads === Math.min(3, pages.length), `${reads}/${Math.min(3, pages.length)}`);
   }
   // Path lists stay one page and suit a choice over the listed paths.
   const pick = [{ id: 'pick', type: 'choice', ask: 'Which listed file implements the blocking thread pool?', labels: { pool: 'pool.rs', other: 'another listed file', insufficient: 'not listed' } }];
@@ -291,8 +301,9 @@ let prefilterQuality;
 // Carried best: across a multi-call walk, the final call's best is file-wide.
 {
   const truth = groundTruth('c', 'src/server.c', '^int serverCron\\(');
-  let request = { queries: [{ mainGoal: GOAL, reasoning: 'carry', resources: [{ id: 'f', tool: 'localFetch', query: { reasoning: 'unread', path: truth.file, fullContent: true } }],
+  let request = { queries: [{ mainGoal: GOAL, reasoning: 'carry', resources: [{ id: 'f', tool: 'localFetch', maxChars: 60_000, query: { reasoning: 'unread', path: truth.file, fullContent: true } }],
     questions: [{ id: 't', type: 'locate', ask: 'The periodic timer function that runs background housekeeping tasks many times per second.' }] }] };
+  // maxChars keeps the walk multi-call; the default budget fits this file in one.
   let last, calls = 0;
   while (request && calls < 20) { calls++; const out = await raw('clasify', request); last = out.sc?.queries?.[0]; request = last?.next?.clasify; }
   const top = bestRows(last, 't')[0];

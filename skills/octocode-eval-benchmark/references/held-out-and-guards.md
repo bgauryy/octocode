@@ -1,4 +1,5 @@
 # Held-out and guards
+
 Load before you select or accept a candidate.
 
 | Set | Permitted use |
@@ -9,6 +10,7 @@ Load before you select or accept a candidate.
 | Regression | Known successes that must stay correct; not evidence of generalization |
 
 ## Splits
+
 - Split by source problem, repository, customer, template, or time before you create variants. Keep near-duplicates and paraphrases in one split.
 - Synthetic cases supplement real tasks and need a solvability and reference check. More variants of one template are not more independent tasks.
 - Record split version, provenance, and final-test accesses. A repeated pass/fail summary also leaks.
@@ -16,6 +18,7 @@ Load before you select or accept a candidate.
 - Private does not mean unexposed.
 
 ## Comparable measurements
+
 - Freeze model and tool versions, context, permissions, concurrency, retries, and warm-up. Randomize or interleave arm order; record seeds when supported, without assuming reproducibility.
 - Report paired deltas and per-slice regressions.
 - Resample independent tasks or families (for example, paired cluster bootstrap), with repeats kept inside each cluster. Repeats on one task add no independent tasks.
@@ -24,6 +27,7 @@ Load before you select or accept a candidate.
 - Track solver failures, timeouts, infrastructure errors, judge errors, Unknowns, and missing artifacts separately; show totals and coverage; rerun affected pairs. Missing data never improves the pass rate.
 
 ## Verdict
+
 - **ACCEPT**: valid comparable sealed evidence meets the effect and uncertainty rule and every critical guardrail.
 - **REVERT**: a valid comparison fails the rule or breaches a guardrail.
 - **INCONCLUSIVE**: uncertainty or coverage cannot decide; collect more only under the plan, or start a new experiment.

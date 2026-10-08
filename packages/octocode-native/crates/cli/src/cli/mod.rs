@@ -477,7 +477,8 @@ impl Command {
     fn json_output(&self) -> bool {
         match self {
             Self::Tool(tool) => machine_output(tool.args.json),
-            Self::Catalog | Self::Graph { .. } | Self::Schema { .. } => machine_output(false),
+            Self::Graph { command } => command.json_output(),
+            Self::Catalog | Self::Schema { .. } => machine_output(false),
             Self::Config {
                 json,
                 command: None,
@@ -486,14 +487,19 @@ impl Command {
             Self::Config {
                 command:
                     Some(
-                        ConfigCommand::Set { json, .. }
+                        ConfigCommand::Home { json }
+                        | ConfigCommand::Get { json, .. }
+                        | ConfigCommand::Set { json, .. }
                         | ConfigCommand::Unset { json, .. }
                         | ConfigCommand::Check { json, .. },
                     ),
                 ..
             } => *json,
             Self::Auth {
-                command: AuthCommand::Status { json } | AuthCommand::Login { json, .. },
+                command:
+                    AuthCommand::Status { json }
+                    | AuthCommand::Login { json, .. }
+                    | AuthCommand::Logout { json },
             } => *json,
             Self::Install { json, .. } | Self::LspServer { json, .. } => *json,
             _ => false,
@@ -538,6 +544,8 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
                 return config_management(runtime);
             }
             match command {
+                Some(ConfigCommand::Home { .. }) => config::home(runtime, json_out),
+                Some(ConfigCommand::Get { key, .. }) => config::get(runtime, &key, json_out),
                 Some(ConfigCommand::Set {
                     key, value, stdin, ..
                 }) => config::set(runtime, &key, value, stdin, json_out),
@@ -557,7 +565,7 @@ async fn dispatch(command: Command, runtime: &ToolRuntime) -> u8 {
                 refresh,
                 json,
             } => system::login(runtime, hostname.as_deref(), force, refresh, json).await,
-            AuthCommand::Logout => system::logout(runtime),
+            AuthCommand::Logout { json } => system::logout(runtime, json),
         },
         Command::Graph { command } => graph::graph(runtime, command),
         Command::Skill { args } => launcher::SKILL.run(&args),

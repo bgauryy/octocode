@@ -65,6 +65,7 @@ export async function liveHostSmoke(options) {
   const cli = (name, input, session) => JSON.parse(invoke(python, ['-B', binary, name, JSON.stringify(input), '--workspace', workspace, '--database', database, ...(session ? ['--session', session] : [])]));
   const rows = () => {
     const db = new DatabaseSync(database, { readOnly: true });
+    db.exec('PRAGMA busy_timeout=5000');
     try { return {
       messages: db.prepare('SELECT id,sender,target,body,replyTo,replyRequired,wake FROM messages ORDER BY id').all(),
       deliveries: db.prepare('SELECT message,recipient,acknowledgedAt FROM deliveries ORDER BY message,recipient').all(),

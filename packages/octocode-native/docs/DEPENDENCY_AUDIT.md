@@ -9,10 +9,10 @@ This audit covers every direct dependency declared by the runtime and engine cra
 | `aho-corasick` | Literal prescan for secret detection and bounded search classification | Keep |
 | `ast-grep-core` | Structural rewrite matching, metavariables, captures, and replacement generation | Keep |
 | `ast-grep-config` | YAML rewrite rules, constraints, transforms, and rewriters | Keep |
-| `grep-matcher` | Shared matcher traits used by direct ripgrep integrations | Keep |
+| `grep-matcher` | Shared matcher traits for the in-process text search | Keep |
 | `grep-pcre2` | Per-request opt-in PCRE2 search lane (`regex:"pcre2"`) | Keep |
 | `grep-regex` | Default linear-time Rust-regex search lane | Keep |
-| `grep-searcher` | In-process ripgrep traversal/search execution | Keep; its transitive `memmap2` is required |
+| `grep-searcher` | In-process text search over each walked file | Keep; its transitive `memmap2` is required |
 | `ignore` | Gitignore-aware filesystem traversal | Keep |
 | `oxc_allocator`, `oxc_ast`, `oxc_codegen`, `oxc_minifier`, `oxc_parser`, `oxc_semantic`, `oxc_span` | Rich JavaScript/TypeScript parsing, symbols, graph facts, references, and minification | Keep; complementary to Tree-sitter |
 | `rayon` | Bounded parallel file scans | Keep |

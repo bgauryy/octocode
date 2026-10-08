@@ -87,7 +87,7 @@ A tool's availability, a recognized file extension, a parser, and a running lang
 
 ## Make a call
 
-- Before an unfamiliar call, run `octocode schema <tool> --view query`. Read the full schema (`octocode schema <tool>`) when a nested selector is abbreviated, for example PR `patchRanges`.
+- Before an unfamiliar call, run `npx octocode schema <tool> --view query`. Read the full schema (`npx octocode schema <tool>`) when a nested selector is abbreviated, for example PR `patchRanges`.
 - Batch 1–5 independent queries in one call. A query that needs an identity, path, line, snapshot, or page from an earlier result waits for that result. Envelope: [TOOL_DATA_CONTRACT.md](TOOL_DATA_CONTRACT.md#requests-and-result-rows).
 - Do not mix fields across operations. A former tool name is not an alias.
 

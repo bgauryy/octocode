@@ -629,3 +629,25 @@ pub fn second() -> usize {
         assert_eq!(ranges, vec![(0, 20), (22, 25)], "{raw}");
     }
 }
+
+#[cfg(test)]
+mod outline_cost_probe {
+    #[test]
+    #[ignore = "timing probe"]
+    fn outline_cost_probe() {
+        let path = std::env::var("PROBE_FILE").expect("PROBE_FILE");
+        let text = std::fs::read_to_string(&path).expect("read");
+        let t = std::time::Instant::now();
+        let mut parser = tree_sitter::Parser::new();
+        parser.set_language(&tree_sitter_rust::LANGUAGE.into()).expect("lang");
+        let tree = parser.parse(&text, None).expect("parse");
+        let parse = t.elapsed();
+        let t = std::time::Instant::now();
+        let facts = super::tree_sitter_graph_facts(&text, &path).expect("facts");
+        let graph = t.elapsed();
+        let t = std::time::Instant::now();
+        let json = serde_json::to_string(&facts.facts).expect("json");
+        let ser = t.elapsed();
+        eprintln!("PROBE parse={parse:?} graph_facts={graph:?} to_json={ser:?} json_bytes={} root_children={}", json.len(), tree.root_node().child_count());
+    }
+}

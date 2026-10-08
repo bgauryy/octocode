@@ -42,10 +42,7 @@
       "tools": [
         "artifactSearch"
       ],
-      "pattern": "[\"']?\\bregistry[\"']?\\s*:\\s*([\"']https?:|server|registry\\b)",
-      "allow": [
-        "packages/octocode-benchmark/compare/unified/questions/"
-      ]
+      "pattern": "[\"']?\\bregistry[\"']?\\s*:\\s*([\"']https?:|server|registry\\b)"
     },
     {
       "name": "totalMatches",

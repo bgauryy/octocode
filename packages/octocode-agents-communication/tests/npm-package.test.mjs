@@ -18,6 +18,7 @@ test('npm archive runs through npx outside the repository with CLI and MCP commu
   assert.ok(paths.includes('scripts/communication.py'));
   assert.ok(paths.includes('scripts/octocode_config.py'));
   assert.ok(paths.includes('OPERATING.md'));
+  assert.ok(paths.includes('ARCHITECTURE.md'), 'The installed README links to the architecture guide');
   assert.ok(paths.includes('dist/cli.js'));
   assert.ok(paths.includes('dist/mcp.js'));
   assert.ok(!paths.some(path => /^(src|tests|skills)\//.test(path) || path.endsWith('.pyc') || path.includes('__pycache__')));

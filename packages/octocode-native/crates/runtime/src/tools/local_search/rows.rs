@@ -4,7 +4,7 @@ use super::types::*;
 
 /// Order one clipped file's rows for paging: by lexical hit rank, then
 /// distinct text before repeats, stable by line.
-pub(super) fn rank_file_rows(matches: &mut Vec<octocode_engine::types::RipgrepMatch>) {
+pub(super) fn rank_file_rows(matches: &mut Vec<octocode_engine::types::TextSearchMatch>) {
     matches.sort_by_key(|matched| std::cmp::Reverse(matched.rank.unwrap_or(1)));
     let mut seen = std::collections::HashSet::new();
     let (distinct, repeats): (Vec<_>, Vec<_>) = std::mem::take(matches)
@@ -15,7 +15,7 @@ pub(super) fn rank_file_rows(matches: &mut Vec<octocode_engine::types::RipgrepMa
 }
 
 pub(super) fn project_match(
-    matched: &octocode_engine::types::RipgrepMatch,
+    matched: &octocode_engine::types::TextSearchMatch,
     max_chars: Option<usize>,
 ) -> SearchMatch {
     // matchOnly display cap: clip the exact span to the public display bound.

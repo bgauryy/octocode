@@ -1,4 +1,5 @@
 # Multi-agent workflow evaluation
+
 Load when the subject is a multi-stage or multi-agent workflow. Do not add agents or a global barrier only to fit the benchmark.
 
 - Keep the production communication topology within a trial; block evaluator feedback and cross-trial leakage (`references/clean-lab.md`).

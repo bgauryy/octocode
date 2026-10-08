@@ -1,13 +1,9 @@
 # Octocode Skills
 
-Discover, evaluate, create, improve, install, synchronize, and verify standalone Agent Skill folders. The flow and routes live in `SKILL.md`.
+Create, review, simplify, and install Agent Skills with clear activation and useful supporting files.
 
-```bash
-npx -y octocode skill install octocode-skills
-node scripts/skill-review.mjs <skill-or-collection>
-node scripts/skill-review.mjs --self-test             # maintainer check
-```
+Start with [SKILL.md](SKILL.md), the shared standard for descriptions, lobbies, diagrams, output, related skills, docs, scripts, and configuration. See [output.md](output.md) for review and change formats.
 
-## Sources
+From this folder, run `node scripts/skill-review.mjs <skill-or-collection-dir>` to check structure and links. `--json` gives structured findings; `--self-test` checks the reviewer. Editorial review and host activation tests assess meaning and selection separately.
 
-This skill drew on skills.sh install rankings (`code review`, `skill search agent`, `find skills install`); `vercel-labs/skills` find-skills (discovery and gate UX); `anthropics/skills` skill-creator (creation flow); `obra/superpowers` brainstorming (research → recommend); and the agentskills.io, aiskillstore.io, claude-plugins.dev, and Microsoft Sensei surfaces. Authoring rules follow the agentskills.io specification and skill-creation guides, Anthropic's skill authoring best practices, and the Claude Code, Codex, Cursor, OpenCode, and Pi skills docs.
+Use [skill-sync.mjs](scripts/skill-sync.mjs) for local symlinks; `--help` explains its dry-run and apply options.

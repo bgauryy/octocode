@@ -1,15 +1,13 @@
 ---
 name: octocode-research
-description: "Use when a code claim needs evidence before assertion: trace callers, imports, runtime wiring, regressions, GitHub, or change impact; locate a described answer in unread files or make a typed classification judgment (clasify); also when asked to 'research this' or 'use octocode'. Skip when the fix is already known and needs no investigation. Not for open-ended ideation → octocode-brainstorming; weighing an architecture option → octocode-architect."
+description: "Use when a code or repository claim needs evidence; good for tracing callers, runtime wiring, regressions, change impact, GitHub history, and finding described answers in unread files."
 ---
 
 # Octocode Research
 
-tools: `npx octocode` / `octocode-mcp`
-related-skill: `octocode-architect`
-output: `<workspace>/.octocode/` for workspace work | `<home>/.octocode/` when no workspace applies
+tools: `npx -y octocode` / `octocode-mcp`
 
-Flow: `FRAME → CLASSIFY → MODEL → SEMANTIC? → SEARCH/READ → PROVE → DECIDE/PATCH → VERIFY`. `SEMANTIC?` is a conditional checkpoint, never a mandatory call.
+The semantic check is conditional: use it when a judgment changes the next read.
 
 ```mermaid
 flowchart LR
@@ -18,24 +16,13 @@ flowchart LR
   S -- "admitted" --> Q[clasify] --> R
   S -- "skip" --> R["SEARCH/READ"]
   R --> P[PROVE] --> D["DECIDE/PATCH"] --> V[VERIFY]
-  F -. "loops, budgets, workers, briefs, landscapes" .-> CA["campaigns.md"]
-  C -. "task class or first move unclear" .-> AL["algorithm.md"]
-  Q -. "typed judgment, semantic locate, saved artifacts" .-> CL["clasify.md"]
-  R -. "local checkout" .-> WL["workflow-local.md"]
-  R -. "section, declaration, full file" .-> RF["reading-flows.md"]
-  R -. "remote repo, package, history, web, local vs remote" .-> WE["workflow-external.md"]
-  R -. "invocation, pagination, exit codes" .-> OC["octocode.md"]
-  R -. "query templates" .-> TE["tool-examples.md"]
-  P -. "root cause, callers, cycles, reachability, deletion" .-> CR["code-research.md"]
-  D -. "behavior change or refactor" .-> WC["workflow-change.md"]
-  V -. "PR or diff review" .-> PR["workflow-pr-review.md"]
 ```
-Skill map: research phases and their reference pages.
 
-Scale depth to risk. A lookup needs one exact read and ends there. Deletions, merge verdicts, and root causes need the full proof ladder.
+Scale depth to risk. End a lookup once the exact evidence answers it. Deletions, merge verdicts, and root causes need evidence for their wider consequences.
 
 ## Gates
-- Frame corpus/ref, actual vs needed, and task class. A bug needs a violated supported contract. A root cause needs mechanism, trigger, divergence boundary, and one disconfirmed alternate.
+
+- Identify the relevant corpus or revision and the question to settle. A bug needs a violated supported contract. A root cause needs evidence of the mechanism, trigger, and divergence; test plausible alternatives when they could change the conclusion.
 - Match evidence to the claim: exact text proves values, AST shape, LSP server-resolved identity, graph syntactic file edges. Impact, deletion, and absence cross-check lanes and keep coverage gaps.
 - Empty is not absent. First repair scope, filters, ref/index, and synonyms. Limits, partial results, unavailable capabilities, and graph candidates never prove universal absence.
 - Row `status` `error` is a broken call: fix it; never read it as absence. `empty` is absence in the searched scope only. Exit 0 does not mean every row succeeded.
@@ -44,33 +31,59 @@ Scale depth to risk. A lookup needs one exact read and ends there. Deletions, me
 - Stop when no remaining uncertainty changes the decision. A budget checkpoint reassesses unproductive work; it does not abandon an authorized task. When blocked, name the missing evidence.
 
 ## Phase rules
-- FRAME: state `actual | expected | authority | trigger | impact | success criteria | non-goals`. Authority is a test, spec, schema, documented promise, accepted user criterion, or established behavior.
+
+- FRAME: capture the question and constraints that affect the investigation. For a bug, compare actual and expected behavior and identify the supporting test, spec, schema, user criterion, or established contract. Add triggers, impact, and non-goals when useful.
 - CLASSIFY: bug = a supported contract is violated; feature = a new contract; enhancement = contract holds, a metric must improve; unknown = find one missing fact with the cheapest check.
 - MODEL: trace only the load-bearing path `entry → transformations → state → output → consumers`. Bugs locate the first divergent boundary; features locate the smallest boundary that can own the new criterion.
-- First move follows the strongest handle: none → docs, else tree depth 1-2 + match counts, then re-enter at hotspots; concept → guess a literal or synonym alternation (`a\|b`) → anchors → `matchString` read; identifier → text search or `workspaceSymbol`, then LSP when identity or counts matter (text hits do not prove them); code shape → `astSearch operation:"match"`; file topology → `octocode graph` or CLI beta `octocode astTopology`; installed package → resolved version → `artifactSearch` `version` → `hints.viewReleaseSource`; why/history → PR or commit history on the path, issue → `closedBy` → fix PR. No fixed grep → AST → LSP pipeline.
+- Start with the strongest handle: a literal or identifier gets text search; a named file gets a targeted read; code shape gets AST; symbol identity gets LSP; topology gets graph; history gets the relevant commit or PR. Use the live schema for exact queries. Switch tools only when the next claim needs different evidence.
 - SEARCH/READ: local checkout first when it holds the evidence. Never substitute another ref after a 404.
-- PROVE: a nontrivial claim uses two of structure, exact text, and connections (graph, LSP, AST). Safe delete needs a graph `issues` or `deadCode` candidate, LSP `includeDeclaration:false`, text/AST across code, tests, configs, and docs, runtime registrations, and a public-API/external-consumer check.
-- Root cause: a nearby suspicious line, a recent commit, or a correlation is not root cause. Without reproduction, name the equivalent evidence and cap confidence. Two surviving hypotheses → ask for the missing input, log, or config.
+- PROVE: use the evidence the claim needs. For a deletion, check callers, runtime registration, tests, configuration, and possible external consumers; a graph candidate or empty search alone is insufficient.
+- Root cause: a suspicious line, recent commit, or correlation needs a causal explanation. Without reproduction, state the equivalent evidence and its limits. If explanations still compete, run the most useful distinguishing check; ask for input only when the needed evidence is unavailable.
 - DECIDE/PATCH: for a behavior change or refactor, load `references/workflow-change.md`. Never lower coverage floors or edit a grader to hide a failure.
-- VERIFY: run the smallest applicable test, typecheck, lint, and build; after a tool or package change, exercise the real CLI/MCP path. Report commands and exit codes.
+- VERIFY: run checks relevant to the change; after a tool or package change, exercise the real CLI/MCP path. Report what ran and what remains unverified.
 - Review: `APPROVE` only after applicable checks pass; `REQUEST_CHANGES` for a proven blocker; `COMMENT` when verification is incomplete.
-- Loops: an `empty` result changes one variable per retry. A stall switches surface (local ↔ GitHub ↔ packages ↔ history), shape (text ↔ AST ↔ LSP ↔ graph), or breadth (broad ↔ narrow).
+- Recovery: use an empty or stalled result to revise scope, query, or evidence source. Keep changes understandable and avoid repeating a call without a reason it can produce new evidence.
 
 ## SEMANTIC? (clasify)
-Use `clasify` on an explicit classification request, or before the host reads a large known file when the target is described, not named. It also covers saved scrape text, browser snapshots, logs, and reports. Pass each unread file as a flat `{tool,query}` resource (`prefilter` rare literals for huge files) with flat `questions:[{id,type:"locate",ask}]` (≤ 25 cells), the matrix inside `{queries:[...]}`. Skip literals, small exact reads, settled decisions, and exact AST/LSP facts: guess one literal and search first; never classify an empty search. A large unanchored read that set `mainGoal`, or a wide descriptive search, may offer `hints.clasify`; run it unchanged (bare identifiers get none: search them). No automatic Scout → Judge chain. Hints do not establish source facts or global absence; count the request, verification reads and extra turns as cost. If unavailable, use targeted direct reads. Details: `references/clasify.md`.
 
-## Routes
-Pages (load when its map edge applies): `references/campaigns.md` · `references/algorithm.md` · `references/clasify.md` · `references/workflow-local.md` · `references/reading-flows.md` · `references/workflow-external.md` · `references/octocode.md` · `references/tool-examples.md` · `references/code-research.md` · `references/workflow-change.md` · `references/workflow-pr-review.md`. Source authority and editing this skill: `README.md`. Architecture decisions → `octocode-architect`; parallel workers → `octocode-subagent`.
+Use `clasify` when a semantic judgment changes the next read: a described target in a known file you would otherwise read whole (`locate`), a search too wide to read (Scout), or an explicit classification request. Search literals directly. Treat classification as a routing hint and verify the deciding source. If unavailable, use targeted reads. Query shapes and admission details live in `references/clasify.md`.
 
 ## Tools
-- Prefer exposed Octocode MCP tools; else `node packages/octocode/out/octocode.js` (monorepo) or `npx -y octocode`. Read `schema <name> --view query --compact` before an unfamiliar call or after a validation error.
+
+- Prefer exposed Octocode MCP tools; else `npx -y octocode`. Read `schema <name> --view query` before an unfamiliar call or after a validation error.
+- GitHub access can use `GH_TOKEN` or `GITHUB_TOKEN`; classification uses `OCTOCODE_CLASSIFICATION_API`, and beta topology uses `OCTOCODE_BETA=1` when needed. These and optional local-tool settings such as `OCTOCODE_ENABLE_LOCAL`, `OCTOCODE_STORAGE_MODE`, and `OCTOCODE_LSP_PREWARM` can be set in `<HOME>/.octocode/.env`; inspect live config before changing them. Never print credential values.
 - Batch ≤5 independent rows; keep dependent probes sequential. Add `mainGoal`/`reasoning` only in multi-call research on an unknown; omit them on simple lookups.
 - Run each `next.*` page unchanged, or narrow it and name what stays unread; `hints.*` leads are optional.
-- Read narrow (`references/reading-flows.md`); never widen a guessed line range.
-- Repo-wide topology: run `octocode graph ingest <path>` once, then `octocode graph query <op>`.
+- Read the smallest useful span (`references/reading-flows.md`); expand when nearby context can resolve the claim.
+- Repo-wide topology: run `npx octocode graph ingest <path>`, then `npx octocode graph query <op>`. Refresh an index when its source revision changes.
+
+## Resources
+
+Load the page that answers the current question.
+
+| When needed | Read |
+|---|---|
+| Loops, budgets, workers, briefs, landscapes | [campaigns](references/campaigns.md) |
+| Task class or first move unclear | [algorithm](references/algorithm.md) |
+| Typed judgment, semantic locate, saved artifacts | [clasify](references/clasify.md) |
+| Local checkout | [workflow-local](references/workflow-local.md) |
+| Section, declaration, full file | [reading-flows](references/reading-flows.md) |
+| Remote repo, package, history, web, local vs remote | [workflow-external](references/workflow-external.md) |
+| Invocation, pagination, exit codes | [octocode](references/octocode.md) |
+| Query templates | [tool-examples](references/tool-examples.md) |
+| Root cause, callers, cycles, reachability, deletion | [code-research](references/code-research.md) |
+| Behavior change or refactor | [workflow-change](references/workflow-change.md) |
+| PR or diff review | [workflow-pr-review](references/workflow-pr-review.md) |
+
+## Related skills
+
+- `octocode-architect`: Use when evidence must support an architecture decision.
+- `octocode-brainstorming`: Use when the question is still an open idea rather than a code claim.
 
 ## Output
-One answer in chat, in ASD-STE100: `Route · Finding · Evidence · Confidence · Next`. A decision adds verdict, risks, verification, and the smallest safe fix.
-Save one report under `<output>/octocode-research/` only when asked. HTML is a second file only when a person asks for a page, and it stays out of agent handoffs.
 
-After editing this skill, run `node scripts/check-description.mjs` and `node scripts/check-guidance.mjs --self-test --examples`.
+See [output.md](output.md) for the response and saved-artifact format.
+
+## Maintainer check
+
+`scripts/check-guidance.mjs` checks live Octocode tool grammar when that contract changes; it does not grade the wording of research answers.

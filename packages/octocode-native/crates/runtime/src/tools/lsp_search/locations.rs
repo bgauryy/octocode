@@ -103,6 +103,14 @@ pub(super) async fn salted_locations(
     locations.sort_by_key(location_sort_key);
     locations.dedup_by(|a, b| location_sort_key(a) == location_sort_key(b));
     if locations.is_empty() {
+        if without_project(query) {
+            return empty(
+                query,
+                "noProject",
+                "No project file (Cargo.toml, package.json, tsconfig.json, go.mod, pyproject.toml, …) is above this file, so the language server has no project to index; empty is not absence.",
+                true,
+            );
+        }
         return empty(
             query,
             "noLocations",
@@ -793,4 +801,18 @@ pub(super) fn attach_read_lead(row: &mut Value) {
             .why("Read the listed sites in context.")
             .confidence("high")
             .build();
+}
+
+/// Whether no ancestor of the anchor file holds a project marker: the server
+/// then indexes a bare directory, and an empty answer says nothing.
+fn without_project(query: &LspSearchQuery) -> bool {
+    query
+        .path()
+        .map(super::render::uri_to_path)
+        .and_then(|path| {
+            std::path::Path::new(&path)
+                .parent()
+                .map(std::path::Path::to_path_buf)
+        })
+        .is_some_and(|dir| octocode_engine::lsp::workspace::project_root_of_dir(&dir).is_none())
 }

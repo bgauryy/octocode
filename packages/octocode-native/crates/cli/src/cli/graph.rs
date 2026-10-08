@@ -33,7 +33,8 @@ EVIDENCE
   Treat results as leads: confirm identity with lspSearch before deleting or renaming.
 
 OUTPUT
-  One JSON object on stdout, indented on a terminal. Lists carry total and results; a cut adds
+  Readable text on a terminal; one JSON object on a pipe or with --json. Errors follow the
+  output (JSON on stdout, else text on stderr). Lists carry total and results; a cut adds
   truncated plus next, a paste-ready command. Exit: 0 ok, 1 empty, 2 bad input or ambiguous,
   3 no graph or node, 5 error, 6 more pages (run next).
 
@@ -92,12 +93,18 @@ pub(super) struct IngestArgs {
     /// unchanged tree reuses it and prints `reused: true`).
     #[arg(long)]
     force: bool,
+    /// Print JSON even on a terminal (pipes always get JSON).
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Args)]
 pub(super) struct QueryArgs {
     #[arg(value_parser = clap::builder::PossibleValuesParser::new(OPS))]
     op: String,
+    /// Print JSON even on a terminal (pipes always get JSON).
+    #[arg(long)]
+    json: bool,
     /// Node reference or search text.
     target: Option<String>,
     /// Destination reference for `path`.
@@ -153,7 +160,18 @@ pub(super) struct QueryArgs {
     since: Option<String>,
 }
 
+impl GraphCommand {
+    /// Whether the command answers in JSON: `--json`, or a pipe.
+    pub(super) fn json_output(&self) -> bool {
+        super::machine_output(match self {
+            Self::Ingest(args) => args.json,
+            Self::Query(args) => args.json,
+        })
+    }
+}
+
 pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand) -> u8 {
+    let json_out = command.json_output();
     let output = match command {
         GraphCommand::Ingest(args) => {
             let IngestArgs {
@@ -163,6 +181,7 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand) -> u8 {
                 max_files,
                 keep,
                 force,
+                json: _,
             } = *args;
             let options = IngestOptions {
                 path: std::path::absolute(&path).unwrap_or(path),
@@ -195,6 +214,7 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand) -> u8 {
                 since,
                 min_tier,
                 list,
+                json: _,
             } = *args;
             let options = QueryOptions {
                 op,
@@ -220,7 +240,19 @@ pub(super) fn graph(runtime: &ToolRuntime, command: GraphCommand) -> u8 {
             runtime.graph_query(&options)
         }
     };
-    match super::write_json(&output.value, super::machine_output(false)) {
+    let written = if json_out {
+        super::write_json(&output.value, true)
+    } else if let Some(error) = output.value["error"].as_str() {
+        let code = output.value["errorCode"].as_str().unwrap_or("graph.error");
+        eprintln!("{error} ({code})");
+        0
+    } else {
+        super::write_text(&octocode_engine::portable::json_to_yaml_string(
+            output.value,
+            None,
+        ))
+    };
+    match written {
         0 => output.exit,
         failed => failed,
     }

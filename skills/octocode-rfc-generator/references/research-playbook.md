@@ -1,33 +1,17 @@
-# Research playbook and resources
+# Research for an RFC
 
-Load when the RFC needs evidence or a `RESOURCES.md`. Why: this page owns which tracks run and where provenance is recorded. `octocode-research` owns how a search runs.
+Use to identify evidence that can change the decision. `octocode-research` owns tool selection and verification.
 
-## Run only the tracks that matter
-| Scenario | Research tracks |
+| Question | Useful evidence |
 |---|---|
-| Existing-system change | Local current state and affected scope; external prior art if options are unclear |
-| Worth-building, option space, or criteria unresolved | `octocode-brainstorming` first; otherwise `octocode-research` |
-| Greenfield choice | External prior art, package and repository comparison; local constraints if a repository exists |
-| Migration | Local current state, contracts and data flows, external migration examples |
-| Library or package adoption | npm metadata, repository source, local integration points |
-| Refactor plan | Local structure, LSP references and callers, AST duplication and smell checks |
-| RFC validation | Map each claim to evidence; mark confirmed, likely, or uncertain |
-| Closing a plan question | `octocode-research` with local, external, or history evidence; no citation means not resolved |
+| What happens today? | Current source, callers, contracts, tests, and affected users. |
+| Which options are viable? | Local constraints, relevant prior art, primary documentation, and concrete alternatives. |
+| Can a migration work? | Data and API compatibility, real consumers, failure modes, and reversible steps. |
+| Does a dependency fit? | Its current release, maintained source, license, integration points, and applicable limitations. |
+| Would the change help? | A reproducible baseline and relevant acceptance checks; use a benchmark when the claim needs measurement. |
 
-## Evidence rules
-- Local claims need `file:line`. External code claims need a GitHub path and line, or a PR or commit link.
-- Snippets are leads. Ask `octocode-research` to upgrade them before you cite them.
-- Key recommendations need one supporting source and one counterpoint or rejected alternative.
-- Cite decisive claims in the section that uses them. Open `RESOURCES.md` only when the source inventory has its own lifecycle.
+Verify deciding claims in the original source. Search snippets are leads. Reconcile conflicting evidence or state the unresolved choice. Use `octocode-brainstorming` when the option space itself needs exploration.
 
-## Recovery
-| Situation | Move |
-|---|---|
-| No external prior art | Say so; rely on local constraints and open questions |
-| Evidence conflicts | Present the conflict and a decision rule |
+Cite facts beside the design or rationale they support. A source list, if useful, is a section of the RFC. Keep meaningful evidence and material counterarguments; omit search queries, probe logs, agent receipts, and research chronology from the delivered document.
 
-## `RESOURCES.md`
-Write this file only when the source inventory has its own lifecycle, and write it last. Otherwise each source stays in the section that cites it. Use one table per section: Primary Sources, Local Code References, Prior Art and Related Systems, Internal Research Artifacts. Each row has `Resource | Link or path:line | Why it matters` (for prior art: the lesson, not only the name). Add `Open Research Leads` (lead, why it matters, what makes it decision-grade) and `Reproducible Search Prompts` (`{query}`, surface, purpose).
-Gate: every source says why it matters; local entries use `path:line`; external entries prefer primary sources; leads stay labeled as leads; no duplicate rows.
-
-Next: compare options in `references/rfc-template.md` with `Comparison outcome: unresolved`, then close blockers in `references/rfc-completeness.md`. Existing-code readiness → `references/rfc-prerequisites.md`. Lock goals, then use `references/rfc-kpi.md` when measurement has its own lifecycle, then `references/rfc-implementation.md`.
+Next: close deciding gaps with [completeness](rfc-completeness.md), then write the [single-file RFC](../output.md).

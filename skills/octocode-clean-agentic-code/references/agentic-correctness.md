@@ -28,6 +28,7 @@ Test integrity: `references/test-gaming.md`. Route confirmed findings through `r
 An unresolvable dependency name is a supply-chain risk, not a typo: the slot is attacker-controllable until a maintainer confirms the intended package.
 
 ## Escalation protocol
+
 1. Record file, line, class, and the exact failure disguised.
 2. State the correct behavior and whether a caller depends on the current one.
 3. Keep it out of every batch, including already-approved batches.

@@ -1,4 +1,5 @@
 # Error analysis and benchmarks
+
 Load before you write new eval cases, when the suite feels generic, or when you choose or trust a public benchmark. Evals come from real failure modes, not vanity metrics.
 
 1. **Dataset**: gather representative traces (production, dogfood, or a synthetic starter).
@@ -12,6 +13,7 @@ Load before you write new eval cases, when the suite feels generic, or when you 
 - Revisit after product or model shifts. Fix or tag the first upstream break; it causes downstream noise.
 
 ## Public benchmarks
+
 - A public gain without a transcript audit is weak evidence.
 - Check construct validity: does the benchmark measure the skill you care about?
 - Assume contamination on famous benchmarks (items or paraphrases in training, prompts, or RAG).

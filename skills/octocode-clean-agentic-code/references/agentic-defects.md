@@ -60,4 +60,4 @@ Rates set priority only, never a per-repository prediction. Sources: [GitClear](
 - Instruction files do not replace a scan.
 - Weak evidence: regex-over-parser has only indirect policy ([OWASP CRS](https://github.com/coreruleset/coreruleset/blob/main/AI-CONTRIBUTIONS.md)); invented-package rates come from suggestions, not commits; about 7.8% of "plausible" SWE-bench patches are wrong ([patch study](https://arxiv.org/html/2503.15223v1)).
 
-Next: suppressions and churn → `references/agentic-bloat.md`; test gaming → `references/test-gaming.md`; batch → `references/cleanup-playbook.md`.
+Next: suppressions and churn → `references/agentic-bloat.md`; test gaming → `references/test-gaming.md`; batch → [lobby workflow](../SKILL.md#workflow).

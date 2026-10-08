@@ -11,7 +11,7 @@
 //! restarts a changed result.
 use super::super::page_memo::PageMemo;
 pub use super::verify::Redaction;
-use octocode_engine::types::{RipgrepMatch, RipgrepParseResult};
+use octocode_engine::types::{TextSearchMatch, TextSearchResult};
 use sha2::{Digest as _, Sha256};
 use std::{
     collections::HashMap,
@@ -44,7 +44,7 @@ struct Source {
 
 struct Scan {
     sources: Vec<Source>,
-    value: RipgrepParseResult,
+    value: TextSearchResult,
     query_key: String,
     redaction: Option<Redaction>,
     skipped: crate::policy::discovery::WalkSkips,
@@ -53,7 +53,7 @@ struct Scan {
 /// A fresh scan offered for storage, with what its page derived from it.
 pub struct Fresh {
     /// The scan as the walk returned it, before any page shaped it.
-    pub value: RipgrepParseResult,
+    pub value: TextSearchResult,
     /// The query key its snapshot was derived from (see `cursor::query_key`).
     pub query_key: String,
     /// What redacting `value` changed (see [`Redaction`]).
@@ -63,7 +63,7 @@ pub struct Fresh {
 
 /// A stored scan whose matched files keep their stored size and time.
 pub struct Stored {
-    pub value: RipgrepParseResult,
+    pub value: TextSearchResult,
     /// Digest of each matched file when stored, keyed by its scanned path.
     /// A page may show a file's values only while it still hashes to this,
     /// and its secret checks must read those bytes.
@@ -102,7 +102,7 @@ pub fn digest_file(path: &std::path::Path) -> std::io::Result<Digest> {
 }
 
 /// Bytes a scan would occupy, or `None` when it exceeds the per-scan budget.
-pub fn fits(value: &RipgrepParseResult) -> Option<usize> {
+pub fn fits(value: &TextSearchResult) -> Option<usize> {
     let bytes = value
         .files
         .iter()
@@ -203,7 +203,7 @@ pub fn put(snapshot: String, policy: String, fresh: Fresh) {
 
 /// Hash `path` and check every match value against the hashed bytes; `None`
 /// when the file is unreadable, over `budget`, or no longer holds a value.
-fn read_source(path: &str, matches: &[RipgrepMatch], budget: &mut u64) -> Option<Source> {
+fn read_source(path: &str, matches: &[TextSearchMatch], budget: &mut u64) -> Option<Source> {
     let meta = std::fs::metadata(path).ok()?;
     *budget = budget.checked_sub(meta.len())?;
     let bytes = std::fs::read(path).ok()?;
@@ -270,7 +270,7 @@ mod tests {
                 MAX_BYTES,
                 Scan {
                     sources: Vec::new(),
-                    value: RipgrepParseResult {
+                    value: TextSearchResult {
                         files: Vec::new(),
                         stats: Default::default(),
                     },
@@ -286,7 +286,7 @@ mod tests {
         assert!(snapshots.iter().all(|snapshot| snapshot != "scan-0"));
     }
 
-    fn fresh(value: RipgrepParseResult) -> Fresh {
+    fn fresh(value: TextSearchResult) -> Fresh {
         Fresh {
             value,
             query_key: String::new(),
@@ -295,12 +295,12 @@ mod tests {
         }
     }
 
-    fn one_match(path: &std::path::Path, line: u32, value: &str) -> RipgrepParseResult {
-        RipgrepParseResult {
-            files: vec![octocode_engine::types::RipgrepFile {
+    fn one_match(path: &std::path::Path, line: u32, value: &str) -> TextSearchResult {
+        TextSearchResult {
+            files: vec![octocode_engine::types::TextSearchFile {
                 path: path.to_string_lossy().into_owned(),
                 match_count: 1,
-                matches: vec![RipgrepMatch {
+                matches: vec![TextSearchMatch {
                     line,
                     column: 0,
                     value: value.into(),
@@ -379,7 +379,7 @@ mod tests {
     #[test]
     fn a_stored_scan_is_only_served_under_its_own_policy() {
         let snapshot = "manifest-policy-binding-test".to_owned();
-        let empty = RipgrepParseResult {
+        let empty = TextSearchResult {
             files: Vec::new(),
             stats: Default::default(),
         };

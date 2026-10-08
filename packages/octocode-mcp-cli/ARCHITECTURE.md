@@ -1,6 +1,6 @@
 # octocode-mcp-cli architecture
 
-`octocode-mcp-cli` is a private workspace library. It builds a CLI from a connected MCP `Client`: `initialize` instructions, `tools/list`, and `tools/call`. The library does not import the `octocode` launcher or `octocode-mcp`. [examples/octocode-cli.ts](examples/octocode-cli.ts) spawns the built `octocode-mcp` server. The `octocode` launcher stays a separate program: `octocode <tool> '<json>'`.
+`octocode-mcp-cli` is a private workspace library. It builds a CLI from a connected MCP `Client`: `initialize` instructions, `tools/list`, and `tools/call`. The library does not import the `octocode` launcher or `octocode-mcp`. [examples/octocode-cli.ts](examples/octocode-cli.ts) spawns the built `octocode-mcp` server. The `octocode` launcher stays a separate program: `npx octocode <tool> '<json>'`.
 
 ## Ownership
 

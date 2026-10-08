@@ -63,5 +63,5 @@ Each row gives a runnable form after replacing IDs/paths/placeholders. JSON show
 | `db compact` | Explicit storage maintenance with VACUUM; retains all records. | `comm db compact` |
 | `db migrate` | Upgrade recognized v1/v2/v3/v4 storage to v5 with a new backup, after stopping old clients. | `comm db migrate '{"backup":"/absolute/new-pre-migration.sqlite"}'` |
 | `skill` | Read the detailed operating guide through the CLI. | `comm skill` |
-| `schema` | Discover commands, full record types, or one type/command. | `comm schema type coordinate.out` |
+| `schema` | Discover the catalog or one command; record types use unbound `schema types` / `schema type`. | `comm schema send_message` |
 | `schema tools` | Inspect tool definitions for a profile or explicit list. | `comm schema tools --tools messaging` |

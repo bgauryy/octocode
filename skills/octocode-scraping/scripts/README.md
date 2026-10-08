@@ -1,29 +1,16 @@
-# Script catalog
+# Scraping commands
 
-Use this catalog to select an existing deterministic helper before writing a new scraper or corpus query.
+These scripts handle fetching, corpus queries, and complete source pagination. Run a command with `--help` for its inputs.
 
-| Script | Role |
+| Need | Command |
 |---|---|
-| `fetch.mjs` | Fetch, crawl, and extract into `.octocode/tmp/scrape/{sessionId}`; omitted `--provider` uses bounded direct HTTP and emits `next` when one browser capture is justified |
-| `provider-check.mjs` / `provider-usage.mjs` | Route readiness / hosted credits (no secrets) |
-| `scrapingant-*.mjs` | Deprecated shims → `fetch` / `provider-*` |
-| `fetch-and-brief.mjs` | Optional fetch + corpus brief |
-| `corpus-inspect` / `corpus-find` / `dom-find` / `resource-list` / `graph-navigate` | Query corpus before raw reads (static; live DOM → chrome-devtools) |
-| `har-ingest.mjs` | CDP ↔ scrape bridge; `--export-packet` / `--from-cdp-dir` (chrome aliases exist) |
-| `source-query.mjs` | Lossless base64 byte pages for original sources or oversized values; digest-pinned continuations |
-| `corpus-run.mjs` | Local `--regex` / `--script` (chrome alias `corpus-run-local`) |
-| `schema-helper.mjs` | Extraction field hints |
+| Fetch or crawl public pages | `fetch.mjs` |
+| Check optional hosted provider or credits | `provider-check.mjs`, `provider-usage.mjs` |
+| Inspect or search a saved session | `corpus-inspect.mjs`, `corpus-find.mjs` |
+| Inspect static DOM, assets, or links | `dom-find.mjs`, `resource-list.mjs`, `graph-navigate.mjs` |
+| Prove a field or page an original source | `corpus-run.mjs`, `source-query.mjs` |
+| Bring browser evidence into a session | `har-ingest.mjs` |
 
-Schemas live in `schemas/graph.schema.json` and `schemas/provider.schema.json`. Libraries under `lib/` own provider registration, fetching, corpus analysis, extraction, argument parsing, and bridge readers. The vendored `octocode-config.mjs` keeps the skill standalone and loads `SCRAPING_ANT` through the standard Octocode environment flow.
+For hosted requests, `SCRAPING_ANT` must be in the process environment. It may be stored in `<HOME>/.octocode/.env`; pass it through the host or capture `npx octocode config get SCRAPING_ANT` into the script environment without displaying it. Direct public fetching needs no key. Keep source artifacts and follow each `next` continuation to avoid gaps.
 
-## Corpus search pagination
-
-`corpus-find` pages are specified in `../references/session-corpus.md` § Bounded search. `corpus-find` ranks whole pages; to locate lines use `corpus-run --regex` (JavaScript regex; `--flags i` for case-insensitive).
-
-## Focused regressions
-
-The lobby names which test to run after each change. The corpus test executes limit-one continuations over seven fixed matches, checks their exact union, terminal states, and invalid arguments. The HTTP policy test covers robots precedence, bounded body reads, and one short `Retry-After`. The CDP test checks the generated default runner through navigation/body extraction and rejects failed stealth setup without starting a real browser. Live browser verification remains separate.
-
-All query helpers page their result lists with executable continuations. `--view <list>` follows one list independently; `--cursor-<list>` is supplied by the continuation. `corpus-find` keeps `--offset` and scans all stored text parts. `corpus-run --regex` scans all admitted files and matches, pages matches and coverage, and reports its `--max-file-bytes` terminal limit. Navigation pagination and full downloaded-text retention are checked by `tests/navigation-pagination.test.mjs`.
-
-`corpus-run --script` saves the complete returned value with a digest-pinned `script.result.next.continue`. Values up to 4000 bytes also appear inline; larger values use the saved source. Query continuations do not execute the custom script again.
+Focused tests are in `tests/`. Run those covering the changed command or library; a browser integration change also needs a live browser check.

@@ -213,7 +213,8 @@ async fn an_open_walk_says_its_best_ranks_only_the_pages_judged_so_far() {
     let runtime = provider_runtime(&workspace, &server);
     let mut request = Some(json!({"queries":[{
         "reasoning":"Locate a step.","mainGoal":"Which function returns one.",
-        "resources":[{"id":"steps","tool":"localFetch","query":{
+        // A small budget keeps the walk open across calls.
+        "resources":[{"id":"steps","tool":"localFetch","maxChars":40_000,"query":{
             "path":file,"fullContent":true
         }}],
         "questions":[{"id":"t","type":"locate","ask":"The step function that returns one."}]

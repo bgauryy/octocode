@@ -8,7 +8,7 @@ Skip local work for a purely external landscape. Carry the real stack into an ex
 
 Extract a lead, verify it in code or a package, then reconcile a contradiction with a formal source.
 
-Prefer a recent source. An inactive repository is prior art, not current competition. Package health is publish recency, cadence, maintainers, the issue and pull-request ratio, and dependency freshness.
+Follow the lobby's freshness and source-quality checks. For projects and packages, inspect releases, maintainers, compatibility, and relevant issue resolution. Inactivity alone does not prove obsolescence; a recent publish alone does not prove health.
 
 Fetch the paper or the publisher page. A Scholar hit is a lead.
 
@@ -28,6 +28,6 @@ Use the row that matches the question. A trend surface alone is `weak`. `moderat
 
 Add the AI row or the security row only when the idea needs it.
 
-This page is one direction. The other directions still run from `SKILL.md`. Treat a row here as a lead until the primary page is fetched. When the evidence stays thin, reframe once, then hand that gap to `octocode-research`.
+These surfaces supplement the independent directions in `SKILL.md`. Treat listings as leads until the underlying evidence is inspected. When evidence stays thin, change the question or source if useful; use `octocode-research` for code or repository gaps, and report other unresolved coverage.
 
-Next: return to CHECK in `SKILL.md` and fetch the primary page. A flipped claim returns to THINK.
+Next: apply the [lobby quality checks](../SKILL.md#check-quality-and-reasoning) and revise the affected direction when deciding evidence changes.

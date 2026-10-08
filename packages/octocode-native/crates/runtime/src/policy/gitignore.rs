@@ -1,4 +1,4 @@
-//! `.gitignore` rules for native walks that do not go through ripgrep's
+//! `.gitignore` rules for native walks that do not go through the text search's
 //! walker (topology scans, the structure tree), so every local tool leaves
 //! out the same ignored files.
 

@@ -85,6 +85,22 @@ export async function runCLI(argv?: string[]): Promise<boolean> {
     return false;
   }
 
+  // Tool help adds the catalog's required fields and example to the binary's.
+  const helpTarget =
+    args.command === 'help'
+      ? args.args[0]
+      : hasHelpFlag(args)
+        ? args.command
+        : null;
+  if (helpTarget) {
+    const { runToolHelp } = await import('./commands/tool-help.js');
+    const code = await runToolHelp(bin, helpTarget);
+    if (code !== undefined) {
+      process.exitCode = code;
+      return true;
+    }
+  }
+
   if (
     args.command === 'config' &&
     rawArgv[rawArgv.indexOf('config') + 1] === 'view' &&

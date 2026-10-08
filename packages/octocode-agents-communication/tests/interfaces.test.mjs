@@ -1,12 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { join } from 'node:path';
+import manifest from '../package.json' with { type: 'json' };
 import { createCommunicationCli, runCommunicationCli } from '../dist/cli.js';
 import { commandHelp, parseCommandInput } from '../../octocode-mcp-cli/dist/index.js';
 import { root, tempWorkspace } from './helpers.mjs';
 const entry = join(root, 'bin/octocode-agents-communication.mjs');
 const launch = args => JSON.parse(execFileSync(process.execPath, [entry, '/cli', ...args, '--json'], { encoding: 'utf8', timeout: 10000 }));
+test('MCP and CLI report the published manifest version', () => {
+  for (const args of [['--version'], ['/cli', '--version']]) {
+    assert.equal(execFileSync(process.execPath, [entry, ...args], { encoding: 'utf8', timeout: 10000 }).trim(), manifest.version);
+  }
+  assert.equal(execFileSync(process.env.OCTOCODE_PYTHON || (process.platform === 'win32' ? 'python' : 'python3'), ['-B', join(root, 'scripts/communication.py'), '--version'], { encoding: 'utf8', timeout: 10000 }).trim(), `agents-communication ${manifest.version} (Python)`);
+});
 test('all canonical operations expose contextual help with no unexplained flags', () => {
   const spec = createCommunicationCli();
   assert.equal(spec.commands.length, 52);
@@ -35,6 +42,7 @@ test('CLI preserves identities and leases across invocations; default MCP borrow
     { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'locks', arguments: {} } },
   ].map(JSON.stringify).join('\n') + '\n';
   const output = execFileSync(process.execPath, [entry, '--session', identity.id, '--workspace', workspace, '--database', join(workspace, 'db.sqlite')], { input, encoding: 'utf8', timeout: 10000 }).trim().split('\n').map(JSON.parse);
+  assert.equal(output.find(row => row.id === 1).result.serverInfo.version, manifest.version);
   assert.ok(output.find(row => row.id === 2).result.tools.some(tool => tool.name === 'send_message'));
   assert.equal(output.find(row => row.id === 3).result.isError, undefined);
   assert.equal(launch(['locks', ...bound]).items.length, 1);
@@ -57,6 +65,32 @@ test('CLI preserves identities and leases across invocations; default MCP borrow
   assert.ok(launch(['fetch', '--where', '{"name":"reviewer"}', ...bound]).items);
   launch(['leave', ...bound]);
 });
+test('CLI waits for delayed stdin chunks and preserves split Unicode', async t => {
+  const workspace = tempWorkspace(t, 'communication-stdin-', { real: true });
+  const common = ['--workspace-root', workspace, '--database', join(workspace, 'db.sqlite')];
+  const identity = launch(['join', '--name', 'reader', '--vendor', 'generic', ...common]);
+  const bound = ['--session', identity.id, ...common];
+  const input = Buffer.from(JSON.stringify({ type: 'memory', data: { content: 'Evidence: 🧪 verified' } }));
+  const split = input.indexOf(Buffer.from('🧪')) + 2;
+  const child = spawn(process.execPath, [entry, '/cli', 'record', '-', ...bound, '--json'], { stdio: ['pipe', 'pipe', 'pipe'] });
+  let output = '', errors = '';
+  child.stdout.setEncoding('utf8').on('data', chunk => { output += chunk; });
+  child.stderr.setEncoding('utf8').on('data', chunk => { errors += chunk; });
+  const completed = new Promise((resolve, reject) => {
+    child.on('error', reject);
+    child.stdin.on('error', reject);
+    child.on('close', code => code === 0 ? resolve() : reject(new Error(`CLI exited ${code}: ${errors}`)));
+  });
+  child.stdin.write(input.subarray(0, split));
+  const sendRest = setTimeout(() => child.stdin.end(input.subarray(split)), 1000);
+  const deadline = setTimeout(() => child.kill(), 10000);
+  t.after(() => { clearTimeout(sendRest); clearTimeout(deadline); child.kill(); });
+  await completed;
+  assert.equal(JSON.parse(output).data.content, 'Evidence: 🧪 verified');
+  assert.equal(launch(['fetch', '--type', 'memory', ...bound]).items[0].data.content, 'Evidence: 🧪 verified');
+  launch(['leave', ...bound]);
+});
+
 test('streaming CLI emits no extra result frame after MCP EOF', t => {
   const workspace = tempWorkspace(t, 'communication-stream-', { real: true });
   const output = execFileSync(process.execPath, [entry, '/cli', 'mcp', '--managed', '--vendor', 'generic', '--name', 'stream', '--workspace-root', workspace, '--database', join(workspace, 'db.sqlite'), '--json'], { input: '', encoding: 'utf8', timeout: 10000 });

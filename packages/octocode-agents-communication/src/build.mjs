@@ -1,11 +1,15 @@
 import { build } from 'esbuild';
 import { execFileSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { checkSkill, checkStartup, python, runtimeInfo } from './artifact-checks.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const { version } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+const versionPath = join(root, 'scripts/communication/_version.py');
+const versionSource = `# Generated from package.json by src/build.mjs.\nVERSION = ${JSON.stringify(version)}\n`;
+if (!existsSync(versionPath) || readFileSync(versionPath, 'utf8') !== versionSource) writeFileSync(versionPath, versionSource);
 const source = join(root, '../octocode-config/python/octocode_config.py');
 const destination = join(root, 'scripts/octocode_config.py');
 // The vendored copy is refreshed only inside the monorepo; a standalone checkout keeps it.

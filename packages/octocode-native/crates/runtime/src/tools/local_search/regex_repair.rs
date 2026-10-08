@@ -12,7 +12,7 @@ pub(super) fn check_pattern(query: &LocalSearchQuery) -> Result<(), ToolError> {
     if query.regex_mode() == LocalSearchQueryRegex::Literal {
         return Ok(());
     }
-    let checked = octocode_engine::portable::validate_ripgrep_pattern(
+    let checked = octocode_engine::portable::validate_text_pattern(
         &query.match_string,
         false,
         query.regex_mode() == LocalSearchQueryRegex::Pcre2,
@@ -122,7 +122,7 @@ pub(super) fn close_unclosed_group(text: &str, pcre2: bool) -> Option<String> {
         return None;
     }
     let closed = format!("{text})");
-    octocode_engine::portable::validate_ripgrep_pattern(&closed, false, pcre2)
+    octocode_engine::portable::validate_text_pattern(&closed, false, pcre2)
         .valid
         .then_some(closed)
 }
@@ -150,7 +150,7 @@ pub(super) fn repair_alternation(text: &str, pcre2: bool) -> Option<String> {
         return None;
     }
     let valid = |pattern: &str| {
-        octocode_engine::portable::validate_ripgrep_pattern(pattern, false, pcre2).valid
+        octocode_engine::portable::validate_text_pattern(pattern, false, pcre2).valid
     };
     let repaired = parts
         .iter()
@@ -221,7 +221,7 @@ mod repair_tests {
             "{repair}"
         );
         let text = repair["matchString"].as_str().expect("text");
-        assert!(octocode_engine::portable::validate_ripgrep_pattern(text, false, false).valid);
+        assert!(octocode_engine::portable::validate_text_pattern(text, false, false).valid);
         crate::contracts::validate_query("localSearch", repair.clone())
             .expect("repair query is contract-valid");
         // A single anchor keeps the literal repair.

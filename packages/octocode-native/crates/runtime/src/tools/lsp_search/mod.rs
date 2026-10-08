@@ -22,7 +22,7 @@ use crate::tools::cancel::CancellationCheck;
 use crate::tools::num::{u32_of, u32_of_signed};
 use octocode_engine::lsp::config::{
     LspDiscoveryOptions, default_server_for_file, default_server_for_workspace_root,
-    workspace_root_representative_source,
+    representative_source_for, workspace_root_languages, workspace_root_representative_source,
 };
 use octocode_engine::lsp::pool::LspClientPool;
 use octocode_engine::lsp::uri::path_to_uri as engine_path_to_uri;
@@ -361,7 +361,16 @@ impl LspSearchQuery {
             .to_string_lossy()
             .into_owned();
         if self.workspace_root().is_none() {
-            self.set_workspace_root(directory.clone());
+            // A source directory (`src`) is searched from its project root,
+            // where the server finds tsconfig.json, Cargo.toml, and the like.
+            let root = octocode_engine::lsp::workspace::project_root_of_dir(Path::new(&directory))
+                .and_then(|root| paths.validate(&root).ok())
+                .filter(|valid| valid.canonical.is_dir())
+                .map_or_else(
+                    || directory.clone(),
+                    |valid| valid.canonical.to_string_lossy().into_owned(),
+                );
+            self.set_workspace_root(root);
         }
         self.set_path(directory.clone());
         Some(directory)
@@ -826,7 +835,16 @@ async fn sync_document(
     // queries until a document of the project is open. Best-effort: a failed
     // sync just leaves the server to answer (or error) as before.
     if target.root_only
-        && let Some(representative) = workspace_root_representative_source(&target.path)
+        && let Some(representative) =
+            workspace_root_representative_source(&target.path).or_else(|| {
+                // A source directory (`src`) has no project marker: open a
+                // file of the workspace root's language, inside the directory
+                // when it has one.
+                let root = &target.config.workspace_root;
+                let extension = workspace_root_languages(root).into_iter().next()?;
+                representative_source_for(&target.path, extension)
+                    .or_else(|| representative_source_for(root, extension))
+            })
         && let Some(source) = sources.get(&representative).await
         && let Ok(readiness) = cancellable(
             cancel,

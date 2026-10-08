@@ -19,7 +19,11 @@ vi.mock('../../../src/utils/colors.js', () => ({
   bold: (s: string) => s,
 }));
 
-import { skillCommand } from '../../../src/cli/commands/skill.js';
+import {
+  SUBCOMMAND_FLAGS,
+  SUBCOMMAND_HELP,
+  skillCommand,
+} from '../../../src/cli/commands/skill.js';
 import { getPlatformSkillsDir } from '../../../src/cli/commands/skills/platforms.js';
 import { parseSkillPlatforms } from '@octocodeai/octocode-skill-installer';
 import type { ParsedArgs } from '../../../src/cli/types.js';
@@ -183,6 +187,21 @@ describe('skill command', () => {
     }
     expect(help).not.toContain('--keep');
   });
+
+  it.each(Object.keys(SUBCOMMAND_FLAGS))(
+    'prints `skill %s --help` with exactly its own flags',
+    command => {
+      const documented = SUBCOMMAND_HELP[command]!()
+        .options.map(([flag]) => flag.split(' ')[0]!.slice(2))
+        .sort();
+      expect(documented).toEqual([...SUBCOMMAND_FLAGS[command]!].sort());
+      run([command], { help: true });
+      expect(process.exitCode).toBeUndefined();
+      const help = String(vi.mocked(console.log).mock.calls[0]?.[0]);
+      expect(help).toContain(`Usage: octocode skill ${command}`);
+      expect(help).not.toContain('Usage: octocode skill <COMMAND>');
+    }
+  );
 
   it('prints bundled skill help, exiting USAGE without a subcommand', () => {
     run([], {});

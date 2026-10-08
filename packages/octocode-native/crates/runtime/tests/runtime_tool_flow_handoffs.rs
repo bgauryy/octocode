@@ -112,7 +112,13 @@ async fn assert_candidate_walk(total: usize, page: u64, page_size: u64, expected
                     "{page}"
                 );
                 assert_eq!(page["answers"]["sufficient"], 0.98);
-                deciding_read = Some(page["hints"]["read"].clone());
+                // A page whose read is just its path and span implies it.
+                deciding_read = Some(page.pointer("/hints/read").cloned().unwrap_or_else(|| {
+                    json!({"tool":"localFetch","query":{"queries":[{
+                        "path":path,
+                        "ranges":[format!("{}-{}", page["line"], page["endLine"])]
+                    }]}})
+                }));
             }
         }
         let Some(next) = query.pointer("/next/clasify/queries/0") else {

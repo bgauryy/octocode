@@ -40,7 +40,7 @@ cargo test -p octocode-native --lib providers::github::
 cargo test -p octocode-native --lib config::
 cargo test -p octocode-cli --test auth_discovery
 cargo test -p octocode-cli --test cli auth_
-cargo test -p octocode-cli --bin octocode auth_tests
+cargo test -p octocode-cli --bin npx octocode auth_tests
 ```
 
 From the repository root, after rebuilding native, CLI, and MCP:

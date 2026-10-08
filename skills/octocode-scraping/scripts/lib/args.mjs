@@ -74,7 +74,7 @@ export function parseConfig(args) {
   if (!MODE_ENDPOINT[mode]) throw new Error('--mode must be html, markdown, extended, or extract');
   const provider = take('--provider') || 'auto';
   // For explicit providers, validate mode compatibility now. For 'auto', defer until env is
-  // propagated (fetch.mjs resolves 'auto' → real provider after propagateOctocodeEnv).
+  // fetch.mjs resolves 'auto' after reading its process environment.
   let providerDescriptor = null;
   if (provider !== 'auto') {
     providerDescriptor = resolveProvider(provider); // throws on unknown

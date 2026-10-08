@@ -3,7 +3,7 @@
 //! prefilter tools, expanded cell limits). The engine runs them once, after
 //! contract validation and before any provider spend; the wording is
 //! core-authored and pinned by the parity fixtures.
-use super::{is_candidate_search_tool, is_file_read_tool, reads_file_chunks};
+use super::{is_candidate_search_tool, is_file_read_tool};
 use crate::contracts::{ContractValidationError, ValidationIssue, policy_names};
 use crate::tools::id::{ToolId, clasify_policy};
 use serde_json::Value;
@@ -46,9 +46,8 @@ pub(crate) fn check<'a>(
             "clasify.total-cell-limit",
             vec!["queries".into()],
             format!(
-                "Expanded matrices produce {total_cells} cells in total; maximum is {} {}.",
-                clasify_policy::MAX_TOTAL_CELLS,
-                file_chunks_cells()
+                "Matrices produce {total_cells} cells in total; maximum is {}.",
+                clasify_policy::MAX_TOTAL_CELLS
             ),
             None,
         ));
@@ -79,32 +78,11 @@ fn row_path(index: usize, fields: &[&str]) -> Vec<String> {
     path
 }
 
-/// Core `FILE_CHUNKS_CELLS`: why a fileChunks matrix hits the cell limit
-/// sooner.
-fn file_chunks_cells() -> String {
-    format!(
-        "(a fileChunks resource counts as {} resources)",
-        clasify_policy::MAX_FILE_CANDIDATES
-    )
-}
-
-/// Core `expandedCells`: a `fileChunks` search resource expands to
-/// `maxFileCandidates` pages; every other resource is one page.
+/// Core `expandedCells`: declared resources × questions. Runtime fan-out of a
+/// search resource is bounded per call by `maxPages`, not here.
 fn cell_count(query: &Value) -> usize {
-    let questions = query["questions"].as_array().map_or(&[][..], Vec::as_slice);
-    let expanded_resources = query["resources"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|resource| {
-            if reads_file_chunks(resource, questions) {
-                clasify_policy::MAX_FILE_CANDIDATES
-            } else {
-                1
-            }
-        })
-        .sum::<usize>();
-    expanded_resources.saturating_mul(questions.len())
+    let count = |field: &str| query[field].as_array().map_or(0, Vec::len);
+    count("resources").saturating_mul(count("questions"))
 }
 
 /// Relation checks over one matrix; issue paths name the caller's fields
@@ -166,9 +144,8 @@ fn relations(query: &Value) -> Result<(), ContractValidationError> {
             "clasify.cell-limit",
             Vec::new(),
             format!(
-                "Expanded resources × questions produces {cells} cells; maximum is {} {}.",
-                clasify_policy::MAX_CELLS,
-                file_chunks_cells()
+                "Resources × questions produces {cells} cells; maximum is {}.",
+                clasify_policy::MAX_CELLS
             ),
             None,
         ));
@@ -239,14 +216,15 @@ mod tests {
         let hydrated_questions = (0..3)
             .map(|index| with_id(format!("q{index}"), &question))
             .collect::<Vec<_>>();
-        let expanded = admit(json!({"queries":[{
+        // Cells count declared resources: a search's candidates are bounded
+        // per call by maxPages at runtime, not at admission.
+        admit(json!({"queries":[{
             "id":"expanded",
             "reasoning":"Classify bounded file candidates.","mainGoal":"Decide the next read.",
             "resources":hydrated_resources,
             "questions":hydrated_questions
         }]}))
-        .expect_err("expanded file candidates must count toward the cell limit");
-        assert_eq!(expanded.issues[0].rule_id, "clasify.cell-limit");
+        .expect("file-chunk candidates do not count toward the cell limit");
     }
 
     #[test]
@@ -280,12 +258,8 @@ mod tests {
             json!({
                 "id":id,
                 "reasoning":"Exercise the total expanded-cell limit.","mainGoal":"Decide the next read.",
-                "resources":[{"id":"r",
-                    "tool":"localSearch",
-                    "candidateEvidence":"fileChunks",
-                    "query":{"mainGoal": "test", "reasoning":"Find candidates.","path":"/tmp","matchString":"anchor"}
-                }],
-                "questions":(0..5).map(|index| with_id(format!("q{index}"), &question)).collect::<Vec<_>>()
+                "resources":(0..5).map(|index| json!({"id":format!("r{index}"),"value":{"index":index}})).collect::<Vec<_>>(),
+                "questions":(0..4).map(|index| with_id(format!("q{index}"), &question)).collect::<Vec<_>>()
             })
         };
         let error = admit(json!({"queries":[matrix("a"),matrix("b"),matrix("c")]}))

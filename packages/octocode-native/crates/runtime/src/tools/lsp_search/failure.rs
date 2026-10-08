@@ -159,6 +159,9 @@ pub(super) fn empty_hint(category: &str) -> &'static str {
         "noLocations" => {
             "Verify the symbol and anchor; then try references/definition alternatives or exact syntax/text search."
         }
+        "noProject" => {
+            "Use localSearch or astSearch here, or run lspSearch where its project file (Cargo.toml, package.json) is present."
+        }
         "unsupportedOperation" => "Choose an operation advertised by the lspSearch schema.",
         "noDiagnostics" => {
             "No errors or warnings were reported; confirm with the project's own type-check or build if it matters."
@@ -325,8 +328,20 @@ pub(super) fn with_next(query: &LspSearchQuery, mut value: Value) -> Value {
 /// the request (not the whole file), otherwise the file's default view.
 pub(super) fn attach_recovery_next(value: &mut Value, query: &LspSearchQuery) {
     let path = query.path().map(uri_to_path).unwrap_or_default();
+    let symbol = query.symbol_name().filter(|name| !name.trim().is_empty());
+    // A directory (a workspaceSymbol scope) is searched, not fetched.
+    if let Some(symbol) = symbol.filter(|_| std::path::Path::new(&path).is_dir()) {
+        value["next"]["read"] = crate::tools::result::Continuation::new(
+            ToolId::LocalSearch,
+            json!({ "path": path, "matchString": symbol }),
+        )
+        .why("Search the directory for the symbol's text.")
+        .confidence("exact")
+        .build();
+        return;
+    }
     let mut read = json!({ "path": path });
-    if let Some(symbol) = query.symbol_name().filter(|name| !name.trim().is_empty()) {
+    if let Some(symbol) = symbol {
         read["matchString"] = json!(symbol);
         read["caseMode"] = json!("sensitive");
         read["contextLines"] = json!(3);

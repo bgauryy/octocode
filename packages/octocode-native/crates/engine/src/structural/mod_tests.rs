@@ -363,9 +363,9 @@ fn search_files_errors_on_nonexistent_root_for_every_prefilter_branch() {
     fs::remove_dir_all(&root).ok();
     let missing = root.join("nope");
 
-    // Literal-anchored pattern (`target(` anchor → ripgrep prefilter branch),
+    // Literal-anchored pattern (`target(` anchor → text prefilter branch),
     // no-anchor pattern (`$FN($$$ARGS)` → walker branch), and a rule. A
-    // nonexistent root must be a LOUD error on all of them — ripgrep yields
+    // nonexistent root must be a LOUD error on all of them — the text search yields
     // zero candidates from a missing root without complaining.
     for (pattern, rule) in [
         (Some("target($X)".to_owned()), None),

@@ -4,7 +4,7 @@ Load when discovering questions or closing them. Why: one unanswered safety or c
 
 ## Ask from the decision outward
 
-For each applicable area, ask a concrete question whose answer could change the decision or plan. Mark genuinely inapplicable areas with a reason rather than manufacturing work.
+Use the areas that could change the decision or plan. Explain an omitted area only when readers could reasonably expect it to matter.
 
 | Area | Questions to expose |
 |---|---|
@@ -17,24 +17,24 @@ For each applicable area, ask a concrete question whose answer could change the 
 | Measurement | What baseline, target, guardrail, time window and check decide success? Can the metric improve while the user outcome worsens? |
 | Uncertainty | Which unresolved answers could reverse the decision? Which execution details can wait, and until when? |
 
-## One question ledger
+## Track unresolved questions
 
-Extend the existing claim ledger; assign stable `Q1`, `Q2`, … IDs. Record `question | kind | decision-blocking? + why | proposed answer | evidence + revision | counterevidence | status | owner | next check/trigger | affected RFC section`. Add judge receipt and host verification anchors only when they exist. A proposed answer is not a resolved answer.
+Keep questions beside the affected decision or in the RFC's open questions section. Capture what remains unresolved, why it matters, supporting and conflicting evidence, an owner, and the next check. Use IDs when cross-references help; no fixed field set is required. A proposed answer is not a resolved answer.
 
-Use `open`, `contested`, `blocked`, `resolved` or `deferred`. Preserve history when status changes; source/criteria changes reopen affected resolved entries.
+Make open, contested, resolved, and deferred questions distinguishable using the project's labels. Preserve meaningful decision history; revisit answers when their evidence or criteria change.
 
 | Transition | Required basis |
 |---|---|
-| → resolved (fact/causal claim) | Host-inspected current source or executed check establishes the scoped answer; material counterevidence is explained. Record what ran and its result. |
+| → resolved (fact/causal claim) | Host-inspected current source or executed check establishes the scoped answer; material counterevidence is explained. State the verified fact and cite its deciding evidence. |
 | → resolved (design tradeoff) | Verified prerequisites, explicit owner criteria, competing arguments, rationale and remaining risks. Judge viability can inform the choice but cannot establish those prerequisites. |
 | → resolved (owner preference) | Recorded owner decision or prior instruction that actually answers this choice. No agent guesses. |
 | → deferred | Execution detail only; record impact, responsible owner, concrete proof/deadline trigger and why waiting cannot reverse the decision. |
 | → blocked / contested | Missing deciding evidence, contradictory evidence not reconciled, unavailable owner, failed check or exhausted budget. Record smallest next action. |
 
-Do not convert a decision blocker to an execution detail to pass readiness. A legitimate scope change requires an explicit rationale and rechecking dependent goals. Agreement by both workers cannot substitute for any row above.
+Do not convert a decision blocker to an execution detail to pass readiness. A scope change needs a rationale and a check of dependent goals. Agreement between reviewers cannot substitute for deciding evidence.
 
 ## Return to the RFC workflow
 
 Before a final recommendation or readiness claim, check that all decision blockers are resolved and execution questions are resolved or validly deferred. A Draft may be saved or delivered with open blockers when task authority permits; name the owner, evidence gap and next check. Preserve material dissent in either state. Distinguish Draft, In Review, and owner-Accepted; accepted status requires actual owner acceptance. Do not create a parallel artifact format; the owners in `references/workflow.md` stay.
 
-Next: consequential unanswered questions may use `references/jev-review.md`; completed closure returns to `references/workflow.md`.
+Next: consequential unanswered questions may use the [clasify tool](clasify-review.md); completed closure returns to [the workflow](workflow.md).

@@ -49,7 +49,7 @@ No real or personally identifiable data. `Alice` and `Bob` only when documenting
 - Singular "they" unless gender is the point. No example that ties a job, skill, or behavior to ethnicity, gender, or age.
 - No person, product, or invented names inside email addresses.
 - Vary names, genders, ages, and locations; avoid US-centric defaults; check that a name's gender connotation fits.
-- Meaningful placeholder names, not `foo`, `bar`, `baz`. <!-- style-lint: ignore-line metasyntactic-name -->
+- Meaningful placeholder names, not `foo`, `bar`, `baz`.
 
 ## Link text and phrasing
 

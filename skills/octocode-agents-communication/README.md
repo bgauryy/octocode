@@ -1,9 +1,18 @@
-# Agents communication skill
+# Octocode Agents Communication
 
-A lean guide for coordinating agents with `npx -y @octocodeai/octocode-agents-communication`.
-The CLI package owns the runtime, host integrations, documentation, and tests.
+Coordinate agents through the shared communication service when work crosses sessions or vendors.
 
-Install this skill with `octocode skill install octocode-agents-communication --platform claude,codex --global`, then reload skill discovery.
-The skill requires the npm CLI and Python 3.9+ with SQLite 3.42+ and FTS5.
+Discover peers, exchange requests and replies, reserve shared paths, publish evidence, query history, and recover delivery. The lobby maps these tasks to commands; the installed package provides detailed setup and command contracts.
 
-Run `npx -y @octocodeai/octocode-agents-communication --help` for commands and `skill` for the full operating guide.
+Start with [SKILL.md](SKILL.md). See [output.md](output.md) for the result format.
+
+Run the published package through `npx`:
+
+```sh
+npx -y @octocodeai/octocode-agents-communication /cli --help
+npx -y @octocodeai/octocode-agents-communication /cli skill --json
+```
+
+Use `/cli` for operations. The bare command starts MCP and requires an existing or managed identity. The package provides its runtime and detailed setup guide; the skill contains guidance only. The communication service needs no API key; participating agents use their host's configured model and authentication.
+
+Claude, Codex, and Pi support managed workers. Grok connects through its native session or host hooks. Follow [SKILL.md](SKILL.md) to choose the matching setup.

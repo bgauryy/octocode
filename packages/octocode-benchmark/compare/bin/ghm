@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Instrumented bare-gh arm: runs exactly `gh <args>` (no wrapper, no compression),
+# capturing chars both directions via instrument_command.py. This is the uncompressed
+# baseline the rtk (rtkm) and headroom (ghc) arms compress.
+set -euo pipefail
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GH_LOG="${GH_LOG:-$PWD/tmp/gh-run.jsonl}"
+GH_ARTIFACT_DIR="${GH_ARTIFACT_DIR:-${GH_LOG%.jsonl}-artifacts}"
+label="gh $(printf '%s ' "$@" | sed 's/ *$//')"
+exec python3 "$HERE/instrument_command.py" --log "$GH_LOG" --artifact-dir "$GH_ARTIFACT_DIR" --label "$label" -- gh "$@"

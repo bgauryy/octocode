@@ -1,13 +1,7 @@
 # Octocode Brainstorming
 
-Check an issue, an idea, or an open decision from more than one direction before acting. Agent and human rules live in `SKILL.md`. The 18+ exploratory mode lives in `references/exploratory.md` and starts only when someone asks for it.
+Explore an idea or decision with several subagents researching distinct directions. Use available Tavily, Exa, Serper, or web tools, verify source freshness and quality, and explain the evidence behind each conclusion.
 
-## Install
+The parent reconciles findings and owns the recommendation. If workers or search tools are unavailable, report the limitation and use the available research paths.
 
-```bash
-npx -y octocode skill install octocode-brainstorming
-```
-
-## Maintainer verification
-
-Run the `octocode-skills` review against this folder.
+Start with [SKILL.md](SKILL.md). See [output.md](output.md) for the result format.

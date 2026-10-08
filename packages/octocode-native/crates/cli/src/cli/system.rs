@@ -274,20 +274,25 @@ pub async fn login(
     }
 }
 
-pub fn logout(runtime: &ToolRuntime) -> u8 {
+pub fn logout(runtime: &ToolRuntime, json_out: bool) -> u8 {
     let store = octocode_native::providers::github::CredentialStore::new(&runtime.config().home);
-    logout_with(runtime, &|host| store.delete(host))
+    logout_with(runtime, &|host| store.delete(host), json_out)
 }
 
 fn logout_with(
     runtime: &ToolRuntime,
     delete: &dyn Fn(&str) -> Result<(), octocode_native::providers::github::ProviderError>,
+    json_out: bool,
 ) -> u8 {
     let view = runtime.inspect_config();
     // Same host derivation as auth status / login so all three target the
     // identical credential-store host (api.github.com → github.com).
     let host = configured_github_host(runtime);
     match delete(&host) {
+        Ok(()) if json_out => write_json(
+            &json!({"loggedOut": true, "hostname": host, "home": view.home}),
+            true,
+        ),
         Ok(()) => {
             eprintln!(
                 "Removed Octocode credentials for {host} from {} and the OS store. Environment and gh credentials are unchanged.",
@@ -296,7 +301,7 @@ fn logout_with(
             0
         }
         Err(error) => {
-            eprintln!("{}", error.message);
+            super::emit_error(&error.message, json_out);
             1
         }
     }
@@ -365,7 +370,7 @@ mod auth_tests {
                 calls.lock().expect("calls").push(host.to_owned());
                 Ok(())
             };
-            assert_eq!(logout_with(&runtime, &delete), 0);
+            assert_eq!(logout_with(&runtime, &delete, false), 0);
             assert_eq!(*calls.lock().expect("calls"), [expected_host]);
             assert_eq!(
                 runtime.config().env_value("GH_TOKEN"),
@@ -377,7 +382,7 @@ mod auth_tests {
                     "fixture delete failed",
                 ))
             };
-            assert_eq!(logout_with(&runtime, &failure), 1);
+            assert_eq!(logout_with(&runtime, &failure, false), 1);
         }
     }
 }

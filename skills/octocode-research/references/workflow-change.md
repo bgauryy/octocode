@@ -3,6 +3,7 @@
 Load when implementing behavior after authority and success criteria are clear, or reshaping code while preserving behavior.
 
 ## Behavior change: RED → GREEN → REFACTOR
+
 1. Name the contract, trigger, consumers, and smallest behavior boundary.
 2. Write or identify a regression/acceptance check and observe it fail before the patch; tell intended failure from broken setup.
 3. Implement the smallest coherent change; rerun the same check to green; refactor inside that scope while green.
@@ -11,11 +12,13 @@ Load when implementing behavior after authority and success criteria are clear, 
 Enhancements freeze a baseline and target first. A trivial reversible edit needs a direct check, not a test that mirrors its text.
 
 ## Design rules
+
 - Exact reads and local patterns before patching; graph/LSP impact checks when imports or symbols cross boundaries.
 - No compatibility shims, legacy aliases, or duplicate paths unless explicitly required; remove obsolete owned paths, update consumers, preserve unrelated edits.
 - One owner per public contract.
 
 ## Refactor: SKELETON → CONTRACTS → BLAST → EXECUTE → VERIFY
+
 Size: S ≤ 3 files or one symbol · M one package · L cross-package. Scale execution, not evidence quality.
 1. Skeleton: structure, graph dependencies/dependents, symbols on entry points and move targets.
 2. Contracts: behavior to preserve; interfaces authorized to change.

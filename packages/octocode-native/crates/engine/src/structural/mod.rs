@@ -1,6 +1,6 @@
 //! Structural (AST) search over the tree-sitter grammars we already link.
 //!
-//! This is octocode's L2 search layer: it answers shape questions ripgrep
+//! This is octocode's L2 search layer: it answers shape questions text search
 //! can't (a call shaped `foo($X)`, an `eval()` call site that is NOT inside a
 //! comment/string) and that LSP is too heavy for. The default matcher is
 //! Octocode-owned; the grammars are the exact `tree_sitter::Language` values in

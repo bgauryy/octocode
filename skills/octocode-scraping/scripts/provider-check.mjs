@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { autoSelectProvider, resolveProvider } from './lib/providers.mjs';
 
 const args = process.argv.slice(2);
@@ -9,7 +8,6 @@ if (args.includes('--help') || args.includes('-h')) {
 }
 const providerFlagIndex = args.indexOf('--provider');
 const explicit = providerFlagIndex >= 0 ? args[providerFlagIndex + 1] : null;
-propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
 // When no explicit --provider given, show which provider auto-selection would pick and why.
 if (!explicit) {

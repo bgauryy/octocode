@@ -73,6 +73,8 @@ An attachment binds a session to one explicit delivery mechanism, with one deliv
 
 No receipt replaces the recipient's DB `complete`.
 
+The public integration surfaces differ by host. [Codex app-server](https://learn.chatgpt.com/docs/app-server) documents `turn/start` and experimental `thread/inject_items`; [Pi extensions](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) document `pi.sendMessage`. [Claude Code](https://code.claude.com/docs/en/hooks) and [Grok Build](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/10-hooks.md) document lifecycle hooks. Claude's messaging socket and Grok's leader-socket envelope are host-specific local transports, not a shared or stable cross-vendor API. Use the documented hook path when those native endpoints are unavailable or unverified for the installed version. An attached native path requires an explicit local endpoint and the preflight/receipt checks above.
+
 Native dispatch revalidates transport, endpoint and native session inside the staging transaction. Attachment/identity changes are rejected while an attempt is staged: resolve it first. Only `attach` changes an attached native receiver (`heartbeat` and `set_status` cannot), so validation and identity-uniqueness checks run. Raw SQL clients stop the delivery owner before they rebind.
 
 - **Codex** checks thread identity, canonical workspace and status before staging; `notLoaded` or `systemError` threads stay eligible later; unknown statuses fail preflight. The adapter never injects an action and then starts a second context-bearing turn. Action turns carry an empty user `input`; this needs the host's current tool-output API, and errors never fall back to user input.
@@ -81,7 +83,7 @@ Native dispatch revalidates transport, endpoint and native session inside the st
 
 After a post-staging state change or an ambiguous receipt, inspect the uncertain attempt before retry; never fall back automatically.
 
-Capability depends on host version and endpoint, not vendor name. Fallback order: native API, else raw binding with a supported injection hook, else the agent reads its inbox. Never reroute an ambiguous native attempt into raw delivery: it may already have arrived. A missing API is a capability limit, not a reason for an LLM relay; a DB write cannot wake an arbitrary process.
+Capability depends on host version and endpoint, not vendor name. Use a verified native endpoint or a documented host hook; otherwise the agent reads its inbox. Never reroute an ambiguous native attempt into raw delivery: it may already have arrived. A missing API is a capability limit, not a reason for an LLM relay; a DB write cannot wake an arbitrary process.
 
 ## Durable conversation
 

@@ -1,4 +1,5 @@
 # KPI contract
+
 Load before a comparison. Link the user-visible goal to one primary measure and guardrails; add leading measures only when they help diagnose or speed development.
 
 | Field | Record before baseline |

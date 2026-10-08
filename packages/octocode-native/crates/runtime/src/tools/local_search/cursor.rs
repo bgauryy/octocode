@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 /// snapshot.
 pub(super) fn cursor(
     query: &LocalSearchQuery,
-    parsed: &octocode_engine::types::RipgrepParseResult,
+    parsed: &octocode_engine::types::TextSearchResult,
     layout: &Layout,
     result_identity: &str,
     reusable: Option<super::manifest::Fresh>,
@@ -175,8 +175,8 @@ pub(super) fn build_next(
 /// keeping its snapshot.
 pub(super) fn fingerprint(
     query_key: &str,
-    files: &[octocode_engine::types::RipgrepFile],
-    stats: &octocode_engine::types::RipgrepStats,
+    files: &[octocode_engine::types::TextSearchFile],
+    stats: &octocode_engine::types::TextSearchStats,
 ) -> String {
     let file_values = files
         .iter()

@@ -1,5 +1,5 @@
 //! Cheap per-file signals behind `sort: "relevance"` (see
-//! `ripgrep_search::compare_recs`). For a bare-identifier search, a source
+//! `text_search::compare_recs`). For a bare-identifier search, a source
 //! file with a [`DECLARATION_WEIGHT`] hit ranks before the match count; the
 //! rest order files after the count and before the path:
 //!

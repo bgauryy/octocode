@@ -1,699 +1,195 @@
 #!/usr/bin/env node
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+// Structural checks for Agent Skill folders. Trigger quality and prose require human review.
+import { existsSync, statSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 
-const here = dirname(fileURLToPath(import.meta.url));
-const skillRoot = resolve(here, '..');
-const defaultRoot = resolve(skillRoot, '..');
-const args = process.argv.slice(2);
-const json = args.includes('--json');
-const targets = args.filter((a) => !a.startsWith('--'));
-
-if (args.includes('--help')) {
-  console.log(`skill-review — structure, contract, reference, and navigation gates for Agent Skill folders
-
-  node scripts/skill-review.mjs [skill-or-collection-folders...] [--json]
-
-  no folders   every skill under the nearest skills/ root (or the current folder if it is a skill)
-  folder       one skill folder, or a collection whose immediate children are skill folders
-  --json       machine-readable findings
-  --self-test  run collection, routing, standalone-runtime, and usage-error regressions
-  --help       this text
-
-Navigation gates treat the skill as a map: SKILL.md is a lobby of at most 150 lines with one Mermaid map —
-at most 12 flow nodes, plus every reference page (references/, docs/, scripts/docs/) as a leaf on a
-dotted edge labeled with its trigger — and at most 12 reference pages of at most 100 lines, each opening
-with "Load when … Why: …";
-every local file reference stays
-inside the folder, and every shipped file is reachable from the lobby, README, or another used file.
-Exit 1 on any ERROR.`);
-  process.exit(0);
-}
-
-const MAX_REFERENCE_LINES = 100;
-const MAX_REFERENCES = 12;
-const MAX_LOBBY_LINES = 150;
-const MAX_MAP_FLOW_NODES = 12;
-const MAP_PAGE = /^(?:references|docs|scripts\/docs)\/.+\.md$/;
-const MAP_ROOT = /^(?:references|docs|scripts\/docs)\//;
-
-function isSkillDir(dir) {
-  return existsSync(join(dir, 'SKILL.md')) && statSync(join(dir, 'SKILL.md')).isFile();
-}
-
-function expandTarget(target) {
-  const dir = resolve(process.cwd(), target);
-  if (!existsSync(dir)) throw new Error(`target does not exist: ${target}`);
-  if (!statSync(dir).isDirectory()) throw new Error(`target is not a directory: ${target}`);
-  if (isSkillDir(dir)) return [dir];
-
-  const children = readdirSync(dir)
-    .map((name) => join(dir, name))
-    .filter((child) => statSync(child).isDirectory() && isSkillDir(child));
-  if (!children.length) throw new Error(`target contains no skill folders: ${target}`);
-  return children;
-}
-
-function discoverTargets() {
-  if (targets.length) return targets.flatMap(expandTarget);
-  if (isSkillDir(process.cwd())) return [process.cwd()];
-  if (isSkillDir(skillRoot)) {
-    return readdirSync(defaultRoot)
-      .map((name) => join(defaultRoot, name))
-      .filter((dir) => statSync(dir).isDirectory() && isSkillDir(dir));
+function filesUnder(root) {
+  const files = [];
+  function visit(dir) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name === '.git') continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) visit(full);
+      else if (entry.isFile() || entry.isSymbolicLink()) files.push(relative(root, full));
+    }
   }
-  return [];
+  visit(root);
+  return files;
 }
 
-function frontmatter(text) {
-  const match = text.match(/^---\n([\s\S]*?)\n---\n/);
+function frontmatter(source) {
+  source = source.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+  const match = source.match(/^---\s*\n([\s\S]*?)\n---(?:\n|$)/);
   if (!match) return null;
-  const out = {};
-  for (const line of match[1].split(/\r?\n/)) {
-    const m = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (m) out[m[1]] = m[2].replace(/^['"]|['"]$/g, '').trim();
-  }
-  return out;
-}
-
-function linkedPaths(text) {
-  const hits = [];
-  const rx = /`((?:references|scripts|assets|scheme|docs)\/[^`]*?)`|\((?:(\.\/)?((?:references|scripts|assets|scheme|docs)\/[^)]*))\)/g;
-  let m;
-  while ((m = rx.exec(text))) {
-    const raw = (m[1] || m[3]).split('#')[0].trim();
-    const cleaned = raw.split(/\s+/)[0].replace(/[.,;:]$/, '');
-    // Explicit template placeholders describe a path the reader supplies, not a shipped route.
-    if (!cleaned.includes('*') && !/<[^>]+>/.test(cleaned)) hits.push(cleaned);
-  }
-  return [...new Set(hits.filter(Boolean))];
-}
-
-function bodyWithoutFrontmatter(text) {
-  return text.replace(/^---\n[\s\S]*?\n---\n/, '');
-}
-
-/** Lines of SKILL.md that name a reference, script, or scheme, so a route can be judged in isolation. */
-function routeLines(text) {
-  return bodyWithoutFrontmatter(text).split(/\r?\n/)
-    .filter((line) => /(?:references|scripts|scheme)\//.test(line) && !/^\s*(?:```|#)/.test(line));
-}
-
-/** A route earns its place by saying when or why to load the target. */
-const ROUTE_CONDITION = /\b(when|whenever|before|after|if|unless|during|while|load|read|use|run|start|then|for)\b/i;
-
-/** A chunk announces its own entry condition in its opening lines. */
-const ENTRY_CUE = /\b(load when|use when|read when|apply when|when you|before |after |load for|load to)\b/i;
-
-/** A named directory (`assets/hooks/`) stands in for the files under it. */
-function mentionedDirs(text) {
-  return [...new Set((text.match(/(?:references|scripts|assets|scheme|docs)\/[A-Za-z0-9._-]*\//g) || []))];
-}
-
-/** Every runnable file under scripts/, so the lobby can be checked for completeness. */
-function scriptFiles(dir, sub = 'scripts') {
-  const base = join(dir, sub);
-  if (!existsSync(base)) return [];
-  return readdirSync(base).flatMap((name) => {
-    const full = join(base, name);
-    if (statSync(full).isDirectory()) return scriptFiles(dir, `${sub}/${name}`);
-    return /\.(mjs|js|sh|py)$/.test(name) ? [`${sub}/${name}`] : [];
-  });
-}
-
-/** Every file ships with the skill. There are no invisible development-only files. */
-function skillFiles(dir, sub = '') {
-  const base = join(dir, sub);
-  return readdirSync(base).flatMap((name) => {
-    const rel = sub ? `${sub}/${name}` : name;
-    const full = join(dir, rel);
-    return statSync(full).isDirectory() ? skillFiles(dir, rel) : [rel.split(sep).join('/')];
-  });
-}
-
-function textFile(path) {
-  const bytes = readFileSync(path);
-  return bytes.includes(0) ? null : bytes.toString('utf8');
-}
-
-function staysInside(root, candidate) {
-  const rel = relative(root, candidate);
-  return rel === '' || (!rel.startsWith(`..${sep}`) && rel !== '..');
-}
-
-/** Reachability starts at the lobby and human README, then follows exact file or directory mentions. */
-function usedFiles(dir, files, texts) {
-  const used = new Set(files.filter((rel) => rel === 'SKILL.md' || rel === 'README.md'));
-  const queue = [...used];
-  while (queue.length) {
-    const source = queue.shift();
-    const text = texts.get(source);
-    if (text == null) continue;
-    const routedDirs = linkedPaths(text).filter((path) => path.endsWith('/'));
-    for (const target of files) {
-      if (used.has(target)) continue;
-      const fromSource = relative(dirname(join(dir, source)), join(dir, target)).split(sep).join('/');
-      const directlyNamed = text.includes(target) || text.includes(`./${target}`) || text.includes(fromSource);
-      const directoryRouted = routedDirs.some((prefix) => target.startsWith(prefix));
-      if (directlyNamed || directoryRouted) {
-        used.add(target);
-        queue.push(target);
+  const field = (key) => {
+    const line = match[1].match(new RegExp(`^${key}:[ \\t]*(.*)$`, 'm'))?.[1]?.trim();
+    if (!line) return '';
+    if (/^[>|][+-]?(?:\s+#.*)?$/.test(line)) {
+      const rest = match[1].split('\n');
+      const start = rest.findIndex((item) => item.startsWith(`${key}:`));
+      const parts = [];
+      for (const item of rest.slice(start + 1)) {
+        if (item && !/^\s+/.test(item)) break;
+        parts.push(item.trim());
       }
+      return parts.join(' ').trim();
     }
-  }
-  return used;
-}
-
-/** A skill folder installs on its own, so it must not depend on a file outside itself. A bare `../name`
- *  is left alone: it is a directory argument (a skill under review), not a dependency. */
-const OUTSIDE_DEP = /\.\.\/(?:[A-Za-z0-9._-]+\/)*[A-Za-z0-9._-]+\.[A-Za-z0-9]{1,5}|~\/[^\s`)]+\.[A-Za-z0-9]{1,5}|file:\/\/[^\s`)'\"]+|(?:^|[\s`("])\/(?:Users|home|etc|opt|var)\/[^\s`)"]+/;
-
-/** Audit trails, templates, and fixtures are carried data, exempt from entry and exit cues. */
-const DATA_ARTIFACT = /(?:^|\/)references\.md$|template|appendix|fixture/i;
-
-/** An onward pointer keeps navigation moving instead of dead-ending in a leaf. */
-const ONWARD_CUE = /^\s*(?:next|then|return|back|continue|see also)\b/im;
-
-const STALE_OCTOCODE_CONTRACTS = [
-  {
-    pattern: /\boctocode skill --name\b/,
-    fix: 'use `octocode skill install <name>`',
-  },
-  {
-    pattern: /\boctocode skill --list\b/,
-    fix: 'use `octocode skill list`',
-  },
-  {
-    pattern: /\boctocode skill --add\b/,
-    fix: 'use `octocode skill install --add <source>`',
-  },
-  {
-    pattern: /\boctocode skill dir\b/,
-    fix: 'use `octocode skill info <name> --json` and read `skill.dir`',
-  },
-  {
-    pattern:
-      /\btools\s+(?:local\.(?:text|find|tree|fetch)|github\.(?:tree|code|repo|fetch)|local_(?:ripgrep|view_structure|find_files|fetch_content))\b/,
-    fix: 'use a current public tool name and operation from `octocode schema`',
-  },
-];
-
-/** Phase tokens from a `Flow:` line — ALL-CAPS steps joined by arrows. */
-function flowPhases(text) {
-  const line = text.split(/\r?\n/).find((l) => /^\s*(?:\*\*)?Flow:?/i.test(l));
-  if (!line) return [];
-  return [...new Set((line.match(/\b[A-Z][A-Z0-9 ]{2,}\b/g) || [])
-    .map((p) => p.trim())
-    .filter((p) => p && p !== 'FLOW' && p !== 'SKILL'))];
-}
-
-// Count map nodes, leaving out reference-page leaves (labels naming a .md page): the flow cap
-// and the every-page coverage rule apply to different nodes, so both can hold at once.
-function mapFlowNodes(mermaid) {
-  const labels = new Map();
-  for (const raw of mermaid.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || /^(?:flowchart|graph|%%|classDef|class\s|style\s|linkStyle|subgraph|end$|direction)/.test(line)) continue;
-    const bare = line
-      .replace(/\|[^|]*\|/g, ' ')
-      .replace(/(?:--|-\.|==)\s*"[^"]*"\s*(?:-->|\.->|---|\.-|==>)/g, ' --> ');
-    for (const part of bare.split(/\s*(?:-\.->|\.->|-->|---|-\.-|==>|--[ox])\s*|\s&\s/)) {
-      const m = part.trim().match(/^([A-Za-z_][\w]*)\s*(.*)$/);
-      if (!m) continue;
-      const label = m[2].replace(/^[[({>]+|[\])}]+$/g, '').replace(/^"|"$/g, '');
-      if (!labels.has(m[1]) || label) labels.set(m[1], label || labels.get(m[1]) || '');
+    if (line.startsWith('"')) {
+      const quoted = line.match(/^"(?:\\.|[^"\\])*"/);
+      try { return JSON.parse(quoted?.[0] || ''); } catch { return null; }
     }
-  }
-  return [...labels].filter(([, label]) => !/\.md\b/.test(label)).map(([id]) => id);
+    if (line.startsWith("'")) return line.match(/^'((?:''|[^'])*)'/)?.[1]?.replace(/''/g, "'") ?? null;
+    if (/^[\[\]{&*!]/.test(line)) return null; // Advanced YAML needs a YAML-aware validator.
+    return line.replace(/\s+#.*$/, '').trim();
+  };
+  return { name: field('name'), description: field('description') };
 }
 
-function checkSkill(dir) {
+function localPaths(text) {
+  const paths = new Set();
+  const links = /\]\(\s*(?:<([^>]+)>|([^\s)]+))(?:\s+["'][^\n]*?["'])?\s*\)|^\s*\[[^\]]+\]:\s*(?:<([^>]+)>|(\S+))/gm;
+  for (const match of text.matchAll(links)) {
+    const raw = match[1] || match[2] || match[3] || match[4];
+    const target = raw.split('#')[0];
+    if (/^(?:[a-z]+:|\/|#)/i.test(target)) continue;
+    if (target) { try { paths.add(decodeURIComponent(target)); } catch { paths.add(target); } }
+  }
+  return paths;
+}
+
+function supportPaths(text) {
+  return [...text.matchAll(/(?:^|[^A-Za-z0-9./])((?:scripts|references|assets|docs|benchmarks)\/[A-Za-z0-9._/-]+\.(?:mjs|md|tsv|json|html|js|sh|py))/gm)].map((match) => match[1]);
+}
+
+function review(dir) {
+  const name = basename(dir);
   const findings = [];
-  const skillPath = join(dir, 'SKILL.md');
-  const skill = readFileSync(skillPath, 'utf8');
+  const add = (level, code, message) => findings.push({ level, code, message });
+  if (!existsSync(join(dir, 'SKILL.md'))) {
+    add('ERROR', 'skill-missing', 'SKILL.md is missing.');
+    return { skill: name, path: dir, findings };
+  }
+  const files = filesUnder(dir);
+  const texts = new Map(files.filter((path) => path.endsWith('.md')).map((path) => [path, readFileSync(join(dir, path), 'utf8')]));
+  const skill = texts.get('SKILL.md') || '';
   const fm = frontmatter(skill);
-  const lines = skill.trimEnd().split(/\r?\n/).length;
-  const name = fm?.name || basename(dir);
+  if (!fm) add('ERROR', 'frontmatter-missing', 'SKILL.md needs YAML frontmatter.');
+  if (fm && (fm.name === null || fm.description === null)) add('WARN', 'yaml-unchecked', 'Advanced or invalid YAML: validate with a YAML-aware Agent Skills validator.');
+  if (fm && fm.name !== null && fm.name !== name) add('ERROR', 'name-mismatch', `Frontmatter name must match folder ${name}.`);
+  if (fm?.name && (fm.name.length > 64 || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(fm.name))) {
+    add('ERROR', 'name-format', 'Name must follow the Agent Skills identifier syntax.');
+  }
+  if (fm?.description !== null && !fm?.description) add('ERROR', 'description-missing', 'Description is required.');
+  if (fm?.description?.length > 1024) add('ERROR', 'description-length', 'Description exceeds the Agent Skills limit of 1024 characters.');
+  if (!files.includes('README.md')) add('ERROR', 'readme-missing', 'README.md is missing.');
+  if (!files.includes('output.md')) add('ERROR', 'output-missing', 'output.md is missing.');
+  if (![...localPaths(skill)].some((path) => resolve(dir, path) === join(dir, 'output.md'))) add('WARN', 'output-route-missing', 'Link the output format from SKILL.md using any descriptive label.');
 
-  const error = (code, message) => findings.push({ level: 'ERROR', code, message });
-  const warn = (code, message) => findings.push({ level: 'WARN', code, message });
-
-  const files = skillFiles(dir);
-  const texts = new Map(files.map((rel) => [rel, textFile(join(dir, rel))]));
-
-  if (!fm) error('frontmatter-missing', 'SKILL.md must start with YAML frontmatter.');
-  if (fm && fm.name !== basename(dir)) error('name-mismatch', `frontmatter name (${fm.name}) must match folder (${basename(dir)}).`);
-  // Agent Skills spec: 1-64 chars of a-z, 0-9, and single hyphens, no leading or trailing hyphen.
-  if (fm?.name && (fm.name.length > 64 || !/^[a-z0-9]+(-[a-z0-9]+)*$/.test(fm.name))) {
-    error('name-format', `name (${fm.name}) must be 1-64 chars of a-z, 0-9, and single hyphens, not at either end.`);
-  }
-  // Anthropic API and claude.ai uploads reject these; other hosts accept them, so warn only.
-  if (fm?.name && /anthropic|claude/i.test(fm.name)) warn('name-reserved', 'name contains the reserved word "anthropic" or "claude"; claude.ai and the Skills API reject it.');
-  if ([fm?.name, fm?.description].some((value) => value && /<\/?[A-Za-z][^>]*>/.test(value))) {
-    warn('frontmatter-xml', 'name and description must not contain XML tags; claude.ai and the Skills API reject them.');
-  }
-  // Agent Skills spec: compatibility is 1-500 chars when present.
-  if (fm?.compatibility !== undefined && (fm.compatibility.length === 0 || fm.compatibility.length > 500)) {
-    error('compatibility-length', 'compatibility must be 1-500 chars when present.');
-  }
-  if (!fm?.description) error('description-missing', 'frontmatter description is required.');
-  if (fm?.description && !/^Use when\b/i.test(fm.description.replace(/^>-\s*/, '').trim())) {
-    warn('description-trigger', 'description should lead with “Use when …”.');
-  }
-  if (fm?.description && fm.description.length > 1024) error('description-too-long', 'description must be <=1024 chars.');
-  if (fm?.description) {
-    const desc = fm.description.replace(/^>-\s*/, '').trim();
-    // Shape: one "Use when …" sentence, then at most one boundary sentence ("Not for …", "Skip …", "For …, use …").
-    const extra = desc.split(/(?<=[.!?])\s+(?=[A-Z])/).slice(1).filter((t) => !/^(?:Not for|Skip|For\b.*\buse\b)/.test(t));
-    if (/\bTriggers?(?: include|:)/i.test(desc) || extra.length) {
-      warn('description-shape', `description is one "Use when …" sentence plus an optional "Not for …" boundary; move ${extra.length ? `"${extra[0].slice(0, 40)}…"` : 'the trigger list'} into the lobby.`);
+  for (const [path, text] of texts) {
+    for (const target of localPaths(text)) {
+      if (target.includes('<') || target.includes('{') || target.includes('*') || target.includes('…')) continue;
+      const full = resolve(dirname(join(dir, path)), target);
+      if (!full.startsWith(dir + '/') && full !== dir) continue; // cross-skill handoffs are allowed
+      if (!existsSync(full)) add('ERROR', 'missing-path', `${path} references missing ${target}.`);
     }
-    if (/\b(?:I|you|your)\b/.test(desc) || /\b(?:MUST|ALWAYS|NEVER|IMPORTANT|CRITICAL)\b/.test(desc)) {
-      warn('description-voice', 'description has "I"/"you" or a mandate word; state user intents, and put hard rules in the lobby.');
+    for (const target of supportPaths(text)) {
+      if (!existsSync(join(dir, target))) add('ERROR', 'missing-support-file', `${path} references missing ${target}.`);
     }
   }
-  if (lines > MAX_LOBBY_LINES) warn('lobby-long', `SKILL.md is ${lines} lines; the limit is ${MAX_LOBBY_LINES} — move detail, not core logic, into references.`);
-
-  const lobby = bodyWithoutFrontmatter(skill);
-  const conventions = [
-    ['lobby-tools-convention', /^tools:[ \t]*\S[^\n]*$/m,
-      'declare the actual commands or host tools on a `tools:` line below the H1.'],
-    ['lobby-output-convention', /^output:[ \t]*\S[^\n]*$/m,
-      'declare where artifacts/state go, or explicitly state none, on an `output:` line below the H1.'],
-    ['lobby-routes-convention', /^routes:[ \t]*[^\n]*\b(use|load|run|read|when|before|after|for)\b[^\n]*$/mi,
-      'declare when or why to use supporting files on a `routes:` line below the H1.'],
-  ];
-  const hasMap = /```mermaid\b/.test(lobby);
-  for (const [code, pattern, message] of conventions) {
-    // The skill map's trigger-labelled edges are the routes declaration; a routes: line would repeat it.
-    if (code === 'lobby-routes-convention' && hasMap) continue;
-    if (!pattern.test(lobby)) error(code, message);
-  }
-
-  if (/^related-skill:/m.test(lobby) && !/^related-skill:[ \t]*`[a-z0-9][a-z0-9-]*`[ \t]*$/m.test(lobby)) {
-    error('lobby-related-skill-convention', 'when useful, declare one `related-skill: <skill-name>`; omit it when no related skill is needed.');
-  }
-
-  if (!existsSync(join(dir, 'README.md'))) warn('readme-missing', 'README.md is recommended for standalone skills.');
-
-  const refsDir = join(dir, 'references');
-  const referenced = new Set([...texts].filter(([rel, text]) => rel.endsWith('.md') && text != null).flatMap(([, text]) => linkedPaths(text)));
-  const fromLobby = new Set(linkedPaths(skill));
-  const refTexts = new Map();
-  if (existsSync(refsDir)) {
-    for (const rel of files.filter((f) => f.startsWith('references/') && f.endsWith('.md'))) {
-      const text = readFileSync(join(dir, rel), 'utf8');
-      const refLines = text.trimEnd().split(/\r?\n/).length;
-      refTexts.set(rel, text);
-      for (const p of linkedPaths(text)) referenced.add(p);
-      if (!/^#\s+/m.test(text)) warn('reference-h1', `${rel} should have an H1.`);
-      if (refLines > MAX_REFERENCE_LINES) warn('reference-long', `${rel} is ${refLines} lines; the limit is ${MAX_REFERENCE_LINES} — cut filler or duplication.`);
-    }
-  }
-
-  // Skill map: the lobby draws every reference page in one Mermaid diagram, with the trigger on the edge,
-  // so an agent sees all routes and when to take them on the first screen.
-  const mapPages = files.filter((rel) => MAP_PAGE.test(rel) && basename(rel) !== 'references.md');
-  const refPages = mapPages.filter((rel) => rel.startsWith('references/'));
-  if (refPages.length > MAX_REFERENCES) {
-    warn('references-many', `${refPages.length} reference pages; the limit is ${MAX_REFERENCES} — merge pages that serve one decision or one moment of use.`);
-  }
-  const mermaid = [...lobby.matchAll(/```mermaid\s*\n([\s\S]*?)```/g)].map((m) => m[1]).join('\n');
-  const flowNodes = mermaid ? mapFlowNodes(mermaid) : [];
-  if (flowNodes.length > MAX_MAP_FLOW_NODES) {
-    warn('lobby-map-large', `the SKILL.md map has ${flowNodes.length} flow nodes; the limit is ${MAX_MAP_FLOW_NODES} (reference-page leaves do not count) — merge phases or move a loop into its page.`);
-  }
-  if (mapPages.length) {
-    if (!mermaid) {
-      warn('lobby-map-missing', 'SKILL.md needs a Mermaid skill map: flow phases plus every reference page, each on an edge labeled with its trigger.');
-    } else {
-      const missing = mapPages.filter((rel) => !mermaid.includes(rel.replace(MAP_ROOT, '')));
-      if (missing.length) {
-        warn('lobby-map-incomplete', `the SKILL.md Mermaid map does not show ${missing.join(', ')}; add each page as a node on an edge labeled with its trigger.`);
+  // Follow actual document routes from the lobby; two orphan pages linking each other do not count.
+  const reachable = new Set(['SKILL.md']);
+  const pending = ['SKILL.md'];
+  while (pending.length) {
+    const path = pending.pop();
+    const text = texts.get(path) || '';
+    const targets = [...localPaths(text)].map((target) => relative(dir, resolve(dir, dirname(path), target)));
+    targets.push(...supportPaths(text));
+    for (const target of targets) {
+      if (files.includes(target) && !reachable.has(target)) {
+        reachable.add(target);
+        if (texts.has(target)) pending.push(target);
       }
     }
   }
-
-  const schemeDir = join(dir, 'scheme');
-  if (existsSync(schemeDir)) {
-    for (const file of readdirSync(schemeDir)) {
-      const rel = `scheme/${file}`;
-      const full = join(schemeDir, file);
-      if (statSync(full).isDirectory() || !file.endsWith('.json')) {
-        error('scheme-contract', `${rel} must be a flat JSON file, one per contract.`);
-        continue;
-      }
-      try {
-        const contract = JSON.parse(readFileSync(full, 'utf8'));
-        if (contract === null || Array.isArray(contract) || typeof contract !== 'object') {
-          error('scheme-contract', `${rel} must contain one top-level JSON object.`);
-        }
-      } catch {
-        error('scheme-contract', `${rel} must contain valid JSON.`);
-      }
-    }
+  for (const path of files.filter((item) => item.startsWith('references/') && item.endsWith('.md') || /^scripts\/[^/]+\.(mjs|js|sh|py)$/.test(item))) {
+    if (!reachable.has(path)) add('WARN', 'unrouted-resource', `${path} has no route from SKILL.md.`);
   }
-
-  for (const rel of referenced) {
-    if (rel.includes('://')) continue;
-    if (!existsSync(join(dir, rel))) error('missing-route', `${rel} is referenced but missing.`);
-  }
-
-  if (existsSync(refsDir)) {
-    for (const rel of refTexts.keys()) {
-      if (basename(rel) !== 'references.md' && !referenced.has(rel) && !skill.includes(rel)) {
-        warn('orphan-reference', `${rel} is not routed from SKILL.md or another reference.`);
-      }
-    }
-  }
-
-  // Navigation gates: the lobby is the map. It lists routed references, scripts, and schemes with when/how, plus the workflow.
-  const dirs = [...mentionedDirs(skill), ...fromLobby].filter((path) => path.endsWith('/'));
-  const listedInLobby = (rel) => fromLobby.has(rel) || skill.includes(rel) || dirs.some((d) => rel.startsWith(d));
-
-  if (!/^\s*(?:\*\*)?(?:flow|workflow)/im.test(skill) && !/^##+\s+workflow/im.test(skill)) {
-    warn('lobby-workflow-missing', 'SKILL.md must show the workflow on its own line so it is scannable — a `Flow:` line or a `## Workflow` heading. A flow trailing mid-sentence does not count.');
-  }
-
-  const scripts = scriptFiles(dir).map((rel) => ({ rel, text: readFileSync(join(dir, rel), 'utf8') }));
-  const imported = new Set(scripts.flatMap(({ text }) =>
-    [...text.matchAll(/(?:from|import)\s+['"]\.\/([A-Za-z0-9._-]+)['"]/g)].map((m) => `scripts/${m[1]}`)));
-  // Paths the docs show being executed count as entry points even without a shebang.
-  const corpus = [skill, ...refTexts.values()].join('\n');
-  const invoked = new Set([...corpus.matchAll(/(?:node|bash|sh|python3?)\s+((?:\.\/)?scripts\/[A-Za-z0-9._\/-]+)/g)]
-    .map((m) => m[1].replace(/^\.\//, '')));
-
-  for (const { rel, text } of scripts) {
-    // A runnable script is an entry point the lobby must name; a library module is implementation detail
-    // that something must import — otherwise it is dead weight in a folder that ships as-is.
-    const runnable = /^#!/.test(text) || invoked.has(rel);
-    if (runnable && !listedInLobby(rel)) {
-      warn('lobby-script-unlisted', `${rel} is not listed in SKILL.md; the lobby names every script with when and how to run it.`);
-    }
-    if (!runnable && !imported.has(rel) && !listedInLobby(rel)) {
-      warn('script-unreferenced', `${rel} is a library nothing imports and the lobby never names; import it or drop it.`);
-    }
-  }
-
-  for (const [rel, text] of refTexts) {
-    if (!referenced.has(rel) && !skill.includes(rel)) continue; // already reported as orphan-reference
-    if (!listedInLobby(rel)) {
-      warn('lobby-reference-unlisted', `${rel} is reachable only through another reference; the lobby must list every reference with when to read it.`);
-    }
-    if (DATA_ARTIFACT.test(rel)) continue; // audit trails and templates are data, not map nodes
-    const head = text.split(/\r?\n/).filter(Boolean).slice(0, 5).join(' ');
-    if (!ENTRY_CUE.test(head)) {
-      warn('reference-entry-cue', `${rel} should open by saying when to load it ("Load when …").`);
-    } else if (!/\bWhy:/.test(head)) {
-      warn('reference-why-cue', `${rel} opens with when to load it but not why; add "Why: …" to the opening line.`);
-    }
-    if (refTexts.size >= 3 && !linkedPaths(text).length && !ONWARD_CUE.test(text)) {
-      warn('reference-dead-end', `${rel} points nowhere; add the next hop or say the step ends here.`);
-    }
-  }
-
-  // A table row carries its condition in the left cell, so only prose routes are judged on their own line.
-  for (const [rel, text] of texts) {
-    if (text == null) continue;
-    for (const [i, line] of text.split(/\r?\n/).entries()) {
-      const hit = line.match(OUTSIDE_DEP);
-      // A path carrying a placeholder (`<abs>`, `...`, `$HOME`, `{dir}`) is a template the reader fills in,
-      // not a file this folder depends on.
-      if (hit && !/<[^>]*>|\.\.\.|\$[A-Za-z{]|\{/.test(hit[0])) {
-        const raw = hit[0].trim().replace(/^[`('"]+/, '');
-        const escaped = raw.startsWith('../')
-          ? !staysInside(dir, resolve(dirname(join(dir, rel)), raw))
-          : true;
-        if (escaped) error('link-outside-skill', `${rel}:${i + 1} depends on ${raw} outside the folder; vendor it or drop it.`);
-      }
-      for (const contract of STALE_OCTOCODE_CONTRACTS) {
-        if (contract.pattern.test(line)) {
-          error(
-            'octocode-contract-stale',
-            `${rel}:${i + 1} uses stale Octocode syntax; ${contract.fix}.`
-          );
-        }
-      }
-    }
-  }
-
-  const used = usedFiles(dir, files, texts);
-  for (const rel of files) {
-    if (!used.has(rel)) {
-      error('unused-file', `${rel} is not reachable from SKILL.md, README.md, or another used file; route it or remove it.`);
-    }
-  }
-
-  for (const line of routeLines(skill)) {
-    if (/^\s*\||^tools:/.test(line)) continue;
-    if (!ROUTE_CONDITION.test(line)) {
-      warn('route-condition', `route has no when/why cue: "${line.trim().slice(0, 70)}"`);
-    }
-  }
-
-  // A phase must be routed from the lobby itself — the map is SKILL.md, not the corpus. Stem matching
-  // keeps DISCOVER covered by "discovering".
-  const lobbyText = skill.toLowerCase();
-  for (const phase of flowPhases(skill)) {
-    const stem = phase.toLowerCase().replace(/[^a-z ]/g, '').split(' ').pop().replace(/e$/, '');
-    if (stem.length < 3) continue;
-    if (lobbyText.split(stem).length - 1 < 2) {
-      warn('flow-phase-unrouted', `flow phase ${phase} is named only in the flow line; route it from SKILL.md or drop it.`);
-    }
-  }
-
   return { skill: name, path: dir, findings };
 }
 
 function selfTest() {
-  const root = mkdtempSync(join(tmpdir(), 'skill-review-self-test-'));
-  const skillDir = join(root, 'hook-skill');
+  const dir = mkdtempSync(join(tmpdir(), 'skill-review-'));
   try {
-    mkdirSync(join(skillDir, 'scripts'), { recursive: true });
-    writeFileSync(join(skillDir, 'README.md'), '# Hook skill\n');
-    writeFileSync(join(skillDir, 'scripts', 'hook.sh'), '#!/bin/sh\nexit 0\n');
-    writeFileSync(join(skillDir, 'SKILL.md'), `---
-name: hook-skill
-description: "Use when testing hook-frontmatter routing."
-hooks:
-  SessionEnd: [{ hooks: [{ type: command, command: "\${CLAUDE_SKILL_DIR}/scripts/hook.sh" }] }]
----
-# Hook skill
-tools: \`npx octocode\` / \`octocode-mcp\`
-related-skill: \`octocode-research\`
-output: \`<workspace>/.octocode/\` for workspace work | \`<home>/.octocode/\` when no workspace applies
-routes: load/run a reference, doc, or script only when it changes the next action; otherwise keep the rule here.
-Flow: RUN
-## Run
-Run the hook test and stop.
-`);
-
-    const expanded = expandTarget(root);
-    if (expanded.length !== 1 || expanded[0] !== skillDir) throw new Error('collection discovery regression');
-    const findings = checkSkill(skillDir).findings;
-    if (findings.length) throw new Error(`frontmatter route regression: ${JSON.stringify(findings)}`);
-
-    const validLobby = readFileSync(join(skillDir, 'SKILL.md'), 'utf8');
-    writeFileSync(join(skillDir, 'SKILL.md'), validLobby.replace(/^output:.*\n/m, ''));
-    const missingOutputFindings = checkSkill(skillDir).findings;
-    if (!missingOutputFindings.some((finding) => finding.code === 'lobby-output-convention')) {
-      throw new Error(`lobby-output-convention regression: ${JSON.stringify(missingOutputFindings)}`);
-    }
-    writeFileSync(join(skillDir, 'SKILL.md'), validLobby);
-
-    const frontmatterCases = [
-      [validLobby.replace(/^name: hook-skill$/m, 'name: Hook--Skill'), 'name-format'],
-      [validLobby.replace(/^name: hook-skill$/m, `name: ${'a'.repeat(65)}`), 'name-format'],
-      [validLobby.replace(/^name: hook-skill$/m, 'name: claude-hook'), 'name-reserved'],
-      [validLobby.replace(/^description: .*$/m, 'description: "Use when testing <b>tags</b>."'), 'frontmatter-xml'],
-      [validLobby.replace(/^(description: .*)$/m, `$1\ncompatibility: ${'x'.repeat(501)}`), 'compatibility-length'],
-      [validLobby.replace(/^description: .*$/m, 'description: "Use when testing hooks. Triggers include hook, lint."'), 'description-shape'],
-      [validLobby.replace(/^description: .*$/m, 'description: "Use when testing hooks. Verify each hook first."'), 'description-shape'],
-      [validLobby.replace(/^description: .*$/m, 'description: "Use when you MUST test hooks."'), 'description-voice'],
-      [validLobby + '\n```mermaid\nflowchart LR\n  A-->B-->C-->D-->E-->F-->G\n  H-->I-->J-->K-->L-->M\n```\n', 'lobby-map-large'],
-    ];
-    for (const [text, code] of frontmatterCases) {
-      writeFileSync(join(skillDir, 'SKILL.md'), text);
-      if (!checkSkill(skillDir).findings.some((f) => f.code === code)) throw new Error(`${code} regression`);
-    }
-    writeFileSync(join(skillDir, 'SKILL.md'), validLobby.replace(/^(description: .*)$/m, '$1\ncompatibility: Requires Node.js 20+'));
-    const validCompat = checkSkill(skillDir).findings;
-    writeFileSync(join(skillDir, 'SKILL.md'), validLobby.replace(/^description: .*$/m, 'description: "Use when testing hooks. Not for linting → other-skill."'));
-    if (checkSkill(skillDir).findings.length) throw new Error('description boundary false positive');
-    if (validCompat.length) throw new Error(`compatibility false positive: ${JSON.stringify(validCompat)}`);
-    writeFileSync(join(skillDir, 'SKILL.md'), validLobby);
-
-    writeFileSync(
-      join(skillDir, 'README.md'),
-      `# Hook skill\n\nRun \`${['npx', 'octocode', 'skill', '--name', 'hook-skill'].join(' ')}\`.\n`
-    );
-    const staleContractFindings = checkSkill(skillDir).findings;
-    if (
-      !staleContractFindings.some(
-        finding => finding.code === 'octocode-contract-stale'
-      )
-    ) {
-      throw new Error(
-        `octocode-contract-stale regression: ${JSON.stringify(staleContractFindings)}`
-      );
-    }
-    writeFileSync(join(skillDir, 'README.md'), '# Hook skill\n');
-
-    mkdirSync(join(skillDir, 'references'), { recursive: true });
-    writeFileSync(join(skillDir, 'references', 'guide.md'), '# Guide\n\nLoad when the hook fails. Next: the step ends here.\n');
-    writeFileSync(join(skillDir, 'SKILL.md'), validLobby + '\nIf the hook fails, load `references/guide.md`.\n');
-    if (!checkSkill(skillDir).findings.some((f) => f.code === 'lobby-map-missing')) throw new Error('lobby-map-missing regression');
-    writeFileSync(join(skillDir, 'SKILL.md'), validLobby + '\n```mermaid\nflowchart LR\n  R[RUN] -. "hook fails" .-> G["guide.md"]\n```\nIf the hook fails, load `references/guide.md`.\n');
-    const mapped = checkSkill(skillDir).findings.filter((f) => f.code.startsWith('lobby-map'));
-    if (mapped.length) throw new Error(`lobby-map false positive: ${JSON.stringify(mapped)}`);
-    writeFileSync(join(skillDir, 'references', 'extra.md'), '# Extra\n\nLoad when the hook is slow. Next: the step ends here.\n');
-    writeFileSync(join(skillDir, 'SKILL.md'), validLobby + '\n```mermaid\nflowchart LR\n  R[RUN] -. "hook fails" .-> G["guide.md"]\n```\nIf the hook fails, load `references/guide.md`. If it is slow, load `references/extra.md`.\n');
-    if (!checkSkill(skillDir).findings.some((f) => f.code === 'lobby-map-incomplete')) throw new Error('lobby-map-incomplete regression');
-    mkdirSync(join(skillDir, 'references', 'sub'));
-    writeFileSync(join(skillDir, 'references', 'sub', 'deep.md'), '# Deep\n\nLoad when nested. Next: the step ends here.\n');
-    writeFileSync(join(skillDir, 'SKILL.md'), validLobby + '\n```mermaid\nflowchart LR\n  R[RUN] -. "nested" .-> D["references/sub/deep.md"]\n```\n');
-    if (!checkSkill(skillDir).findings.some((f) => f.code === 'reference-why-cue' && f.message.includes('sub/deep.md'))) throw new Error('nested reference-why-cue regression');
-    rmSync(join(skillDir, 'references'), { recursive: true, force: true });
-    writeFileSync(join(skillDir, 'SKILL.md'), validLobby);
-
-    writeFileSync(join(skillDir, 'unused-probe.txt'), 'temporary probe\n');
-    const unusedFindings = checkSkill(skillDir).findings;
-    if (!unusedFindings.some((finding) => finding.code === 'unused-file')) {
-      throw new Error(`unused-file regression: ${JSON.stringify(unusedFindings)}`);
-    }
-    rmSync(join(skillDir, 'unused-probe.txt'));
-
-    mkdirSync(join(skillDir, 'references'));
-    const templateRef = join(skillDir, 'references', 'templates.md');
-    const lobby = readFileSync(join(skillDir, 'SKILL.md'), 'utf8');
-    writeFileSync(templateRef, '# Templates\n\nLoad when choosing a hook directory. Use `scripts/<hook-directory>/` as a schematic path.\n\nNext: return to `SKILL.md`.\n');
-    writeFileSync(join(skillDir, 'SKILL.md'), lobby + '\nWhen writing templates, read `references/templates.md`.\n');
-    const templateFindings = checkSkill(skillDir).findings;
-    if (templateFindings.some((finding) => finding.code === 'missing-route')) {
-      throw new Error(`schematic-route regression: ${JSON.stringify(templateFindings)}`);
-    }
-    writeFileSync(templateRef, '# Templates\n\nLoad when checking real routes. Run `scripts/missing-hook.sh`.\n\nNext: return to `SKILL.md`.\n');
-    const missingRouteFindings = checkSkill(skillDir).findings;
-    if (!missingRouteFindings.some((finding) => finding.code === 'missing-route')) {
-      throw new Error(`required-route regression: ${JSON.stringify(missingRouteFindings)}`);
-    }
-    rmSync(templateRef);
-    writeFileSync(join(skillDir, 'SKILL.md'), lobby);
-
-    const schemeDir = join(skillDir, 'scheme');
-    const contractPath = join(schemeDir, 'hook-event.json');
-    mkdirSync(schemeDir);
-    writeFileSync(join(skillDir, 'SKILL.md'), lobby + '\nWhen exposing the hook contract, load `scheme/hook-event.json`.\n');
-    writeFileSync(contractPath, '{ invalid json');
-    const invalidJsonFindings = checkSkill(skillDir).findings;
-    if (!invalidJsonFindings.some((finding) => finding.code === 'scheme-contract')) {
-      throw new Error(`scheme invalid-json regression: ${JSON.stringify(invalidJsonFindings)}`);
-    }
-    writeFileSync(contractPath, '[]\n');
-    const arrayContractFindings = checkSkill(skillDir).findings;
-    if (!arrayContractFindings.some((finding) => finding.code === 'scheme-contract')) {
-      throw new Error(`scheme one-contract regression: ${JSON.stringify(arrayContractFindings)}`);
-    }
-    writeFileSync(contractPath, '{"type":"object"}\n');
-    const validContractFindings = checkSkill(skillDir).findings;
-    if (validContractFindings.some((finding) => finding.code === 'scheme-contract')) {
-      throw new Error(`scheme valid-contract regression: ${JSON.stringify(validContractFindings)}`);
-    }
-    writeFileSync(join(schemeDir, 'notes.md'), '# Not a contract\n');
-    const nonJsonFindings = checkSkill(skillDir).findings;
-    if (!nonJsonFindings.some((finding) => finding.code === 'scheme-contract')) {
-      throw new Error(`scheme extension regression: ${JSON.stringify(nonJsonFindings)}`);
-    }
-    rmSync(schemeDir, { recursive: true });
-    writeFileSync(join(skillDir, 'SKILL.md'), lobby);
-
-    const outsidePath = '../' + '../shared.md';
-    const slash = String.fromCharCode(47);
-    const outsideAbsolute = slash + ['Users', 'example', 'outside.md'].join(slash);
-    const outsideUrl = ['file:', slash, slash, outsideAbsolute].join('');
-    const bareFilePrefix = ['file:', slash, slash].join('');
-    writeFileSync(join(skillDir, 'references', 'outside.md'), `# Outside\n\nLoad when testing. Why: regression.\n\nRead \`${outsidePath}\`.\n\nSee ${outsideUrl}.\n\nSee ${outsideAbsolute}.\n\nThe generated guard checks \"${bareFilePrefix}\" and '${bareFilePrefix}' before resolving a local reference.\n\nNext: return to \`SKILL.md\`.\n`);
-    writeFileSync(join(skillDir, 'SKILL.md'), readFileSync(join(skillDir, 'SKILL.md'), 'utf8') + '\nWhen testing paths, load `references/outside.md`.\n');
-    const outsideFindings = checkSkill(skillDir).findings;
-    const outsideLinks = outsideFindings.filter((finding) => finding.code === 'link-outside-skill');
-    const outsideMessages = outsideLinks.map((finding) => finding.message).join('\n');
-    if (outsideLinks.length !== 3
-      || !outsideMessages.includes(outsidePath)
-      || !outsideMessages.includes(outsideUrl)
-      || !outsideMessages.includes(outsideAbsolute)
-      || outsideMessages.includes(`\"${bareFilePrefix}\"`)
-      || outsideMessages.includes(`'${bareFilePrefix}'`)) {
-      throw new Error(`outside-file regression: ${JSON.stringify(outsideFindings)}`);
-    }
-
-    const runtimeDir = join(root, 'standalone-runtime');
-    mkdirSync(join(runtimeDir, 'scripts', 'hooks'), { recursive: true });
-    writeFileSync(join(runtimeDir, 'SKILL.md'), `---
-name: standalone-runtime
-description: Use when coordinating workers through a bundled native runtime.
----
-# Runtime
-tools: \`scripts/worker\` (CLI or MCP)
-output: Shared database selected by the caller; commands return JSON.
-routes: Use \`scripts/\` for generated runtime and host adapters; run command help for setup.
-## Workflow
-Start the runtime, execute work, then stop.
-`);
-    writeFileSync(join(runtimeDir, 'scripts', 'worker'), Buffer.from([127, 69, 76, 70, 0]));
-    writeFileSync(join(runtimeDir, 'scripts', 'SHA256SUMS'), 'checksum  worker\n');
-    writeFileSync(join(runtimeDir, 'scripts', 'hooks', 'native-selected.ps1'), 'Write-Output "ready"\n');
-    const runtimeErrors = () => checkSkill(runtimeDir).findings.filter(f => f.level === 'ERROR');
-    if (runtimeErrors().length) throw new Error(`standalone runtime regression: ${JSON.stringify(runtimeErrors())}`);
-    writeFileSync(join(runtimeDir, 'unrouted.txt'), 'still unused\n');
-    if (!runtimeErrors().some(f => f.code === 'unused-file')) throw new Error('directory routing must not hide unrelated unused files');
-    rmSync(join(runtimeDir, 'unrouted.txt'));
-    const runtimeLobby = readFileSync(join(runtimeDir, 'SKILL.md'), 'utf8');
-    writeFileSync(join(runtimeDir, 'SKILL.md'), runtimeLobby + '\nRun `scripts/missing-worker`.\n');
-    if (!runtimeErrors().some(f => f.code === 'missing-route')) throw new Error('directory routing must not hide missing literal files');
-    writeFileSync(join(runtimeDir, 'SKILL.md'), runtimeLobby + '\nUse `docs/missing/` for setup.\n');
-    if (!runtimeErrors().some(f => f.code === 'missing-route')) throw new Error('missing directory must fail');
-    writeFileSync(join(runtimeDir, 'SKILL.md'), runtimeLobby.replace(/^tools:.*$/m, 'tools: '));
-    if (!runtimeErrors().some(f => f.code === 'lobby-tools-convention')) throw new Error('blank tools declaration must fail');
-    writeFileSync(join(runtimeDir, 'SKILL.md'), runtimeLobby);
-    writeFileSync(join(runtimeDir, 'README.md'), '# Runtime\nRun `scripts/missing-readme-command`.\n');
-    if (!runtimeErrors().some(f => f.code === 'missing-route')) throw new Error('README missing route must fail');
-
-    let rejectedMissing = false;
-    try { expandTarget(join(root, 'missing')); } catch { rejectedMissing = true; }
-    if (!rejectedMissing) throw new Error('missing target must be rejected');
+    mkdirSync(join(dir, 'example-skill'));
+    const skill = join(dir, 'example-skill');
+    writeFileSync(join(skill, 'SKILL.md'), '---\nname: example-skill\ndescription: "Use when an example needs review."\n---\n\n# Example\n\n## Related skills\n\n- `other-skill`: For another job.\n\n## Output\n\nSee [output.md](output.md).\n');
+    writeFileSync(join(skill, 'README.md'), '# Example\n');
+    writeFileSync(join(skill, 'output.md'), '# Output\n\nAn answer.\n');
+    if (review(skill).findings.length) throw new Error('valid skill failed');
+    writeFileSync(join(skill, 'README.md'), '# Example\n\nSee [missing.md](missing.md).\n');
+    if (!review(skill).findings.some((item) => item.code === 'missing-path')) throw new Error('missing path was not found');
+    writeFileSync(join(skill, 'README.md'), '# Example\n');
+    let source = readFileSync(join(skill, 'SKILL.md'), 'utf8').replace('name: example-skill', 'name: example-skill # valid comment').replace('## Related skills', '## Handoffs').replace('[output.md](output.md)', '[Result formats](<output.md> "Formats")');
+    writeFileSync(join(skill, 'SKILL.md'), source.replace(/\n/g, '\r\n'));
+    if (review(skill).findings.length) throw new Error('valid CRLF, comment, heading, or link rejected');
+    mkdirSync(join(skill, 'references'));
+    writeFileSync(join(skill, 'references/a.md'), '[B](b.md)\n');
+    writeFileSync(join(skill, 'references/b.md'), '[A](a.md)\n');
+    if (review(skill).findings.filter((item) => item.code === 'unrouted-resource').length !== 2) throw new Error('orphan reference cycle was missed');
+    source += '\n[Resources][guide]\n\n[guide]: references/a.md\n';
+    writeFileSync(join(skill, 'SKILL.md'), source);
+    if (review(skill).findings.length) throw new Error('reference-style route or linked catalog failed');
+    source = source.replace('description: "Use when an example needs review."', 'description: |-\n  Review an example.');
+    writeFileSync(join(skill, 'SKILL.md'), source);
+    if (review(skill).findings.length) throw new Error('block scalar failed');
+    writeFileSync(join(skill, 'SKILL.md'), source.replace('description: |-\n  Review an example.', 'description:\nlicense: MIT'));
+    if (!review(skill).findings.some((item) => item.code === 'description-missing')) throw new Error('empty description consumed the next field');
+    writeFileSync(join(skill, 'SKILL.md'), source);
+    const collection = join(dir, 'collection');
+    mkdirSync(collection);
+    symlinkSync(skill, join(collection, 'example-skill'), 'dir');
+    if (skillDirs(collection).length !== 1 || review(skillDirs(collection)[0]).findings.length) throw new Error('symlinked skill failed');
+    mkdirSync(join(collection, 'missing-skill'));
+    if (skillDirs(collection).length !== 2) throw new Error('incomplete skill folder was silently skipped');
+    const empty = join(dir, 'empty');
+    mkdirSync(empty);
+    if (!review(skillDirs(empty)[0]).findings.some((item) => item.code === 'skill-missing')) throw new Error('empty collection passed');
     console.log('PASS skill-review-self-test');
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
-if (args.includes('--self-test')) {
-  selfTest();
+const args = process.argv.slice(2);
+if (args.includes('--help')) {
+  console.log('Usage: node scripts/skill-review.mjs [skill-dir | collection-dir ...] [--json] [--self-test]');
   process.exit(0);
 }
-
-let results;
-try {
-  results = discoverTargets().map(checkSkill);
-} catch (error) {
-  const message = error instanceof Error ? error.message : String(error);
-  if (json) console.error(JSON.stringify({ error: message }, null, 2));
-  else console.error(`skill-review: ${message}`);
-  process.exit(2);
+if (args.includes('--self-test')) { selfTest(); process.exit(0); }
+const unknown = args.find((arg) => arg.startsWith('-') && arg !== '--json');
+if (unknown) { console.error(`Unknown option: ${unknown}`); process.exit(1); }
+const json = args.includes('--json');
+const targets = args.filter((arg) => !arg.startsWith('--')).map((arg) => resolve(arg));
+if (!targets.length) targets.push(resolve('skills'));
+function skillDirs(target) {
+  if (existsSync(join(target, 'SKILL.md'))) return [target];
+  if (!existsSync(target) || !statSync(target).isDirectory()) return [target];
+  const children = readdirSync(target, { withFileTypes: true })
+    .filter((entry) => !entry.name.startsWith('.') && entry.name !== 'node_modules' && (entry.isDirectory() || entry.isSymbolicLink()))
+    .map((entry) => join(target, entry.name));
+  return children.length ? children : [target];
 }
-const errorCount = results.flatMap((r) => r.findings).filter((f) => f.level === 'ERROR').length;
-const warnCount = results.flatMap((r) => r.findings).filter((f) => f.level === 'WARN').length;
-
-if (json) {
-  console.log(JSON.stringify({ errorCount, warnCount, results }, null, 2));
-} else {
-  console.log(`skill-review: ${results.length} skill(s), ${errorCount} ERROR, ${warnCount} WARN`);
-  for (const r of results) {
-    if (!r.findings.length) continue;
-    console.log(`\n${r.skill}`);
-    for (const f of r.findings) console.log(`  ${f.level} ${f.code}: ${f.message}`);
+const dirs = [...new Set(targets.flatMap(skillDirs))];
+const results = dirs.map((dir) => {
+  try { return review(dir); }
+  catch (error) { return { skill: basename(dir), path: dir, findings: [{ level: 'ERROR', code: 'read-failed', message: error.message }] }; }
+});
+const errorCount = results.flatMap((item) => item.findings).filter((item) => item.level === 'ERROR').length;
+const warnCount = results.flatMap((item) => item.findings).filter((item) => item.level === 'WARN').length;
+if (json) console.log(JSON.stringify({ errorCount, warnCount, results }, null, 2));
+else {
+  for (const item of results) {
+    console.log(`${item.skill}: ${item.findings.length ? item.findings.map((f) => `${f.level} ${f.code}: ${f.message}`).join('\n  ') : 'OK'}`);
   }
+  console.log(`${errorCount} errors, ${warnCount} warnings`);
 }
-process.exit(errorCount ? 1 : 0);
+process.exitCode = errorCount ? 1 : 0;

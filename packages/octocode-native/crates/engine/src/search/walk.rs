@@ -11,7 +11,7 @@ pub(crate) struct WalkFlags {
     /// Skip `.gitignore` and `.ignore` rules.
     pub(crate) no_ignore: bool,
     /// With `no_ignore`, also skip the global gitignore, `.git/info/exclude`,
-    /// and ignore files above the root (ripgrep `--no-ignore`). Otherwise
+    /// and ignore files above the root (`noIgnore`). Otherwise
     /// those sources stay on even when `no_ignore` is set.
     pub(crate) no_ignore_global: bool,
     /// Depth bound in `ignore` terms: the root is depth 0, its entries depth 1.

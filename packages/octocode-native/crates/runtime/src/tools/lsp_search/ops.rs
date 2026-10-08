@@ -415,7 +415,14 @@ impl Operation<'_, '_> {
         });
         let mut row = items_payload(query, "symbols", json!(symbols));
         if self.root_only && row.pointer("/payload/kind").and_then(Value::as_str) == Some("empty") {
-            let languages = workspace_root_languages(self.path);
+            // A source directory (`src`) has no markers: name the languages
+            // of the project root it was searched from.
+            let mut languages = workspace_root_languages(self.path);
+            if languages.is_empty()
+                && let Some(root) = self.query.workspace_root()
+            {
+                languages = workspace_root_languages(root);
+            }
             let searched = languages
                 .first()
                 .map_or("unknown", |ext| language_name(ext));

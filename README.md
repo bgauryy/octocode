@@ -54,7 +54,7 @@ npx octocode --help
 
 ```bash
 npx octocode auth login
-npx octocode auth         # verify the active token source
+npx octocode auth status  # verify the active token source
 ```
 
 **3. Choose your interface.** Same tools and Rust engine on both. `ghCloneRepo`
@@ -190,9 +190,9 @@ The concept, the research loop, and the measured advantages (and where plain too
 
 ## Benchmarks
 
-A unified, doc-driven agent benchmark lives in [`packages/octocode-benchmark/compare/unified/`](packages/octocode-benchmark/compare/unified/README.md): the same Claude model answers pinned GitHub, local and mixed research questions, once per worker. Each worker is defined only by its instruction doc and tool profile (Octocode MCP vs `rg` + `gh`). A blind Opus judge scores quality against evaluator-only references, and tokens are split into fixed overhead and research tokens.
+A plain-markdown CLI research benchmark lives in [`packages/octocode-benchmark/`](packages/octocode-benchmark/README.md): 30 shared GitHub questions, each answered by isolated agents using the Octocode CLI or a `gh` baseline (plain `gh`, `gh` + RTK, `gh` + Headroom), then graded by a blind judge. Every call is instrumented, so characters through the model are measured, not self-reported.
 
-Results, including where Octocode loses: [benchmark results](packages/octocode-benchmark/compare/unified/RESULTS.md).
+Results per matchup, with confidence intervals: [benchmark summary](packages/octocode-benchmark/results/SUMMARY.md).
 
 ---
 
@@ -202,13 +202,13 @@ Results, including where Octocode loses: [benchmark results](packages/octocode-b
 `ghCloneRepo`, `astTopology` and `astRewrite` are CLI-only; MCP never registers
 them. `clasify` needs `OCTOCODE_CLASSIFICATION_API`, while `astRewrite` and
 `astTopology` need
-`OCTOCODE_BETA`. The CLI keeps all 16 commands discoverable; cloning requires
-persistent storage.
+`OCTOCODE_BETA`. The CLI lists 14 commands, and all 16 with `OCTOCODE_BETA`;
+cloning requires persistent storage.
 
 | Surface | Registers by default | Gated tools |
 |---|---:|---|
 | MCP, no flags | 12 of 16 | `ghCloneRepo`, `astTopology` and `astRewrite` are always omitted; `clasify` can be enabled. |
-| CLI, no flags | 16 discoverable | Clone runs with persistent storage; other gated commands explain the gate to set. |
+| CLI, no flags | 14 of 16 | `astTopology` and `astRewrite` are listed with `OCTOCODE_BETA`; run without it, they name the gate to set. `clasify` needs its key. |
 
 Use `TOOLS_TO_RUN` for a strict allowlist or `DISABLE_TOOLS` to remove tools from
 the default set. `OCTOCODE_ENABLE_LOCAL=false` disables local, graph, and LSP tools.
@@ -285,7 +285,7 @@ Use the JSON block in [Use it as an MCP server](#use-it-as-an-mcp-server), or ru
 
 ## CLI
 
-Same research engine, no MCP client needed. Every tool is a plain command named after the tool: `octocode <toolName> '<json>'`. Authenticate once with `npx octocode auth login` (see [Authentication](#authentication-methods)); run `npx octocode --help` for full usage.
+Same research engine, no MCP client needed. Every tool is a plain command named after the tool: `npx octocode <toolName> '<json>'`. Authenticate once with `npx octocode auth login` (see [Authentication](#authentication-methods)); run `npx octocode --help` for full usage.
 
 ### Commands
 
@@ -375,7 +375,7 @@ Resolution order, refresh (`auth login --refresh`), logout, GitHub Enterprise, t
 **Every byte to the model is scanned and redacted first.** All content passes through the Rust engine's secret scanner on the way *in* and *out*, so secrets never reach the model. That covers local files, GitHub and npm responses, errors, and tool output. The behavior is identical under MCP and the CLI.
 
 - **Secret redaction, in and out.** 300+ provider credential patterns (AWS, Azure, GCP, GitHub, OpenAI, Anthropic, Stripe, Slack, 1Password, and more) plus generic JWTs, PEM/private keys, bearer tokens, database connection strings, and high-entropy strings. Masked values surface a redaction warning so the agent knows.
-- **Content sanitized at the source.** Local reads (`localFetch`, ripgrep, structural search, binary, file discovery, structure) and external fetches (GitHub code/files, npm) are scanned as they are read, not only at the boundary.
+- **Content sanitized at the source.** Local reads (`localFetch`, text search, structural search, binary, file discovery, structure) and external fetches (GitHub code/files, npm) are scanned as they are read, not only at the boundary.
 - **Path safety.** Local reads are bounded to the allowed roots: the workspace root (`WORKSPACE_ROOT`, else the process cwd), `ALLOWED_PATHS`, and `OCTOCODE_HOME`. The OS home directory is not allowed unless listed. Relative paths resolve against the process cwd, not `WORKSPACE_ROOT`. Symlinks are resolved and the real target is **re-validated**, so a link cannot escape into a blocked location.
 - **Sensitive files blocked by default.** Reads of known secret-bearing files and folders return a redacted error instead of contents: keys/certs, `.env*`, `.npmrc`/`.netrc`, cloud/infra credentials (`.aws/`, `.kube/`, `*.tfstate`), `.git/`, browser logins, OS keychains, and wallets. Full list in [SECURITY.md](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md).
 - **Command safety.** Normal local search runs in-process inside the native engine crate. External helpers are fixed per lane, command/argument allowlisted, and run through `spawn` with argument arrays: no shell strings, no injection.
@@ -445,7 +445,6 @@ npx octocode skill help
 ### Agent orchestration
 | Skill | Use when |
 |-------|----------|
-| [**octocode-subagent**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-subagent) | Spawning workers / Task / A2A / challenge techniques, or offloading token-heavy text to local Ollama under a verify gate. |
 | [**octocode-skills**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-skills) | Agent-skill lifecycle: discover, review, create, improve, install, sync. |
 | [**octocode-agents-communication**](https://github.com/bgauryy/octocode/tree/main/skills/octocode-agents-communication) | Coordinating agents or sessions that share work: discover collaborators, reserve edits, exchange results and handoffs. |
 
@@ -463,8 +462,8 @@ graph LR
     MCP["octocode-mcp<br/>MCP server, stdio"]
     VSC["VS Code extension<br/>OAuth + install"]
     CORE["octocode-native runtime crate<br/>tools, providers, auth, pagination, security"]
-    ENGINE["octocode-native engine crate<br/>secrets, minify, AST, signatures, ripgrep/diff/YAML, LSP"]
-    EXT["GitHub API, local FS + ripgrep, language servers"]
+    ENGINE["octocode-native engine crate<br/>secrets, minify, AST, signatures, text search/diff/YAML, LSP"]
+    EXT["GitHub API, local FS + text search, language servers"]
 
     CLI --> CORE
     MCP --> CORE
@@ -482,7 +481,7 @@ graph LR
 client → sanitize inputs (Rust) → run tool (GitHub / FS / LSP) → sanitize + serialize + paginate (Rust) → result + next-step hints
 ```
 
-**One Rust execution path** owns provider calls, secret detection, sanitization, path and command validation, best-effort minification across broad formats, signature extraction for first-class grammars, structural AST search and rewrite, ripgrep parsing, diff filtering, serialization, and LSP. The native package ships prebuilt CLI and N-API artifacts for darwin (arm64/x64), linux (x64 gnu and musl, arm64 gnu), and win32-x64; no Rust toolchain is needed at runtime.
+**One Rust execution path** owns provider calls, secret detection, sanitization, path and command validation, best-effort minification across broad formats, signature extraction for first-class grammars, structural AST search and rewrite, text search, diff filtering, serialization, and LSP. The native package ships prebuilt CLI and N-API artifacts for darwin (arm64/x64), linux (x64 gnu and musl, arm64 gnu), and win32-x64; no Rust toolchain is needed at runtime.
 
 ### Packages
 
@@ -497,7 +496,7 @@ Each workspace package owns one layer of the toolkit. The package map, contract 
 | Configuration and contracts | [`packages/octocode-config`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-config) · `@octocodeai/config` | Octocode home resolution, `.env` / `.octocoderc` loading, and the configuration contract; also the only tool-contract generator (embeds the `octocode-core` contract for native and TypeScript consumers). |
 | Skill distribution | [`packages/octocode-skill-installer`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-skill-installer) · `@octocodeai/octocode-skill-installer` | Shared installer for durable skill materialization, platform-specific links or copies, upgrades, and conflict reporting. |
 | Coordination | [`packages/octocode-agents-communication`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-agents-communication) · `@octocodeai/octocode-agents-communication` | Standalone npm CLI with a separate lean communication skill. Coordinates session identity, advisory path leases, and direct messages. |
-| Evaluation | [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) · `@octocodeai/octocode-benchmark` | Private agent-vs-agent eval: a Claude agent with Octocode against the same agent with `rg` and `gh`, with a blind judge and generated reports. |
+| Evaluation | [`packages/octocode-benchmark`](https://github.com/bgauryy/octocode/tree/main/packages/octocode-benchmark) · `@octocodeai/octocode-benchmark` | Private CLI research benchmark: Octocode against `gh`, `gh` + RTK and `gh` + Headroom on 30 GitHub questions, with a blind judge and measured characters. |
 
 The separately versioned [`@octocodeai/octocode-core`](https://github.com/bgauryy/octocode-mcp-host/tree/main/packages/octocode-core) package authors the public tool schemas, descriptions, and shared MCP/CLI instructions. This monorepo consumes those contracts through `@octocodeai/config`; `octocode-native` owns their execution.
 
@@ -511,7 +510,7 @@ Website: **[octocode.ai](https://octocode.ai)** · Documentation hub: **[`docs/R
 |---|---|
 | Start here | [The Octocode protocol](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_PROTOCOL.md) · [MCP server](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_MCP.md) · [CLI guide](https://github.com/bgauryy/octocode/blob/main/packages/octocode/docs/OCTOCODE_CLI.md) |
 | Using Octocode | [Workflows](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_WORKFLOWS.md) · [Tool reference](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [Data contract](https://github.com/bgauryy/octocode/blob/main/docs/TOOL_DATA_CONTRACT.md) · [clasify](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md) · [Configuration](https://github.com/bgauryy/octocode/blob/main/docs/CONFIGURATION.md) · [Authentication](https://github.com/bgauryy/octocode/blob/main/docs/AUTHENTICATION.md) · [Security](https://github.com/bgauryy/octocode/blob/main/docs/SECURITY.md) |
-| Developing Octocode | [Development](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/DEVELOPMENT.md) · [Adding config](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/ADDING_CONFIG.md) · [Tool quality](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/TOOL_QUALITY.md) · [Release](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/RELEASE.md) · [Benchmark research](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/compare/unified/RESULTS.md) |
+| Developing Octocode | [Development](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/DEVELOPMENT.md) · [Adding config](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/ADDING_CONFIG.md) · [Tool quality](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/TOOL_QUALITY.md) · [Release](https://github.com/bgauryy/octocode/blob/main/skills-dev/octocode-dev/docs/RELEASE.md) · [Benchmark research](https://github.com/bgauryy/octocode/blob/main/packages/octocode-benchmark/results/SUMMARY.md) |
 | Skills and method | [Public skills](skills/) · [Tested skills](skills-beta/) · [Repository skills](skills-dev/) · [RDD manifest](https://github.com/bgauryy/octocode/blob/main/MANIFEST.md) |
 | Language support | [LSP lifecycle and language matrix](https://github.com/bgauryy/octocode/blob/main/packages/octocode-native/docs/engine/LSP_SERVER_LIFECYCLE.md) |
 

@@ -6,6 +6,7 @@
 //! `best` rows become `{resourceId?, path?, lines, exists, probability}` with
 //! one exact read of the top window in `next.read`. Runner-up windows stay
 //! under `debug`.
+use crate::tools::id::ToolId;
 use serde_json::{Map, Value, json};
 
 /// Choice/score answers whose top probability is at least this keep only the
@@ -406,6 +407,31 @@ fn compact_page(
         fields.shift_insert(0, "endLine".into(), end);
         fields.shift_insert(0, "line".into(), start);
     }
+    // A page that judged its whole file states the span as `line`/`endLine`;
+    // `scope` (with `totalLines`) stays only on a page that judged part of it.
+    if let Some(scope) = fields.get("scope").and_then(Value::as_object)
+        && scope.len() == 3
+        && scope.get("startLine") == Some(&json!(1))
+        && scope.get("endLine").is_some()
+        && scope.get("endLine") == scope.get("totalLines")
+    {
+        let end = scope["endLine"].clone();
+        fields.remove("scope");
+        fields.shift_insert(0, "endLine".into(), end);
+        fields.shift_insert(0, "line".into(), json!(1));
+    }
+    // A list page that names its own file implies a read that is only
+    // localFetch of that path and span: `{path, ranges:["line-endLine"]}`.
+    // A one-file resource keeps its page reads (the GATE flow runs them).
+    let path = fields.get("path").cloned();
+    for key in ["next", "hints"] {
+        if path
+            .as_ref()
+            .is_some_and(|path| implied_local_read(fields, key, path))
+        {
+            fields.remove(key);
+        }
+    }
     let Some(answers) = fields.get_mut("answers").and_then(Value::as_object_mut) else {
         return;
     };
@@ -426,6 +452,42 @@ fn compact_page(
     {
         fields.remove("next");
     }
+}
+
+/// Whether the page's only hint is `localFetch {path, ranges:["line-endLine"]}`
+/// for its own path and span, so the page itself names that read.
+/// `key` is where the page holds its read: `next` while compacting, `hints`
+/// once published.
+fn implied_local_read(fields: &Map<String, Value>, key: &str, path: &Value) -> bool {
+    let (Some(line), Some(end)) = (
+        fields.get("line").and_then(Value::as_u64),
+        fields.get("endLine").and_then(Value::as_u64),
+    ) else {
+        return false;
+    };
+    let Some(hints) = fields.get(key).and_then(Value::as_object) else {
+        return false;
+    };
+    let Some(read) = hints.get("read").filter(|_| hints.len() == 1) else {
+        return false;
+    };
+    // `confidence` and `why` are read metadata, not part of the call.
+    if read.get("tool").and_then(Value::as_str) != Some(ToolId::LocalFetch.as_str())
+        || read.as_object().is_none_or(|read| {
+            read.keys()
+                .any(|key| !matches!(key.as_str(), "tool" | "query" | "confidence" | "why"))
+        })
+    {
+        return false;
+    }
+    let row = match read.pointer("/query/queries").and_then(Value::as_array) {
+        Some(rows) if rows.len() == 1 => &rows[0],
+        Some(_) => return false,
+        None => &read["query"],
+    };
+    row.as_object().is_some_and(|row| row.len() == 2)
+        && row.get("path") == Some(path)
+        && row.get("ranges") == Some(&json!([format!("{line}-{end}")]))
 }
 
 /// The bare verdict: locate exists, P(yes), or a certain label/level.
@@ -513,6 +575,35 @@ fn unify_matrix(next: &mut Value, matrix: &Matrix<'_>, paths: &Map<String, Value
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A whole-file page states `line`/`endLine`, and a read that is only its
+    /// own path and span is implied; any other read stays.
+    #[test]
+    fn whole_file_pages_drop_their_implied_read() {
+        let page = |read: Value| {
+            json!({"answers":{"rel":0.9},"scope":{"startLine":1,"endLine":40,"totalLines":40},
+                "source":{"path":"src/a.rs"},"hints":{"read":read}})
+        };
+        let mut implied = page(
+            json!({"tool":"localFetch","query":{"queries":[{"ranges":["1-40"],"path":"src/a.rs"}]}}),
+        );
+        compact_page(&mut implied, None, false, &|_| false);
+        assert_eq!(
+            implied,
+            json!({"line":1,"endLine":40,"answers":{"rel":0.9},"path":"src/a.rs"})
+        );
+        let mut pinned = page(json!({"tool":"localFetch","query":{"queries":[
+            {"ranges":["1-40"],"path":"src/a.rs","snapshot":"abc"}]}}));
+        compact_page(&mut pinned, None, false, &|_| false);
+        assert!(pinned.pointer("/hints/read").is_some(), "{pinned}");
+        let mut partial = json!({"answers":{"rel":0.9},"scope":{"startLine":5,"endLine":40,"totalLines":90},
+            "source":{"path":"src/a.rs"},"hints":{"read":{"tool":"localFetch","query":{"queries":[{"ranges":["5-40"],"path":"src/a.rs"}]}}}});
+        compact_page(&mut partial, None, false, &|_| false);
+        assert!(
+            partial.get("scope").is_some() && partial.get("hints").is_some(),
+            "{partial}"
+        );
+    }
 
     fn read(start: u64, end: u64) -> Value {
         json!({"tool":"localFetch","query":{"path":"src/server.c","ranges":[format!("{start}-{end}")]},"confidence":"exact"})

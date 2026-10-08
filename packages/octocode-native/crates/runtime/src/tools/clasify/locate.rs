@@ -49,6 +49,8 @@ const RUNNER_UP_SHARE: f64 = 0.5;
 /// Only a page that plausibly answers gets a runner-up; on a non-answering
 /// page the distribution is flat and a second window is noise.
 const RUNNER_UP_MIN_EXISTS: f64 = 0.5;
+/// Largest `exists` gap between two ranked locate rows that counts as a tie.
+const EXISTS_TIE: f64 = 0.02;
 
 pub(super) fn located_state(state: &Value) -> Result<(Value, LocatedPage), ClassificationError> {
     let object = state
@@ -435,6 +437,17 @@ pub(super) fn rank_locate(
                 .total_cmp(&key(left, "exists"))
                 .then_with(|| key(right, "probability").total_cmp(&key(left, "probability")))
         });
+        // Neighbours whose `exists` is within repeat noise (about 0.01) are
+        // tied: the page whose passage the provider separated more clearly
+        // ranks first.
+        for index in 1..rows.len() {
+            let (above, below) = (&rows[index - 1], &rows[index]);
+            if key(above, "exists") - key(below, "exists") <= EXISTS_TIE
+                && key(below, "probability") > key(above, "probability")
+            {
+                rows.swap(index - 1, index);
+            }
+        }
         // A carried row and a fresh one (or two pages' windows) can cover the
         // same lines of one file; keep only the higher-ranked of them.
         let mut kept: Vec<Value> = Vec::new();
@@ -1100,6 +1113,15 @@ mod tests {
                 {"line":20,"endLine":28,"exists":0.9,"probability":0.8}
             ]})),
             vec![20, 1]
+        );
+        // Exists within repeat noise is a tie: probability decides (a near-miss
+        // page at 0.92 / 0.81 against the answer at 0.91 / 0.98, 2026-10-08).
+        assert_eq!(
+            order(json!({"t":[
+                {"line":107,"endLine":114,"exists":0.92,"probability":0.81},
+                {"line":167,"endLine":174,"exists":0.91,"probability":0.98}
+            ]})),
+            vec![167, 107]
         );
     }
 

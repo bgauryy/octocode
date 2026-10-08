@@ -21,7 +21,10 @@ for (const directory of ['tools', 'bin', 'tests'])
   }
 const skill = join(root, '../../skills/octocode-chrome-devtools');
 const entries = readdirSync(skill);
-if (entries.some(entry => !['SKILL.md', 'README.md'].includes(entry)))
+// Guidance only: the skill, its README, and its output format (output.md).
+if (
+  entries.some(entry => !['SKILL.md', 'README.md', 'output.md'].includes(entry))
+)
   throw Error('Chrome skill must contain guidance only');
 if (readFileSync(join(skill, 'SKILL.md'), 'utf8').includes('scripts/'))
   throw Error(

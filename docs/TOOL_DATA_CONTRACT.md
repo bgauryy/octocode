@@ -5,8 +5,8 @@ This page owns the shared request and result envelope: rows, numbered content, r
 Before an unfamiliar request, read the live input schema. The catalog's compact fields are a summary; `--view query` and the full view keep nested and conditional constraints. `schema <tool>` reports `availability`; a disabled tool shows `enabled:false` and its gating `envVar`. Enabling a tool does not install a language server or supply provider credentials.
 
 ```sh
-node packages/octocode/out/octocode.js schema
-node packages/octocode/out/octocode.js schema astSearch --view query
+npx octocode schema
+npx octocode schema astSearch --view query
 ```
 
 Input preparation can add documented defaults or trim text fields; invalid numeric values and unknown fields are rejected, never clamped or dropped. MCP leaves `outputSchema` out of discovery to save context; core and native still validate every result against it. Responses carry `structuredContent` and a matching text representation.

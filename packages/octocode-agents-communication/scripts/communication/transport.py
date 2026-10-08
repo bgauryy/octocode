@@ -14,6 +14,7 @@ import urllib.parse
 import uuid
 from pathlib import Path
 from .wire import MAX_FRAME, encode, refusal
+from ._version import VERSION
 
 RECEIPTS = {'claude': 'socket-write-only', 'codex': 'jsonrpc', 'grok': 'acp-turn-completion', 'opencode': 'http'}
 
@@ -183,7 +184,7 @@ class WebSocket:
 class Codex:
     def __init__(self, endpoint):
         self.socket, self.sequence = WebSocket(endpoint), 0
-        self.request('initialize', {'clientInfo': {'name': 'octocode-communication-dispatch', 'version': '0.1.0'}, 'capabilities': {'experimentalApi': True}})
+        self.request('initialize', {'clientInfo': {'name': 'octocode-communication-dispatch', 'version': VERSION}, 'capabilities': {'experimentalApi': True}})
         self.socket.send({'method': 'initialized', 'params': {}})
     def request(self, method, params):
         self.sequence += 1
@@ -372,7 +373,7 @@ class Grok:
                 raise ValueError('Unexpected Grok leader registration response')
         else:
             raise TimeoutError('Grok leader registration timed out')
-        result = self.request('initialize', {'protocolVersion': 1, 'clientInfo': {'name': 'octocode-communication', 'version': '0.1.0'}, 'clientCapabilities': {}}, deadline)
+        result = self.request('initialize', {'protocolVersion': 1, 'clientInfo': {'name': 'octocode-communication', 'version': VERSION}, 'clientCapabilities': {}}, deadline)
         if result.get('protocolVersion') != 1:
             raise ValueError('Unsupported Grok ACP protocol; version 1 is required')
         info = self.request('_x.ai/session/info', {'sessionId': session}, deadline).get('result', {})

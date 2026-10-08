@@ -4,12 +4,10 @@ use crate::error::{Error, Result};
 use crate::security::types::SanitizationResult;
 use crate::types::{
     FileSystemQueryOptions, FileSystemQueryResult, GrammarCapability, GraphFactsScanOptions,
-    RipgrepParseResult, RipgrepSearchOptions, YamlConversionConfig,
+    TextSearchOptions, TextSearchResult, YamlConversionConfig,
 };
 
-pub use crate::search::ripgrep_pattern::{
-    RipgrepPatternValidationResult, validate_ripgrep_pattern,
-};
+pub use crate::search::text_pattern::{TextPatternValidationResult, validate_text_pattern};
 pub use crate::signatures::{
     extract_declarations, extract_graph_facts, extract_graph_facts_with_extension,
 };
@@ -86,18 +84,18 @@ pub fn scan_typed_graph_facts_filtered(
 }
 
 pub use crate::search::pcre2_ranges::{Pcre2RangesError, pcre2_find_ranges};
-pub use crate::search::ripgrep_search::RipgrepPathFilter;
+pub use crate::search::text_search::TextSearchPathFilter;
 
-/// Ripgrep search restricted by `path_filter` that stops walking at the next
+/// Text search restricted by `path_filter` that stops walking at the next
 /// entry once `cancelled` returns true; the partial result carries `capReason`
 /// `cancelled`.
-pub fn search_ripgrep_cancellable(
-    options: RipgrepSearchOptions,
-    path_filter: std::sync::Arc<dyn RipgrepPathFilter>,
+pub fn search_text_cancellable(
+    options: TextSearchOptions,
+    path_filter: std::sync::Arc<dyn TextSearchPathFilter>,
     cancelled: &(dyn Fn() -> bool + Sync),
-) -> Result<RipgrepParseResult> {
-    guard_panic("ripgrep search", || {
-        crate::search::ripgrep_search::search_cancellable(options, path_filter, cancelled)
+) -> Result<TextSearchResult> {
+    guard_panic("text search", || {
+        crate::search::text_search::search_cancellable(options, path_filter, cancelled)
     })
 }
 

@@ -1,4 +1,5 @@
 # Graders and metrics
+
 Load when you select graders and metrics, or when tool actions or multi-turn behavior are part of the requirement. Match the measurement to the claim.
 
 Terms: **task** = a problem; **trial** = one attempt; **trace** = recorded actions; **outcome** = the resulting artifact or state. The agent harness runs the subject; the eval harness runs and grades trials.
@@ -17,6 +18,7 @@ Terms: **task** = a problem; **trial** = one attempt; **trace** = recorded actio
 - Track quality, cost, latency, and critical slices separately. Capability tasks show headroom; stable successes form regression checks.
 
 ## Trajectory and process
+
 Start with outcomes and explicit process obligations. A reference trace shows one solution, not the only route; keep it evaluator-only.
 
 | Requirement | Check |

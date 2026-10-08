@@ -2,7 +2,6 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { propagateOctocodeEnv } from './octocode-config.mjs';
 import { parseConfig } from './lib/args.mjs';
 import { discoverSitemap, fetchRobotsPolicy, sleep } from './lib/client.mjs';
 import { initCorpus, writePage, writeSession } from './lib/corpus.mjs';
@@ -33,9 +32,6 @@ if (existsSync(priorSourcesPath)) {
   }
   priorSources = (await readFile(priorSourcesPath, 'utf8')).trim().split('\n').filter(Boolean).map((l) => JSON.parse(l));
 }
-
-// Propagate env so keys exist for explicit hosted / non-html modes.
-propagateOctocodeEnv({ cwd: process.cwd(), trusted: true });
 
 // Resolve 'auto' → direct for html. Browser rendering is an explicit escalation
 // after the direct result shows that static HTTP evidence is insufficient.

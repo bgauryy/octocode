@@ -61,4 +61,4 @@ Output: `## Contract Audit` table `| Tool | Job | Overlaps with | Finding | Clas
 
 Source: MCP [2026-07-28 Tools](https://modelcontextprotocol.io/specification/2026-07-28/server/tools).
 
-Next: record repairs in `../flow/fix.md`; prove selection accuracy with `octocode-eval-benchmark`.
+Next: record repairs in [repair guidance](../../SKILL.md#write-and-repair); prove selection accuracy with `octocode-eval-benchmark`.

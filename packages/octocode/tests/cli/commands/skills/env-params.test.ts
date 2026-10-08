@@ -10,6 +10,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { configFieldEnvNames, ENV_TOKEN_VARS } from '@octocodeai/config';
 import {
+  envParamRows,
   getSkillEnvStatus,
   groupLabel,
   isEnvSet,
@@ -65,6 +66,34 @@ describe('skill env params come from the config contract', () => {
     expect(keys).toEqual(allKeys);
     expect(classificationKeys).toEqual(['OCTOCODE_CLASSIFICATION_API']);
     expect(groupLabel('github-token')).toContain(ENV_TOKEN_VARS.join(', '));
+  });
+
+  it('keeps keyless research paths usable and redacts optional provider values', () => {
+    vi.stubEnv('SCRAPING_ANT', '');
+    for (const key of ['TAVILY_API_KEY', 'EXA_API_KEY', 'SERPER_API_KEY'])
+      vi.stubEnv(key, '');
+    const brainstorming = getSkillEnvStatus('octocode-brainstorming');
+    expect(brainstorming.readiness).toBe('ready');
+    expect(envParamRows(brainstorming)).toEqual(
+      ['TAVILY_API_KEY', 'EXA_API_KEY', 'SERPER_API_KEY'].map(key =>
+        expect.objectContaining({
+          key,
+          status: 'missing',
+          required: 'optional',
+        })
+      )
+    );
+    expect(getSkillEnvStatus('octocode-scraping').readiness).toBe('ready');
+    vi.stubEnv('SCRAPING_ANT', 'test-provider-secret');
+    const rows = envParamRows(getSkillEnvStatus('octocode-scraping'));
+    expect(rows).toEqual([
+      expect.objectContaining({
+        key: 'SCRAPING_ANT',
+        status: 'set',
+        required: 'optional',
+      }),
+    ]);
+    expect(JSON.stringify(rows)).not.toContain('test-provider-secret');
   });
 
   it('accepts each GitHub token name', () => {

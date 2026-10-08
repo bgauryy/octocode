@@ -1,4 +1,5 @@
 # Failure diagnosis and repair
+
 Load when benchmark results fail, fluctuate, or improve suspiciously. Check the measurement before you change the solver.
 
 Preserve the task, permitted inputs, actual worker prompt, environment, answer, trace, grader output, and versions. Reproduce under the same budget; record every retry. Locate the first violated task contract, verify its evidence, and test an alternate explanation. Several categories can apply; do not force one label.
@@ -14,12 +15,14 @@ Preserve the task, permitted inputs, actual worker prompt, environment, answer, 
 | Sampling noise, thin coverage | Paired task-level uncertainty, per-slice results, infrastructure covariance | Follow the frozen sampling plan or report INCONCLUSIVE. |
 
 ## Improve the subject without teaching the test
+
 Run `references/agent-loop.md`, plus these rules:
 - Name the trigger and a counterexample in the hypothesis. Keep case-specific answers and IDs out of instructions.
 - If the suite changes, measure the unchanged subject on the new version first.
 - Also evaluate valid alternatives, neighboring edge cases, and old successes.
 
 ## Validate at the right layer
+
 - Grader-only correction: regrade the same sealed outputs if they hold all required evidence and the task is unchanged.
 - Changed question, fixture, worker context, or environment: rerun both arms; rescoring cannot repair a different task. Keep a versioned before/after record of changed labels and why.
 - Record resource guarantees and hard limits in the environment record. More headroom can remove accidental crashes or enable stronger search; measure which. Not every timeout or OOM is external noise.

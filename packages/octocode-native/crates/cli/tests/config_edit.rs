@@ -32,6 +32,27 @@ fn global_config_roundtrip_preserves_other_lines_and_hides_values() {
         octocode_native::config::parse_env(Some(&text))["TEST_KEY"],
         secret
     );
+    let get = workspace
+        .cli()
+        .args(["config", "get", "TEST_KEY"])
+        .output()
+        .unwrap();
+    assert!(get.status.success());
+    assert_eq!(String::from_utf8_lossy(&get.stdout), format!("{secret}\n"));
+    let get_json = workspace
+        .cli()
+        .args(["config", "get", "TEST_KEY", "--json"])
+        .output()
+        .unwrap();
+    let got = serde_json::from_slice::<serde_json::Value>(&get_json.stdout).unwrap();
+    assert_eq!(got["value"], secret);
+    assert_eq!(got["source"], "global");
+    let home = workspace.cli().args(["config", "home"]).output().unwrap();
+    assert!(home.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&home.stdout).trim_end(),
+        workspace.home.to_string_lossy()
+    );
     let check = workspace
         .cli()
         .args(["config", "check", "TEST_KEY", "--json"])
@@ -73,6 +94,13 @@ fn global_config_roundtrip_preserves_other_lines_and_hides_values() {
         .output()
         .unwrap();
     assert_eq!(unset.status.code(), Some(1));
+    let missing = workspace
+        .cli()
+        .args(["config", "get", "TEST_KEY"])
+        .output()
+        .unwrap();
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(missing.stdout.is_empty());
     assert_eq!(
         serde_json::from_slice::<serde_json::Value>(&unset.stdout).unwrap()["set"],
         false

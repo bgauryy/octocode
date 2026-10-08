@@ -288,9 +288,9 @@ impl SearchWalk {
     }
 }
 
-impl octocode_engine::portable::RipgrepPathFilter for SearchWalk {
+impl octocode_engine::portable::TextSearchPathFilter for SearchWalk {
     fn allows(&self, path: &Path, is_dir: bool) -> bool {
-        if !octocode_engine::portable::RipgrepPathFilter::allows(&self.policy, path, is_dir) {
+        if !octocode_engine::portable::TextSearchPathFilter::allows(&self.policy, path, is_dir) {
             self.note(|skips| skips.withheld.record(path, is_dir));
             return false;
         }

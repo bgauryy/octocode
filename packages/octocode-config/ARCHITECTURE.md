@@ -13,8 +13,7 @@ process environment
       parse → trust policy → environment (TypeScript: `.env` only)
                  │
                  ├── CLI launcher / MCP server (native runtime resolves settings)
-                 ├── communication skill (python/octocode_config.py: home only)
-                 └── injected standalone skill helper
+                 └── communication skill (python/octocode_config.py: home only)
 ```
 
 ## Declarative contract
@@ -41,7 +40,7 @@ known-key lists.
 
 - `src/home.ts` owns `OCTOCODE_HOME`, the platform default, and the `.octocoderc` paths.
 - `src/dotenv.ts` owns `.env` parsing, precedence, propagation, protected keys, and workspace override restrictions.
-- `.octocoderc` parsing and setting resolution are native (`octocode config` shows the result).
+- `.octocoderc` parsing and setting resolution are native (`npx octocode config` shows the result).
 - The root export exposes generated `CONFIG_FIELDS` and `DEFAULT_CONFIG` for configuration editors.
 - Native management uses the same metadata to validate edits and redact secret values.
 - The CLI transports management requests without adding a second configuration model.

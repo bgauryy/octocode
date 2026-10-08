@@ -1,6 +1,6 @@
 # graph-bench
 
-These scripts measure the timing and quality of `octocode graph ingest|query`.
+These scripts measure the timing and quality of `npx octocode graph ingest|query`.
 Neither script trusts the graph to judge itself.
 
 ```bash
@@ -43,7 +43,7 @@ up as a new finding. The lazy cycle and the test-scoped import must not.
 
 ## Ground-truth oracles
 
-Both oracles ingest the target with `octocode graph ingest` and read
+Both oracles ingest the target with `npx octocode graph ingest` and read
 `graph.bin` through `graphbin.py`, the decoder shared with `bench.py`.
 
 ```bash
