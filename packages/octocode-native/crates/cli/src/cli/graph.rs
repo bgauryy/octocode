@@ -39,7 +39,8 @@ OUTPUT
 
 STORAGE
   <workspace>/.octocode/graph/<UTC time>-<scope>/{graph.bin, manifest.json}; latest names the
-  newest. The workspace is the nearest .git ancestor of the current directory (or --workspace).
+  newest. The workspace is --workspace, else the nearest .git ancestor of the current directory
+  inside the allowed roots (WORKSPACE_ROOT, else the current directory).
   Files over 1 MB stay as unparsed nodes; minified bundles keep their imports but no symbols.";
 
 #[derive(Subcommand)]

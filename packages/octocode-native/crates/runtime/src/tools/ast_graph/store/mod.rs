@@ -103,20 +103,25 @@ pub struct IngestOptions {
 }
 
 /// `<workspace>/.octocode/graph`, where the workspace is explicit or the
-/// nearest `.git` ancestor of `cwd`.
-pub(crate) fn graph_home(workspace: Option<&Path>) -> Result<PathBuf, String> {
+/// nearest `.git` ancestor of `cwd` that `paths` allows (else `cwd`), so a
+/// run from a repository subdirectory stays inside the allowed roots.
+pub(crate) fn graph_home(workspace: Option<&Path>, paths: &PathPolicy) -> Result<PathBuf, String> {
     let workspace = match workspace {
         Some(path) => path.to_path_buf(),
         None => {
             let cwd = std::env::current_dir()
                 .map_err(|error| format!("cannot read the current directory: {error}"))?;
-            cwd.ancestors()
-                .find(|dir| dir.join(".git").exists())
-                .map(Path::to_path_buf)
-                .unwrap_or(cwd)
+            default_workspace(cwd, paths)
         }
     };
     Ok(workspace.join(".octocode").join("graph"))
+}
+
+fn default_workspace(cwd: PathBuf, paths: &PathPolicy) -> PathBuf {
+    cwd.ancestors()
+        .find(|dir| dir.join(".git").exists() && paths.validate(dir).is_ok())
+        .map(Path::to_path_buf)
+        .unwrap_or(cwd)
 }
 
 /// Filesystem-safe scope name: the scanned root relative to the workspace,
@@ -229,7 +234,7 @@ pub fn ingest(
     cargo: Option<&str>,
 ) -> GraphOutput {
     let started = Instant::now();
-    let home = match graph_home(options.workspace.as_deref()) {
+    let home = match graph_home(options.workspace.as_deref(), paths) {
         Ok(home) => home,
         Err(message) => return GraphOutput::error(5, "graph.workspace", message),
     };

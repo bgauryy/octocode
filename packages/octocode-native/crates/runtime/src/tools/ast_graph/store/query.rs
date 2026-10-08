@@ -102,7 +102,7 @@ fn fail(exit: u8, code: &str, message: impl Into<String>) -> Failure {
     Box::new(GraphOutput::error(exit, code, message))
 }
 
-fn locate(options: &QueryOptions) -> Result<PathBuf, Failure> {
+fn locate(options: &QueryOptions, paths: &PathPolicy) -> Result<PathBuf, Failure> {
     if let Some(spec) = options.graph.as_deref() {
         let path = PathBuf::from(spec);
         if path.is_file() {
@@ -112,7 +112,7 @@ fn locate(options: &QueryOptions) -> Result<PathBuf, Failure> {
             return Ok(path);
         }
     }
-    let home = graph_home(options.workspace.as_deref())
+    let home = graph_home(options.workspace.as_deref(), paths)
         .map_err(|message| fail(5, "graph.workspace", message))?;
     let ids = list_snapshots(&home);
     let chosen = match options.graph.as_deref() {
@@ -149,7 +149,7 @@ fn locate(options: &QueryOptions) -> Result<PathBuf, Failure> {
 }
 
 fn load(options: &QueryOptions, paths: &PathPolicy) -> Result<Graph, Failure> {
-    let dir = locate(options)?;
+    let dir = locate(options, paths)?;
     let dir = paths
         .validate(&dir)
         .map_err(|error| fail(2, "graph.pathDenied", error.message))?

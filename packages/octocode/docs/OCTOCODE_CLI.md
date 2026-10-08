@@ -202,7 +202,8 @@ On files, `deps` and `dependents` follow imports; on symbols, they follow calls.
 - **Snapshots:** `ingest` writes
   `<workspace>/.octocode/graph/<UTC time>-<scope>/{graph.bin,manifest.json}`
   and updates `latest`. It keeps 3 snapshots per scope (`--keep`). The
-  workspace is the nearest `.git` ancestor, or `--workspace`. `--graph <id,
+  workspace is `--workspace`, else the nearest `.git` ancestor inside the
+  allowed roots (`WORKSPACE_ROOT`, else the current directory). `--graph <id,
   id substring, or dir>` picks an older snapshot.
 - **Unchanged trees are reused:** when the file set and every file's content
   digest match the latest snapshot of the same scope, `ingest` returns it with

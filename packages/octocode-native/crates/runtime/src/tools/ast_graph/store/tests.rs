@@ -46,6 +46,15 @@ fn policy(root: &Path) -> PathPolicy {
     crate::tools::test_support::workspace_policy(root)
 }
 
+#[test]
+fn default_workspace_stops_at_the_allowed_roots() {
+    let dir = fixture();
+    let sub = dir.path().join("app");
+    assert_eq!(default_workspace(sub.clone(), &policy(dir.path())), dir.path());
+    // A repository root above the allowed root would be denied: use cwd.
+    assert_eq!(default_workspace(sub.clone(), &policy(&sub)), sub);
+}
+
 fn ingest_fixture(dir: &Path, keep: Option<usize>) -> GraphOutput {
     let options = IngestOptions {
         path: dir.join("app"),
