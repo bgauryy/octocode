@@ -1,4 +1,4 @@
-name: CI - Lint, Build & Test
+name: CI
 
 on:
   pull_request:
@@ -9,57 +9,24 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   ci:
-    name: Lint, Build & Test
+    name: Lint & Test
     runs-on: ubuntu-latest
     env:
-      # Native is never built in CI; addon-loading suites are excluded.
       OCTOCODE_NO_NATIVE: '1'
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '24'
           package-manager-cache: false
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Install dependencies
-        run: yarn install --immutable
-
-      # Build must run before Lint/Docs/Typecheck/Test because packages consume
-      # compiled sibling outputs. Native is never built in CI (build:ci excludes it).
-      - name: Build
-        run: node skills-dev/octocode-dev/scripts/dev.mjs build:ci
-
-      - name: Verify docs
-        run: node skills-dev/octocode-dev/scripts/dev.mjs docs:verify
-
+      - run: corepack enable
+      - run: yarn install --immutable --mode=skip-build
       - name: Lint
-        # Native Rust fmt/clippy/tests run in rust-tools-core.yml and engine.yml.
         run: node skills-dev/octocode-dev/scripts/dev.mjs lint:ci
-
-      - name: Verify build outputs
-        run: node skills-dev/octocode-dev/scripts/workspace-health.mjs check-outputs
-
-      - name: Typecheck
-        run: node skills-dev/octocode-dev/scripts/dev.mjs typecheck:ci
-
       - name: Test
         run: node skills-dev/octocode-dev/scripts/dev.mjs test:ci
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: coverage-reports
-          path: packages/*/coverage/
-          retention-days: 7

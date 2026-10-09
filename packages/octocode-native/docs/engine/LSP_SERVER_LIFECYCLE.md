@@ -120,7 +120,7 @@ cargo-zigbuild test -p octocode-engine --all-features --target aarch64-unknown-l
 cargo-zigbuild clippy -p octocode-native --no-default-features --all-targets --target aarch64-unknown-linux-gnu -- -D warnings
 ```
 
-Running the Linux tests (kernel `/proc`, address-space reservations past the cap, the RSS watchdog, SIGSTOP/SIGKILL of a `setsid` grandchild) still needs a real Linux kernel; the `engine.yml` workflow runs `cargo clippy` and `cargo test -p octocode-engine --all-features` on `ubuntu-latest`.
+Running the Linux tests (kernel `/proc`, address-space reservations past the cap, the RSS watchdog, SIGSTOP/SIGKILL of a `setsid` grandchild) still needs a real Linux kernel; run `cargo test -p octocode-engine --all-features` on a Linux host (CI does not run Rust).
 
 `start` and `stop` take the client's locks in one order (`child` → `connection` → `stderr_task`) and hold `child` throughout, so a `stop` that overlaps a `start` waits for it and then shuts down the server it published.
 

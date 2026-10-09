@@ -2,8 +2,7 @@
 #
 # Everything here is OPT-IN and left commented on purpose: a committed, enabled
 # linker path (or rustc-wrapper) breaks any machine that lacks the exact tool at
-# the exact path — Linux devs, Intel Macs, and CI. CI wires its own acceleration
-# in .github/workflows/rust-tools-core.yml (sccache + mold). Enable the blocks
+# the exact path — Linux devs and Intel Macs. Enable the blocks
 # below locally after installing the tool.
 #
 # Install:
