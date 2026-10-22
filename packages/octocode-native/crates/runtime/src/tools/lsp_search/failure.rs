@@ -7,18 +7,16 @@ use crate::id::ToolId;
 use crate::num::u32_of_usize;
 use crate::response::result::Confidence;
 use crate::tools::lsp_search::lsp_search_query;
-use octocode_engine::error::{Error as EngineError, ErrorCode, ErrorKind};
+use octocode_contract_types::ErrorCode;
+use octocode_engine::error::{Error as EngineError, ErrorCode as RpcCode, ErrorKind};
 use serde_json::{Value, json};
-
-/// The code of a failure the request's cancel or deadline caused.
-const CANCELLED: &str = "cancelled";
 
 /// A request-level failure `execute` could not render as a row. The
 /// dispatcher emits `code`/`message`/`hint`/`retryable` verbatim, so each
 /// cause keeps its own recovery instead of one generic "unavailable" code.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LspFailure {
-    pub code: &'static str,
+    pub code: ErrorCode,
     pub message: String,
     pub retryable: bool,
     pub hint: &'static str,
@@ -43,7 +41,7 @@ const INVALID_AST_HINT: &str = "Give clangd a compile command (compile_commands.
 impl LspFailure {
     pub(super) fn invalid_query(message: impl Into<String>) -> Self {
         Self {
-            code: "invalidInput",
+            code: ErrorCode::InvalidInput,
             message: message.into(),
             retryable: false,
             hint: "Correct the lspSearch fields (see `octocode schema lspSearch`), then retry.",
@@ -56,7 +54,7 @@ impl LspFailure {
     /// same answer, so it is never retryable.
     pub(super) fn unestablished(message: impl Into<String>) -> Self {
         Self {
-            code: "requestFailed",
+            code: ErrorCode::RequestFailed,
             message: message.into(),
             retryable: false,
             hint: "Confirm the relation in source: locate the declarations with astSearch and read them with localFetch.",
@@ -68,7 +66,7 @@ impl LspFailure {
     /// was willing to wait for it.
     pub(super) fn overdue(message: String) -> Self {
         Self {
-            code: "timeout",
+            code: ErrorCode::Timeout,
             message,
             retryable: true,
             hint: TIMEOUT_TIP,
@@ -80,7 +78,7 @@ impl LspFailure {
     /// the runtime cancellation outcome instead of this row.
     pub(super) fn cancelled(message: String) -> Self {
         Self {
-            code: CANCELLED,
+            code: ErrorCode::Cancelled,
             message,
             retryable: false,
             hint: "The request was cancelled or exceeded its deadline.",
@@ -91,7 +89,7 @@ impl LspFailure {
     /// Whether the request's cancel or deadline caused this failure: such a
     /// failure ends the request instead of falling back.
     pub(super) fn is_cancelled(&self) -> bool {
-        self.code == CANCELLED
+        self.code == ErrorCode::Cancelled
     }
 
     /// Path-policy refusal: the same code local reads use, so agents route it
@@ -105,7 +103,7 @@ impl LspFailure {
             _ => crate::response::output::LIST_FILES_HINT,
         };
         Self {
-            code: error.local_error_code("fileAccessFailed"),
+            code: error.local_error_code(ErrorCode::FileAccessFailed),
             message: error.message,
             retryable: false,
             hint,
@@ -121,56 +119,54 @@ impl LspFailure {
         let message = error.to_string();
         match error.kind() {
             ErrorKind::Timeout => Self {
-                code: "timeout",
+                code: ErrorCode::Timeout,
                 message,
                 retryable: true,
                 hint: TIMEOUT_TIP,
                 lexical_fallback: false,
             },
             ErrorKind::ConnectionClosed => Self {
-                code: "serverCrashed",
+                code: ErrorCode::ServerCrashed,
                 message,
                 retryable: true,
                 hint: "The language server exited or its connection failed; retry once (it restarts), then fall back to astSearch/localSearch.",
                 lexical_fallback: false,
             },
             ErrorKind::ResourceExhausted => Self {
-                code: "serverCrashed",
+                code: ErrorCode::ServerCrashed,
                 message,
                 retryable: false,
                 hint: "Server hit its memory limit; a retry repeats it. Use the unverified text lead, or astSearch, then localFetch the lines.",
                 lexical_fallback: true,
             },
             ErrorKind::Rpc(rpc) => match rpc.code {
-                ErrorCode::MethodNotFound => Self {
-                    code: "capabilityUnavailable",
+                RpcCode::MethodNotFound => Self {
+                    code: ErrorCode::CapabilityUnavailable,
                     message,
                     retryable: false,
                     hint: "Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads.",
                     lexical_fallback: false,
                 },
-                ErrorCode::ContentModified
-                | ErrorCode::ServerCancelled
-                | ErrorCode::RequestCancelled
-                | ErrorCode::ServerNotInitialized => Self {
-                    code: "requestFailed",
+                RpcCode::ContentModified
+                | RpcCode::ServerCancelled
+                | RpcCode::RequestCancelled
+                | RpcCode::ServerNotInitialized => Self {
+                    code: ErrorCode::RequestFailed,
                     message,
                     retryable: true,
                     hint: RETRY_OR_FALL_BACK,
                     lexical_fallback: false,
                 },
-                ErrorCode::UnknownErrorCode if rpc.is_invalid_ast() => {
+                RpcCode::UnknownErrorCode if rpc.is_invalid_ast() => {
                     Self::project_not_configured(message)
                 }
-                ErrorCode::InvalidParams | ErrorCode::InvalidRequest | ErrorCode::ParseError => {
-                    Self {
-                        code: "requestFailed",
-                        message,
-                        retryable: false,
-                        hint: "The language server rejected the request; re-anchor from localFetch source or use astSearch/localSearch.",
-                        lexical_fallback: false,
-                    }
-                }
+                RpcCode::InvalidParams | RpcCode::InvalidRequest | RpcCode::ParseError => Self {
+                    code: ErrorCode::RequestFailed,
+                    message,
+                    retryable: false,
+                    hint: "The language server rejected the request; re-anchor from localFetch source or use astSearch/localSearch.",
+                    lexical_fallback: false,
+                },
                 _ => Self::request_failed(message),
             },
             _ => Self::request_failed(message),
@@ -196,7 +192,7 @@ impl LspFailure {
     /// project setup changes it, and the next call picks that up.
     fn project_not_configured(message: String) -> Self {
         Self {
-            code: "missingConfiguration",
+            code: ErrorCode::MissingConfiguration,
             message,
             retryable: false,
             hint: INVALID_AST_HINT,
@@ -206,7 +202,7 @@ impl LspFailure {
 
     fn request_failed(message: String) -> Self {
         Self {
-            code: "requestFailed",
+            code: ErrorCode::RequestFailed,
             message,
             retryable: true,
             hint: RETRY_OR_FALL_BACK,
@@ -223,9 +219,9 @@ impl From<EngineError> for LspFailure {
 
 /// The static tip of a failure code; `None` when the row's leads and
 /// per-call notes say it all (`anchorUnresolved`: `findSimilar`/`read`).
-pub(super) fn failure_hint(query: &LspSearchQuery, code: &str) -> Option<&'static str> {
+pub(super) fn failure_hint(query: &LspSearchQuery, code: ErrorCode) -> Option<&'static str> {
     Some(match code {
-        "serverUnavailable"
+        ErrorCode::ServerUnavailable
             if lsp_search_query::operation(query) == "workspaceSymbol"
                 && lsp_search_query::path(query).is_none() =>
         {
@@ -233,11 +229,11 @@ pub(super) fn failure_hint(query: &LspSearchQuery, code: &str) -> Option<&'stati
         }
         // The row's `next.read` (and `next.findText` for a symbol) is the
         // fallback; no static tip repeats it.
-        "serverUnavailable" if lsp_search_query::path(query).is_some() => return None,
-        "serverUnavailable" => {
+        ErrorCode::ServerUnavailable if lsp_search_query::path(query).is_some() => return None,
+        ErrorCode::ServerUnavailable => {
             "Use astSearch symbols/match or localSearch for candidates, then localFetch exact source."
         }
-        "capabilityUnavailable"
+        ErrorCode::CapabilityUnavailable
             if matches!(
                 lsp_search_query::op(query),
                 super::Op::Supertypes | super::Op::Subtypes
@@ -245,14 +241,14 @@ pub(super) fn failure_hint(query: &LspSearchQuery, code: &str) -> Option<&'stati
         {
             "This server cannot prove type hierarchy; inspect declarations with astSearch and confirm exact source."
         }
-        "capabilityUnavailable" => {
+        ErrorCode::CapabilityUnavailable => {
             "Use the advertised LSP operations, or fall back to astSearch/localSearch and exact source reads."
         }
-        "timeout" => TIMEOUT_TIP,
-        "fileTooLarge" => {
+        ErrorCode::Timeout => TIMEOUT_TIP,
+        ErrorCode::FileTooLarge => {
             "Use localSearch or astSearch to locate a bounded region, then read that exact source range."
         }
-        "anchorUnresolved" => return None,
+        ErrorCode::AnchorUnresolved => return None,
         _ => "Use astSearch or localSearch to locate candidates, then localFetch exact source.",
     })
 }
@@ -285,7 +281,7 @@ pub(super) fn empty_hint(category: &str, operation: &str) -> Option<&'static str
 pub(super) fn failure(
     query: &LspSearchQuery,
     canonical_uri: &str,
-    code: &str,
+    code: ErrorCode,
     message: &str,
     server_available: bool,
 ) -> Value {
@@ -299,16 +295,18 @@ pub(super) fn failure(
     if !canonical_uri.is_empty() {
         value["path"] = json!(super::render::uri_to_path(canonical_uri));
     }
-    if code == "timeout" {
+    if code == ErrorCode::Timeout {
         value["next"]["retry"] = continuation(lsp_search_query::to_row(query));
     }
     if lsp_search_query::path(query).is_some() {
         attach_recovery_next(&mut value, query);
         match code {
-            "serverUnavailable" => attach_text_search(&mut value, query, None),
+            ErrorCode::ServerUnavailable => attach_text_search(&mut value, query, None),
             // Whatever the server held is lost: the lexical check is all
             // that is left, and no verification stands behind it.
-            "serverCrashed" => attach_text_search(&mut value, query, Some(Confidence::Low)),
+            ErrorCode::ServerCrashed => {
+                attach_text_search(&mut value, query, Some(Confidence::Low))
+            }
             _ => {}
         }
     }
@@ -674,7 +672,7 @@ pub(super) fn path_failure(
     if let Some(row) = directory_anchor(query, paths) {
         return Ok(row);
     }
-    if failure.code != crate::policy::PATH_NOT_FOUND {
+    if failure.code != ErrorCode::PathNotFound {
         return Err(failure);
     }
     let mut row = json!({
@@ -710,7 +708,7 @@ pub(super) fn directory_anchor(
         .unwrap_or_else(|| directory.to_string_lossy().into_owned());
     let mut row = json!({
         "status": "error",
-        "errorCode": "notAFile",
+        "errorCode": ErrorCode::NotAFile,
         "error": format!("{name} is a directory, not a file."),
         "lsp": { "serverAvailable": false },
     });

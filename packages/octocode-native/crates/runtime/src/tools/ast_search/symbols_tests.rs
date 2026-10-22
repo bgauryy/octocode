@@ -4,6 +4,7 @@ use super::symbols::{AstSearchQuerySymbols, Outline, outline_directory};
 use crate::execution::cancel::NeverCancel;
 use crate::tools::ast_search::symbols::ast_search_query_symbols;
 use crate::tools::test_support::{Fixture, checks, simple_policy};
+use octocode_contract_types::ErrorCode;
 use serde_json::json;
 
 fn query(root: &std::path::Path, extra: serde_json::Value) -> AstSearchQuerySymbols {
@@ -44,8 +45,11 @@ fn a_bad_language_glob_is_refused_with_its_declared_code() {
     let (paths, _) = simple_policy(&root.0);
     let canonical = &root.0.canonicalize().expect("root");
     for (globs, code) in [
-        (json!({"cpp": ["["]}), "invalidGlob"),
-        (json!({"no-such-grammar": ["*.x"]}), "languageUnsupported"),
+        (json!({"cpp": ["["]}), ErrorCode::InvalidGlob),
+        (
+            json!({"no-such-grammar": ["*.x"]}),
+            ErrorCode::LanguageUnsupported,
+        ),
     ] {
         let q = query(&root.0, json!({"languageGlobs": globs}));
         let Err(error) = outline_directory(&q, canonical.as_path(), &paths, &NeverCancel) else {

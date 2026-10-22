@@ -6,6 +6,7 @@ use super::types::*;
 use crate::execution::cancel::CancellationCheck;
 use crate::id::ToolId;
 use crate::security::scan::ContentScan;
+use octocode_contract_types::ErrorCode;
 use std::fs;
 use std::io::Read;
 use std::path::Path;
@@ -36,7 +37,7 @@ pub(super) fn source_too_large(path: &str, len: u64, limit: SourceSizeLimit) -> 
             "Retry a bounded line window once the source stops changing; sources over 10 MiB stream, up to the 1 GiB ceiling.",
         ),
     };
-    let mut result = LocalFetchResult::error(path.to_owned(), "fileTooLarge", message);
+    let mut result = LocalFetchResult::error(path.to_owned(), ErrorCode::FileTooLarge, message);
     result.source_bytes = Some(len as usize);
     result.terminal_limit(PartialReason::FullContentSource);
     result.hints = vec![hint.into()];
@@ -63,9 +64,9 @@ pub(super) fn read_rest(
 /// A failed [`read_rest`] as the row's error: a cancel, or the read failure.
 pub(super) fn read_failure(path: &str, error: std::io::Error) -> LocalFetchResult {
     let code = if error.kind() == std::io::ErrorKind::Interrupted {
-        "cancelled"
+        ErrorCode::Cancelled
     } else {
-        "fileReadFailed"
+        ErrorCode::FileReadFailed
     };
     LocalFetchResult::error(path.to_owned(), code, error.to_string())
 }
@@ -125,7 +126,11 @@ pub(super) fn resolve_file(
         Err(error) => Err(Box::new(match fs::metadata(&validated.canonical) {
             Ok(meta) if meta.is_dir() => not_a_file(q, NotAFile::Directory),
             Ok(meta) if !meta.is_file() => not_a_file(q, NotAFile::Special),
-            _ => LocalFetchResult::error(q.path.to_string(), "fileAccessFailed", error.to_string()),
+            _ => LocalFetchResult::error(
+                q.path.to_string(),
+                ErrorCode::FileAccessFailed,
+                error.to_string(),
+            ),
         })),
     }
 }
@@ -191,7 +196,7 @@ pub(super) fn not_a_file(q: &LocalFetchQuery, kind: NotAFile) -> LocalFetchResul
     if kind == NotAFile::Special {
         return LocalFetchResult::error(
             q.path.to_string(),
-            "notAFile",
+            ErrorCode::NotAFile,
             format!(
                 "{} is not a regular file (a FIFO, socket or device); localFetch reads regular files only.",
                 q.path
@@ -200,7 +205,7 @@ pub(super) fn not_a_file(q: &LocalFetchQuery, kind: NotAFile) -> LocalFetchResul
     }
     let mut result = LocalFetchResult::error(
         q.path.to_string(),
-        "notAFile",
+        ErrorCode::NotAFile,
         format!(
             "{} is a directory, not a file; list it with structureSearch, then read a file in it.",
             q.path
@@ -234,7 +239,7 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
     } else {
         failure.message
     };
-    let mut result = LocalFetchResult::error(q.path.to_string(), &failure.code, message);
+    let mut result = LocalFetchResult::error(q.path.to_string(), failure.code, message);
     result.resource_missing = failure.resource_missing;
     if failure.resource_missing {
         // The parent's tree shows a mistyped name's siblings; the listing
@@ -263,7 +268,7 @@ fn path_failure(q: &LocalFetchQuery, failure: PathFailure) -> LocalFetchResult {
 pub(super) fn refuse_binary(q: &LocalFetchQuery, display_path: &str) -> LocalFetchResult {
     let mut result = LocalFetchResult::error(
         q.path.to_string(),
-        "binaryFileUnsupported",
+        ErrorCode::BinaryFileUnsupported,
         format!(
             "Binary file unsupported: {display_path}. Read a text source file, or use structureSearch operation:\"files\" for file metadata."
         ),

@@ -5,6 +5,7 @@
 use crate::tools::selection::{
     Decision, JudgeCall, JudgeFailure, Judgments, ProviderError, Runtime, SelectionJudge,
 };
+use octocode_contract_types::ErrorCode;
 use std::time::{Duration, Instant};
 
 /// A selection runtime judging with `judge` on `handle`, within `timeout`
@@ -49,15 +50,15 @@ impl SelectionJudge for SelectAll {
 }
 
 /// A provider code [`WordJudge`] fails with: a refused credential (HTTP 401).
-pub(crate) const REFUSED: Option<&str> = Some("classificationProviderError");
+pub(crate) const REFUSED: Option<ErrorCode> = Some(ErrorCode::ClassificationProviderError);
 /// A provider code [`WordJudge`] fails with: a provider that is down (HTTP 503).
-pub(crate) const DOWN: Option<&str> = Some(crate::providers::classification::CIRCUIT_OPEN);
+pub(crate) const DOWN: Option<ErrorCode> = Some(crate::providers::classification::CIRCUIT_OPEN);
 
 /// Selects a candidate whose state says `keep`, excludes one that says
 /// `drop`, else answers unknown; `fail` fails every call with that provider
 /// code instead ([`REFUSED`] or [`DOWN`]).
 pub(crate) struct WordJudge {
-    pub(crate) fail: Option<&'static str>,
+    pub(crate) fail: Option<ErrorCode>,
 }
 
 impl SelectionJudge for WordJudge {
@@ -72,7 +73,7 @@ impl SelectionJudge for WordJudge {
                 "503 Service Unavailable"
             };
             return Err(JudgeFailure::Provider(ProviderError {
-                code: code.into(),
+                code,
                 message: format!("Classification provider returned HTTP {status}"),
                 hints: vec!["Check OCTOCODE_CLASSIFICATION_API and account access.".into()],
             }));

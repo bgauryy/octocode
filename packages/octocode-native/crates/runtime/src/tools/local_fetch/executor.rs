@@ -5,6 +5,7 @@ use super::{acquire::*, no_match::*, outline::*, page_scan::*, prepare::*};
 use crate::execution::cancel::CancellationCheck;
 use crate::id::ToolId;
 use crate::security::scan::ContentScan;
+use octocode_contract_types::ErrorCode;
 
 /// One localFetch row; `selection` judges it under `clasifyContext`.
 pub fn execute_local_fetch(
@@ -16,7 +17,7 @@ pub fn execute_local_fetch(
     selection: Option<&crate::tools::selection::Runtime>,
 ) -> LocalFetchResult {
     if let Err(e) = cancel.check() {
-        return LocalFetchResult::error(q.path.to_string(), "cancelled", e);
+        return LocalFetchResult::error(q.path.to_string(), ErrorCode::Cancelled, e);
     }
     let (validated, file, meta) = match resolve_file(q, paths) {
         Ok(resolved) => resolved,
@@ -35,7 +36,7 @@ pub fn execute_local_fetch(
         Err(error) => {
             return LocalFetchResult::error(
                 q.path.to_string(),
-                "fileReadFailed",
+                ErrorCode::FileReadFailed,
                 error.to_string(),
             );
         }
@@ -46,7 +47,7 @@ pub fn execute_local_fetch(
     if !in_memory && octocode_engine::text::has_utf16_bom(&sample) {
         let mut result = LocalFetchResult::error(
             q.path.to_string(),
-            "fileTooLarge",
+            ErrorCode::FileTooLarge,
             format!(
                 "BOM-marked UTF-16 sources require a bounded whole-file decode (limit: {MAX_SOURCE_BYTES} bytes); this source is {} bytes.",
                 meta.len()
@@ -71,7 +72,7 @@ pub fn execute_local_fetch(
         Err(error @ octocode_engine::text::ReadError::NotRegular) => {
             return LocalFetchResult::error(
                 q.path.to_string(),
-                "fileReadFailed",
+                ErrorCode::FileReadFailed,
                 error.to_string(),
             );
         }
@@ -110,13 +111,12 @@ fn selection_failure(
         crate::tools::selection::Failure::Stale => stale_snapshot(q),
         crate::tools::selection::Failure::Cancelled => LocalFetchResult::error(
             q.path.to_string(),
-            "cancelled",
+            ErrorCode::Cancelled,
             "Selection was cancelled".into(),
         ),
         crate::tools::selection::Failure::Provider(failure) => {
             let crate::tools::selection::ProviderFailure { error, outcome } = *failure;
-            let mut result =
-                LocalFetchResult::error(q.path.to_string(), &error.code, error.message);
+            let mut result = LocalFetchResult::error(q.path.to_string(), error.code, error.message);
             result.hints = error.hints;
             result.selection = Some(outcome.receipt);
             result.next = Some(NextCalls {
@@ -243,7 +243,7 @@ pub(crate) fn process_fetched_content_selected(
         Err(result) => return *result,
     };
     if let Err(e) = cancel.check() {
-        return LocalFetchResult::error(q.path.to_string(), "cancelled", e);
+        return LocalFetchResult::error(q.path.to_string(), ErrorCode::Cancelled, e);
     }
     // The row's share of the response window, which the whole row (and
     // what the caller adds beside it) fits; a tiny window still keeps half
@@ -278,7 +278,7 @@ pub(crate) fn process_fetched_content_selected(
         Err(result) => return *result,
     };
     if let Err(e) = cancel.check() {
-        return LocalFetchResult::error(cut.q.path.to_string(), "cancelled", e);
+        return LocalFetchResult::error(cut.q.path.to_string(), ErrorCode::Cancelled, e);
     }
     let paged = |cut| {
         page_result(
@@ -765,7 +765,8 @@ pub(super) fn unsupported_selection(
     message: &str,
     digest: Option<&str>,
 ) -> LocalFetchResult {
-    let mut result = LocalFetchResult::error(q.path.to_string(), "invalidInput", message.into());
+    let mut result =
+        LocalFetchResult::error(q.path.to_string(), ErrorCode::InvalidInput, message.into());
     result.source_sha256 = digest.map(str::to_owned);
     let mut query = q.clone();
     query.clasify_context = None;
@@ -1123,7 +1124,7 @@ pub(super) fn single_line_query(q: &LocalFetchQuery, line: usize) -> LocalFetchQ
 pub(super) fn stale_snapshot(q: &LocalFetchQuery) -> LocalFetchResult {
     LocalFetchResult::error(
         q.path.to_string(),
-        "staleSnapshot",
+        ErrorCode::StaleSnapshot,
         crate::response::pages::STALE_SNAPSHOT_ERROR.into(),
     )
 }

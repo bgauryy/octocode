@@ -17,6 +17,7 @@ use crate::execution::cancel::CancellationCheck;
 use crate::num::usize_of;
 use crate::security::scan::ContentScan;
 use crate::security::{BlockLine, KeyBlockState, LineShape, LineShapeScan, is_key_header_prefix};
+use octocode_contract_types::ErrorCode;
 use std::path::Path;
 
 /// Largest source a window may be streamed from.
@@ -768,7 +769,7 @@ fn read_windows(
 fn unsupported(q: &LocalFetchQuery, len: u64, reason: &str, next: NextCalls) -> LocalFetchResult {
     let mut result = LocalFetchResult::error(
         q.path.to_string(),
-        "largeSourceWindowOnly",
+        ErrorCode::LargeSourceWindowOnly,
         format!(
             "This source is {}MB, above the {}MB whole-file read limit, so only bounded line windows are served: {reason}",
             len / (1024 * 1024),
@@ -998,7 +999,7 @@ fn stream_window(
         .and_then(|mut windows| windows.pop().ok_or_else(|| "no window streamed".to_owned()));
     match streamed {
         Ok(streamed) => serve_window(q, streamed, span, source, modified, share, security, cancel),
-        Err(error) => LocalFetchResult::error(q.path.to_string(), "fileReadFailed", error),
+        Err(error) => LocalFetchResult::error(q.path.to_string(), ErrorCode::FileReadFailed, error),
     }
 }
 
@@ -1036,7 +1037,7 @@ fn serve_window(
         return super::prepare::extraction_error(
             q,
             ExtractionError::new(
-                ExtractionErrorKind::InvalidInput,
+                ErrorCode::InvalidInput,
                 format!("Requested lines start past the file end ({total} lines)"),
             ),
             total,
@@ -1205,7 +1206,9 @@ fn fetch_ranges(
     let wants = ones.iter().map(|(_, span)| span.want()).collect::<Vec<_>>();
     let streamed = match source.windows(&wants, cancel) {
         Ok(streamed) => streamed,
-        Err(error) => return LocalFetchResult::error(q.path.to_string(), "fileReadFailed", error),
+        Err(error) => {
+            return LocalFetchResult::error(q.path.to_string(), ErrorCode::FileReadFailed, error);
+        }
     };
     let mut parts = Vec::with_capacity(merged.len());
     // The span the page stops inside: its range and the calls that read on.
@@ -1877,7 +1880,7 @@ mod tests {
             );
         }
         let past = read(serde_json::json!({"path":file.path(),"ranges":["90-95"]}));
-        assert_eq!(past.error_code.as_deref(), Some("invalidInput"), "{past:?}");
+        assert_eq!(past.error_code, Some(ErrorCode::InvalidInput), "{past:?}");
     }
 
     /// A streamed page fits the row's share: its window page is cut to it,
@@ -1943,7 +1946,7 @@ mod tests {
             &crate::security::ContentSecurity::new(),
             &NeverCancel,
         );
-        assert_eq!(result.error_code.as_deref(), Some("binaryFileUnsupported"));
+        assert_eq!(result.error_code, Some(ErrorCode::BinaryFileUnsupported));
     }
 
     /// The reference for one byte page: a whole pass, no index.

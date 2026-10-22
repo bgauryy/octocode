@@ -10,6 +10,7 @@ use super::{
 };
 use crate::policy::network::is_public;
 use crate::providers::artifact::types::artifact_search_query;
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -55,7 +56,7 @@ fn validate_registry(
         let requested = Url::parse(requested).map_err(|_| invalid_registry_url())?;
         if trim_registry(&requested) != trim_registry(base) {
             return Err(ArtifactError::new(
-                "invalidInput",
+                ErrorCode::InvalidInput,
                 "Resolved npm registry does not match the query registry.",
             ));
         }
@@ -73,14 +74,14 @@ fn trim_registry(url: &Url) -> String {
 /// A `registryUrl` that is not a plain HTTP(S) registry base.
 pub(crate) fn invalid_registry_url() -> ArtifactError {
     ArtifactError::new(
-        "invalidInput",
+        ErrorCode::InvalidInput,
         "registryUrl must be an HTTP(S) URL without credentials, query or fragment.",
     )
 }
 
 fn registry_target_error() -> ArtifactError {
     ArtifactError::new(
-        "invalidInput",
+        ErrorCode::InvalidInput,
         "registryUrl names a loopback, link-local or private host; network.allowPrivateRegistry \
          (OCTOCODE_ALLOW_PRIVATE_REGISTRY) permits it.",
     )
@@ -114,7 +115,7 @@ fn validate_registry_target(base: &Url) -> Result<Option<DnsPin>, ArtifactError>
                 .to_socket_addrs()
                 .map_err(|_| {
                     ArtifactError::new(
-                        "providerError",
+                        ErrorCode::ProviderError,
                         "Custom npm registry hostname could not be resolved safely.",
                     )
                 })?
@@ -132,7 +133,7 @@ fn validate_registry_target(base: &Url) -> Result<Option<DnsPin>, ArtifactError>
 fn validate_resolved_addresses(addresses: &[SocketAddr]) -> Result<(), ArtifactError> {
     if addresses.is_empty() {
         return Err(ArtifactError::new(
-            "providerError",
+            ErrorCode::ProviderError,
             "Custom npm registry hostname resolved without any usable address.",
         ));
     }
@@ -273,7 +274,7 @@ fn manifest_row(
     let returned = required(row.get("name"), ArtifactType::Npm)?;
     if returned != name {
         return Err(ArtifactError::new(
-            "providerError",
+            ErrorCode::ProviderError,
             "npm registry returned a different package name.",
         ));
     }
@@ -593,7 +594,7 @@ async fn search(
         )?;
         let name = required(package.get("name"), ArtifactType::Npm).map_err(|_| {
             ArtifactError::new(
-                "providerError",
+                ErrorCode::ProviderError,
                 "npm registry search returned an unnamed package; refusing to skip a result.",
             )
         })?;
@@ -655,18 +656,20 @@ async fn search_window(
     let mut response = client
         .json(ArtifactType::Npm, url, false, authorization, dns_pin, JSON)
         .await?
-        .ok_or_else(|| ArtifactError::new("providerError", "npm registry search failed."))?;
+        .ok_or_else(|| {
+            ArtifactError::new(ErrorCode::ProviderError, "npm registry search failed.")
+        })?;
     let data = object_for(&response, ArtifactType::Npm)?;
     let total_found = total(data.get("total")).ok_or_else(|| {
         ArtifactError::new(
-            "providerError",
+            ErrorCode::ProviderError,
             "npm registry search omitted a valid total; pagination cannot be determined.",
         )
     })?;
     match response.get_mut("objects").map(Value::take) {
         Some(Value::Array(objects)) => Ok((total_found, objects)),
         _ => Err(ArtifactError::new(
-            "providerError",
+            ErrorCode::ProviderError,
             "Invalid npm registry search response; expected an object with results and a total.",
         )),
     }

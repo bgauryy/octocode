@@ -9,6 +9,7 @@ use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::ToolError;
 use crate::tools::empty_walk::{Cause, Globs, Hits, Tagged, Verdict, Walk, diagnose};
+use octocode_contract_types::ErrorCode;
 use octocode_contract_types::{
     LocalSearchSkippedPath, LocalSearchSkippedPathCause, LocalSearchSkippedPaths,
 };
@@ -168,7 +169,7 @@ fn observed_paths(
 
 pub(super) fn skipped_path_error(error: impl std::fmt::Display) -> ToolError {
     ToolError::new(
-        "outputContractViolation",
+        ErrorCode::OutputContractViolation,
         format!("Invalid skipped-path evidence: {error}"),
     )
 }

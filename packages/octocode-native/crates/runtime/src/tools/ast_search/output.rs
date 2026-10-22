@@ -1,6 +1,7 @@
 //! astSearch's answers to the shared response stages.
 
 use crate::response::output::{PathAnchor, TextShape, ToolOutput};
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
 pub(crate) struct Output;
@@ -13,24 +14,24 @@ impl ToolOutput for Output {
             "Broaden the syntax/name query, path, or filters."
         }
     }
-    fn error_hint(&self, code: &str) -> Option<&'static str> {
+    fn error_hint(&self, code: ErrorCode) -> Option<&'static str> {
         Some(match code {
-            crate::tools::ast_rule::INVALID_PATTERN => crate::tools::ast_rule::INVALID_PATTERN_HINT,
+            ErrorCode::InvalidPattern => crate::tools::ast_rule::INVALID_PATTERN_HINT,
             // The typed error and terminalLimit (plus a findText lead
             // when a literal was searched) are the whole answer.
-            "fileTooLarge" => crate::response::output::NO_HINT,
-            "languageRequired" | "languageUnsupported" => {
+            ErrorCode::FileTooLarge => crate::response::output::NO_HINT,
+            ErrorCode::LanguageRequired | ErrorCode::LanguageUnsupported => {
                 "Set language to the grammar of the source files (e.g. \"typescript\", \"rust\")."
             }
             // The message names the file's own grammar and both repairs.
-            "languageMismatch" => crate::response::output::NO_HINT,
-            "symbolsUnsupported" => {
+            ErrorCode::LanguageMismatch => crate::response::output::NO_HINT,
+            ErrorCode::SymbolsUnsupported => {
                 "Set language (a file) or languageGlobs (a directory) to the grammar the source is written in."
             }
-            "languageFileRequired" => {
+            ErrorCode::LanguageFileRequired => {
                 "For a directory, drop language: each extension picks its grammar; languageGlobs overrides (e.g. {cpp:[\"**/*.h\"]})."
             }
-            "languageDirectoryRequired" => {
+            ErrorCode::LanguageDirectoryRequired => {
                 "For a single file, use language instead of languageGlobs."
             }
             _ => return None,

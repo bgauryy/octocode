@@ -1,4 +1,5 @@
 use crate::support::{self, Run as _};
+use octocode_contract_types::ErrorCode;
 
 use serde_json::json;
 use support::Workspace;
@@ -79,13 +80,13 @@ async fn an_all_invalid_or_envelope_invalid_batch_still_fails_as_a_whole() {
         .run("all-invalid".into(), "localSearch".into(), all_invalid)
         .await
         .expect_err("no valid row to run");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     let too_many = json!({"queries": (0..6).map(|_| search(&root, json!({}))).collect::<Vec<_>>()});
     let error = runtime
         .run("too-many".into(), "localSearch".into(), too_many)
         .await
         .expect_err("envelope limits are not row-scoped");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     runtime.close().await;
 }
 

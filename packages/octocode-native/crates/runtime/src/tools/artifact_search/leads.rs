@@ -7,6 +7,7 @@ use crate::providers::artifact::{
 };
 use crate::response::result::Confidence;
 use crate::response::result::{Continuation, query_row};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Map, Value, json};
 
 /// Labels a row's release source, the one place the label is decided: a
@@ -140,7 +141,7 @@ fn copied(query: &ArtifactSearchQuery) -> Map<String, Value> {
 pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery) -> ArtifactError {
     // A discovery page past the paging range: the error names the bound and
     // its one repair reads the last page this page size reaches.
-    if error.code == "invalidInput"
+    if error.code == ErrorCode::InvalidInput
         && let Some(limit) = page_out_of_range(query)
     {
         let mut last = copied(query);
@@ -158,8 +159,8 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
     let mut exact = copied(query);
     exact.insert("packageName".into(), json!(name));
     exact.remove("version");
-    let searchable = error.code == "notFound" || error.searchable_name;
-    let lead = match error.code.as_str() {
+    let searchable = error.code == ErrorCode::NotFound || error.searchable_name;
+    let lead = match error.code {
         _ if searchable && artifact_search_query::artifact_type(query) != ArtifactType::Pypi => {
             exact.remove("packageName");
             exact.insert("keywords".into(), json!([name]));
@@ -170,7 +171,7 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
                     .build(),
             ))
         }
-        "versionNotFound" if !error.nearest.is_empty() => {
+        ErrorCode::VersionNotFound if !error.nearest.is_empty() => {
             let queries = error
                 .nearest
                 .iter()
@@ -187,7 +188,7 @@ pub(super) fn with_repair(mut error: ArtifactError, query: &ArtifactSearchQuery)
                     .build(),
             ))
         }
-        "versionNotFound" | "capabilityUnavailable"
+        ErrorCode::VersionNotFound | ErrorCode::CapabilityUnavailable
             if artifact_search_query::version(query).is_some() =>
         {
             Some((

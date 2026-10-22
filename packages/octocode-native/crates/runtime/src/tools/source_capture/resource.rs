@@ -1,5 +1,6 @@
 //! Complete authorized text for source-coordinate planning, before redaction.
 use super::{ClassificationError, ExecutionContext, SourceReader, ToolId, failure};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 use std::ops::Range;
 use std::path::PathBuf;
@@ -24,7 +25,7 @@ pub(crate) fn acquisition_key(
         .and_then(ToolId::from_name)
         .ok_or_else(|| {
             failure(
-                "invalidClassificationContext",
+                ErrorCode::InvalidClassificationContext,
                 "The source reader is invalid.",
                 "Use an authorized text reader.",
             )
@@ -37,7 +38,7 @@ pub(crate) fn acquisition_key(
             .validate_read(std::path::Path::new(path))
             .map_err(|_| {
                 failure(
-                    "classificationContextUnavailable",
+                    ErrorCode::ClassificationContextUnavailable,
                     "The local source path is not authorized.",
                     "Use an allowed source path.",
                 )
@@ -90,14 +91,14 @@ pub(crate) fn capture(
         .filter(|tool| matches!(tool, ToolId::LocalFetch | ToolId::GhGetFileContent))
         .ok_or_else(|| {
             failure(
-                "invalidClassificationContext",
+                ErrorCode::InvalidClassificationContext,
                 "A resource must name an authorized text reader or HTTPS URL.",
                 "Use localFetch, ghGetFileContent, or url.",
             )
         })?;
     if !dispatcher.availability().is_available(tool.as_str()) {
         return Err(failure(
-            "classificationContextUnavailable",
+            ErrorCode::ClassificationContextUnavailable,
             "The resource reader is disabled in this runtime.",
             "Enable the reader before assessing this source.",
         ));
@@ -120,14 +121,14 @@ pub(crate) fn capture(
                     == octocode_engine::text::BinaryVerdict::Binary
             {
                 return Err(failure(
-                    "classificationContextUnavailable",
+                    ErrorCode::ClassificationContextUnavailable,
                     "Section assessment requires text; this resource is binary.",
                     "Use an explicit image asset for image questions.",
                 ));
             }
             let text = String::from_utf8(captured.bytes.to_vec()).map_err(|_| {
                 failure(
-                    "classificationContextUnavailable",
+                    ErrorCode::ClassificationContextUnavailable,
                     "The source is not valid UTF-8 text; no sections were inferred.",
                     "Use a text representation with known encoding.",
                 )
@@ -141,7 +142,7 @@ pub(crate) fn capture(
         }
         _ => {
             return Err(failure(
-                "invalidClassificationContext",
+                ErrorCode::InvalidClassificationContext,
                 "The resource reader is unsupported.",
                 "Use localFetch, ghGetFileContent, or url.",
             ));
@@ -165,15 +166,15 @@ pub(crate) fn validate_local(
     dispatcher
         .capture_local_text(&query, context)
         .map_err(|mut error| {
-            if error.code == "invalidClassificationContext" {
+            if error.code == ErrorCode::InvalidClassificationContext {
                 return failure(
-                    "classificationContextUnavailable",
+                    ErrorCode::ClassificationContextUnavailable,
                     "The retained local source identity is invalid.",
                     "Start a fresh sections request.",
                 );
             }
-            if matches!(error.code.as_str(), "staleSnapshot" | "sourceMismatch") {
-                error.code = "sourceMismatch".into();
+            if matches!(error.code, ErrorCode::StaleSnapshot | ErrorCode::SourceMismatch) {
+                error.code = ErrorCode::SourceMismatch;
             }
             error
         })
@@ -181,7 +182,7 @@ pub(crate) fn validate_local(
             if source["canonical"] == json!(canonical) {
                 Ok(())
             } else {
-                Err(failure("sourceMismatch", "The original local source locator now resolves to a different file; no new inference ran.", "Start a fresh sections request to assess the changed source."))
+                Err(failure(ErrorCode::SourceMismatch, "The original local source locator now resolves to a different file; no new inference ran.", "Start a fresh sections request to assess the changed source."))
             }
         })
 }
@@ -211,7 +212,7 @@ pub(crate) fn selected_ranges(
             .and_then(crate::tools::line_spans::parse_span)
             .ok_or_else(|| {
                 failure(
-                    "invalidClassificationContext",
+                    ErrorCode::InvalidClassificationContext,
                     "The source contains an invalid line range.",
                     "Use the reader's canonical ranges field.",
                 )
@@ -236,7 +237,7 @@ pub(crate) fn selected_ranges(
     }
     if merged.is_empty() && !text.is_empty() {
         return Err(failure(
-            "classificationContextEmpty",
+            ErrorCode::ClassificationContextEmpty,
             "The requested resource ranges select no text.",
             "Check the source ranges or use fullContent.",
         ));
@@ -288,7 +289,7 @@ mod tests {
         // A final newline ends line 2; it does not start a line 3.
         for ranges in [json!(["3-3"]), json!(["9-12"])] {
             let error = selected_ranges("a\nb\n", &json!({ "ranges": ranges })).unwrap_err();
-            assert_eq!(error.code, "classificationContextEmpty");
+            assert_eq!(error.code, ErrorCode::ClassificationContextEmpty);
         }
         assert_eq!(spans("a\nb\n", json!(["2-3"])), vec![2..4]);
     }
@@ -297,7 +298,11 @@ mod tests {
     fn a_malformed_range_is_an_invalid_source() {
         for ranges in [json!(["two-three"]), json!([7])] {
             let error = selected_ranges("a\nb", &json!({ "ranges": ranges })).unwrap_err();
-            assert_eq!(error.code, "invalidClassificationContext", "{ranges}");
+            assert_eq!(
+                error.code,
+                ErrorCode::InvalidClassificationContext,
+                "{ranges}"
+            );
         }
     }
 

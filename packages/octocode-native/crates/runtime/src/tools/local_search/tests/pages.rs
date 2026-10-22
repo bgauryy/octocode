@@ -1,4 +1,5 @@
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 #[test]
 fn relevance_cap_keeps_hot_file_and_marks_first_and_final_pages_partial() {
@@ -222,7 +223,7 @@ fn goal_search_replay_with_window(response_window: Option<usize>) {
         )
         .expect_err("stale")
         .code,
-        "staleSnapshot"
+        ErrorCode::StaleSnapshot
     );
 }
 

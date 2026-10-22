@@ -12,6 +12,7 @@ use super::render::*;
 use super::source::*;
 use super::walk::*;
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 mod fixtures;
 mod hierarchy;
@@ -964,7 +965,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     let down = failure(
         &query,
         "file:///repo/src/lib.rs",
-        "serverUnavailable",
+        ErrorCode::ServerUnavailable,
         "missing",
         false,
     );
@@ -989,7 +990,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     let timeout = failure(
         &query,
         "file:///repo/src/lib.rs",
-        "timeout",
+        ErrorCode::Timeout,
         "timed out",
         false,
     );
@@ -1000,7 +1001,7 @@ fn empty_and_unavailable_rows_expose_status_and_recovery_next() {
     let scoped = failure(
         &explicitly_scoped,
         "file:///repo/src/lib.rs",
-        "capabilityUnavailable",
+        ErrorCode::CapabilityUnavailable,
         "unsupported",
         true,
     );
@@ -1019,7 +1020,7 @@ fn workspace_root_failures_emit_a_string_path_without_directory_read_recovery() 
     let down = failure(
         &query,
         "file:///repo",
-        "serverUnavailable",
+        ErrorCode::ServerUnavailable,
         "missing",
         false,
     );

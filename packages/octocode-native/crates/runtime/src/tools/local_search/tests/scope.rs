@@ -1,4 +1,5 @@
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 #[test]
 fn cancellation_during_the_walk_reports_cancelled() {
@@ -27,7 +28,7 @@ fn cancellation_during_the_walk_reports_cancelled() {
     let cancel = CancelAfter(AtomicU32::new(0), 3);
     let error = execute_local_search(&request, &policy, &security, &cancel, None, None, None)
         .expect_err("cancelled mid-walk");
-    assert_eq!(error.code, "cancelled");
+    assert_eq!(error.code, ErrorCode::Cancelled);
     assert!(
         cancel.0.load(Ordering::SeqCst) < 40,
         "walk polled every file"
@@ -346,7 +347,7 @@ fn a_pcre2_matching_limit_is_a_pattern_failure_not_an_unreadable_file() {
     );
     let error = execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None)
         .expect_err("every file failed in the matcher");
-    assert_eq!(error.code, "invalidPattern", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     assert!(error.message.contains("first: patho.txt:"), "{error:?}");
     assert!(
         !error
@@ -1028,7 +1029,7 @@ fn an_extension_or_case_variant_as_language_repairs_to_its_type_name() {
         let error =
             execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None)
                 .expect_err("not a type name");
-        assert_eq!(error.code, "invalidInput", "{error:?}");
+        assert_eq!(error.code, ErrorCode::InvalidInput, "{error:?}");
         assert!(error.message.contains("\"rust\""), "{error:?}");
         let next = error.next.as_deref().expect("repair");
         assert_eq!(

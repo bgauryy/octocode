@@ -1,5 +1,6 @@
 //! lspSearch output facts for the shared response stages.
 use crate::response::output::{PathAnchor, TextShape, ToolOutput};
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
 pub(crate) struct Output;
@@ -25,12 +26,11 @@ impl ToolOutput for Output {
     /// call that timed out may have been the one that started the language
     /// server, whose first answer can take about a minute: retrying is the
     /// recovery (the shared timeout tip says to narrow the call instead).
-    fn error_hint(&self, code: &str) -> Option<&'static str> {
-        match code {
-            "noDiagnostics" => Some(crate::response::output::NO_HINT),
-            "timeout" => Some(TIMEOUT_HINT),
-            _ => None,
-        }
+    fn error_hint(&self, code: ErrorCode) -> Option<&'static str> {
+        (code == ErrorCode::Timeout).then_some(TIMEOUT_HINT)
+    }
+    fn category_hint(&self, category: &str) -> Option<&'static str> {
+        (category == "noDiagnostics").then_some(crate::response::output::NO_HINT)
     }
     fn evidence_kind(&self, _query: &Value, data: &Value) -> &'static str {
         match data.pointer("/lsp/source").and_then(Value::as_str) {
@@ -51,6 +51,7 @@ impl ToolOutput for Output {
 #[cfg(test)]
 mod tests {
     use crate::id::ToolId;
+    use octocode_contract_types::ErrorCode;
     use serde_json::json;
 
     #[test]
@@ -69,14 +70,14 @@ mod tests {
     fn a_timeout_names_the_language_server_cold_start() {
         let lsp = ToolId::LspSearch.output();
         assert!(
-            lsp.error_hint("timeout")
+            lsp.error_hint(ErrorCode::Timeout)
                 .is_some_and(|hint| hint.contains("cold start")),
         );
         assert_eq!(
-            lsp.error_hint("noDiagnostics"),
+            lsp.category_hint("noDiagnostics"),
             Some(crate::response::output::NO_HINT)
         );
-        assert!(lsp.error_hint("anchorUnresolved").is_none());
+        assert!(lsp.error_hint(ErrorCode::AnchorUnresolved).is_none());
     }
 
     #[test]

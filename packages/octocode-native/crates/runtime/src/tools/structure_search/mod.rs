@@ -6,6 +6,7 @@ mod listing;
 mod memo;
 mod output;
 mod probe;
+use octocode_contract_types::ErrorCode;
 pub(crate) use output::Output;
 mod resume;
 mod rows;
@@ -50,9 +51,9 @@ fn validated_root(
     cancel: &dyn crate::execution::cancel::CancellationCheck,
 ) -> Result<crate::policy::path::ValidatedPath, ToolError> {
     cancel.check().map_err(ToolError::cancelled)?;
-    paths
-        .validate(requested)
-        .map_err(|error| ToolError::root_policy(error, requested, paths, "pathValidationFailed"))
+    paths.validate(requested).map_err(|error| {
+        ToolError::root_policy(error, requested, paths, ErrorCode::PathValidationFailed)
+    })
 }
 
 /// A file named as a tree root (`files` lists a file root as itself): say
@@ -63,7 +64,7 @@ fn file_root(file: &std::path::Path, paths: &crate::policy::path::PathPolicy) ->
         .workspace_relative(file)
         .unwrap_or_else(|| file.to_string_lossy().into_owned());
     let mut out = ToolError::new(
-        "notADirectory",
+        ErrorCode::NotADirectory,
         format!("{name} is a file, not a directory; read it with localFetch or list its parent."),
     );
     let lead = crate::response::result::Continuation::new(
@@ -92,17 +93,17 @@ fn walk_error(
     let code = match error.kind() {
         ErrorKind::NotFound => {
             return ToolError::new(
-                crate::policy::PATH_NOT_FOUND,
+                ErrorCode::PathNotFound,
                 format!("Path does not exist: {requested}"),
             );
         }
-        ErrorKind::PermissionDenied => "permissionDenied",
-        ErrorKind::InvalidPattern => "invalidPattern",
-        ErrorKind::InvalidGlob => "invalidGlob",
+        ErrorKind::PermissionDenied => ErrorCode::PermissionDenied,
+        ErrorKind::InvalidPattern => ErrorCode::InvalidPattern,
+        ErrorKind::InvalidGlob => ErrorCode::InvalidGlob,
         // A malformed filter value (`size`, ...) is rejected before the
         // walk: caller input, like the typed time-filter checks.
-        ErrorKind::InvalidInput => "invalidInput",
-        _ => "executionFailed",
+        ErrorKind::InvalidInput => ErrorCode::InvalidInput,
+        _ => ErrorCode::ExecutionFailed,
     };
     ToolError::new(code, error.to_string())
 }

@@ -1,6 +1,7 @@
 use super::{CloneContext, CloneError, check_control, hash};
 use crate::cache::evictions::log_eviction;
 use crate::civil_date::{iso8601_millis, rfc3339_millis, unix_millis};
+use octocode_contract_types::ErrorCode;
 use octocode_io::atomic::write_atomic;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -163,9 +164,9 @@ pub(super) struct CloneLock {
 impl CloneLock {
     pub fn acquire(clone_dir: &Path, context: &CloneContext<'_>) -> Result<Self, CloneError> {
         let path = lock_dir(&context.config.cache_home, clone_dir);
-        let parent = path
-            .parent()
-            .ok_or_else(|| CloneError::new("cacheUnavailable", "Clone lock path has no parent"))?;
+        let parent = path.parent().ok_or_else(|| {
+            CloneError::new(ErrorCode::CacheUnavailable, "Clone lock path has no parent")
+        })?;
         fs::create_dir_all(parent).map_err(cache_io)?;
         let started = std::time::Instant::now();
         loop {
@@ -184,7 +185,7 @@ impl CloneLock {
                     }
                     if started.elapsed() >= context.config.lock_wait {
                         return Err(CloneError::new(
-                            "timeout",
+                            ErrorCode::Timeout,
                             format!(
                                 "Timed out waiting for clone cache lock '{}'.",
                                 path.display()
@@ -227,7 +228,7 @@ fn write_lock_meta(path: &Path) -> Result<(), CloneError> {
         pid: std::process::id(),
         created_at: unix_millis(),
     })
-    .map_err(|error| CloneError::new("cacheUnavailable", error.to_string()))?;
+    .map_err(|error| CloneError::new(ErrorCode::CacheUnavailable, error.to_string()))?;
     write_atomic(&path.join(LOCK_META_FILE), &bytes, false).map_err(cache_io)
 }
 
@@ -293,7 +294,7 @@ impl CacheAge {
 
 pub(super) fn write_meta(path: &Path, meta: &CacheMeta) -> Result<(), CloneError> {
     let bytes = serde_json::to_vec_pretty(meta)
-        .map_err(|error| CloneError::new("cacheUnavailable", error.to_string()))?;
+        .map_err(|error| CloneError::new(ErrorCode::CacheUnavailable, error.to_string()))?;
     let destination = path.join(META_FILE);
     // Metadata is written only in the hidden stage before directory promotion.
     // Exclusive creation protects source files arriving after the early check.
@@ -320,7 +321,7 @@ pub(super) fn metadata_conflict(owner: &str, repo: &str, commit_sha: &str) -> Cl
             "Read path:\".octocode-clone-meta.json\" with ghGetFileContent at this ref, or browse the repository with ghStructure.".into(),
         ],
         ..CloneError::new(
-            "cacheUnavailable",
+            ErrorCode::CacheUnavailable,
             format!(
                 "Repository {}/{}@{} contains reserved path '{}'; no checkout was replaced.",
                 owner, repo, commit_sha, META_FILE,
@@ -347,9 +348,12 @@ pub(super) fn stage_dir(home: &Path, clone_dir: &Path) -> Result<PathBuf, CloneE
 }
 
 pub(super) fn promote(home: &Path, stage: &Path, destination: &Path) -> Result<(), CloneError> {
-    let parent = destination
-        .parent()
-        .ok_or_else(|| CloneError::new("cacheUnavailable", "Clone destination has no parent"))?;
+    let parent = destination.parent().ok_or_else(|| {
+        CloneError::new(
+            ErrorCode::CacheUnavailable,
+            "Clone destination has no parent",
+        )
+    })?;
     fs::create_dir_all(parent).map_err(cache_io)?;
     let previous = stage.with_extension("previous");
     remove_dir(&previous);
@@ -366,7 +370,7 @@ pub(super) fn promote(home: &Path, stage: &Path, destination: &Path) -> Result<(
     if let Err(error) = fs::rename(stage, destination) {
         if had_previous && let Err(restore) = fs::rename(&previous, destination) {
             return Err(CloneError::new(
-                "cacheUnavailable",
+                ErrorCode::CacheUnavailable,
                 format!(
                     "Clone publication failed ({error}); previous checkout remains at '{}' because rollback failed ({restore}).",
                     previous.display()
@@ -541,7 +545,7 @@ fn directory_size(path: &Path) -> u64 {
 
 fn cache_io(error: io::Error) -> CloneError {
     CloneError::new(
-        "cacheUnavailable",
+        ErrorCode::CacheUnavailable,
         format!("Clone cache operation failed: {error}"),
     )
 }

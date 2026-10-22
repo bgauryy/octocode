@@ -10,6 +10,7 @@ use crate::policy::prune::DefaultsFlag;
 use crate::response::result::Confidence;
 use crate::response::result::Continuation;
 use crate::response::result::ToolError;
+use octocode_contract_types::ErrorCode;
 use octocode_engine::digest::canonicalize_dropping_nulls;
 use serde_json::{Value, json};
 
@@ -255,7 +256,7 @@ pub(super) fn malformed_snapshot(query: &LocalSearchQuery) -> Option<ToolError> 
         });
     (!well_formed).then(|| {
         ToolError::new(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             "snapshot is not one a localSearch result issued; drop `snapshot` to search again",
         )
     })

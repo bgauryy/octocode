@@ -134,7 +134,7 @@ describe.skipIf(!ready)('launcher → native binary e2e', () => {
     const error = JSON.parse(json.stdout);
     expect(error.errorCode).toBe('invalidInput');
     expect(error.error).toMatch(/^unexpected argument '\[REDACTED-/);
-    expect(error.error).toMatch(/' found$/);
+    expect(error.error).toContain("' found; a JSON query is the only argument");
     expect(error).not.toHaveProperty('kind');
 
     const text = runLauncher(['config', token]);

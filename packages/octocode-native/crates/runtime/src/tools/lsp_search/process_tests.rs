@@ -8,6 +8,7 @@ use crate::id::ToolId;
 use crate::tools::lsp_search::lsp_search_query;
 use crate::tools::test_support::checks::{Page, Walker, assert_absent, paths_in};
 use crate::tools::test_support::{Fixture, assert_row_contract, node_available, require_node};
+use octocode_contract_types::ErrorCode;
 use octocode_engine::error::ErrorKind;
 use octocode_engine::lsp::client::NativeLspClient;
 use octocode_engine::lsp::pool::{LspClientPool, LspPoolOptions};
@@ -241,7 +242,10 @@ fn server_crash_mid_request_fails_pending_fast_as_server_crashed() {
             "{:?}",
             started.elapsed()
         );
-        assert_eq!(LspFailure::from_engine(&error).code, "serverCrashed");
+        assert_eq!(
+            LspFailure::from_engine(&error).code,
+            ErrorCode::ServerCrashed
+        );
         let _ = client.stop().await;
     });
 }
@@ -728,7 +732,7 @@ fn implementation_on_a_type_falls_back_to_the_labelled_heritage_scan() {
 fn implementation_on_a_member_keeps_the_server_failure() {
     let failure = implementation_failing_row("implementation", ("b.ts", "run", 1, 2))
         .expect_err("no scan can answer a member");
-    assert_eq!(failure.code, "requestFailed");
+    assert_eq!(failure.code, ErrorCode::RequestFailed);
     assert!(!failure.hint.contains("workspaceRoot"), "{}", failure.hint);
 }
 

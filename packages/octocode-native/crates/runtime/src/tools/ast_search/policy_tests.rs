@@ -3,6 +3,7 @@
 use super::test_rows::*;
 use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{AfterRoot, Fixture, checks, sensitive_fixture, simple_policy};
+use octocode_contract_types::ErrorCode;
 use serde_json::json;
 
 #[test]
@@ -99,7 +100,7 @@ fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_gram
             .expect("query")
             .extend(selector.as_object().expect("selector").clone());
         let error = run(&root.0, query).expect_err("invalid selector");
-        assert_eq!(error.code, "invalidPattern", "{error:?}");
+        assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     }
     let query = json!({"operation":"match","path":root.0,"maxFiles":1,"pattern":"target("});
     let first = run(&root.0, query).expect("bounded pattern coverage");
@@ -122,14 +123,14 @@ fn capped_incompatible_grammar_preserves_partial_coverage_and_reaches_later_gram
         "maxFiles":10,"pattern":"target("}),
     )
     .expect_err("whole-scope invalid pattern");
-    assert_eq!(error.code, "invalidPattern", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     let error = run(
         &root.0,
         json!({"operation":"match","path":root.0,
         "pattern":"missing("}),
     )
     .expect_err("prefilter cannot hide invalid whole-scope pattern");
-    assert_eq!(error.code, "invalidPattern", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
 }
 
 #[test]
@@ -402,7 +403,7 @@ fn cancellation_interrupts_descendant_traversal() {
             &AfterRoot(std::sync::atomic::AtomicUsize::new(0)),
         )
         .expect_err("cancel the walk");
-        assert_eq!(error.code, "cancelled", "{row}");
+        assert_eq!(error.code, ErrorCode::Cancelled, "{row}");
     }
 }
 
@@ -416,7 +417,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"klingon","pattern":"oldCall($A)"}),
     )
     .expect_err("unknown language");
-    assert_eq!(unknown.code, "languageUnsupported");
+    assert_eq!(unknown.code, ErrorCode::LanguageUnsupported);
 
     let out = run(
         &root.0,
@@ -440,7 +441,7 @@ fn lang_type_is_validated_and_intersected_with_include() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0.join("b.py"),"language":"typescript","pattern":"oldCall($A)"}),
     )
     .expect_err("single file outside language");
-    assert_eq!(mismatch.code, "languageMismatch");
+    assert_eq!(mismatch.code, ErrorCode::LanguageMismatch);
 
     root.write("notes.txt", "oldCall(x)\n");
     let unsupported = run(
@@ -554,7 +555,7 @@ fn cpp_header_can_use_explicit_cpp_grammar_without_changing_h_default() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":wrong_file,"language":"cpp","rule":"kind: declaration"}),
     )
     .expect_err("C source is not an ambiguous header");
-    assert_eq!(mismatch.code, "languageMismatch");
+    assert_eq!(mismatch.code, ErrorCode::LanguageMismatch);
 }
 
 #[test]
@@ -606,7 +607,7 @@ fn the_inferred_grammar_comes_from_the_scan_walk() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":empty.0,"pattern":"b()"}),
     )
     .expect_err("no grammar");
-    assert_eq!(error.code, "languageRequired", "{error:?}");
+    assert_eq!(error.code, ErrorCode::LanguageRequired, "{error:?}");
 }
 
 #[test]

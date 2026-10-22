@@ -76,6 +76,42 @@ fn tool_spans(text: &str, tools: &[Value]) -> Result<Vec<(usize, usize)>, Box<dy
     Ok(spans)
 }
 
+/// The CLI presentation parts every command line reads, so a CLI process
+/// never parses the whole presentation (its `schema` views) to build its
+/// flags: each tool's `name`, `cli` and `selection.cli` as compact JSON, and
+/// each tool's `help` as `("name", "help")` Rust tuples.
+fn cli_tool_parts(presentation: &Value) -> Result<(String, String), Box<dyn Error>> {
+    let tools = presentation
+        .get("tools")
+        .and_then(Value::as_array)
+        .ok_or_else(|| invalid("cli presentation has no tools[]"))?;
+    let mut flags = Vec::new();
+    let mut help = Vec::new();
+    for (index, tool) in tools.iter().enumerate() {
+        let name = string(
+            tool.get("name")
+                .ok_or_else(|| invalid(format!("cli presentation tools[{index}] has no name")))?,
+            "cli presentation tool name",
+        )?;
+        let mut entry = serde_json::Map::new();
+        entry.insert("name".to_owned(), Value::from(name));
+        if let Some(cli) = tool.get("cli") {
+            entry.insert("cli".to_owned(), cli.clone());
+        }
+        if let Some(cli) = tool
+            .get("selection")
+            .and_then(|selection| selection.get("cli"))
+        {
+            entry.insert("selection".to_owned(), serde_json::json!({ "cli": cli }));
+        }
+        flags.push(Value::Object(entry));
+        if let Some(text) = tool.get("help").and_then(Value::as_str) {
+            help.push(format!("({name:?}, {text:?})"));
+        }
+    }
+    Ok((serde_json::to_string(&flags)?, help.join(", ")))
+}
+
 /// Embeds the tool contract that `@octocodeai/config` generates (its
 /// `generate:tool-contract` script is the only generator). Native keeps no copy:
 /// regenerating in config is the whole change, and cargo rebuilds from it.
@@ -152,6 +188,7 @@ pub(super) fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
             "octocode-config contract/cli-presentation.json does not match tool-contract.json; run `yarn workspace @octocodeai/config generate:tool-contract`",
         ));
     }
+    let (cli_flags, cli_help) = cli_tool_parts(&presentation)?;
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     fs::write(out_dir.join("tool_ids.rs"), render_tool_ids(&contract)?)?;
     fs::write(
@@ -168,6 +205,7 @@ pub(super) fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
     fs::write(out_dir.join("tool-contract.json"), &text)?;
     fs::write(out_dir.join("provenance.json"), &provenance_text)?;
     fs::write(out_dir.join("cli-presentation.json"), &presentation_text)?;
+    fs::write(out_dir.join("cli-tool-flags.json"), &cli_flags)?;
     fs::copy(
         file("contract-fixtures.json"),
         out_dir.join("contract-fixtures.json"),
@@ -185,6 +223,11 @@ pub(super) fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
          pub const CONTRACT_TOOL_SPANS: [(usize, usize); {}] = [{}];\n\
          /// CLI discovery content projected from the same contract by octocode-config.\n\
          pub const CLI_PRESENTATION_JSON: &str = {};\n\
+         /// Each presentation tool's `name`, `cli` and `selection.cli`: what\n\
+         /// every CLI command line needs to build its tool flags.\n\
+         pub const CLI_TOOL_FLAGS_JSON: &str = {};\n\
+         /// Each presentation tool's `<tool> --help` section, by name.\n\
+         pub const CLI_TOOL_HELP: &[(&str, &str)] = &[{}];\n\
          // Read only by tests: contract-ownership and fixture-replay checks.\n\
          #[cfg(test)]\n\
          pub const CONTRACT_FINGERPRINT: &str = {fingerprint:?};\n\
@@ -200,6 +243,8 @@ pub(super) fn embed_tool_contract() -> Result<(), Box<dyn Error>> {
             .collect::<Vec<_>>()
             .join(", "),
         include("cli-presentation.json"),
+        include("cli-tool-flags.json"),
+        cli_help,
         include("contract-fixtures.json"),
         include("provenance.json"),
     );

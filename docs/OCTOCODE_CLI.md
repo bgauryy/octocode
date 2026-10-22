@@ -28,7 +28,7 @@ Which tool to call when: [workflows](OCTOCODE_WORKFLOWS.md). Settings:
 ## Quick start
 
 ```bash
-octocode --help                                         # commands, output rule, exit codes
+octocode --help                                         # commands, one example per tool, exit codes
 octocode localSearch --help                             # every flag, with examples
 octocode localSearch createServer src -w                # like rg -w createServer src
 octocode localFetch src/index.ts:1-40                   # like sed -n '1,40p'
@@ -93,7 +93,7 @@ Every query field is a long flag with the field's exact name: `--wholeWord`,
 |---|---|
 | Boolean | `--wholeWord` is true; `--defaultExcludes=false` is false |
 | Text, number, enum | `--language rust`, `--maxDepth 2`, `--resultView files` |
-| List | Repeat the flag: `--include '*.ts' --include '*.tsx'` |
+| List | Repeat the flag: `--include '*.ts' --include '*.tsx'`. A list of fixed values also takes commas, as gh does: `--sections body,files` |
 | Object | One JSON value: `--size '{"greater":"10k"}'` |
 
 Help lists the fields MCP publishes under "Query options" and the paging,
@@ -106,10 +106,10 @@ value of a field:
 | Command | Short flags (model) |
 |---|---|
 | `localSearch` (rg, grep) | `-e` matchString (repeatable) · `-F` literal · `-E` regex · `-P` pcre2 · `-i` / `-S` / `-s` case insensitive / smart / sensitive · `-w` wholeWord · `-v` invertMatch · `-U` multiline · `-g` include · `-t` language · `-d` maxDepth · `-A` / `-B` / `-C` context · `-l` files · `-c` countLines · `-o` matchOnly |
-| `structureSearch` (fd) | `-e` extensions · `-t` entryType · `-d` maxDepth · `-E` exclude · `-H` includeHidden · `-I` includeIgnored |
+| `structureSearch` (fd) | `-g` include · `-e` extensions · `-t` entryType · `-d` maxDepth · `-E` exclude · `-H` includeHidden · `-I` includeIgnored |
 | `astSearch` (ast-grep) | `-p` pattern · `-l` language |
-| `localFetch` (grep) | `-e` matchString · `-C` contextLines |
-| `ghSearchRepo`, `ghStructure` (gh) | `-L` pageSize (`ghStructure` also `-R`) |
+| `localFetch`, `ghGetFileContent` (grep) | `-e` matchString · `-C` contextLines |
+| `ghSearchRepo`, `ghStructure`, `artifactSearch` (gh) | `-L` pageSize (`ghStructure` also `-R`) |
 | `ghSearchCode`, `ghSearchHistory`, `ghGetFileContent`, `ghGetHistoryItem` (gh) | `-R OWNER/REPO` (fills `owner` and `repo`) · `-L` pageSize · `-s` state (`ghSearchHistory`) |
 
 Positional rules:
@@ -118,7 +118,8 @@ Positional rules:
   searches `src` for either term.
 - Local paths default to `.` when the flag form is used, as in rg and fd. The
   JSON form still names `path`.
-- `PATH:N` and `PATH:N-M` read a line or a range (`localFetch a.ts:10-40`,
+- `PATH:N`, `PATH:N-M` and comma-joined spans (`PATH:10-20,40-50`) read a line
+  or ranges (`localFetch a.ts:10-40`,
   `lspSearch references a.ts:12 run`), unless a local file with that exact name
   exists. A suffix beside `--ranges` or `--line` is an error, as is a range
   where one line is expected.
@@ -132,6 +133,11 @@ Positional rules:
   `structureSearch --operation tree files` lists the `files` directory.
 - A short letter can repeat; the last one wins (`-i -s` is case-sensitive). A
   long flag beats a short letter for the same field.
+- `-l` lists files in `localSearch`, as in rg, and names the language in
+  `astSearch`, as in ast-grep. `localSearch X src -l rust` exits `2` and points
+  to `-t rust`.
+- `structureSearch --extensions` takes bare extensions (`-e rs`). A glob such
+  as `fs_*` exits `2` and points to `--include`.
 
 ### Differences from the familiar tools
 
@@ -213,33 +219,45 @@ off color.
 
 ### Text output
 
-`localSearch` and `astSearch` match results print rg-style lines on stdout, so
-they pipe into `cut`, `sort`, `xargs` and `wc -l`:
+`localSearch` hits, `astSearch` matches and declarations, and `structureSearch
+files` print one line per result on stdout, as rg, ast-grep and fd do, so they
+pipe into `cut`, `sort`, `xargs` and `wc -l`:
 
 ```text
 $ octocode localSearch SearcherBuilder crates/engine -C 1
-crates/engine/src/search/text_search.rs-25-use grep_regex::RegexMatcherBuilder;
-crates/engine/src/search/text_search.rs:26:use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
-crates/engine/src/search/text_search.rs-27-use ignore::overrides::Override;
+crates/engine/src/search/text_search.rs
+25-use grep_regex::RegexMatcherBuilder;
+26:use grep_searcher::{BinaryDetection, Searcher, SearcherBuilder, Sink, SinkContext, SinkMatch};
+27-use ignore::overrides::Override;
 --
-crates/engine/src/search/text_search.rs-996-) -> Searcher {
-crates/engine/src/search/text_search.rs:997:    let mut sb = SearcherBuilder::new();  [function build_searcher 992-1016]
-crates/engine/src/search/text_search.rs-998-    sb.line_number(true)
+996-) -> Searcher {
+997:    let mut sb = SearcherBuilder::new();  [function build_searcher 992-1016]
+998-    sb.line_number(true)
 # matchCount: 2                     (stderr)
 # matchedLineCount: 2               (stderr)
 ```
 
 | Result | stdout lines |
 |---|---|
-| Hits | `path:N:text`; context lines `path-N-text`; `--` between groups when context was asked for; hit lines come from `matchedLines` when a snippet merges several; the enclosing declaration and other match fields follow the first hit line in `[ … ]` |
+| Hits | `path:N:text`; the enclosing declaration and other match fields follow the first hit line in `[ … ]` |
+| Hits with context (`-C`, `-A`, `-B`, or `--clasifyContext`, which judges each hit with 8 lines each side) | as `rg --heading`: the path once, then `N:text` hits and `N-text` context, `--` between groups and a blank line between files; hit lines come from `matchedLines` when a snippet merges several |
 | `-l` (files), `--resultView filesWithout` | one path per line |
 | `-c` (countLines), `--resultView countMatches` | `path:count` |
-| `-o` (matchOnly) | `path:N:value  [{"column":…}]` |
+| `-o` (matchOnly) | `path:N:value  [column 5]` |
+| `-U` with context | numbered like `rg -n -U -C`: every line of the match is `path:N:text` |
 | astSearch matches | `path:N:text` for every line of the match |
+| `lspSearch` sites (`references`, `callers`, …) | `path:N:text`, like hits |
+| `astSearch symbols PATH` (a directory) | `path:N: kind name  [N-M doc D]`; members indented under their parent |
+| `structureSearch files` | one path per line, a directory's ending in `/`, as fd prints them; `[size]` follows when the query sorts or filters by size; symlinks and line counts follow in `[ … ]` |
+
+Notes in `[ … ]` are words: `[declaration]`, `[enclosingLine 935]`,
+`[function build_searcher 992-1016]`. An outline of one file and
+`structureSearch tree` keep the rendered text.
 
 Everything else in the result goes to stderr as `# key: value` notes: counts,
 pagination, warnings, hints, skipped paths, row and response paging
-(`rowPart`, `responsePagination`), and `root`. Nothing is dropped. A snippet the
+(`rowPart`, `responsePagination`), and `root` when it is not the current
+directory. Nothing is dropped. A snippet the
 line format cannot place exactly (a clipped, unnumbered context window) keeps
 the full rendering instead. Every other tool, and every batch,
 prints an indented `key: value` rendering of the whole result on stdout. A call
@@ -247,14 +265,23 @@ whose every row failed prints that rendering on stderr instead, so a pipe never
 reads an error as data.
 
 A follow-up call (`next.*`, a suggested call in `hints`,
-`responsePagination.next`, or an error's repair) prints on stderr as a command
-the shell runs as is. These commands come only from the result's structured
+`responsePagination.next`, or an error's repair) prints once, on stderr, as a
+command the shell runs as is; the `key: value` rendering on stdout leaves it
+out. These commands come only from the result's structured
 fields, never from source text, so fetched content that looks like a call is
 printed unchanged:
 
 ```text
 # next.nextPage: octocode ghSearchHistory '{"queries":[{"operation":"pullRequest","owner":"BurntSushi","repo":"ripgrep","page":2}]}'
 ```
+
+Commands are quoted for the shell that runs them: POSIX shells, and Git Bash,
+MSYS or Cygwin on Windows (`MSYSTEM` or `SHELL` set). Otherwise, on Windows they
+are quoted for PowerShell 7.3 or later, which passes the JSON's double quotes
+intact. In `cmd.exe`, save the JSON to a file and pass `--input FILE`.
+
+Pull request and comment bodies written with CRLF line ends print as lines in
+text output; `--json` keeps the exact bytes.
 
 ### Reading a JSON result
 
@@ -300,7 +327,7 @@ launcher cannot start the native binary, it reports that on stderr and exits
 | Code | Meaning |
 |---:|---|
 | `0` | Success, including a result with more pages |
-| `1` | Every row empty or out of range: no matches, or a page past the last |
+| `1` | Every row empty or out of range: no matches, or a page past the last. A GitHub search that returned nothing because GitHub's results were incomplete exits `1` too; its stderr notes say so and print the `retry` command |
 | `2` | Invalid input or flags, including any rejected batch row |
 | `3` | Not found |
 | `4` | Authentication or permission failure |

@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::contracts::listing_roles::ListingRole;
+use octocode_contract_types::ErrorCode;
 
 /// What a walk left out of a listing: `.gitignore`d entries, entries the
 /// path policy withheld, dot entries skipped without `hidden`, and the
@@ -340,8 +341,8 @@ impl FilterProbe {
             .map(Self)
             .map_err(|error| {
                 let code = match error.kind() {
-                    octocode_engine::error::ErrorKind::InvalidPattern => "invalidPattern",
-                    _ => "invalidGlob",
+                    octocode_engine::error::ErrorKind::InvalidPattern => ErrorCode::InvalidPattern,
+                    _ => ErrorCode::InvalidGlob,
                 };
                 ToolError::new(code, error.to_string())
             })

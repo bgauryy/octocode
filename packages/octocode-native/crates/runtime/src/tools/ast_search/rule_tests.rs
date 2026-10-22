@@ -3,6 +3,7 @@
 use super::test_rows::*;
 use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, checks, simple_policy};
+use octocode_contract_types::ErrorCode;
 use serde_json::json;
 use std::path::PathBuf;
 
@@ -62,7 +63,7 @@ fn an_unparseable_pattern_reports_untagged_text() {
             json!({"operation":"match","mainGoal":"test","reasoning":"test","path":path,"language":"rust","pattern":"neu("}),
         )
         .expect_err("invalid pattern");
-        assert_eq!(error.code, "invalidPattern");
+        assert_eq!(error.code, ErrorCode::InvalidPattern);
         assert!(!error.message.starts_with('['), "{}", error.message);
     }
 }
@@ -117,7 +118,7 @@ fn syntax_tree_line_past_the_end_is_invalid_input_with_a_repair() {
         json!({"operation":"syntaxTree","path":file,"line":99}),
     )
     .expect_err("past the end");
-    assert_eq!(error.code, "invalidInput", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidInput, "{error:?}");
     assert!(error.message.contains("(4 lines)"), "{error:?}");
     let repair = &error.next.as_deref().expect("repair")["repair"];
     let row = &repair["query"]["queries"][0];
@@ -194,7 +195,7 @@ fn directory_pattern_that_compiles_in_no_file_is_an_error_not_empty() {
         json!({"operation":"match","mainGoal":"test","reasoning":"test","path":root.0,"language":"rust","pattern":"fn ???"}),
     )
     .expect_err("uncompilable pattern must fail loudly");
-    assert_eq!(error.code, "invalidPattern");
+    assert_eq!(error.code, ErrorCode::InvalidPattern);
 }
 
 #[test]
@@ -341,7 +342,7 @@ fn rule_parse_errors_carry_no_tree_lead() {
                     "language":"rust","rule":rule}),
             )
             .expect_err("invalid rule");
-            assert_eq!(error.code, "invalidPattern", "{rule}: {error:?}");
+            assert_eq!(error.code, ErrorCode::InvalidPattern, "{rule}: {error:?}");
             assert!(error.message.contains("invalid rule YAML"), "{error:?}");
             assert!(!error.message.starts_with('['), "{error:?}");
             assert!(error.hints.is_empty(), "{error:?}");
@@ -357,7 +358,7 @@ fn rule_parse_errors_carry_no_tree_lead() {
             "rule":"kindx: function_item"}),
     )
     .expect_err("invalid rule");
-    assert_eq!(error.code, "invalidPattern", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     assert!(error.message.contains("unknown field `kindx`"), "{error:?}");
     assert!(error.next.is_none(), "{error:?}");
     for query in [
@@ -370,7 +371,7 @@ fn rule_parse_errors_carry_no_tree_lead() {
             .expect("object")
             .extend(query.as_object().expect("object").clone());
         let error = run(&root.0, row).expect_err("does not compile");
-        assert_eq!(error.code, "invalidPattern", "{error:?}");
+        assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
         let next = error.next.as_ref().expect("viewTree");
         assert_eq!(
             next["viewTree"]["query"]["queries"][0]["path"],
@@ -393,7 +394,7 @@ fn invalid_pattern_is_an_error_even_when_every_file_is_prefiltered() {
     )
     .expect_err("an unparseable pattern must fail loudly");
     // The response stage attaches the repair hint for this code.
-    assert_eq!(error.code, "invalidPattern", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
 }
 
 /// A continuation copies an object rule exactly as written, and it parses
@@ -530,7 +531,7 @@ fn repairable_failures_carry_one_lead() {
         json!({"operation":"match","path":file,"rule":"kind: not_a_real_kind"}),
     )
     .expect_err("unknown kind");
-    assert_eq!(error.code, "invalidPattern", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     assert!(error.hints.is_empty(), "{error:?}");
     let next = error.next.as_ref().expect("lead");
     assert_eq!(

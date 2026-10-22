@@ -4,8 +4,8 @@
 use super::outcome::ToolOutcome;
 use super::result::{FailureKind, failure_kind};
 use super::rows::is_invalid_input_code;
-use crate::id::error_class;
-use crate::id::error_codes::ErrorClass;
+use crate::id::error_codes::{self, ErrorClass};
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
 /// How a call ended.
@@ -72,8 +72,8 @@ impl ExitClass {
     /// How a call that failed with `code` ended: the contract's class of the
     /// code (`errorCodes`), whichever interface or command reports it.
     #[must_use]
-    pub fn of_code(code: &str) -> Self {
-        match error_class(code) {
+    pub fn of(code: ErrorCode) -> Self {
+        match error_codes::class(code) {
             ErrorClass::InvalidInput => Self::InvalidInput,
             _ => Self::Failed(failure_kind(code)),
         }
@@ -85,29 +85,39 @@ impl ExitClass {
 /// shared failure kind, otherwise execution failure.
 fn clasify_failure(value: &Value, failure: Option<FailureKind>) -> Option<ExitClass> {
     let queries = value["queries"].as_array().filter(|q| !q.is_empty())?;
-    let codes: Vec<&str> = queries.iter().filter_map(error_code).collect();
+    let codes: Vec<Option<ErrorCode>> = queries.iter().filter_map(error_code).collect();
     if codes.is_empty() {
         return None;
     }
     Some(
         if codes
             .iter()
-            .any(|code| error_class(code) == ErrorClass::InvalidInput)
+            .flatten()
+            .any(|code| error_codes::class(*code) == ErrorClass::InvalidInput)
         {
             ExitClass::InvalidInput
         } else if let Some(failure) = failure {
             ExitClass::Failed(failure)
         } else {
             ExitClass::Failed(
-                shared_failure(codes.into_iter().map(failure_kind))
-                    .unwrap_or(FailureKind::Execution),
+                shared_failure(
+                    codes
+                        .into_iter()
+                        .map(|code| code.map_or(FailureKind::Execution, failure_kind)),
+                )
+                .unwrap_or(FailureKind::Execution),
             )
         },
     )
 }
 
-fn error_code(value: &Value) -> Option<&str> {
-    value.pointer("/error/errorCode").and_then(Value::as_str)
+/// A clasify row's `error.errorCode`: `Some(None)` for an undeclared one,
+/// which the output contract already rejects (an execution failure).
+fn error_code(value: &Value) -> Option<Option<ErrorCode>> {
+    value
+        .pointer("/error/errorCode")
+        .and_then(Value::as_str)
+        .map(error_codes::parse)
 }
 
 /// An error row whose `errorCode` rejects the caller's input.
@@ -128,6 +138,7 @@ fn failed_rows(rows: &[Value]) -> Option<FailureKind> {
             .map(|row| {
                 row.pointer("/data/errorCode")
                     .and_then(Value::as_str)
+                    .and_then(error_codes::parse)
                     .map_or(FailureKind::Execution, failure_kind)
             }),
     )
@@ -156,10 +167,16 @@ mod tests {
 
     #[test]
     fn missing_local_path_is_not_found_other_errors_are_execution() {
-        assert_eq!(failure_kind("pathNotFound"), FailureKind::NotFound);
-        assert_eq!(failure_kind("notFound"), FailureKind::NotFound);
-        assert_eq!(failure_kind("versionNotFound"), FailureKind::NotFound);
-        assert_eq!(failure_kind("fileAccessFailed"), FailureKind::Execution);
+        assert_eq!(failure_kind(ErrorCode::PathNotFound), FailureKind::NotFound);
+        assert_eq!(failure_kind(ErrorCode::NotFound), FailureKind::NotFound);
+        assert_eq!(
+            failure_kind(ErrorCode::VersionNotFound),
+            FailureKind::NotFound
+        );
+        assert_eq!(
+            failure_kind(ErrorCode::FileAccessFailed),
+            FailureKind::Execution
+        );
     }
 
     #[test]
@@ -260,13 +277,20 @@ mod tests {
     fn every_declared_code_maps_to_one_exit_class() {
         use crate::id::error_codes::ALL;
         assert!(!ALL.is_empty());
-        for (code, class) in ALL {
+        for &code in ALL {
+            let spelling = error_codes::as_str(code);
             assert!(
-                code.chars().all(|c| c.is_ascii_alphanumeric())
-                    && code.starts_with(|c: char| c.is_ascii_lowercase()),
+                spelling.chars().all(|c| c.is_ascii_alphanumeric())
+                    && spelling.starts_with(|c: char| c.is_ascii_lowercase()),
                 "{code} is not camelCase"
             );
-            let expected = match class {
+            assert_eq!(
+                spelling,
+                code.to_string(),
+                "the wire spelling is the enum's"
+            );
+            assert_eq!(error_codes::parse(spelling), Some(code));
+            let expected = match error_codes::class(code) {
                 ErrorClass::InvalidInput => ExitClass::InvalidInput,
                 ErrorClass::NotFound => ExitClass::Failed(FailureKind::NotFound),
                 ErrorClass::Authentication => ExitClass::Failed(FailureKind::Authentication),
@@ -294,7 +318,8 @@ mod tests {
         }
         // No suffix or prefix matching: an undeclared spelling has no class.
         for undeclared in ["ast.language.required", "x.input.invalid", "lsp.timeout"] {
-            assert_eq!(failure_kind(undeclared), FailureKind::Execution);
+            assert_eq!(error_codes::parse(undeclared), None);
+            assert_eq!(crate::id::error_class(undeclared), ErrorClass::Execution);
             assert!(!is_invalid_input_code(undeclared), "{undeclared}");
         }
     }
@@ -516,7 +541,7 @@ mod tests {
                 json!({"results":[row("empty", ""), retry_row("server")]}),
                 None,
                 false,
-                ExitClass::Failed(failure_kind("server")),
+                ExitClass::Failed(failure_kind(ErrorCode::Server)),
             ),
             (
                 json!({"results":[retry_row("rateLimited")]}),
@@ -534,114 +559,158 @@ mod tests {
         }
     }
 
-    /// Every `errorCode` literal production source emits through a known
-    /// constructor is declared in the contract's `errorCodes`, so it maps to
-    /// its exit class instead of falling back to `execution`.
+    /// Error codes are typed end to end: production source names a contract
+    /// `errorCode` only as the generated `ErrorCode` enum. Every constructor,
+    /// row builder and code-returning function takes or returns `ErrorCode`,
+    /// so the compiler already refuses a string there; this scan covers what
+    /// it cannot see: JSON bodies (`"errorCode": "x"`,
+    /// `["errorCode"] = json!("x")`), a row's `errorCode` read and compared
+    /// with a literal, a `code` compared or matched against one, a `code:`
+    /// field set to one, and the body of a `fn ..code..() -> &'static str`.
     #[test]
-    fn every_emitted_code_literal_is_declared() {
-        use crate::id::error_codes::class;
+    fn no_error_code_is_spelled_as_a_string() {
         let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
             .expect("crates dir");
-        let emitted = emitted_code_literals(crates);
-        assert!(
-            emitted.len() > 30,
-            "the scan reads production source: {emitted:?}"
-        );
-        let undeclared: Vec<_> = emitted
-            .iter()
-            .filter(|(code, _)| class(code).is_none())
-            .collect();
-        assert!(
-            undeclared.is_empty(),
-            "emitted but undeclared errorCodes (declare them in core errorCodes): {undeclared:?}"
-        );
-    }
-
-    /// `errorCode` literals in production source (test files and trailing
-    /// `#[cfg(test)]` modules excluded) by code, with one location each:
-    /// error constructors, row `errorCode` fields, and the arms of `code()`
-    /// functions of the runtime's typed errors.
-    fn emitted_code_literals(
-        crates: &std::path::Path,
-    ) -> std::collections::BTreeMap<String, String> {
-        let patterns = regex::Regex::new(concat!(
-            r#"\b(?:RuntimeError|ToolError|CloneError|ArtifactError|ClassificationError)::new\(\s*"([^"]+)""#,
-            r#"|\bGraphOutput::error\(\s*"([^"]+)""#,
-            r#"|\bDomainResult::failure\(\s*"([^"]+)""#,
-            r#"|\b(?:auth_failure|emit_error)\(\s*"([^"]+)""#,
-            r#"|"errorCode"\s*:\s*"([^"]+)""#,
-            r#"|\["errorCode"\]\s*=\s*json!\(\s*"([^"]+)"\)"#,
-        ))
-        .expect("pattern");
-        let code_fn = regex::Regex::new(r"fn (?:error_)?code\([^)]*\)\s*->\s*&'static str\s*\{")
-            .expect("pattern");
-        let literal = regex::Regex::new(r#""([^"]+)""#).expect("pattern");
-        let test_module = regex::Regex::new(r"\n#\[cfg\(test\)\]\s*\nmod ").expect("pattern");
-        let mut found = std::collections::BTreeMap::new();
-        let mut pending = vec![crates.to_path_buf()];
-        while let Some(dir) = pending.pop() {
-            for entry in std::fs::read_dir(&dir).expect("read crate dir").flatten() {
-                let path = entry.path();
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if path.is_dir() {
-                    if !["target", "tests", "test_support", "benches", "fixtures"]
-                        .contains(&name.as_str())
-                    {
-                        pending.push(path);
-                    }
-                    continue;
-                }
-                if !name.ends_with(".rs") || name == "tests.rs" || name.ends_with("_tests.rs") {
-                    continue;
-                }
-                let source = std::fs::read_to_string(&path).expect("read source");
-                let source = test_module
-                    .find(&source)
-                    .map_or(source.as_str(), |test| &source[..test.start()]);
-                let at = |offset: usize| {
-                    format!(
-                        "{}:{}",
-                        path.display(),
-                        source[..offset].matches('\n').count() + 1
-                    )
-                };
-                for captures in patterns.captures_iter(source) {
-                    if let Some(code) = captures.iter().skip(1).flatten().next() {
-                        found
-                            .entry(code.as_str().to_owned())
-                            .or_insert_with(|| at(code.start()));
-                    }
-                }
-                // Typed errors name their codes in `code()` arms; the CLI's
-                // config-edit errors are another namespace.
-                if path
-                    .strip_prefix(crates)
-                    .is_ok_and(|relative| relative.starts_with("runtime"))
-                {
-                    for head in code_fn.find_iter(source) {
-                        let mut depth = 1;
-                        let body = &source[head.end()..];
-                        let end = body
-                            .char_indices()
-                            .find(|(_, c)| {
-                                depth += match c {
-                                    '{' => 1,
-                                    '}' => -1,
-                                    _ => 0,
-                                };
-                                depth == 0
-                            })
-                            .map_or(body.len(), |(end, _)| end);
-                        for code in literal.captures_iter(&body[..end]).filter_map(|c| c.get(1)) {
-                            found
-                                .entry(code.as_str().to_owned())
-                                .or_insert_with(|| at(head.end() + code.start()));
+        let mut scanned = 0;
+        let mut spelled = Vec::new();
+        for krate in ["runtime/src", "cli/src", "runtime-napi/src"] {
+            let mut pending = vec![crates.join(krate)];
+            while let Some(dir) = pending.pop() {
+                for entry in std::fs::read_dir(&dir).expect("read crate dir").flatten() {
+                    let path = entry.path();
+                    let name = entry.file_name().to_string_lossy().into_owned();
+                    if path.is_dir() {
+                        if !["tests", "test_support", "fixtures"].contains(&name.as_str()) {
+                            pending.push(path);
                         }
+                        continue;
+                    }
+                    if !name.ends_with(".rs") || name == "tests.rs" || name.ends_with("_tests.rs") {
+                        continue;
+                    }
+                    let source = std::fs::read_to_string(&path).expect("read source");
+                    scanned += 1;
+                    for (line, form) in spelled_codes(&source) {
+                        spelled.push(format!("{}:{line}: {form}", path.display()));
                     }
                 }
             }
         }
-        found
+        assert!(scanned > 300, "the scan reads production source: {scanned}");
+        assert!(
+            spelled.is_empty(),
+            "spell these contract errorCodes as ErrorCode::…:\n{}",
+            spelled.join("\n")
+        );
+    }
+
+    /// The scan catches each form it guards, and leaves the typed spellings,
+    /// other vocabularies (`category`, engine diagnostics) and test modules.
+    #[test]
+    fn the_spelled_code_scan_finds_each_string_form() {
+        let source = r#"
+fn a() -> Value { json!({"error": m, "errorCode": "invalidInput"}) }
+fn b(row: &mut Value) { row["errorCode"] = json!("notFound"); }
+fn c(data: &Value) -> bool { data["errorCode"] == "rateLimited" }
+fn d(row: &Value) -> bool { row.pointer("/data/errorCode").and_then(Value::as_str) == Some("staleSnapshot") }
+fn e(code: &str) -> bool { code == "timeout" }
+fn f(error: &E) -> bool { matches!(error.code.as_str(), "cancelled" | "closed") }
+fn g() -> Failure { Failure { code: "requestFailed".into(), message } }
+fn local_code(kind: Kind) -> &'static str {
+    match kind {
+        Kind::A => "fileReadFailed",
+    }
+}
+fn typed(data: &Value) -> Value { json!({"errorCode": ErrorCode::InvalidInput, "category": "noLocations"}) }
+fn other(category: &str, diagnostic: &D) -> bool { category == "noDiagnostics" || diagnostic.code == "structural.compile.failed" }
+#[cfg(test)]
+mod tests {
+    fn pinned() -> Value { json!({"errorCode": "invalidInput"}) }
+}
+"#;
+        let found: Vec<usize> = spelled_codes(source)
+            .into_iter()
+            .map(|(line, _)| line)
+            .collect();
+        assert_eq!(
+            found,
+            [2, 3, 4, 5, 6, 7, 8, 11],
+            "{:?}",
+            spelled_codes(source)
+        );
+    }
+
+    /// `(line, text)` of each contract `errorCode` spelled as a string in
+    /// `source`'s production part (a trailing `#[cfg(test)]` module is not).
+    fn spelled_codes(source: &str) -> Vec<(usize, String)> {
+        use crate::id::error_codes::parse;
+        let test_module = regex::Regex::new(r"\n#\[cfg\(test\)\]\s*\nmod ").expect("pattern");
+        let source = test_module
+            .find(source)
+            .map_or(source, |test| &source[..test.start()]);
+        // The value of an `errorCode` JSON key is a code whatever it says.
+        let json_value = regex::Regex::new(concat!(
+            r#""errorCode"\s*:\s*"([^"]*)""#,
+            r#"|\["errorCode"\]\s*=\s*json!\(\s*"([^"]*)""#,
+        ))
+        .expect("pattern");
+        // A literal compared with a code: only a declared spelling is one.
+        let compared = regex::Regex::new(concat!(
+            r#"errorCode"\]?\)?[^;\n]*?[!=]=\s*(?:Some\()?"([A-Za-z]+)""#,
+            r#"|\b(?:code|error_code)\s*[!=]=\s*(?:Some\()?"([A-Za-z]+)""#,
+            r#"|\bcode:\s*"([A-Za-z]+)""#,
+            r#"|matches!\([^,]*\bcode\b[^,]*,\s*"([A-Za-z]+)""#,
+        ))
+        .expect("pattern");
+        let code_fn =
+            regex::Regex::new(r"fn \w*code\w*\([^)]*\)\s*->\s*(?:Option<)?&'static str\s*\{")
+                .expect("pattern");
+        let literal = regex::Regex::new(r#""([A-Za-z]+)""#).expect("pattern");
+        let line_of = |offset: usize| source[..offset].matches('\n').count() + 1;
+        let text_of = |offset: usize| {
+            let start = source[..offset].rfind('\n').map_or(0, |at| at + 1);
+            let end = source[offset..]
+                .find('\n')
+                .map_or(source.len(), |at| offset + at);
+            source[start..end].trim().to_owned()
+        };
+        let mut found = std::collections::BTreeMap::new();
+        for captures in json_value.captures_iter(source) {
+            let at = captures.get(0).expect("match").start();
+            found.entry(line_of(at)).or_insert_with(|| text_of(at));
+        }
+        for captures in compared.captures_iter(source) {
+            let code = captures.iter().skip(1).flatten().next().expect("group");
+            if parse(code.as_str()).is_some() {
+                found
+                    .entry(line_of(code.start()))
+                    .or_insert_with(|| text_of(code.start()));
+            }
+        }
+        for head in code_fn.find_iter(source) {
+            let mut depth = 1;
+            let body = &source[head.end()..];
+            let end = body
+                .char_indices()
+                .find(|(_, c)| {
+                    depth += match c {
+                        '{' => 1,
+                        '}' => -1,
+                        _ => 0,
+                    };
+                    depth == 0
+                })
+                .map_or(body.len(), |(end, _)| end);
+            for code in literal
+                .captures_iter(&body[..end])
+                .filter_map(|c| c.get(1))
+                .filter(|code| parse(code.as_str()).is_some())
+            {
+                let at = head.end() + code.start();
+                found.entry(line_of(at)).or_insert_with(|| text_of(at));
+            }
+        }
+        found.into_iter().collect()
     }
 }

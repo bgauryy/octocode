@@ -2,6 +2,7 @@
 //! caller pages.
 
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 #[test]
 fn workspace_symbols_are_flat_named_and_one_based() {
@@ -125,7 +126,13 @@ fn empty_diagnostics_carry_no_read_recovery_and_symbol_reads_are_matched() {
         "symbolName": "run",
         "line": 3
     }));
-    let row = failure(&q, "file:///repo/a.ts", "anchorUnresolved", "x", true);
+    let row = failure(
+        &q,
+        "file:///repo/a.ts",
+        ErrorCode::AnchorUnresolved,
+        "x",
+        true,
+    );
     let read = &row["next"]["read"]["query"]["queries"][0];
     assert_eq!(read["path"], "/repo/a.ts");
     assert_eq!(read["matchString"], "run");
@@ -137,14 +144,14 @@ fn path_policy_denials_are_file_access_failures_not_missing_servers() {
         crate::policy::PolicyErrorCode::OutsideAllowedRoots,
         "Path '/etc/hosts' is outside allowed directories",
     ));
-    assert_eq!(denied.code, "outsideAllowedRoots");
+    assert_eq!(denied.code, ErrorCode::OutsideAllowedRoots);
     assert!(!denied.retryable);
     assert!(denied.hint.contains("ALLOWED_PATHS"));
     let missing = LspFailure::path_denied(crate::policy::PolicyError::new(
         crate::policy::PolicyErrorCode::NotFound,
         "missing",
     ));
-    assert_eq!(missing.code, "pathNotFound");
+    assert_eq!(missing.code, ErrorCode::PathNotFound);
 }
 
 #[test]
@@ -158,22 +165,37 @@ fn engine_errors_map_to_typed_failures_not_one_unavailable_code() {
         }))))
     };
     let timeout = LspFailure::from(Error::timeout("request timed out"));
-    assert_eq!((timeout.code, timeout.retryable), ("timeout", true));
+    assert_eq!(
+        (timeout.code, timeout.retryable),
+        (ErrorCode::Timeout, true)
+    );
     let closed = LspFailure::from(Error::connection_closed("LSP connection closed"));
-    assert_eq!((closed.code, closed.retryable), ("serverCrashed", true));
+    assert_eq!(
+        (closed.code, closed.retryable),
+        (ErrorCode::ServerCrashed, true)
+    );
     let missing = rpc(-32601, serde_json::Value::Null);
     assert_eq!(
         (missing.code, missing.retryable),
-        ("capabilityUnavailable", false)
+        (ErrorCode::CapabilityUnavailable, false)
     );
     for code in [-32801, -32802] {
         let stale = rpc(code, serde_json::Value::Null);
-        assert_eq!((stale.code, stale.retryable), ("requestFailed", true));
+        assert_eq!(
+            (stale.code, stale.retryable),
+            (ErrorCode::RequestFailed, true)
+        );
     }
     let invalid = rpc(-32602, serde_json::Value::Null);
-    assert_eq!((invalid.code, invalid.retryable), ("requestFailed", false));
+    assert_eq!(
+        (invalid.code, invalid.retryable),
+        (ErrorCode::RequestFailed, false)
+    );
     let other = LspFailure::from(engine_error("boom"));
-    assert_eq!((other.code, other.retryable), ("requestFailed", true));
+    assert_eq!(
+        (other.code, other.retryable),
+        (ErrorCode::RequestFailed, true)
+    );
     assert!(timeout.message.contains("timed out"));
 }
 
@@ -193,7 +215,7 @@ fn clangd_invalid_ast_is_a_non_retryable_setup_failure_naming_the_fix() {
     let invalid = rpc("invalid AST");
     assert_eq!(
         (invalid.code, invalid.retryable, invalid.lexical_fallback),
-        ("missingConfiguration", false, false)
+        (ErrorCode::MissingConfiguration, false, false)
     );
     assert!(!invalid.hint.contains("Retry once"), "{}", invalid.hint);
     for fix in ["compile_commands.json", "compile_flags.txt", ".clangd"] {
@@ -206,14 +228,17 @@ fn clangd_invalid_ast_is_a_non_retryable_setup_failure_naming_the_fix() {
     );
 
     let other = rpc("something else broke");
-    assert_eq!((other.code, other.retryable), ("requestFailed", true));
+    assert_eq!(
+        (other.code, other.retryable),
+        (ErrorCode::RequestFailed, true)
+    );
     let other_code = LspFailure::from(Error::rpc(RpcError::from_value(serde_json::json!({
         "code": -32603,
         "message": "invalid AST"
     }))));
     assert_eq!(
         (other_code.code, other_code.retryable),
-        ("requestFailed", true),
+        (ErrorCode::RequestFailed, true),
         "only clangd's -32001 is the invalid-AST answer"
     );
 }
@@ -239,12 +264,13 @@ fn failure_tips_never_name_workspace_root_outside_workspace_symbol() {
         .collect::<Vec<_>>();
     tips.push(LspFailure::overdue("no answer".into()).hint.to_owned());
     for code in [
-        "timeout",
-        "serverUnavailable",
-        "capabilityUnavailable",
-        "fileTooLarge",
-        "diagnosticsNotPublished",
-        "anchorUnresolved",
+        ErrorCode::Timeout,
+        ErrorCode::ServerUnavailable,
+        ErrorCode::CapabilityUnavailable,
+        ErrorCode::FileTooLarge,
+        // Any other code: the generic tip.
+        ErrorCode::RequestFailed,
+        ErrorCode::AnchorUnresolved,
     ] {
         tips.extend(failure_hint(&anchored, code).map(str::to_owned));
     }
@@ -353,7 +379,13 @@ fn unresolved_symbol_anchor_reads_the_hinted_lines_and_suggests_near_names() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let mut row = failure(&q, "file:///repo/lib.rs", "anchorUnresolved", "x", true);
+    let mut row = failure(
+        &q,
+        "file:///repo/lib.rs",
+        ErrorCode::AnchorUnresolved,
+        "x",
+        true,
+    );
     anchor_recovery(&mut row, &q, Some(&source));
     // A resolved candidate is the recovery: no read beside it, and no
     // static prose.
@@ -361,7 +393,13 @@ fn unresolved_symbol_anchor_reads_the_hinted_lines_and_suggests_near_names() {
     // The lead names the one near name; no sentence repeats it.
     assert!(row["hints"].as_array().is_some_and(Vec::is_empty), "{row}");
     // Without a candidate, the lines around the hint are read.
-    let mut blank = failure(&q, "file:///repo/lib.rs", "anchorUnresolved", "x", true);
+    let mut blank = failure(
+        &q,
+        "file:///repo/lib.rs",
+        ErrorCode::AnchorUnresolved,
+        "x",
+        true,
+    );
     let unrelated = (1..=20)
         .map(|line| format!("// line {line}"))
         .collect::<Vec<_>>()
@@ -369,7 +407,13 @@ fn unresolved_symbol_anchor_reads_the_hinted_lines_and_suggests_near_names() {
     anchor_recovery(&mut blank, &q, Some(&unrelated));
     // A `line` past the end reads the file's last lines.
     let past = requery(&q, serde_json::json!({"line": 99_999_999}));
-    let mut beyond = failure(&past, "file:///repo/lib.rs", "anchorUnresolved", "x", true);
+    let mut beyond = failure(
+        &past,
+        "file:///repo/lib.rs",
+        ErrorCode::AnchorUnresolved,
+        "x",
+        true,
+    );
     anchor_recovery(&mut beyond, &past, Some(&unrelated));
     assert_eq!(
         beyond["next"]["read"]["query"]["queries"][0]["ranges"],
@@ -1340,7 +1384,13 @@ fn unresolved_anchor_leads_to_real_symbol_lines() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let mut row = failure(&q, "file:///repo/a.ts", "anchorUnresolved", "x", true);
+    let mut row = failure(
+        &q,
+        "file:///repo/a.ts",
+        ErrorCode::AnchorUnresolved,
+        "x",
+        true,
+    );
     anchor_recovery(&mut row, &q, Some(&source));
     let lead = |key: &str| row["next"][key]["query"]["queries"][0].clone();
     // The declaration line first, then the nearest uses.
@@ -1364,7 +1414,13 @@ fn an_order_hint_past_the_line_leads_to_its_last_occurrence() {
         "symbolName": "config", "line": 3, "orderHint": 2
     }));
     let source = "struct L { config: u8 }\nfn a(config: u8) {}\nfn f() -> L { L { config: target.config } }\nfn b(config: u8) {}\n";
-    let mut row = failure(&q, "file:///repo/lib.rs", "anchorUnresolved", "x", true);
+    let mut row = failure(
+        &q,
+        "file:///repo/lib.rs",
+        ErrorCode::AnchorUnresolved,
+        "x",
+        true,
+    );
     anchor_recovery(&mut row, &q, Some(source));
     let lead = &row["next"]["findSimilar"]["query"]["queries"][0];
     assert_eq!(lead["orderHint"], 1, "{row}");
@@ -1384,7 +1440,13 @@ fn near_names_skip_comment_words() {
         "symbolName": "Anchor", "line": 1
     }));
     let source = "//! The anchor of a request.\nfn other() {}\n";
-    let mut row = failure(&q, "file:///repo/anchor.rs", "anchorUnresolved", "x", true);
+    let mut row = failure(
+        &q,
+        "file:///repo/anchor.rs",
+        ErrorCode::AnchorUnresolved,
+        "x",
+        true,
+    );
     anchor_recovery(&mut row, &q, Some(source));
     assert!(row["next"].get("findSimilar").is_none(), "{row}");
     assert!(!row["hints"].to_string().contains("Closest names"), "{row}");
@@ -1400,7 +1462,13 @@ fn unresolved_anchor_never_leads_back_to_itself() {
             "operation": "hover", "path": "/repo/anchor.rs",
             "symbolName": "Request", "line": 1
         }));
-        let mut row = failure(&q, "file:///repo/anchor.rs", "anchorUnresolved", "x", true);
+        let mut row = failure(
+            &q,
+            "file:///repo/anchor.rs",
+            ErrorCode::AnchorUnresolved,
+            "x",
+            true,
+        );
         anchor_recovery(&mut row, &q, Some(source));
         assert!(row["next"].get("findSimilar2").is_none(), "{row}");
         assert!(row["next"].get("read").is_none(), "{row}");
@@ -1435,7 +1503,13 @@ fn covered_anchor_candidates_add_no_text() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let mut row = failure(&q, "file:///repo/a.ts", "anchorUnresolved", "x", true);
+    let mut row = failure(
+        &q,
+        "file:///repo/a.ts",
+        ErrorCode::AnchorUnresolved,
+        "x",
+        true,
+    );
     let before = row["hints"].clone();
     anchor_recovery(&mut row, &q, Some(&source));
     assert_eq!(
@@ -1517,7 +1591,7 @@ fn a_memory_exhausted_server_is_final_and_leaves_an_unverified_text_lead() {
         "language server exceeded memory cap (4200 MiB resident > 4096 MiB); it was killed.",
     );
     let failure = LspFailure::from_engine(&error);
-    assert_eq!(failure.code, "serverCrashed");
+    assert_eq!(failure.code, ErrorCode::ServerCrashed);
     assert!(!failure.retryable, "{failure:?}");
     for text in [failure.message.as_str(), failure.hint] {
         assert!(!text.contains("maxMemoryMb"), "{text}");
@@ -1852,7 +1926,7 @@ fn a_directory_anchor_is_not_a_file_and_leads_into_it() {
         .map_err(LspFailure::path_denied)
         .expect_err("missing");
     let row = path_failure(&missing, &paths, failure).expect("a missing-path row");
-    assert_eq!(row["errorCode"], crate::policy::PATH_NOT_FOUND, "{row}");
+    assert_eq!(row["errorCode"], "pathNotFound", "{row}");
     assert!(row.get("hints").is_none(), "{row}");
     assert_eq!(row["next"]["viewTree"]["tool"], "structureSearch", "{row}");
     crate::contracts::validate_output("lspSearch", &public_row(&row))

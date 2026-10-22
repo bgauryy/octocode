@@ -5,6 +5,7 @@ use crate::execution::cancel::NeverCancel;
 use crate::id::ToolId;
 use crate::response::result::ToolError;
 use crate::tools::test_support::{Fixture, simple_policy};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
 fn run(root: &std::path::Path, query: Value) -> Result<Value, ToolError> {
@@ -59,12 +60,14 @@ fn a_file_of_another_grammar_is_a_mismatch_that_names_its_extension() {
         json!({"operation":"symbols","path":file,"language":"typescript"}),
     )
     .expect_err("python is not typescript");
-    assert_eq!(error.code, "languageMismatch");
+    assert_eq!(error.code, ErrorCode::LanguageMismatch);
     assert!(error.message.contains(".py"), "{}", error.message);
     assert!(error.message.contains("python"), "{}", error.message);
     // The message states the repair; the generic hint would contradict it.
     assert_eq!(
-        ToolId::AstSearch.output().error_hint("languageMismatch"),
+        ToolId::AstSearch
+            .output()
+            .error_hint(ErrorCode::LanguageMismatch),
         Some(crate::response::output::NO_HINT)
     );
 }
@@ -133,7 +136,12 @@ fn match_parses_files_named_by_language_globs() {
         json!({"operation":"match","path":root.0.join("noext"),"rule":"kind: function_declaration","languageGlobs":globs}),
     )
     .expect_err("a single file takes language");
-    assert_eq!(error.code, "languageDirectoryRequired", "{}", error.message);
+    assert_eq!(
+        error.code,
+        ErrorCode::LanguageDirectoryRequired,
+        "{}",
+        error.message
+    );
 }
 
 /// Without `languageGlobs`, the files no grammar parses are named in one
@@ -241,7 +249,7 @@ fn symbols_of_a_file_without_a_grammar_are_unsupported_not_empty() {
     }
     let hint = ToolId::AstSearch
         .output()
-        .error_hint("symbolsUnsupported")
+        .error_hint(ErrorCode::SymbolsUnsupported)
         .expect("hint");
     assert!(
         hint.contains("language") && hint.contains("languageGlobs"),

@@ -8,6 +8,7 @@ use super::{
     ArtifactType,
 };
 use crate::providers::artifact::types::artifact_search_query;
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
 /// A gem row. The exact (`gems/<name>.json`) document also states the
@@ -113,7 +114,7 @@ pub(crate) async fn rubygems(
         if fetched.len() > RUBYGEMS_PAGE_ROWS {
             // Offsets would name the wrong rows: fail loudly, never skip.
             return Err(ArtifactError::new(
-                "providerError",
+                ErrorCode::ProviderError,
                 format!(
                     "rubygems answered {} rows on one search page, more than the {RUBYGEMS_PAGE_ROWS} its paging is computed from.",
                     fetched.len()
@@ -208,7 +209,7 @@ mod tests {
         let error = rubygems(&query, &Default::default(), &client)
             .await
             .expect_err("31 rows");
-        assert_eq!(error.code, "providerError");
+        assert_eq!(error.code, ErrorCode::ProviderError);
         assert!(error.message.contains("31 rows"), "{}", error.message);
     }
 

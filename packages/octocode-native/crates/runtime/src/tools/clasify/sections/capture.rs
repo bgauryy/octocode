@@ -3,6 +3,7 @@ use crate::execution::ExecutionContext;
 use crate::security::scan::ContentScan as _;
 use crate::tools::source_capture::SourceReader;
 use crate::tools::{judgment::ClassificationError, source_capture::resource, source_sections};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -36,7 +37,7 @@ impl Pool {
         }
         let captured = resource::capture(source, dispatcher, context).and_then(|captured| {
             if captures.bytes.saturating_add(captured.text.len()) > max_bytes {
-                return Err(ClassificationError::new("classificationContextTooLarge", "The complete source would exceed the aggregate capture budget; no source was truncated.", "Use raw readers or a smaller resource set."));
+                return Err(ClassificationError::new(ErrorCode::ClassificationContextTooLarge, "The complete source would exceed the aggregate capture budget; no source was truncated.", "Use raw readers or a smaller resource set."));
             }
             captures.bytes += captured.text.len();
             Ok(Arc::new(captured))
@@ -84,7 +85,7 @@ pub(super) fn create(
                         let mut metadata = capture.0;
                         metadata["status"] = json!("unsupported");
                         metadata["error"] = error_value(&ClassificationError::new(
-                            "classificationContextTooLarge",
+                            ErrorCode::ClassificationContextTooLarge,
                             "This resource would exceed the aggregate retained-plan budget; none of its sections were assessed.",
                             "Use its pinned raw reader or assess a narrower resource set.",
                         ));
@@ -96,7 +97,7 @@ pub(super) fn create(
                     }
                 }
                 Err(error) => {
-                    let mut metadata = json!({"status":if matches!(error.code.as_str(), "fileTooLarge" | "classificationContextTooLarge" | "capabilityUnavailable") {"unsupported"} else {"error"},"source":source,"error":error_value(&error),"coverage":{"totalSections":null,"completedSections":0,"remainingSections":null,"answered":0,"error":0,"unsupported":0,"unassessed":null}});
+                    let mut metadata = json!({"status":if matches!(error.code, ErrorCode::FileTooLarge | ErrorCode::ClassificationContextTooLarge | ErrorCode::CapabilityUnavailable) {"unsupported"} else {"error"},"source":source,"error":error_value(&error),"coverage":{"totalSections":null,"completedSections":0,"remainingSections":null,"answered":0,"error":0,"unsupported":0,"unassessed":null}});
                     if let Some(tool) = source["tool"]
                         .as_str()
                         .and_then(crate::id::ToolId::from_name)
@@ -208,7 +209,7 @@ fn prepare(
             if let Err(error) = &target_text {
                 Some(json!({"status":"unsupported","error":error_value(error)}))
             } else {
-                (question["type"] == "box").then(|| json!({"status":"unsupported","error":{"errorCode":"capabilityUnavailable","error":"Box questions require an explicit image asset; this operation assesses text sections."}}))
+                (question["type"] == "box").then(|| json!({"status":"unsupported","error":{"errorCode":ErrorCode::CapabilityUnavailable,"error":"Box questions require an explicit image asset; this operation assesses text sections."}}))
             }
         }).collect();
             let unit = Unit {
@@ -230,7 +231,7 @@ fn prepare(
     if !complete {
         metadata["status"] = json!("unsupported");
         metadata["error"] = error_value(&ClassificationError::new(
-            "classificationContextTooLarge",
+            ErrorCode::ClassificationContextTooLarge,
             "The complete section/question plan exceeds the remaining retained-plan budget; its sections were not assessed.",
             "Use the pinned raw reader or a smaller resource selection.",
         ));

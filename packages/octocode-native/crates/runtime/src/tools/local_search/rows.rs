@@ -116,7 +116,9 @@ pub(super) fn context_window(
         .as_ref()
         .map_or(Some(1), |spanned| u32::try_from(spanned.len()).ok())?;
     let before = context.before.min(matched.line - 1);
-    let after = u32::try_from(lines.len()).ok()?.checked_sub(before + span)?;
+    let after = u32::try_from(lines.len())
+        .ok()?
+        .checked_sub(before + span)?;
     (after <= context.after).then_some((matched.line - before, lines))
 }
 
@@ -283,6 +285,21 @@ mod merge_tests {
             enclosing_line: None,
             declaration: None,
         }
+    }
+
+    /// A match spanning lines 3–4 with one line of context is numbered as
+    /// rg prints it, every line it covers a matched line.
+    #[test]
+    fn a_multiline_match_window_is_numbered_from_its_first_context_line() {
+        let mut spanned = row(3, "two\nfn new()\n  -> Self\nfive");
+        spanned.match_lines = Some(vec![3, 4]);
+        let merged = merge_context_windows(vec![spanned], SearchContext::symmetric(1), 500, &[3]);
+        assert_eq!(
+            merged[0].value,
+            "2\ttwo\n3\tfn new()\n4\t  -> Self\n5\tfive"
+        );
+        assert_eq!(merged[0].match_lines, Some(vec![3, 4]));
+        assert_eq!(merged[0].line, 3);
     }
 
     /// Each line within reach of two hits belongs to the nearer (the

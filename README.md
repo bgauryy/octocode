@@ -115,23 +115,25 @@ Details: [benchmark method](https://github.com/bgauryy/octocode/blob/main/packag
 
 **14 tools.** Your agent gets 12 tools over MCP and 13 in the CLI (which adds `ghCloneRepo`). Beta (`OCTOCODE_BETA=true`) adds `clasify` to both when a classification key is set.
 
-| You want to | Tool |
-|---|---|
-| See a project's folders and find files | `structureSearch` |
-| Search local code for text | `localSearch` |
-| Find functions, classes, and code patterns | `astSearch` |
-| Read exact lines, or one whole function | `localFetch` |
-| Find a symbol's definition, references, and callers | `lspSearch` |
-| Find a GitHub repository | `ghSearchRepo` |
-| Search code across GitHub | `ghSearchCode` |
-| Browse a repository at any branch or tag | `ghStructure` |
-| Read a file from GitHub | `ghGetFileContent` |
-| Find pull requests, issues, and commits | `ghSearchHistory` |
-| Read a pull request, issue, or commit | `ghGetHistoryItem` |
-| Check package versions and dependencies | `artifactSearch` |
-| Pick the right file without reading them all (beta) | `clasify` |
-| Clone a repository for deep local work (CLI) | `ghCloneRepo` |
-| Map imports, callers, cycles and dead code (CLI) | `octocode graph ingest` + `graph query` |
+Every tool runs from the CLI too: `npx octocode <tool> …`, with rg/grep/gh-style flags or one JSON query (`npx octocode <tool> --help` shows its flags, `npx octocode schema <tool>` its fields).
+
+| You want to | Tool | CLI input |
+|---|---|---|
+| See a project's folders and find files | `structureSearch` | `octocode structureSearch files src -g '*.ts' -d 3` |
+| Search local code for text | `localSearch` | `octocode localSearch registerHandler src -w -C 2` |
+| Find functions, classes, and code patterns | `astSearch` | `octocode astSearch symbols src --symbolName createServer`<br>`octocode astSearch match src -l typescript -p 'function $F($$$A) { $$$B }'` |
+| Read exact lines, or one whole function | `localFetch` | `octocode localFetch src/index.ts:1-40` |
+| Find a symbol's definition, references, and callers | `lspSearch` | `octocode lspSearch references src/index.ts:10 run` |
+| Find a GitHub repository | `ghSearchRepo` | `octocode ghSearchRepo "fuzzy finder" --language Rust --sort stars:desc -L 5` |
+| Search code across GitHub | `ghSearchCode` | `octocode ghSearchCode SearcherBuilder -R BurntSushi/ripgrep` |
+| Browse a repository at any branch or tag | `ghStructure` | `octocode ghStructure tree crates -R BurntSushi/ripgrep` |
+| Read a file from GitHub | `ghGetFileContent` | `octocode ghGetFileContent crates/searcher/src/lib.rs:1-40 -R BurntSushi/ripgrep` |
+| Find pull requests, issues, and commits | `ghSearchHistory` | `octocode ghSearchHistory pullRequest mmap -R BurntSushi/ripgrep -s merged` |
+| Read a pull request, issue, or commit | `ghGetHistoryItem` | `octocode ghGetHistoryItem pullRequest 2000 -R BurntSushi/ripgrep --sections body,files` |
+| Check package versions and dependencies | `artifactSearch` | `octocode artifactSearch zod --ecosystem npm` |
+| Pick the right file without reading them all (beta) | `clasify` | `octocode localSearch timeout src --clasifyContext '{"classifiers":["Sets the default timeout?"]}'` |
+| Clone a repository for deep local work (CLI) | `ghCloneRepo` | `octocode ghCloneRepo BurntSushi/ripgrep --path crates/globset` |
+| Map imports, callers, cycles and dead code (CLI) | `graph` | `octocode graph ingest src`, then `octocode graph query hubs` |
 
 Full reference: [Tools](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_TOOLS.md) · [clasify guide](https://github.com/bgauryy/octocode/blob/main/docs/OCTOCODE_CLASIFY.md).
 

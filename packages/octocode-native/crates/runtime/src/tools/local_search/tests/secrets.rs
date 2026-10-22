@@ -1,4 +1,5 @@
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 #[test]
 fn clipped_secret_guard_fails_closed_when_the_source_cannot_be_reread() {
@@ -1072,7 +1073,7 @@ fn a_bad_include_glob_is_invalid_glob() {
         None,
     )
     .expect_err("bad glob");
-    assert_eq!(error.code, "invalidGlob", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidGlob, "{error:?}");
 }
 
 #[cfg(unix)]
@@ -1091,7 +1092,7 @@ fn a_scope_where_every_path_is_unreadable_is_an_access_error_not_empty() {
         execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None);
     unlock_dir(&hidden);
     let error = outcome.expect_err("every candidate failed");
-    assert_eq!(error.code, "fileAccessFailed");
+    assert_eq!(error.code, ErrorCode::FileAccessFailed);
     assert!(
         error.message.contains("Permission denied"),
         "{}",

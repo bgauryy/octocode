@@ -6,6 +6,7 @@ use crate::tools::local_fetch::WindowUnit;
 use crate::tools::local_fetch::types::test_local_fetch_query;
 use crate::tools::local_fetch::wire_positive;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_contract_types::ErrorCode;
 use octocode_github::RetryPolicy;
 use octocode_github::mock_http::mount_json;
 use std::{path::Path, time::Duration};
@@ -50,7 +51,7 @@ async fn execute_default_regex(
 #[derive(Clone)]
 struct Safe;
 impl ContentScan for Safe {
-    fn sanitize(&self, text: &str, _: &Path) -> Result<(String, Vec<String>), (String, String)> {
+    fn sanitize(&self, text: &str, _: &Path) -> Result<(String, Vec<String>), (ErrorCode, String)> {
         Ok((text.replace("TOKEN", "[REDACTED]"), vec![]))
     }
 }
@@ -162,8 +163,8 @@ async fn explicit_minification_refuses_selection_and_offers_pinned_recovery() {
     let (plain, classifiers) = (&pages[0], &pages[1]);
     assert!(plain.content.pagination.is_some(), "{plain:?}");
     assert_eq!(
-        classifiers.content.error_code.as_deref(),
-        Some("invalidInput")
+        classifiers.content.error_code,
+        Some(ErrorCode::InvalidInput)
     );
     assert!(classifiers.content.content.is_none());
     let recovery =
@@ -192,7 +193,11 @@ struct Counting {
     scans: std::sync::atomic::AtomicUsize,
 }
 impl ContentScan for Counting {
-    fn sanitize(&self, text: &str, path: &Path) -> Result<(String, Vec<String>), (String, String)> {
+    fn sanitize(
+        &self,
+        text: &str,
+        path: &Path,
+    ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
         self.scans.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Safe.sanitize(text, path)
     }
@@ -566,7 +571,7 @@ async fn a_path_only_read_of_a_large_file_returns_a_head_and_a_continuation() {
     let file = &head.file;
     assert_eq!(
         file.content.returned_lines,
-        Some(50),
+        Some(crate::id::local_fetch_policy::HEAD_LINES),
         "{:?}",
         file.content.warnings
     );
@@ -577,7 +582,11 @@ async fn a_path_only_read_of_a_large_file_returns_a_head_and_a_continuation() {
     );
     let next = file.next.clone().expect("continuation");
     let page = &next["continueWindow"]["query"]["queries"][0];
-    assert_eq!(page["offset"], 50, "{next}");
+    assert_eq!(
+        page["offset"],
+        crate::id::local_fetch_policy::HEAD_LINES,
+        "{next}"
+    );
     assert_eq!(page["path"], "big.txt", "{next}");
     // Explicit whole-file read, and anchored reads, are not cut to a head.
     let mut whole = base.clone();

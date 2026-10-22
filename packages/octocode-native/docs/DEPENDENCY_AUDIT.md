@@ -13,7 +13,8 @@ Every direct dependency of the native crates and the job it owns. A passing unus
 | `moka` | Bounded in-memory caches: parsed graph facts and language-server responses |
 | `oxc_allocator`, `oxc_ast`, `oxc_ast_visit`, `oxc_parser`, `oxc_semantic`, `oxc_span` | JavaScript/TypeScript parsing, symbols, references, calls, and graph facts; complements Tree-sitter |
 | `rayon` | Bounded parallel file scans |
-| `regex`, `regex-syntax` | General matching and pre-validation of Rust-regex patterns |
+| `regex` | General matching and pre-validation of Rust-regex patterns |
+| `regex-syntax` (build, development) | Deriving the secret detector's prescan literals from the pattern table at build time (`build.rs`), and generating pattern samples in its tests |
 | `serde`, `serde_json`, `serde-saphyr` | Typed DTOs, LSP and graph JSON, and YAML rule documents (not YAML source parsing) |
 | `sha2`, `hex` | Content digests |
 | `tokio` | Language-server processes, I/O, timeouts, and synchronization |

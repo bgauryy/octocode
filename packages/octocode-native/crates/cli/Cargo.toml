@@ -21,6 +21,7 @@ path = "tests/main.rs"
 [dependencies]
 octocode-io = { path = "../io" }
 octocode-native = { path = "../runtime" }
+octocode-contract-types = { path = "../contract-types" }
 octocode-engine = { path = "../engine" }
 octocode-github = { path = "../github" }
 clap = { version = "4", features = ["derive", "string"] }

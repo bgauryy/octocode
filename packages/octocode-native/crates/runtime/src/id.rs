@@ -26,7 +26,18 @@ include!(concat!(env!("OUT_DIR"), "/tool_ids.rs"));
 /// which the output contract already rejects, is an execution failure.
 #[must_use]
 pub fn error_class(code: &str) -> error_codes::ErrorClass {
-    error_codes::class(code).unwrap_or(error_codes::ErrorClass::Execution)
+    error_codes::parse(code).map_or(error_codes::ErrorClass::Execution, error_codes::class)
+}
+
+/// The declared `errorCode` of a row's `data`; `None` when it has none (or
+/// an undeclared one, which the output contract already rejects).
+#[must_use]
+pub(crate) fn error_code_of(
+    data: &serde_json::Value,
+) -> Option<octocode_contract_types::ErrorCode> {
+    data.get("errorCode")
+        .and_then(serde_json::Value::as_str)
+        .and_then(error_codes::parse)
 }
 
 impl ToolId {

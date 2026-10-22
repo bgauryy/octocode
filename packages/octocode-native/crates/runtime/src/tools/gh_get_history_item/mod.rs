@@ -588,6 +588,7 @@ fn sanitize_all_strings(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use octocode_contract_types::ErrorCode;
     use serde_json::json;
 
     /// A read with no section named is the summary: it selects none.
@@ -675,7 +676,7 @@ mod tests {
             &self,
             text: &str,
             _path: &Path,
-        ) -> Result<(String, Vec<String>), (String, String)> {
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
             Ok((text.replace("secret", "[MASKED]"), Vec::new()))
         }
     }

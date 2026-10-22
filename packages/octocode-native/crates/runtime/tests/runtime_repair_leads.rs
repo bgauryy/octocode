@@ -2,6 +2,7 @@
 //! one exact fix, on the whole-call envelope and on an isolated batch row.
 
 use crate::support::{self, Run as _};
+use octocode_contract_types::ErrorCode;
 
 use octocode_native::contracts;
 use serde_json::{Value, json};
@@ -33,7 +34,7 @@ async fn an_enum_value_the_operation_lacks_leads_to_the_call_without_it() {
         .run("enum".into(), "ghGetHistoryItem".into(), input)
         .await
         .expect_err("comments is a pull-request section");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     let payload = error.payload.as_deref().expect("payload");
     let repair = &crate::support::checks::hint(payload, "repair");
     assert_executable("ghGetHistoryItem", repair);
@@ -85,7 +86,7 @@ async fn a_selection_with_a_list_view_leads_to_the_snippet_view() {
         )
         .await
         .expect_err("a files view has no snippets to classify");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     let payload = error.payload.as_deref().expect("payload");
     let repair = &crate::support::checks::hint(payload, "repair");
     assert_executable("localSearch", repair);
@@ -521,7 +522,7 @@ async fn encoded_containers_are_rejected_and_offer_only_schema_valid_repairs() {
             .run("encoded".into(), tool.into(), input.clone())
             .await
             .expect_err("strict admission rejects JSON text");
-        assert_eq!(error.code, "invalidInput");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
         let repair = support::checks::hint(error.payload.as_deref().expect("payload"), "repair");
         assert_executable(tool, &repair);
         assert_eq!(repair["query"], decoded);
@@ -569,7 +570,7 @@ async fn scalar_array_items_offer_a_complete_repair_without_changing_admission()
             .run("scalar-array".into(), tool.into(), input.clone())
             .await
             .expect_err("strict admission rejects scalar array fields");
-        assert_eq!(error.code, "invalidInput");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
         let repair = support::checks::hint(error.payload.as_deref().expect("payload"), "repair");
         assert_executable(tool, &repair);
         assert_eq!(repair["query"], expected);

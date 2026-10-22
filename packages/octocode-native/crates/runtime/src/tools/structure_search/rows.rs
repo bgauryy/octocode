@@ -6,6 +6,7 @@ use super::*;
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::path::PathPolicy;
 use crate::security::ContentSecurity;
+use octocode_contract_types::ErrorCode;
 use octocode_contract_types::StructureSearchQueryFilesSort as Sort;
 use octocode_engine::types::{FileKind, FileSystemEntry};
 
@@ -492,7 +493,7 @@ pub(super) fn count_lines(
             .map(|task| {
                 task.join().unwrap_or_else(|_| {
                     Err(ToolError::new(
-                        "executionFailed",
+                        ErrorCode::ExecutionFailed,
                         "A line-count worker failed.",
                     ))
                 })

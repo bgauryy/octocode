@@ -8,6 +8,7 @@ use crate::response::result::Continuation;
 use crate::tools::judgment::stats::ClassificationUsage;
 use crate::tools::source_capture::SourceReader;
 use futures_util::{StreamExt as _, stream};
+use octocode_contract_types::ErrorCode;
 use octocode_io::flight::KeyedFlight;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -243,7 +244,7 @@ pub(super) struct Outcome {
 
 fn unavailable(message: &str) -> ClassificationError {
     ClassificationError::new(
-        "classificationContextUnavailable",
+        ErrorCode::ClassificationContextUnavailable,
         message,
         "Use persistent storage across CLI calls or a long-lived MCP runtime; start a fresh sections request explicitly if the saved plan expired.",
     )
@@ -403,7 +404,7 @@ fn settle_unsupported(session: &mut Session, limits: SelectionLimits) -> usize {
                 || unit.chars > limits.max_chars
             {
                 let error = error_value(&ClassificationError::new(
-                    "classificationContextTooLarge",
+                    ErrorCode::ClassificationContextTooLarge,
                     "This exact target and its supporting context exceed the serialized state limit.",
                     "Use the pinned raw reader to inspect the complete target.",
                 ));
@@ -541,7 +542,7 @@ fn assess_and_save(
                     settled += 1;
                 }
                 Err(error)
-                    if matches!(error.code.as_str(), "timeout" | "cancelled")
+                    if matches!(error.code, ErrorCode::Timeout | ErrorCode::Cancelled)
                         && error.provider_calls == 0 => {}
                 Err(error) => {
                     unit.cells[index] =

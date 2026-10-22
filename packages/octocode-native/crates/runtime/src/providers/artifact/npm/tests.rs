@@ -3,6 +3,7 @@ use super::{
     ArtifactSearchQuery, ArtifactType, ResolvedNpmRegistry, validate_registry,
     validate_resolved_addresses,
 };
+use octocode_contract_types::ErrorCode;
 use std::net::SocketAddr;
 use url::Url;
 
@@ -28,7 +29,7 @@ fn rejects_link_local_metadata_registry() {
     let err = validate_registry(&query, &registry, false).expect_err("must reject link-local host");
     // The opt-in escape hatch permits the same host.
     assert!(validate_registry(&query, &registry, true).is_ok());
-    assert_eq!(err.code, "invalidInput");
+    assert_eq!(err.code, ErrorCode::InvalidInput);
 }
 
 /// A custom registry is held to the shared outbound-address policy
@@ -51,7 +52,7 @@ fn a_registry_must_resolve_to_a_public_address() {
         let url = format!("https://{internal}/");
         let error =
             validate_registry(&npm_query(Some(&url)), &npm_registry(&url), false).expect_err(&url);
-        assert_eq!(error.code, "invalidInput", "{url}");
+        assert_eq!(error.code, ErrorCode::InvalidInput, "{url}");
         let ip = internal.trim_matches(['[', ']']).parse().expect("address");
         assert!(validate_resolved_addresses(&[SocketAddr::new(ip, 443)]).is_err());
     }
@@ -71,7 +72,7 @@ fn a_registry_named_localhost_is_refused_without_resolving_it() {
     ] {
         let error =
             validate_registry(&npm_query(Some(url)), &npm_registry(url), false).expect_err(url);
-        assert_eq!(error.code, "invalidInput", "{url}");
+        assert_eq!(error.code, ErrorCode::InvalidInput, "{url}");
         assert!(validate_registry(&npm_query(Some(url)), &npm_registry(url), true).is_ok());
     }
 }
@@ -84,7 +85,7 @@ fn rejects_mixed_public_private_dns_answers() {
     ];
     let error = validate_resolved_addresses(&addresses)
         .expect_err("one blocked answer must reject the complete DNS result");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     assert!(validate_resolved_addresses(&[addresses[0]]).is_ok());
 }
 
@@ -255,7 +256,7 @@ async fn npm_versions_resolve_exact_range_tag_and_coordinate() {
     let missing = lookup(&http, json!({"packageName": "zod", "version": "3.22.9"}))
         .await
         .expect_err("missing version");
-    assert_eq!(missing.code, "versionNotFound");
+    assert_eq!(missing.code, ErrorCode::VersionNotFound);
     assert_eq!(missing.status, Some(404));
     assert!(
         missing.nearest.iter().any(|version| version == "3.22.0"),
@@ -264,11 +265,11 @@ async fn npm_versions_resolve_exact_range_tag_and_coordinate() {
     let unmatched = lookup(&http, json!({"packageName": "zod", "version": "^9"}))
         .await
         .expect_err("no match");
-    assert_eq!(unmatched.code, "versionNotFound");
+    assert_eq!(unmatched.code, ErrorCode::VersionNotFound);
     let beyond = lookup(&http, json!({"packageName": "zod", "version": "99.0.0"}))
         .await
         .expect_err("beyond every release");
-    assert_eq!(beyond.code, "versionNotFound");
+    assert_eq!(beyond.code, ErrorCode::VersionNotFound);
     assert_eq!(beyond.nearest, ["4.6.5", "3.25.76", "3.22.0"], "{beyond:?}");
     let seen = http
         .seen()

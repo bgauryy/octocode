@@ -185,7 +185,7 @@ Results include each asset's saved `path`, origin, snapshot, format, dimensions,
 
 | Tool | What JEV evaluates | Use |
 |---|---|---|
-| `localSearch` | Each hit snippet (hit + context), before paging; counts describe kept hits. `resultView` `paginated` or `matchOnly` only: another view is rejected at admission, and `repair` in `hints` drops it | Noisy search after path/glob and known-term filtering |
+| `localSearch` | Each hit snippet (hit + context), before paging. With no context field set, a hit is judged with 8 lines each side: a bare hit line rarely shows what the code does, so it reads as related and is never kept; counts describe kept hits. `resultView` `paginated` or `matchOnly` only: another view is rejected at admission, and `repair` in `hints` drops it | Noisy search after path/glob and known-term filtering |
 | `localFetch` | Windows from the file or selected ranges/matches | Large files with unknown relevant locations |
 | `ghGetFileContent` | The same windows, at a resolved commit | Scoped GitHub file reads |
 | `ghSearchCode` | Available hit lines on one provider page | Experimental; filename-only hits stay unknown |
@@ -204,7 +204,7 @@ Results include each asset's saved `path`, origin, snapshot, format, dimensions,
 }
 ```
 
-The same `clasifyContext` works on fetch. Use `matchString` with enough `contextLines`, or explicit `ranges`, to retain deciding conditions. Positive context can complete a small declaration; ranges bound that expansion. Original line numbers remain source coordinates. Search never reads hidden whole-file bodies or recovers lexical misses.
+The same `clasifyContext` works on fetch. Use `matchString` with enough `contextLines`, or explicit `ranges`, to retain deciding conditions. The default context window can complete a small declaration (an explicit `contextLines` is exact); ranges bound that expansion. Original line numbers remain source coordinates. Search never reads hidden whole-file bodies or recovers lexical misses.
 
 Whole-file `localFetch` keeps declarations and their documentation together when they fit the character budget. Oversized declarations, source gaps, unsupported syntax and extracted views use complete line windows targeting 2,048 characters; omitted spans split windows. Cross-window questions can still stay unresolved, and `longContext` does not join windows. Path/count-only search views, explicit minification, fresh byte windows and streamed sources reject classification with recovery.
 

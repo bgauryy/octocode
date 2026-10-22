@@ -181,7 +181,7 @@ fn every_hint_source_fits_the_guidance_budget() {
                 over.push(format!("{tool:?} fallback: {hint}"));
             }
         }
-        for (code, _) in error_codes::ALL {
+        for &code in error_codes::ALL {
             for hint in [
                 super::rows::error_code_hint(tool, code),
                 tool.output().error_hint(code),
@@ -256,7 +256,7 @@ fn no_shared_hint_names_a_cli_only_tool() {
                 found.push(format!("{tool:?} fallback: {hint}"));
             }
         }
-        for (code, _) in error_codes::ALL {
+        for &code in error_codes::ALL {
             for hint in [
                 super::rows::error_code_hint(tool, code),
                 tool.output().error_hint(code),

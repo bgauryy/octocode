@@ -7,6 +7,7 @@ use crate::execution::cancel::CancellationCheck;
 use crate::num::u32_of_usize;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
+use octocode_contract_types::ErrorCode;
 use octocode_engine::signatures::MAX_PARSE_SIZE;
 use sha2::{Digest, Sha256};
 
@@ -378,7 +379,7 @@ pub(super) fn validate_matched(
 ) -> Result<(), ToolError> {
     paths.validate_read(source).map(drop).map_err(|error| {
         ToolError::new(
-            error.local_error_code("fileAccessFailed"),
+            error.local_error_code(ErrorCode::FileAccessFailed),
             "Search encountered a path denied by the active path policy",
         )
     })

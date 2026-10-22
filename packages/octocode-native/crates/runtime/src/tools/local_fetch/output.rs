@@ -1,6 +1,7 @@
 //! What the shared response stages ask about localFetch output.
 
 use crate::response::output::{PathAnchor, TextShape, ToolOutput};
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
 pub(crate) struct Output;
@@ -12,14 +13,14 @@ impl ToolOutput for Output {
             "Verify path/range."
         }
     }
-    fn error_hint(&self, code: &str) -> Option<&'static str> {
+    fn error_hint(&self, code: ErrorCode) -> Option<&'static str> {
         match code {
-            "fileAccessFailed" => Some(crate::response::output::LIST_FILES_HINT),
+            ErrorCode::FileAccessFailed => Some(crate::response::output::LIST_FILES_HINT),
             // The message names the item; `repair` is the corrected read.
             // A malformed page cursor: the message names the bad offset.
             // `notAFile`: a directory's tree is its lead; a FIFO or device
             // has nothing to retry.
-            "invalidPattern" | "invalidPagination" | "notAFile" => {
+            ErrorCode::InvalidPattern | ErrorCode::InvalidPagination | ErrorCode::NotAFile => {
                 Some(crate::response::output::NO_HINT)
             }
             _ => None,
@@ -53,7 +54,7 @@ mod tests {
         let matched = Output.fallback_hint(&json!({"path":"a.rs","matchString":"x"}));
         assert!(matched.contains("matchString"), "{matched}");
         assert_eq!(
-            Output.error_hint("invalidPagination"),
+            Output.error_hint(ErrorCode::InvalidPagination),
             Some(crate::response::output::NO_HINT)
         );
     }

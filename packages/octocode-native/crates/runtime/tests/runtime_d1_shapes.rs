@@ -534,7 +534,7 @@ async fn error_codes_are_declared_camel_case_names() {
             "{code} is not camelCase"
         );
         assert!(
-            octocode_native::id::error_codes::class(code).is_some(),
+            octocode_native::id::error_codes::parse(code).is_some(),
             "{code} is not declared"
         );
     }

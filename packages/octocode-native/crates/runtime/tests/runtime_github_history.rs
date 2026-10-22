@@ -2,6 +2,7 @@
 //! through the runtime against a mock GitHub.
 
 use crate::support::{self, Run as _};
+use octocode_contract_types::ErrorCode;
 
 use serde_json::json;
 use support::{Workspace, call, checks, inventory_len, row_data, row_status};
@@ -19,7 +20,7 @@ async fn github_missing_identity_is_a_contract_error() {
     )
     .await
     .expect_err("missing sha");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     runtime.close().await;
 }
 
@@ -448,7 +449,7 @@ async fn history_repository_without_owner_is_rejected_before_provider_requests()
     )
     .await
     .expect_err("repository-only scope must fail native contract validation");
-    assert_eq!(outcome.code, "invalidInput");
+    assert_eq!(outcome.code, ErrorCode::InvalidInput);
     let issues = outcome.validation_issues.as_ref().expect("typed issues");
     assert_eq!(issues.len(), 1);
     assert_eq!(issues[0].rule_id, "history.repository-scope");

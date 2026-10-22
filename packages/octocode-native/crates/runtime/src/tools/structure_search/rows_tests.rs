@@ -1,4 +1,5 @@
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 /// Line counting has the walk's time budget: past the deadline no file
 /// but the first is counted, and the counts are the prefix before the
@@ -63,6 +64,6 @@ fn line_count_can_be_cancelled_between_bounded_reads() {
     let paths = crate::tools::test_support::workspace_policy(&root);
     let error =
         line_count(&file, &paths, &Cancel(AtomicUsize::new(0))).expect_err("cancel while reading");
-    assert_eq!(error.code, "cancelled");
+    assert_eq!(error.code, ErrorCode::Cancelled);
     std::fs::remove_dir_all(root).expect("cleanup");
 }

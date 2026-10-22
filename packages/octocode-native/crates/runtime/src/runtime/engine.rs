@@ -18,6 +18,7 @@ use crate::security::ContentSecurity;
 use crate::tools::ast_graph::store as graph_store;
 use admission::{AdmittedRows, output_contract_error};
 use channel::{ChannelRun, OutputSettings};
+use octocode_contract_types::ErrorCode;
 use page_replay::{PageReplayMemo, page_replay_key};
 
 use secrecy::SecretString;
@@ -45,7 +46,7 @@ pub struct HostOptions {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeError {
-    pub code: String,
+    pub code: ErrorCode,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payload: Option<Box<Value>>,
@@ -53,9 +54,9 @@ pub struct RuntimeError {
     pub validation_issues: Option<Vec<contracts::ValidationIssue>>,
 }
 impl RuntimeError {
-    pub(crate) fn new(code: &str, message: impl Into<String>) -> Self {
+    pub(crate) fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
-            code: code.into(),
+            code,
             message: message.into(),
             payload: None,
             validation_issues: None,
@@ -64,7 +65,7 @@ impl RuntimeError {
 
     #[must_use]
     pub fn exit_class(&self) -> ExitClass {
-        ExitClass::of_code(&self.code)
+        ExitClass::of(self.code)
     }
 }
 
@@ -171,7 +172,7 @@ impl ToolRuntime {
             let max = crate::execution::MAX_TIMEOUT.as_secs();
             if !(1..=max).contains(&secs) {
                 return Err(RuntimeError::new(
-                    "invalidInput",
+                    ErrorCode::InvalidInput,
                     format!("timeoutSecs must be between 1 and {max}; got {secs}"),
                 ));
             }
@@ -179,9 +180,11 @@ impl ToolRuntime {
         let cwd = options
             .cwd
             .or_else(|| std::env::current_dir().ok())
-            .ok_or_else(|| RuntimeError::new("config", "Cannot resolve working directory"))?;
+            .ok_or_else(|| {
+                RuntimeError::new(ErrorCode::Config, "Cannot resolve working directory")
+            })?;
         let home = std::env::home_dir()
-            .ok_or_else(|| RuntimeError::new("config", "Cannot resolve home directory"))?;
+            .ok_or_else(|| RuntimeError::new(ErrorCode::Config, "Cannot resolve home directory"))?;
         let input = config::acquire_config_input(
             options.env.unwrap_or_else(octocode_io::env::vars_lossy),
             cwd,
@@ -252,7 +255,7 @@ impl ToolRuntime {
             include_home: false,
             home_dir: Some(input.os_home.clone()),
         })
-        .map_err(|error| RuntimeError::new("policy", error.message))?;
+        .map_err(|error| RuntimeError::new(ErrorCode::Policy, error.message))?;
         let security = ContentSecurity::new();
         let requests =
             RequestRuntime::new(RequestLimits::default()).map_err(runtime_execution_error)?;
@@ -507,12 +510,12 @@ impl ToolRuntime {
             None | Some(Value::Null) => None,
             // Never echo the options: they carry a secret.
             Some(value) => serde_json::from_value::<RequestOptions>(value)
-                .map_err(|_| RuntimeError::new("invalidInput", "Invalid request options"))?
+                .map_err(|_| RuntimeError::new(ErrorCode::InvalidInput, "Invalid request options"))?
                 .github_token
                 .map(|token| {
                     if token.trim().is_empty() {
                         Err(RuntimeError::new(
-                            "invalidInput",
+                            ErrorCode::InvalidInput,
                             "Request option githubToken is empty",
                         ))
                     } else {
@@ -562,10 +565,10 @@ impl ToolRuntime {
             // A setting the call lacks is reported after its input: an
             // invalid query fails as invalidInput whatever is configured.
             Err(error) => {
-                if error.code == "missingConfiguration"
+                if error.code == ErrorCode::MissingConfiguration
                     && let Some(id) = ToolId::from_name(&tool)
                     && let Err(invalid) = self.admit_queries(id, &input)
-                    && invalid.code == "invalidInput"
+                    && invalid.code == ErrorCode::InvalidInput
                 {
                     return Err(invalid);
                 }
@@ -707,7 +710,7 @@ impl ToolRuntime {
 /// `graph` reads local files, so it runs only where local tools do.
 fn graph_local_disabled() -> graph_store::GraphOutput {
     graph_store::GraphOutput::error(
-        "missingConfiguration",
+        ErrorCode::MissingConfiguration,
         format!(
             "Local tools are disabled; graph commands read local files. Set {}.",
             config::field::LOCAL_ENABLED.display_name()
@@ -1078,7 +1081,7 @@ mod construction_tests {
                 .capture_local_text(&json!({"path":file}), &context)
                 .unwrap_err()
                 .code,
-            "timeout"
+            ErrorCode::Timeout
         );
         context.deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
         context.cancellation.cancel();
@@ -1088,7 +1091,7 @@ mod construction_tests {
                 .capture_local_text(&json!({"path":file}), &context)
                 .unwrap_err()
                 .code,
-            "cancelled"
+            ErrorCode::Cancelled
         );
         runtime.close().await;
     }

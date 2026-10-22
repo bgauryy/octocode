@@ -3,6 +3,7 @@ use super::provider_page::strip_plan_from_tool_continuations;
 use super::*;
 use crate::tools::test_support::selection_fake;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use octocode_contract_types::ErrorCode;
 use octocode_contract_types::SelectionScope;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -637,7 +638,7 @@ fn a_provider_failing_the_whole_page_fails_the_row_with_its_typed_error() {
         }
         fn select(&self, _call: JudgeCall<'_>) -> Judgments {
             Err(JudgeFailure::Provider(ProviderError {
-                code: "classificationProviderError".into(),
+                code: ErrorCode::ClassificationProviderError,
                 message: "Classification provider returned HTTP 401 Unauthorized".into(),
                 hints: vec!["Check OCTOCODE_CLASSIFICATION_API and account access.".into()],
             }))
@@ -697,7 +698,7 @@ fn a_provider_that_is_down_shows_the_whole_page_as_unavailable() {
         fn select(&self, _call: JudgeCall<'_>) -> Judgments {
             self.0.fetch_add(1, Ordering::SeqCst);
             Err(JudgeFailure::Provider(ProviderError {
-                code: crate::providers::classification::CIRCUIT_OPEN.into(),
+                code: crate::providers::classification::CIRCUIT_OPEN,
                 message: "Classification provider returned HTTP 503 Service Unavailable".into(),
                 hints: vec!["Retry later.".into()],
             }))
@@ -741,7 +742,7 @@ fn a_provider_that_is_down_shows_the_whole_page_as_unavailable() {
     assert_eq!(data["selection"]["status"], "unavailable");
     assert_eq!(
         data["selection"]["reason"],
-        crate::providers::classification::CIRCUIT_OPEN
+        crate::id::error_codes::as_str(crate::providers::classification::CIRCUIT_OPEN)
     );
     assert_eq!(data["selection"]["unknownItems"], 2);
     let warnings = data["warnings"].to_string();

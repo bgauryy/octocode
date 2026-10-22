@@ -6,6 +6,7 @@ use crate::tools::selection::{
     Decision, JudgeCall, JudgeFailure, Judgments, ProviderError, SelectionJudge,
 };
 use futures_util::{StreamExt as _, stream};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 use std::time::Instant;
 
@@ -172,7 +173,7 @@ fn selection_failure(
     Some(octocode_contract_types::SelectionFailure {
         candidate: i64::try_from(ordinal).ok()?,
         error: error.message.parse().ok()?,
-        error_code: error.code.parse().ok()?,
+        error_code: error.code,
         hints: if error.hints.is_empty() {
             None
         } else {
@@ -223,7 +224,7 @@ impl SelectionJudge for Evaluator {
                     async move {
                         let Some(state) = state else {
                             return (ordinal, Err(ClassificationError::new(
-                                "candidateIneligible", "The candidate has no safely prepared state.",
+                                ErrorCode::CandidateIneligible, "The candidate has no safely prepared state.",
                                 "Use the explicit unfiltered continuation to inspect this evidence.",
                             )));
                         };
@@ -255,7 +256,7 @@ impl SelectionJudge for Evaluator {
                 Err(error) => {
                     let failure = selection_failure(ordinal, &error).ok_or_else(|| {
                         JudgeFailure::Provider(ProviderError {
-                            code: "invalidClassificationResponse".into(),
+                            code: ErrorCode::InvalidClassificationResponse,
                             message:
                                 "Provider failure violates the canonical selection error contract."
                                     .into(),
@@ -264,7 +265,7 @@ impl SelectionJudge for Evaluator {
                     })?;
                     call.failures.push(failure);
                     let rank = (error.paused, ordinal);
-                    if !matches!(error.code.as_str(), "timeout" | "cancelled")
+                    if !matches!(error.code, ErrorCode::Timeout | ErrorCode::Cancelled)
                         && first_failure
                             .as_ref()
                             .is_none_or(|(first, _)| rank < *first)
@@ -574,7 +575,7 @@ mod tests {
         let JudgeFailure::Provider(error) = failure else {
             panic!("a provider failure, not an unavailable judge: {failure:?}");
         };
-        assert_eq!(error.code, "classificationProviderError");
+        assert_eq!(error.code, ErrorCode::ClassificationProviderError);
         assert!(error.message.contains("401"), "{}", error.message);
         assert!(
             error

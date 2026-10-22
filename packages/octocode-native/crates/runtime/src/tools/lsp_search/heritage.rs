@@ -11,6 +11,7 @@
 
 use super::failure::LspFailure;
 use super::source::read_bounded_source;
+use octocode_contract_types::ErrorCode;
 use octocode_engine::graph::{GraphFactCode, GraphFactsDocument};
 use octocode_engine::lsp::types::{LspCodeSnippet, LspExactPosition, LspRange};
 use octocode_engine::signatures::TYPE_DECLARATION_KINDS;
@@ -265,7 +266,10 @@ pub(super) fn anchors_type_declaration(content: &str, file: &str, line: u32, nam
 pub(super) fn implementation_failure_has_fallback(failure: &LspFailure) -> bool {
     matches!(
         failure.code,
-        "timeout" | "serverCrashed" | "requestFailed" | "capabilityUnavailable"
+        ErrorCode::Timeout
+            | ErrorCode::ServerCrashed
+            | ErrorCode::RequestFailed
+            | ErrorCode::CapabilityUnavailable
     )
 }
 

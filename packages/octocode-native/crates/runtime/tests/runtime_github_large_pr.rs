@@ -222,15 +222,21 @@ async fn pr_inventory_carries_the_identity_header_and_its_own_next_steps_only() 
     .await;
     let data = run(&server, json!({"sections":["files"], "extras": ["hints"]})).await;
     let row = &data["pullRequests"][0];
-    // A section read keeps the identity and the commits code is read at.
-    for kept in ["number", "state", "headSha", "mergeCommitSha"] {
+    // A section read keeps what names the PR and the commits code is read at.
+    for kept in [
+        "number",
+        "title",
+        "author",
+        "state",
+        "headSha",
+        "mergeCommitSha",
+    ] {
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
     // The first page of a file inventory states how many files it lists.
     assert_eq!(row["changedFilesCount"], 250, "{row}");
     // The rest of the header rides the summary read only.
     for dropped in [
-        "title",
         "additions",
         "deletions",
         "bodyPreview",
@@ -445,13 +451,15 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
     )
     .await;
     // Page one carries the identity header and the menu; a later page
-    // re-proves identity only (the summary read owns the rest of the header).
+    // re-proves identity only (the summary read owns the rest of the header):
+    // number, title, author, state and the commits code is read at.
     let query = json!({"sections":["files"], "pageSize": 100, "extras": ["hints"]});
     let follow = json!({"sections":["files"], "pageSize": 100, "page": 2, "extras": ["hints"]});
     let first = run(&server, query).await;
     let first_row = &first["pullRequests"][0];
     assert_eq!(first_row["headSha"], SHA, "{first_row}");
-    assert!(first_row.get("title").is_none(), "{first_row}");
+    assert_eq!(first_row["title"], "Large refactor", "{first_row}");
+    assert!(first_row.get("bodyPreview").is_none(), "{first_row}");
     assert!(first_row.get("hints").is_none(), "{first_row}");
     assert!(first.get("hints").is_some(), "{first}");
     // A literal search of every patch needs the caller's literal: it is
@@ -463,11 +471,17 @@ async fn pr_continuation_reads_carry_only_the_identity_header() {
 
     let data = run(&server, follow).await;
     let row = &data["pullRequests"][0];
-    for kept in ["number", "state", "headSha", "mergeCommitSha"] {
+    for kept in [
+        "number",
+        "title",
+        "author",
+        "state",
+        "headSha",
+        "mergeCommitSha",
+    ] {
         assert!(row.get(kept).is_some(), "{kept} missing: {row}");
     }
     for dropped in [
-        "title",
         "changedFilesCount",
         "mergedAt",
         "baseBranch",
@@ -596,15 +610,14 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     assert!(patch.len() < 600, "{patch}");
     // The narrowed-view marker selects the continuation; rows omit it.
     assert!(files[0].get("fullPatchChars").is_none(), "{data}");
-    // A patch read carries the identity it re-proves (number, state, the
-    // head it read) and no follow-up menu; the summary read names the PR.
+    // A patch read carries the identity it re-proves (number, title, author,
+    // state, the head it read) and no follow-up menu; the summary read dates
+    // the PR.
     let row = &data["pullRequests"][0];
     assert!(no_continuation(row), "{row}");
     for dropped in [
         "additions",
         "deletions",
-        "title",
-        "author",
         "createdAt",
         "mergedAt",
         "baseBranch",
@@ -612,7 +625,14 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
         assert!(row.get(dropped).is_none(), "{dropped} kept: {row}");
     }
     // Every view names the merge commit beside the head it read.
-    for kept in ["number", "state", "headSha", "mergeCommitSha"] {
+    for kept in [
+        "number",
+        "title",
+        "author",
+        "state",
+        "headSha",
+        "mergeCommitSha",
+    ] {
         assert!(row.get(kept).is_some(), "{kept} dropped: {row}");
     }
     // Without a patch row the read carries the same slim identity header.
@@ -625,7 +645,8 @@ async fn match_string_returns_matching_hunks_and_offers_the_whole_patch() {
     let none_row = &none["pullRequests"][0];
     assert_eq!(none_row["headSha"], SHA, "{none}");
     assert_eq!(none_row["state"], "merged", "{none}");
-    assert!(none_row.get("title").is_none(), "{none}");
+    assert_eq!(none_row["title"], "Large refactor", "{none}");
+    assert!(none_row.get("bodyPreview").is_none(), "{none}");
     // A matchString that hits no patch line is an empty read, not a summary
     // that looks like an ignored filter; its leads run the fix: the same
     // read without the literal, then the file inventory.

@@ -1,5 +1,6 @@
 //! ghStructure: materialize layout ownership, refs and languages listings.
 use crate::support;
+use octocode_contract_types::ErrorCode;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -423,7 +424,7 @@ async fn refs_and_languages_reject_tree_fields() {
         let error = call(&runtime, "ghStructure", query)
             .await
             .expect_err("unsupported operation field");
-        assert_eq!(error.code, "invalidInput");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
         let payload = error
             .payload
             .as_deref()

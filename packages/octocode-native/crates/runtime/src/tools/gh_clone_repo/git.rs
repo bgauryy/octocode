@@ -1,4 +1,5 @@
 use super::{CloneContext, CloneError, GitRunRequest, cache, control};
+use octocode_contract_types::ErrorCode;
 use std::ffi::OsString;
 use std::path::Path;
 use std::time::Duration;
@@ -38,7 +39,7 @@ pub(super) fn read_head(
     let sha = output.stdout.trim().to_ascii_lowercase();
     if !octocode_github::is_full_sha(&sha) {
         return Err(CloneError::new(
-            "gitFailed",
+            ErrorCode::GitFailed,
             "Git returned an invalid checkout HEAD commit SHA.",
         ));
     }
@@ -342,7 +343,7 @@ fn git_permit(
     use octocode_github::{GitHubBudget, LimiterKey, ProviderErrorKind};
     let Ok(url) = url::Url::parse(repository_url) else {
         return Err(CloneError::new(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             "Repository URL could not be parsed",
         ));
     };
@@ -360,10 +361,14 @@ fn git_permit(
             &|| context.cancellation.check().is_err(),
         )
         .map_err(|error| match error.kind {
-            ProviderErrorKind::Cancelled => CloneError::new("cancelled", error.message.to_string()),
-            ProviderErrorKind::Timeout => CloneError::new("timeout", error.message.to_string()),
+            ProviderErrorKind::Cancelled => {
+                CloneError::new(ErrorCode::Cancelled, error.message.to_string())
+            }
+            ProviderErrorKind::Timeout => {
+                CloneError::new(ErrorCode::Timeout, error.message.to_string())
+            }
             _ => CloneError::new(
-                "rateLimited",
+                ErrorCode::RateLimited,
                 format!(
                     "{} Retry after {}s.",
                     error.message,

@@ -3,6 +3,7 @@ mod leads;
 mod output;
 
 use crate::providers::artifact::types::artifact_search_query;
+use octocode_contract_types::ErrorCode;
 pub(crate) use output::Output;
 
 use crate::id::ToolId;
@@ -120,7 +121,7 @@ fn respond(
         // An exact coordinate the registry does not know is not-found, like
         // a GitHub 404; only a keyword discovery can be empty.
         return Err(ArtifactError::new(
-            "notFound",
+            ErrorCode::NotFound,
             format!(
                 "Package {name} not found in the {} registry",
                 artifact_search_query::artifact_type(query)
@@ -130,7 +131,7 @@ fn respond(
     }
     shape_rows(query, &mut artifacts);
     let mut rows = serde_json::to_value(&artifacts)
-        .map_err(|_| ArtifactError::new("providerError", "Failed to encode artifacts."))?;
+        .map_err(|_| ArtifactError::new(ErrorCode::ProviderError, "Failed to encode artifacts."))?;
     for row in rows.as_array_mut().into_iter().flatten() {
         name_github_repository(row);
     }
@@ -759,7 +760,7 @@ mod anchor_tests {
         assert!(error.hints.is_empty());
 
         let pinned = typed(&json!({"ecosystem":"npm","packageName":"zod","version":"3.22.9"}));
-        let mut missing = ArtifactError::new("versionNotFound", "no 3.22.9");
+        let mut missing = ArtifactError::new(ErrorCode::VersionNotFound, "no 3.22.9");
         missing.nearest = vec!["3.22.4".into(), "3.22.0".into()];
         let next = leads::with_repair(missing, &pinned).next.expect("lead");
         let versions = next["repair"]["query"]["queries"]
@@ -770,9 +771,12 @@ mod anchor_tests {
             .collect::<Vec<_>>();
         assert_eq!(versions, [json!("3.22.4"), json!("3.22.0")], "{next}");
 
-        let latest = leads::with_repair(ArtifactError::new("capabilityUnavailable", "x"), &pinned)
-            .next
-            .expect("lead");
+        let latest = leads::with_repair(
+            ArtifactError::new(ErrorCode::CapabilityUnavailable, "x"),
+            &pinned,
+        )
+        .next
+        .expect("lead");
         assert_eq!(
             latest["repair"]["query"]["queries"][0],
             json!({"ecosystem":"npm","packageName":"zod"})
@@ -781,7 +785,7 @@ mod anchor_tests {
         let bare = typed(&json!({"ecosystem":"maven","packageName":"guava"}));
         let error = ArtifactError {
             searchable_name: true,
-            ..ArtifactError::new("invalidInput", "not a groupId:artifactId")
+            ..ArtifactError::new(ErrorCode::InvalidInput, "not a groupId:artifactId")
         };
         let next = leads::with_repair(error, &bare).next.expect("lead");
         assert_eq!(
@@ -790,13 +794,13 @@ mod anchor_tests {
             "{next}"
         );
         assert!(
-            leads::with_repair(ArtifactError::new("invalidInput", "x"), &bare)
+            leads::with_repair(ArtifactError::new(ErrorCode::InvalidInput, "x"), &bare)
                 .next
                 .is_none()
         );
         // PyPI has no keyword search: an unknown package has no repair.
         let pypi = typed(&json!({"ecosystem":"pypi","packageName":"nope"}));
-        let error = ArtifactError::new("notFound", "x");
+        let error = ArtifactError::new(ErrorCode::NotFound, "x");
         assert!(leads::with_repair(error, &pypi).next.is_none());
     }
 }
@@ -851,8 +855,8 @@ mod page_tests {
                     .expect_err("dead budget or rejection")
             }
         };
-        assert_eq!(run(5_000).await.code, "invalidInput");
-        assert_ne!(run(2).await.code, "invalidInput");
+        assert_eq!(run(5_000).await.code, ErrorCode::InvalidInput);
+        assert_ne!(run(2).await.code, ErrorCode::InvalidInput);
     }
 
     /// A page past the paging range names the bound and repairs to the
@@ -867,7 +871,7 @@ mod page_tests {
         let error = execute(typed(&query), call(dead, false))
             .await
             .expect_err("past the paging range");
-        assert_eq!(error.code, "invalidInput", "{error:?}");
+        assert_eq!(error.code, ErrorCode::InvalidInput, "{error:?}");
         assert!(
             error.message.contains("page 200 starts past result 5000"),
             "{error:?}"
@@ -996,7 +1000,7 @@ mod npm_auth_tests {
         let error = execute(typed(&query), call(deadline, true))
             .await
             .expect_err("missing package");
-        assert_eq!(error.code, "notFound", "{error:?}");
+        assert_eq!(error.code, ErrorCode::NotFound, "{error:?}");
         assert_eq!(error.status, Some(404));
         assert!(error.message.contains("no-such-package-zz"), "{error:?}");
     }

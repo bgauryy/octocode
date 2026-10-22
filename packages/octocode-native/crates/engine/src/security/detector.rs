@@ -1,33 +1,73 @@
-use super::patterns::{PATTERNS, pattern_regex};
+use super::patterns::PATTERNS;
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder};
-use std::sync::LazyLock;
+use regex::Regex;
+use std::sync::{LazyLock, OnceLock};
+
+/// Lazily-compiled per-pattern Regex instances (compile on first use per index).
+/// Sized from `PATTERNS.len()` — never a hardcoded count — so the cell table
+/// can never be shorter than the pattern set it indexes.
+static PATTERN_REGEX_CELLS: LazyLock<Vec<OnceLock<Regex>>> =
+    LazyLock::new(|| (0..PATTERNS.len()).map(|_| OnceLock::new()).collect());
+
+/// Rewrite Unicode `\b` to ASCII `(?-u:\b)`. A Unicode word boundary makes the
+/// regex crate abandon its fast DFA on any non-ASCII haystack (12–20× slower on
+/// multi-MB files). The ASCII boundary also fires next to non-ASCII letters, so
+/// it only widens redaction around the ASCII token shapes these patterns match.
+fn ascii_word_boundaries(pattern: &str) -> String {
+    let mut out = String::with_capacity(pattern.len() + 16);
+    let mut chars = pattern.chars();
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            out.push(ch);
+            continue;
+        }
+        match chars.next() {
+            Some('b') => out.push_str("(?-u:\\b)"),
+            Some(escaped) => {
+                out.push('\\');
+                out.push(escaped);
+            }
+            None => out.push('\\'),
+        }
+    }
+    out
+}
+
+/// Get (compiling at most once) the Regex for pattern `idx`.
+fn pattern_regex(idx: usize) -> &'static Regex {
+    // Built-in pattern strings are constants validated by the pattern tests; a
+    // compile failure is a build-time bug, not a runtime condition.
+    #[expect(
+        clippy::expect_used,
+        reason = "built-in patterns are valid by construction"
+    )]
+    PATTERN_REGEX_CELLS[idx].get_or_init(|| {
+        Regex::new(&ascii_word_boundaries(PATTERNS[idx].regex)).expect(PATTERNS[idx].name)
+    })
+}
 
 /// Hard cap on content handed to the detector. Content above this is redacted
 /// wholesale rather than scanned, bounding worst-case memory/time.
 pub(crate) const MAX_CONTENT_SIZE: usize = 10_000_000;
 /// Wholesale placeholder emitted when content exceeds `MAX_CONTENT_SIZE`.
 pub(crate) const CONTENT_SIZE_LIMIT_PLACEHOLDER: &str = "[CONTENT-REDACTED-SIZE-LIMIT]";
-// ---------------------------------------------------------------------------
-// File-context regex cache — compiled once, index-aligned with PATTERNS.
-// None means the pattern has no file-context constraint (always applicable).
-// ---------------------------------------------------------------------------
-
-// Built-in patterns are compile-time constants; an invalid one is a build bug.
-#[expect(
-    clippy::panic,
-    reason = "built-in patterns are compile-time constants; an invalid one is a build bug"
-)]
-static FILE_CONTEXT_REGEXES: LazyLock<Vec<Option<regex::Regex>>> = LazyLock::new(|| {
-    PATTERNS
-        .iter()
-        .map(|p| {
-            p.file_context.map(|ctx| {
-                regex::Regex::new(ctx)
-                    .unwrap_or_else(|e| panic!("invalid file_context regex '{ctx}': {e}"))
-            })
-        })
-        .collect()
-});
+/// File-context regex of pattern `idx`, compiled on first use: only the
+/// candidates a text reaches compile theirs. `None`: the pattern has no
+/// file-context constraint (always applicable).
+fn file_context_regex(idx: usize) -> Option<&'static Regex> {
+    static CELLS: LazyLock<Vec<OnceLock<Regex>>> =
+        LazyLock::new(|| (0..PATTERNS.len()).map(|_| OnceLock::new()).collect());
+    let context = PATTERNS[idx].file_context?;
+    // Built-in patterns are compile-time constants; an invalid one is a build bug.
+    #[expect(
+        clippy::panic,
+        reason = "built-in patterns are compile-time constants; an invalid one is a build bug"
+    )]
+    Some(CELLS[idx].get_or_init(|| {
+        Regex::new(context)
+            .unwrap_or_else(|e| panic!("invalid file_context regex '{context}': {e}"))
+    }))
+}
 
 static REPLACEMENTS: LazyLock<Vec<String>> = LazyLock::new(|| {
     PATTERNS
@@ -188,130 +228,60 @@ fn replacement_for(idx: usize) -> &'static str {
 // regexes on the FIRST sanitize call (~250-800 ms), a tax every fresh process
 // paid even for entirely clean content. The prescan replaces it:
 //
-//   1. At first call, extract the *required prefix literals* of every pattern
-//      via regex-syntax HIR (a parse, not a compile — milliseconds total).
-//      A pattern gates on its literals only when extraction proves the literal
-//      set is finite and every literal is a meaningful anchor (>= 3 bytes).
-//   2. Build ONE case-insensitive aho-corasick automaton over those literals.
+//   1. At build time (`build.rs`), extract every pattern's gate via
+//      regex-syntax HIR: its *required prefix literals*, else literals its
+//      structure requires inside every match. A pattern gates on its
+//      literals only when extraction proves the set is finite and every
+//      literal is a meaningful anchor (>= 3 bytes).
+//   2. At first call, build ONE case-insensitive aho-corasick automaton over
+//      those literals.
 //   3. Per call: scan content once with aho-corasick; only patterns whose
 //      literal appears (plus the small no-literal fallback bucket) get their
 //      regex compiled (lazily, once per process) and confirmed with is_match.
 //
 // Correctness invariant: for a gated pattern, "regex matches content" implies
-// "content contains one of its extracted prefix literals" (regex-syntax
-// prefix-literal guarantee), and the automaton is ASCII-case-insensitive while
-// literals are stored lowercased, so case-insensitive patterns cannot slip
-// past the gate. Patterns whose literals cannot be proven (pure entropy
-// shapes, UUIDs) are ALWAYS candidates — they are never gated out.
+// "content contains one of its gate literals" (a match begins with a prefix
+// literal, and contains a match of every concatenated part, of one branch of
+// an alternation, and of a repetition's body when its minimum is one), and
+// patterns are parsed with their flags, so a `(?i)` pattern's literals carry
+// every Unicode case variant its regex matches (`ſ` for `s`); the automaton
+// is ASCII-case-insensitive over literals stored lowercased. Patterns whose
+// literals cannot be proven (pure entropy shapes, UUIDs) are ALWAYS
+// candidates — they are never gated out.
 // ---------------------------------------------------------------------------
 
-struct Prescan {
-    /// One automaton over every gated pattern's literals (lowercased).
-    ac: AhoCorasick,
-    /// aho-corasick pattern id -> detector pattern index.
-    literal_owner: Vec<usize>,
-    /// Pattern indices with no provable literal — always candidates.
-    fallback: Vec<usize>,
+/// The prescan gate `build.rs` derives from [`PATTERNS`]: `GATE_LITERALS`
+/// (lowercased literal, pattern index) and the `FALLBACK` pattern indices.
+mod gates {
+    include!(concat!(env!("OUT_DIR"), "/secret_gates.rs"));
 }
 
-static PRESCAN: LazyLock<Prescan> = LazyLock::new(build_prescan);
-
-/// Strip a single LEADING inline flag group like `(?i)`/`(?im)` — the
-/// generator only ever emits whole-pattern leading flags (JS regex semantics).
-/// Case-insensitivity is instead honored by the automaton itself.
-fn strip_leading_flags(pattern: &str) -> &str {
-    if let Some(rest) = pattern.strip_prefix("(?")
-        && let Some(close) = rest.find(')')
-    {
-        let flags = &rest[..close];
-        if !flags.is_empty() && flags.chars().all(|c| matches!(c, 'i' | 'm' | 's')) {
-            return &rest[close + 1..];
-        }
-    }
-    pattern
-}
-
-/// Extract the set of required (necessary) prefix literals for `pattern`, or
-/// `None` when no trustworthy finite literal set exists (=> fallback bucket).
-fn extract_gate_literals(pattern: &str) -> Option<Vec<Vec<u8>>> {
-    use regex_syntax::hir::literal::{ExtractKind, Extractor};
-    let stripped = strip_leading_flags(pattern);
-    let hir = regex_syntax::ParserBuilder::new()
-        .utf8(false)
-        .build()
-        .parse(stripped)
-        .ok()?;
-    let mut extractor = Extractor::new();
-    extractor.kind(ExtractKind::Prefix);
-    let seq = extractor.extract(&hir);
-    let lits = seq.literals()?; // None => infinite set => cannot gate
-    if lits.is_empty() {
-        return None;
-    }
-    let mut out: Vec<Vec<u8>> = Vec::new();
-    for lit in lits {
-        let bytes = lit.as_bytes();
-        // A shorter anchor gates too weakly to be worth trusting; send the
-        // pattern to the fallback bucket instead of risking a false negative
-        // on an anchor the extractor was unsure about.
-        if bytes.len() < 3 {
-            return None;
-        }
-        let lowered: Vec<u8> = bytes.to_ascii_lowercase();
-        if !out.contains(&lowered) {
-            out.push(lowered);
-        }
-    }
-    if out.is_empty() || out.len() > 64 {
-        return None;
-    }
-    Some(out)
-}
-
-fn build_prescan() -> Prescan {
-    let mut literals: Vec<Vec<u8>> = Vec::new();
-    let mut literal_owner: Vec<usize> = Vec::new();
-    let mut fallback: Vec<usize> = Vec::new();
-    for (idx, pattern) in PATTERNS.iter().enumerate() {
-        match extract_gate_literals(pattern.regex) {
-            Some(lits) => {
-                for lit in lits {
-                    literals.push(lit);
-                    literal_owner.push(idx);
-                }
-            }
-            None => fallback.push(idx),
-        }
-    }
+/// One automaton over every gated pattern's literals; its pattern id indexes
+/// `gates::GATE_LITERALS`.
+static PRESCAN: LazyLock<AhoCorasick> = LazyLock::new(|| {
     // Aho-Corasick over a fixed literal set cannot fail to build.
     #[expect(
         clippy::expect_used,
         reason = "built from static patterns, valid by construction"
     )]
-    let ac = AhoCorasickBuilder::new()
+    AhoCorasickBuilder::new()
         .ascii_case_insensitive(true)
-        .build(&literals)
-        .expect("prescan literal automaton must build");
-    Prescan {
-        ac,
-        literal_owner,
-        fallback,
-    }
-}
+        .build(gates::GATE_LITERALS.iter().map(|(literal, _)| literal))
+        .expect("prescan literal automaton must build")
+});
 
 /// Candidate pattern indices for `content`: gated patterns whose literal
 /// appears, plus the always-on fallback bucket — each CONFIRMED with the real
 /// pattern regex (compiled lazily, only for candidates) so callers still see
 /// exact match semantics, sorted in canonical pattern order.
 fn candidate_pattern_indices(content: &str) -> Vec<usize> {
-    let prescan = &*PRESCAN;
     let mut seen = vec![false; PATTERNS.len()];
     // Overlapping scan: a literal nested inside another match span must still
     // register its own pattern, or that pattern would be silently gated out.
-    for hit in prescan.ac.find_overlapping_iter(content) {
-        seen[prescan.literal_owner[hit.pattern().as_usize()]] = true;
+    for hit in PRESCAN.find_overlapping_iter(content) {
+        seen[gates::GATE_LITERALS[hit.pattern().as_usize()].1] = true;
     }
-    for &idx in &prescan.fallback {
+    for &idx in gates::FALLBACK {
         seen[idx] = true;
     }
     (0..PATTERNS.len()).filter(|&idx| seen[idx]).collect()
@@ -417,7 +387,7 @@ fn should_apply(idx: usize, scope: Scope<'_>, content: &str) -> bool {
     if SKIPS_SOURCE_CODE[idx] && scope.source_path().is_some_and(is_source_code_path) {
         return false;
     }
-    match &FILE_CONTEXT_REGEXES[idx] {
+    match file_context_regex(idx) {
         None => true,
         Some(re) => match scope {
             Scope::File(path) => re.is_match(path),
@@ -504,6 +474,33 @@ pub(crate) fn detect_in(content: &str, scope: Scope<'_>) -> DetectResult {
 impl DetectResult {
     fn has_secrets_or(&self, other: &Self) -> bool {
         !self.secrets_detected.is_empty() || !other.secrets_detected.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod ascii_boundary_tests {
+    use super::*;
+
+    #[test]
+    fn rewrites_only_word_boundary_escapes() {
+        assert_eq!(
+            ascii_word_boundaries(r"\bsk-\d+\b"),
+            r"(?-u:\b)sk-\d+(?-u:\b)"
+        );
+        assert_eq!(ascii_word_boundaries(r"a\\b"), r"a\\b");
+    }
+
+    #[test]
+    fn every_pattern_compiles_and_still_matches_next_to_non_ascii_text() {
+        for idx in 0..PATTERNS.len() {
+            let _ = pattern_regex(idx);
+        }
+        let idx = PATTERNS
+            .iter()
+            .position(|p| p.regex.starts_with(r"\bsk-proj-"))
+            .expect("openai project key pattern");
+        let text = "é sk-proj-abcdefghijklmnopqrstuvwx ü";
+        assert!(pattern_regex(idx).is_match(text));
     }
 }
 

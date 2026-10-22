@@ -4,6 +4,7 @@ use super::types::*;
 use crate::id::ToolId;
 use crate::regex_repair::{close_unclosed_group, only_pcre2_compiles, repair_alternation};
 use crate::response::result::{CURSOR_FIELDS, Continuation, ToolError, query_row};
+use octocode_contract_types::ErrorCode;
 use serde_json::json;
 
 /// An invalid pattern, classified from the engine's typed validation
@@ -73,7 +74,7 @@ fn line_break_pattern(query: &LocalSearchQuery) -> ToolError {
             "repair": Continuation::new(ToolId::LocalSearch, repaired).build()
         }))),
         ..ToolError::new(
-            "invalidPattern",
+            ErrorCode::InvalidPattern,
             format!(
                 "matchString `{}` matches a line break; lines are searched one at a time unless multiline:\"on\".",
                 local_search_query::pattern(query).replace('\n', "\\n")
@@ -131,7 +132,7 @@ pub(super) fn check_language(query: &LocalSearchQuery) -> Result<(), ToolError> 
             "repair": Continuation::new(ToolId::LocalSearch, repaired).build()
         }))),
         ..ToolError::new(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             format!("unrecognized file type: {language}; {reason}."),
         )
     })
@@ -172,7 +173,7 @@ pub(super) fn invalid_regex(query: &LocalSearchQuery, message: String) -> ToolEr
         );
         return ToolError {
             hints,
-            ..ToolError::new("invalidPattern", message)
+            ..ToolError::new(ErrorCode::InvalidPattern, message)
         };
     }
     ToolError {
@@ -180,7 +181,7 @@ pub(super) fn invalid_regex(query: &LocalSearchQuery, message: String) -> ToolEr
         next: Some(Box::new(json!({
             "repair": Continuation::new(ToolId::LocalSearch, repaired).build()
         }))),
-        ..ToolError::new("invalidPattern", message)
+        ..ToolError::new(ErrorCode::InvalidPattern, message)
     }
 }
 
@@ -258,7 +259,7 @@ mod repair_tests {
             }))
             .expect("query");
             let error = check_pattern(&query).expect_err("line break rejected");
-            assert_eq!(error.code, "invalidPattern", "{text}");
+            assert_eq!(error.code, ErrorCode::InvalidPattern, "{text}");
             assert!(
                 error.message.ends_with(
                     "matches a line break; lines are searched one at a time unless multiline:\"on\"."
@@ -398,7 +399,7 @@ mod repair_tests {
             }))
             .expect("query");
             let error = check_pattern(&query).expect_err("rust refuses it");
-            assert_eq!(error.code, "invalidPattern", "{text}");
+            assert_eq!(error.code, ErrorCode::InvalidPattern, "{text}");
             assert!(error.hints.is_empty(), "{text}: {:?}", error.hints);
             let next = error.next.as_ref().expect("repair");
             let repair = &next["repair"]["query"]["queries"][0];

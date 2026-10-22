@@ -1,5 +1,6 @@
 use super::*;
 use crate::tools::test_support::{Fixture, simple_policy};
+use octocode_contract_types::ErrorCode;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
@@ -107,7 +108,7 @@ fn a_cancelled_row_stops_waiting_for_another_requests_scan() {
     });
     assert_eq!(
         outcome.err().map(|error| error.code),
-        Some("cancelled".into())
+        Some(ErrorCode::Cancelled)
     );
     assert!(
         held_until_answered,

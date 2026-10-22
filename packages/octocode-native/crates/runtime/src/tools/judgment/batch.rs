@@ -12,6 +12,7 @@ use crate::providers::classification::{
     ClassificationProvider, ProviderContractError, ProviderResponse, ProviderUsage,
 };
 use futures_util::{StreamExt as _, stream};
+use octocode_contract_types::ErrorCode;
 use octocode_io::budget::RequestBudget;
 use secrecy::SecretString;
 use serde_json::Value;
@@ -51,7 +52,7 @@ struct Response {
 
 fn request_error(message: &str) -> ClassificationError {
     ClassificationError::new(
-        "invalidClassificationRequest",
+        ErrorCode::InvalidClassificationRequest,
         message,
         "Inspect the current clasify query schema.",
     )
@@ -150,7 +151,7 @@ async fn answer_inner(
                 .map_err(|_| request_error("Classification request could not be serialized."))?;
             if body.len() > max_request_bytes(single) {
                 return Err(ClassificationError::new(
-                    "classificationStateTooLarge",
+                    ErrorCode::ClassificationStateTooLarge,
                     "One classification request exceeded the configured serialized body limit.",
                     "Narrow the state, reduce image bytes, or shorten the questions.",
                 ));
@@ -219,7 +220,7 @@ fn fold_singles(
     if complete
         .as_ref()
         .err()
-        .is_some_and(|error| error.code == "invalidClassificationResponse")
+        .is_some_and(|error| error.code == ErrorCode::InvalidClassificationResponse)
         && answers.iter().all(Result::is_ok)
     {
         return QuestionOutcomes::from_complete(complete, count);
@@ -288,7 +289,7 @@ fn response_error(
 ) -> ClassificationError {
     let reported = usage.unwrap_or_default();
     ClassificationError {
-        code: error.code().into(),
+        code: error.code(),
         provider_calls: calls,
         reported_usage: Some(Box::new(ReportedUsage {
             input_tokens: reported.input_tokens,
@@ -588,7 +589,7 @@ mod tests {
             })
             .collect();
         let error = judged(parts).unwrap_err();
-        assert_eq!(error.code, "invalidClassificationResponse");
+        assert_eq!(error.code, ErrorCode::InvalidClassificationResponse);
         assert_eq!(
             (
                 error.provider_calls,

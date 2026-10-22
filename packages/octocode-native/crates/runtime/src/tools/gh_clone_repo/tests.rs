@@ -3,6 +3,7 @@ use crate::execution::cancel::NeverCancel;
 use crate::policy::path::PathPolicyConfig;
 use crate::tools::gh_shared::test_support as gh_shared_support;
 use crate::tools::test_support;
+use octocode_contract_types::ErrorCode;
 use octocode_contract_types::{GhCloneRepoQueryPathArrayItem, GhCloneRepoQueryRef};
 use octocode_github::CredentialSource;
 use std::ffi::OsString;
@@ -377,7 +378,7 @@ fn parse_query(value: serde_json::Value) -> GhCloneRepoQuery {
 #[test]
 fn missing_repository_names_the_repository_with_a_recovery_hint() {
     let error = repository_not_found(&query());
-    assert_eq!(error.code, "notFound");
+    assert_eq!(error.code, ErrorCode::NotFound);
     assert_eq!(
         error.message,
         "Repository not found: fixture-owner/fixture-repo"
@@ -403,7 +404,7 @@ fn missing_repository_names_the_repository_with_a_recovery_hint() {
         "{find}"
     );
     // Errors without recovery serialize exactly as before.
-    let plain = CloneError::new("gitFailed", "failed");
+    let plain = CloneError::new(ErrorCode::GitFailed, "failed");
     assert_eq!(
         serde_json::to_value(plain).expect("serialize"),
         serde_json::json!({"code": "gitFailed", "message": "failed"})
@@ -570,7 +571,7 @@ fn denied_cache_home_is_not_created() {
 
     let error = execute_clone(&query(), &context).expect_err("deny cache home");
     // The policy's own flat code, as the local tools report it.
-    assert_eq!(error.code, "outsideAllowedRoots");
+    assert_eq!(error.code, ErrorCode::OutsideAllowedRoots);
     assert!(!cache_home.exists(), "denied home must not be created");
 }
 
@@ -578,14 +579,17 @@ fn denied_cache_home_is_not_created() {
 fn policy_denials_use_the_codes_the_local_tools_share() {
     use crate::policy::PolicyErrorCode;
     for (code, expected) in [
+        (PolicyErrorCode::IgnoredPath, ErrorCode::PathPolicyDenied),
+        (PolicyErrorCode::NotFound, ErrorCode::PathNotFound),
+        (PolicyErrorCode::InputTooLarge, ErrorCode::FileTooLarge),
         (
-            PolicyErrorCode::IgnoredPath,
-            crate::policy::PATH_POLICY_DENIED,
+            PolicyErrorCode::OutsideAllowedRoots,
+            ErrorCode::OutsideAllowedRoots,
         ),
-        (PolicyErrorCode::NotFound, crate::policy::PATH_NOT_FOUND),
-        (PolicyErrorCode::InputTooLarge, "fileTooLarge"),
-        (PolicyErrorCode::OutsideAllowedRoots, "outsideAllowedRoots"),
-        (PolicyErrorCode::SymlinkLoop, "pathValidationFailed"),
+        (
+            PolicyErrorCode::SymlinkLoop,
+            ErrorCode::PathValidationFailed,
+        ),
     ] {
         let error = policy_denied(PolicyError::new(code, "denied"));
         assert_eq!(error.code, expected, "{code:?}");
@@ -604,7 +608,7 @@ fn withheld_cache_home_is_denied_as_path_policy() {
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
 
     let error = execute_clone(&query(), &context).expect_err("withheld cache home");
-    assert_eq!(error.code, crate::policy::PATH_POLICY_DENIED, "{error:?}");
+    assert_eq!(error.code, ErrorCode::PathPolicyDenied, "{error:?}");
     assert!(!cache_home.exists(), "a withheld home must not be created");
 }
 
@@ -644,7 +648,7 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
     let readme = Path::new(&cached.location.local_path).join("README.md");
     fs::write(&readme, "tampered\n").expect("tamper cached checkout");
     let error = clone_pinned(&fixture, &query(), &context).expect_err("preserve dirty checkout");
-    assert_eq!(error.code, "checkoutDirty");
+    assert_eq!(error.code, ErrorCode::CheckoutDirty);
     assert_eq!(
         fs::read_to_string(&readme).expect("read preserved checkout"),
         "tampered\n"
@@ -661,7 +665,7 @@ fn clones_caches_refreshes_sparse_tag_and_commit_without_token_argv() {
         &context,
     )
     .expect_err("an unpinned row");
-    assert_eq!(unpinned.code, "invalidInput");
+    assert_eq!(unpinned.code, ErrorCode::InvalidInput);
 
     let second = fixture.push_second();
     let refreshed = clone_pinned(
@@ -790,7 +794,8 @@ fn dirty_checkout_preserves_tracked_untracked_ignored_and_user_metadata_names() 
                 let error =
                     clone_pinned(&fixture, &request, &context).expect_err("preserve user file");
                 assert_eq!(
-                    error.code, "checkoutDirty",
+                    error.code,
+                    ErrorCode::CheckoutDirty,
                     "{name}, refresh={force_refresh}"
                 );
                 assert!(!error.hints.is_empty(), "actionable recovery");
@@ -867,7 +872,7 @@ fn refresh_rechecks_user_changes_written_while_fetching() {
         &context,
     )
     .expect_err("preserve late write");
-    assert_eq!(error.code, "checkoutDirty");
+    assert_eq!(error.code, ErrorCode::CheckoutDirty);
     assert_eq!(
         fs::read_to_string(checkout.join("during-fetch.txt")).expect("late marker"),
         "concurrent user evidence\n"
@@ -971,7 +976,7 @@ fn metadata_write_rejects_existing_source_without_overwrite() {
     fs::write(&destination, "source arrived after inspection\n").expect("source evidence");
     let meta = fixture_main_meta();
     let error = cache::write_meta(&stage.0, &meta).expect_err("exclusive metadata creation");
-    assert_eq!(error.code, "cacheUnavailable");
+    assert_eq!(error.code, ErrorCode::CacheUnavailable);
     assert!(error.message.contains(cache::META_FILE));
     assert!(
         error
@@ -1039,7 +1044,7 @@ fn repository_metadata_filename_conflict_never_replaces_an_existing_checkout() {
     let context = setup(&runner, &config, &endpoint, &policy, &NeverCancel, None);
     let fresh_error =
         clone_pinned(&fixture, &query(), &context).expect_err("reject fresh reserved source");
-    assert_eq!(fresh_error.code, "cacheUnavailable");
+    assert_eq!(fresh_error.code, ErrorCode::CacheUnavailable);
     assert!(fresh_error.message.contains(cache::META_FILE));
     assert!(fresh_error.message.contains(&fixture.first_commit));
     assert!(
@@ -1071,7 +1076,7 @@ fn repository_metadata_filename_conflict_never_replaces_an_existing_checkout() {
         &context,
     )
     .expect_err("reject reserved source before refresh");
-    assert_eq!(refresh_error.code, "cacheUnavailable");
+    assert_eq!(refresh_error.code, ErrorCode::CacheUnavailable);
     assert_eq!(
         fs::read(checkout.join(cache::META_FILE)).expect("unchanged metadata"),
         original_meta
@@ -1096,7 +1101,7 @@ impl GitRunner for FailingLsTree {
         control: &GitRunControl<'_>,
     ) -> Result<GitOutput, CloneError> {
         if request.args.iter().any(|argument| argument == "ls-tree") {
-            return Err(CloneError::new("gitFailed", "ls-tree failed"));
+            return Err(CloneError::new(ErrorCode::GitFailed, "ls-tree failed"));
         }
         self.0.run(request, control)
     }
@@ -1131,7 +1136,7 @@ fn an_unresolvable_sparse_path_type_fails_the_clone() {
         &context,
     )
     .expect_err("unresolved sparse scope");
-    assert_eq!(error.code, "gitFailed", "{error:?}");
+    assert_eq!(error.code, ErrorCode::GitFailed, "{error:?}");
     assert_eq!(error.message, "ls-tree failed");
 }
 
@@ -1331,7 +1336,7 @@ fn cache_limits_live_lock_and_failed_sparse_refresh_are_bounded() {
     )
     .expect("live lock metadata");
     let error = clone_pinned(&fixture, &deep_tag, &context).expect_err("live lock must time out");
-    assert_eq!(error.code, "timeout");
+    assert_eq!(error.code, ErrorCode::Timeout);
     fs::remove_dir_all(live_lock).expect("remove live lock");
 
     let missing = clone_pinned(
@@ -1343,7 +1348,7 @@ fn cache_limits_live_lock_and_failed_sparse_refresh_are_bounded() {
         &context,
     )
     .expect_err("missing sparse path");
-    assert_eq!(missing.code, "pathNotFound");
+    assert_eq!(missing.code, ErrorCode::PathNotFound);
     assert!(missing.message.contains("\"missing/path\""), "{missing:?}");
     // The lead, not a hint or the message, names the recovery: nothing near
     // `path` exists at the root, so it lists the root at the commit.
@@ -1374,7 +1379,7 @@ fn missing_branch_endpoint_git_and_portable_paths_fail_closed() {
         ..query()
     };
     let error = execute_clone(&pinned, &context).expect_err("missing git");
-    assert_eq!(error.code, "gitUnavailable");
+    assert_eq!(error.code, ErrorCode::GitUnavailable);
 
     // Plain http is a valid API base, and clone source, on loopback only.
     let loopback = GitHubEndpoint::new(url::Url::parse("http://127.0.0.1/api/v3").expect("URL"))
@@ -1475,7 +1480,7 @@ fn system_git_cancellation_kills_and_reaps_process_group() {
         .join()
         .expect("trigger")
         .expect("fixture must publish its child pid within the unchanged execution deadline");
-    assert_eq!(result.expect_err("cancel").code, "cancelled");
+    assert_eq!(result.expect_err("cancel").code, ErrorCode::Cancelled);
     assert!(
         cancelled_at.elapsed() < Duration::from_secs(1),
         "ready process-group cancellation must finish promptly"
@@ -1527,7 +1532,7 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
             &control,
         )
         .expect_err("failure fixture");
-    assert_eq!(failed.code, "gitFailed");
+    assert_eq!(failed.code, ErrorCode::GitFailed);
     // The child's environment dump names the helper, never the credential:
     // nothing is left to redact.
     test_support::checks::assert_absent(&serde_json::json!(failed.message), token);
@@ -1589,7 +1594,7 @@ fn system_git_timeout_and_failure_output_are_bounded_and_redacted() {
             &control,
         )
         .expect_err("timeout fixture");
-    assert_eq!(timed_out.code, "timeout");
+    assert_eq!(timed_out.code, ErrorCode::Timeout);
     assert!(started.elapsed() < Duration::from_secs(2));
 }
 
@@ -1955,7 +1960,7 @@ fn multiple_sparse_paths_check_out_every_path() {
         &context,
     )
     .expect_err("one missing path fails the clone");
-    assert_eq!(missing.code, "pathNotFound");
+    assert_eq!(missing.code, ErrorCode::PathNotFound);
     assert!(missing.message.contains("\"nope\""), "{missing:?}");
     test_support::checks::assert_absent(&serde_json::json!(missing.message), "\"src\"");
 }
@@ -1979,7 +1984,7 @@ fn a_missing_sparse_path_leads_to_its_near_miss_or_its_nearest_directory() {
             &context,
         )
         .expect_err("missing sparse path");
-        assert_eq!(missing.code, "pathNotFound", "{missing:?}");
+        assert_eq!(missing.code, ErrorCode::PathNotFound, "{missing:?}");
         assert!(missing.hints.is_empty(), "{missing:?}");
         *missing.next.expect("recovery lead")
     };
@@ -2075,7 +2080,7 @@ fn api_refusals_name_what_is_missing() {
     .with_reason(ProviderErrorReason::RefNotFound);
     match api_refusal(&tagged, "nope", missing_ref) {
         Ok(CloneFailure::Clone(error)) => {
-            assert_eq!(error.code, "notFound", "{error:?}");
+            assert_eq!(error.code, ErrorCode::NotFound, "{error:?}");
             assert!(error.message.contains("\"nope\""), "{error:?}");
             assert!(error.hints[0].contains("ghStructure"), "{error:?}");
             let refs = &error.next.as_ref().expect("refs lead")["viewRefs"];
@@ -2092,7 +2097,7 @@ fn api_refusals_name_what_is_missing() {
         .with_reason(ProviderErrorReason::RepositoryNotFound);
     match api_refusal(&tagged, "nope", missing_repo) {
         Ok(CloneFailure::Clone(error)) => {
-            assert_eq!(error.code, "notFound");
+            assert_eq!(error.code, ErrorCode::NotFound);
             assert_eq!(error.message, "Repository not found: o/r");
             assert_eq!(
                 error.next.as_ref().expect("search lead")["findRepository"]["tool"],
@@ -2293,7 +2298,7 @@ async fn cache_hit_is_not_served_to_a_caller_without_access() {
     match clone_as(&bench, &provider, &query(), BOB).await {
         Ok(served) => panic!("Bob was served Alice's checkout: {served:?}"),
         Err(CloneFailure::Clone(error)) => {
-            assert_eq!(error.code, "notFound", "{error:?}");
+            assert_eq!(error.code, ErrorCode::NotFound, "{error:?}");
             assert_eq!(
                 error.message,
                 "Repository not found: fixture-owner/fixture-repo"
@@ -2505,7 +2510,7 @@ async fn the_default_branch_requires_access() {
     assert_eq!(alice.location.resolved_ref, "main");
     match clone_as(&bench, &provider, &unbranched(), BOB).await {
         Ok(served) => panic!("Bob was served Alice's checkout: {served:?}"),
-        Err(CloneFailure::Clone(error)) => assert_eq!(error.code, "notFound", "{error:?}"),
+        Err(CloneFailure::Clone(error)) => assert_eq!(error.code, ErrorCode::NotFound, "{error:?}"),
         Err(CloneFailure::Provider(error)) => panic!("a denied repository is notFound: {error:?}"),
     }
 }

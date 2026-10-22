@@ -3,6 +3,7 @@ use crate::security::ContentSecurity;
 use crate::tools::local_fetch::ReadStatus;
 use crate::tools::selection::{Decision, JudgeCall, Runtime, SelectionJudge};
 use crate::tools::test_support::selection_fake::{self, DOWN, REFUSED, WordJudge};
+use octocode_contract_types::ErrorCode;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -339,7 +340,11 @@ fn incomplete_source_maps_never_invent_candidate_coordinates() {
 fn serialized_state_budget_uses_sanitized_content() {
     struct Redacted;
     impl ContentScan for Redacted {
-        fn sanitize(&self, _: &str, _: &Path) -> Result<(String, Vec<String>), (String, String)> {
+        fn sanitize(
+            &self,
+            _: &str,
+            _: &Path,
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
             Ok(("é\n\"".into(), vec![]))
         }
     }
@@ -737,7 +742,7 @@ fn context_selection_omits_unrelated_bodies_and_exposes_recovery() {
     );
 }
 
-fn word_read(fail: Option<&'static str>) -> crate::tools::local_fetch::LocalFetchResult {
+fn word_read(fail: Option<ErrorCode>) -> crate::tools::local_fetch::LocalFetchResult {
     word_read_with(
         json!({}),
         fail,
@@ -749,7 +754,7 @@ fn word_read(fail: Option<&'static str>) -> crate::tools::local_fetch::LocalFetc
 /// `facts`.
 fn word_read_with(
     extra: serde_json::Value,
-    fail: Option<&'static str>,
+    fail: Option<ErrorCode>,
     facts: &crate::tools::local_fetch::SourceFacts,
 ) -> crate::tools::local_fetch::LocalFetchResult {
     use crate::execution::cancel::NeverCancel;
@@ -1029,8 +1034,8 @@ fn a_first_classified_call_with_an_offset_is_refused_input_not_a_stale_cursor() 
         Some(&runtime),
     );
     assert_eq!(
-        result.error_code.as_deref(),
-        Some("invalidInput"),
+        result.error_code,
+        Some(ErrorCode::InvalidInput),
         "{result:?}"
     );
     let recovery = result
@@ -1048,8 +1053,8 @@ fn a_first_classified_call_with_an_offset_is_refused_input_not_a_stale_cursor() 
 fn a_provider_failing_every_chunk_fails_the_read_with_its_typed_error() {
     let result = word_read(REFUSED);
     assert_eq!(
-        result.error_code.as_deref(),
-        Some("classificationProviderError")
+        result.error_code,
+        Some(ErrorCode::ClassificationProviderError)
     );
     assert!(
         result
@@ -1091,7 +1096,10 @@ fn a_provider_that_is_down_shows_the_unfiltered_view_as_unavailable() {
         receipt.status,
         octocode_contract_types::SelectionStatus::Unavailable
     );
-    assert_eq!(receipt.reason.as_deref(), DOWN);
+    assert_eq!(
+        receipt.reason.as_deref(),
+        DOWN.map(crate::id::error_codes::as_str)
+    );
     assert_eq!((receipt.total_items, receipt.unknown_items), (5, 5));
     let content = result.content.as_deref().expect("the view is shown");
     for word in ["keep", "drop", "maybe"] {

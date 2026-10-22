@@ -2,6 +2,7 @@ use super::*;
 use crate::execution::cancel::{CancellationCheck, NeverCancel};
 use crate::security::scan::ContentScan;
 use crate::tools::test_support::Fixture;
+use octocode_contract_types::ErrorCode;
 use sha2::Digest;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,7 +33,7 @@ impl PathAccess for Paths {
             })
             .map_err(|error| {
                 Box::new(PathFailure {
-                    code: "fileAccessFailed".into(),
+                    code: ErrorCode::FileAccessFailed,
                     message: error.to_string(),
                     safe_path: None,
                     resource_missing: false,
@@ -47,7 +48,7 @@ impl PathAccess for Paths {
 }
 struct Safe;
 impl ContentScan for Safe {
-    fn sanitize(&self, text: &str, _: &Path) -> Result<(String, Vec<String>), (String, String)> {
+    fn sanitize(&self, text: &str, _: &Path) -> Result<(String, Vec<String>), (ErrorCode, String)> {
         Ok((
             text.replace("SECRET", "[REDACTED]"),
             if text.contains("SECRET") {

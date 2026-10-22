@@ -1,6 +1,7 @@
 use super::{HEADER_TIMEOUT, State, Tokens, backend, handle, token};
 use hyper::server::conn::http1;
 use hyper_util::rt::{TokioIo, TokioTimer};
+use octocode_contract_types::ErrorCode;
 use serde_json::json;
 use std::convert::Infallible;
 use std::io;
@@ -21,7 +22,7 @@ pub(in crate::cli) async fn run(no_open: bool, idle_timeout: u64, json_out: bool
         Ok(code) => code,
         Err(()) => {
             crate::cli::emit_error(
-                "executionFailed",
+                ErrorCode::ExecutionFailed,
                 "Cannot open the config view. Check the Octocode installation and browser opener.",
                 json_out,
             );

@@ -2,7 +2,7 @@
 use crate::id::ToolId;
 use crate::policy::path::PathPolicy;
 use crate::response::output::{PathAnchor, SANDBOX_HINT};
-use octocode_contract_types::ExtraKind;
+use octocode_contract_types::{ErrorCode, ExtraKind};
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 
@@ -131,37 +131,43 @@ pub(crate) const CANCELLED_HINT: &str = "Retry only if the result is still neede
 /// (provider kinds, policy, locks, input). A tool answers only for the codes
 /// it alone emits (`ToolOutput::error_hint`); any other code gets the tool's
 /// fallback hint.
-pub(crate) fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> {
+pub(crate) fn error_code_hint(tool: ToolId, code: ErrorCode) -> Option<&'static str> {
     Some(match code {
-        "outsideAllowedRoots" | "symlinkEscape" => SANDBOX_HINT,
-        "authentication" => GITHUB_AUTH_RECOVERY_HINT,
-        "permission" | "permissionDenied" => {
+        ErrorCode::OutsideAllowedRoots | ErrorCode::SymlinkEscape => SANDBOX_HINT,
+        ErrorCode::Authentication => GITHUB_AUTH_RECOVERY_HINT,
+        ErrorCode::Permission | ErrorCode::PermissionDenied => {
             "Verify access and token scopes; do not treat denial as absence."
         }
-        "rateLimited" | "classificationRateLimited" => {
+        ErrorCode::RateLimited | ErrorCode::ClassificationRateLimited => {
             "Wait for Retry-After or the rate-limit reset before retrying."
         }
-        "timeout" | "transport" | "server" => {
+        ErrorCode::Timeout | ErrorCode::Transport | ErrorCode::Server => {
             "Retry once; if it persists, narrow scope and verify provider availability."
         }
-        "cancelled" => CANCELLED_HINT,
-        "responseTooLarge" => "Narrow the requested scope.",
-        "redirectDenied" => "Use the canonical allowed host and repository.",
-        "decode" => "Retry once; report a provider response incompatibility if it persists.",
-        "configuration" | "credentialStoreUnavailable" => {
+        ErrorCode::Cancelled => CANCELLED_HINT,
+        ErrorCode::ResponseTooLarge => "Narrow the requested scope.",
+        ErrorCode::RedirectDenied => "Use the canonical allowed host and repository.",
+        ErrorCode::Decode => {
+            "Retry once; report a provider response incompatibility if it persists."
+        }
+        ErrorCode::Configuration | ErrorCode::CredentialStoreUnavailable => {
             "Correct the provider authentication and configuration."
         }
-        "unavailable" => {
+        ErrorCode::Unavailable => {
             "The provider blocks this resource for legal reasons; retrying will not help."
         }
-        "httpStatus" => "Check httpStatus and the message; this status is not a network failure.",
+        ErrorCode::HttpStatus => {
+            "Check httpStatus and the message; this status is not a network failure."
+        }
         // One code, one recovery on every tool.
-        crate::policy::PATH_NOT_FOUND => crate::response::output::VERIFY_PATH_HINT,
-        crate::policy::PATH_POLICY_DENIED => crate::policy::discovery::WITHHELD_HINT,
+        ErrorCode::PathNotFound => crate::response::output::VERIFY_PATH_HINT,
+        ErrorCode::PathPolicyDenied => crate::policy::discovery::WITHHELD_HINT,
         code => {
             if let Some(hint) = tool.output().error_hint(code) {
                 hint
-            } else if is_invalid_input_code(code) {
+            } else if crate::id::error_codes::class(code)
+                == crate::id::error_codes::ErrorClass::InvalidInput
+            {
                 "Correct the rejected field named in the error; broadening will not help."
             } else {
                 return None;
@@ -171,13 +177,13 @@ pub(crate) fn error_code_hint(tool: ToolId, code: &str) -> Option<&'static str> 
 }
 
 fn error_fallback_hint(tool: ToolId, query: &Value, row: &Value) -> &'static str {
-    let code = row
-        .pointer("/data/errorCode")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
     // Local tools report a sandbox refusal under its own code
     // (`outsideAllowedRoots`), so the hint is keyed by code alone.
-    error_code_hint(tool, code).unwrap_or_else(|| tool.output().fallback_hint(query))
+    row.pointer("/data/errorCode")
+        .and_then(Value::as_str)
+        .and_then(crate::id::error_codes::parse)
+        .and_then(|code| error_code_hint(tool, code))
+        .unwrap_or_else(|| tool.output().fallback_hint(query))
 }
 
 /// The tool's fallback hint on an empty or failed row of `query` that has no
@@ -197,7 +203,7 @@ pub(crate) fn ensure_recovery(row: &mut Value, tool: ToolId, query: &Value) {
         // tool's hint for that category (or none), not the generic fallback.
         row.pointer("/data/category")
             .and_then(Value::as_str)
-            .and_then(|category| tool.output().error_hint(category))
+            .and_then(|category| tool.output().category_hint(category))
             .unwrap_or_else(|| tool.output().fallback_hint(query))
     };
     if hint == crate::response::output::NO_HINT {
@@ -334,7 +340,7 @@ pub(crate) fn result_row(
     mut data: Value,
     status: Option<&str>,
 ) -> Value {
-    if data.get("errorCode").and_then(Value::as_str) == Some("staleSnapshot") {
+    if crate::id::error_code_of(&data) == Some(ErrorCode::StaleSnapshot) {
         super::pages::restart_stale(tool, query, &mut data);
     }
     super::notices::drop_on_later_page(query, &mut data);

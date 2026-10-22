@@ -1,4 +1,5 @@
 use super::{emit_error, write_json};
+use octocode_contract_types::ErrorCode;
 use octocode_native::runtime::ToolRuntime;
 use serde_json::json;
 use std::io;
@@ -265,7 +266,7 @@ pub fn set(
     match value {
         Ok(value) => edit(runtime, key, Some(&value), json_out),
         Err(message) => {
-            emit_error("invalidInput", message, json_out);
+            emit_error(ErrorCode::InvalidInput, message, json_out);
             2
         }
     }
@@ -308,16 +309,16 @@ fn edit(runtime: &ToolRuntime, key: &str, value: Option<&str>, json_out: bool) -
         }
         Err(error) => {
             let code = if error.kind() == io::ErrorKind::InvalidInput {
-                "invalidInput"
+                ErrorCode::InvalidInput
             } else {
-                "fileAccessFailed"
+                ErrorCode::FileAccessFailed
             };
             emit_error(
                 code,
                 &format!("Cannot edit global config: {error}"),
                 json_out,
             );
-            super::exit_code(octocode_native::response::exit::ExitClass::of_code(code))
+            super::exit_code(octocode_native::response::exit::ExitClass::of(code))
         }
     }
 }

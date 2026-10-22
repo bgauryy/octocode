@@ -3,6 +3,7 @@
 //! per token, never echoed, never replaced by an ambient credential.
 use crate::support::{Workspace, envelope, row_data, row_status};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_contract_types::ErrorCode;
 use octocode_native::response::outcome::ToolOutcome;
 use octocode_native::runtime::{Channel, RuntimeError, ToolRuntime};
 use serde_json::{Value, json};
@@ -223,7 +224,7 @@ async fn request_options_are_strict_and_never_echoed() {
             .admit_with("req".into(), Some(options))
             .err()
             .expect("refused");
-        assert_eq!(error.code, "invalidInput");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
         assert!(!error.message.contains(&secret), "{}", error.message);
     }
     assert!(runtime.admit_with("req".into(), Some(Value::Null)).is_ok());

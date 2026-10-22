@@ -2,6 +2,7 @@ use super::*;
 use crate::config::{ConfigInput, FileInput, RuntimeSurface};
 use crate::policy::path::PathPolicyConfig;
 use crate::runtime::{Channel, ToolRuntime};
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
@@ -88,7 +89,7 @@ fn an_image_source_never_follows_embedded_images_or_unsupported_media() {
     ] {
         let fake = Fake::default().bytes("https://example.org/image", Some(media), body.to_vec());
         let error = select_image(&fake, parse("https://example.org/image").unwrap()).unwrap_err();
-        assert_eq!(error.code, "classificationContextUnavailable");
+        assert_eq!(error.code, ErrorCode::ClassificationContextUnavailable);
         assert_eq!(fake.requested.borrow().len(), 1);
     }
 }
@@ -110,14 +111,14 @@ fn image_fragments_are_rejected_at_origin_and_after_redirect() {
         select_image(&fake, parse("https://example.org/image#crop").unwrap())
             .unwrap_err()
             .code,
-        "invalidClassificationContext"
+        ErrorCode::InvalidClassificationContext
     );
     assert!(fake.requested.borrow().is_empty());
     assert_eq!(
         select_image(&fake, parse("https://example.org/image").unwrap())
             .unwrap_err()
             .code,
-        "invalidClassificationContext"
+        ErrorCode::InvalidClassificationContext
     );
 }
 
@@ -139,7 +140,7 @@ fn only_an_https_url_without_credentials_is_accepted() {
         ("https://token@docs.example.org/guide", "credentials"),
     ] {
         let error = parse(address).unwrap_err();
-        assert_eq!(error.code, "securityValidationFailed", "{address}");
+        assert_eq!(error.code, ErrorCode::SecurityValidationFailed, "{address}");
         assert!(
             error.message.contains(needle),
             "{address}: {}",
@@ -149,7 +150,7 @@ fn only_an_https_url_without_credentials_is_accepted() {
     }
     assert_eq!(
         parse("not a url").unwrap_err().code,
-        "invalidClassificationContext"
+        ErrorCode::InvalidClassificationContext
     );
     assert!(parse("https://docs.example.org/guide?q=1#rotation").is_ok());
 }
@@ -210,7 +211,7 @@ fn a_missing_or_ambiguous_anchor_fails_naming_the_fragment() {
     let missing = run(&fake, "https://docs.example.org/guide#absent", 10_000)
         .err()
         .unwrap();
-    assert_eq!(missing.code, "classificationContextEmpty");
+    assert_eq!(missing.code, ErrorCode::ClassificationContextEmpty);
     assert!(missing.message.contains("#absent"), "{}", missing.message);
     assert!(
         missing.message.contains("No element"),
@@ -220,7 +221,7 @@ fn a_missing_or_ambiguous_anchor_fails_naming_the_fragment() {
     let ambiguous = run(&fake, "https://docs.example.org/twice#x", 10_000)
         .err()
         .unwrap();
-    assert_eq!(ambiguous.code, "classificationContextEmpty");
+    assert_eq!(ambiguous.code, ErrorCode::ClassificationContextEmpty);
     assert!(
         ambiguous.message.contains("2 elements") && ambiguous.message.contains("#x"),
         "{}",
@@ -237,7 +238,7 @@ fn text_over_the_state_limit_fails_instead_of_being_cut() {
     let error = run(&fake, "https://docs.example.org/guide", limit - 1)
         .err()
         .unwrap();
-    assert_eq!(error.code, "classificationContextTooLarge");
+    assert_eq!(error.code, ErrorCode::ClassificationContextTooLarge);
     assert!(error.message.contains(&format!("{}-character", limit - 1)));
     // The section alone fits where the page does not.
     assert!(run(&fake, "https://docs.example.org/guide#faq", 20).is_ok());
@@ -306,7 +307,11 @@ fn unsupported_content_is_refused_not_judged() {
         let error = run(&fake, &format!("https://e.example.org/{path}"), 1_000)
             .err()
             .unwrap();
-        assert_eq!(error.code, "classificationContextUnavailable", "{path}");
+        assert_eq!(
+            error.code,
+            ErrorCode::ClassificationContextUnavailable,
+            "{path}"
+        );
         assert!(error.message.contains(needle), "{path}: {}", error.message);
     }
     let empty = Fake::default().page("https://e.example.org/blank", "text/html", "<p> </p>");
@@ -315,7 +320,7 @@ fn unsupported_content_is_refused_not_judged() {
             .err()
             .unwrap()
             .code,
-        "classificationContextEmpty"
+        ErrorCode::ClassificationContextEmpty
     );
 }
 
@@ -368,7 +373,7 @@ fn a_redirect_is_rechecked_as_https_without_credentials() {
         let error = run(&fake, &format!("https://a.example.org/{path}"), 1_000)
             .err()
             .unwrap();
-        assert_eq!(error.code, "securityValidationFailed", "{path}");
+        assert_eq!(error.code, ErrorCode::SecurityValidationFailed, "{path}");
     }
     assert_eq!(
         fake.requested.borrow().len(),
@@ -401,7 +406,7 @@ fn at_most_five_redirects_are_followed() {
     }
     fake = fake.page(&hops[6], "text/plain", "six");
     let error = run(&fake, &hops[0], 100).err().unwrap();
-    assert_eq!(error.code, "classificationContextFailed");
+    assert_eq!(error.code, ErrorCode::ClassificationContextFailed);
     assert!(error.message.contains("more than 5"), "{}", error.message);
     assert_eq!(fake.requested.borrow().len(), 6);
 }
@@ -414,7 +419,7 @@ fn http_failures_and_redirects_without_location_fail_the_capture() {
     let forbidden = run(&fake, "https://a.example.org/private", 100)
         .err()
         .unwrap();
-    assert_eq!(forbidden.code, "classificationContextFailed");
+    assert_eq!(forbidden.code, ErrorCode::ClassificationContextFailed);
     assert!(
         forbidden.message.contains("HTTP 403"),
         "{}",
@@ -423,7 +428,7 @@ fn http_failures_and_redirects_without_location_fail_the_capture() {
     let nowhere = run(&fake, "https://a.example.org/nowhere", 100)
         .err()
         .unwrap();
-    assert_eq!(nowhere.code, "classificationContextFailed");
+    assert_eq!(nowhere.code, ErrorCode::ClassificationContextFailed);
     assert!(nowhere.message.contains("Location"), "{}", nowhere.message);
 }
 
@@ -613,7 +618,7 @@ fn a_capture_directory_outside_the_path_policy_is_refused_before_saving() {
     let error = Store::at(capture_root(&home.home), Duration::from_secs(60), &policy)
         .err()
         .unwrap();
-    assert_eq!(error.code, "classificationContextUnavailable");
+    assert_eq!(error.code, ErrorCode::ClassificationContextUnavailable);
     assert!(error.message.contains("path policy"), "{}", error.message);
     assert_eq!(
         std::fs::read_dir(capture_root(&home.home)).unwrap().count(),
@@ -717,9 +722,9 @@ fn a_stopped_call_ends_html_extraction_with_its_own_reason() {
         crate::execution::ExecutionError::Cancelled,
     ] {
         let expected = if reason == crate::execution::ExecutionError::Timeout {
-            "timeout"
+            ErrorCode::Timeout
         } else {
-            "cancelled"
+            ErrorCode::Cancelled
         };
         let check = || Err(stopped(reason));
         let error = select(

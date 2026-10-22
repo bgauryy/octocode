@@ -300,7 +300,17 @@ impl Selected {
         if !self.outcome.leaves_out() {
             return Vec::new();
         }
-        let query_json = normalized_query(query, streamed_layout(query));
+        let mut query_json = normalized_query(query, streamed_layout(query));
+        // The clasify context default (`local_search_query::context`) stated:
+        // an unfiltered lead drops `clasifyContext` and must keep the windows
+        // the snapshot captured.
+        if query.context_lines.is_none()
+            && query.context_before.is_none()
+            && query.context_after.is_none()
+        {
+            query_json["contextLines"] =
+                json!(super::types::local_search_query::CLASIFY_CONTEXT_LINES);
+        }
         let mut leads = self.unfiltered_leads(&query_json, snapshot, root_is_dir);
         if let Some(token) = self.outcome.next_candidates(ToolId::LocalSearch) {
             let mut row = query_json;
@@ -417,14 +427,15 @@ mod tests {
     use crate::security::ContentSecurity;
     use crate::tools::selection::{JudgeCall, Judgments, SelectionJudge};
     use crate::tools::test_support::selection_fake::{self, DOWN, REFUSED, WordJudge};
+    use octocode_contract_types::ErrorCode;
     use std::time::Duration;
 
-    fn runtime(fail: Option<&'static str>, executor: &tokio::runtime::Runtime) -> Runtime {
+    fn runtime(fail: Option<ErrorCode>, executor: &tokio::runtime::Runtime) -> Runtime {
         runtime_with(fail, executor, 64)
     }
 
     fn runtime_with(
-        fail: Option<&'static str>,
+        fail: Option<ErrorCode>,
         executor: &tokio::runtime::Runtime,
         max: usize,
     ) -> Runtime {
@@ -440,7 +451,7 @@ mod tests {
     fn search(
         root: &std::path::Path,
         fields: Value,
-        fail: Option<&'static str>,
+        fail: Option<ErrorCode>,
     ) -> Result<LocalSearchResult, ToolError> {
         search_with(root, fields, fail, 64)
     }
@@ -448,11 +459,14 @@ mod tests {
     fn search_with(
         root: &std::path::Path,
         fields: Value,
-        fail: Option<&'static str>,
+        fail: Option<ErrorCode>,
         max: usize,
     ) -> Result<LocalSearchResult, ToolError> {
+        // Bare hit lines (`contextLines: 0`) unless a test asks for context:
+        // these tests count one judgment per hit, which the clasify context
+        // default would merge into shared windows.
         let mut query = json!({"path": root, "matchString": "needle",
-            "clasifyContext": {"classifiers": ["Is this kept?"]}});
+            "contextLines": 0, "clasifyContext": {"classifiers": ["Is this kept?"]}});
         for (key, value) in fields.as_object().into_iter().flatten() {
             query[key] = value.clone();
         }
@@ -744,7 +758,10 @@ mod tests {
             receipt.status,
             octocode_contract_types::SelectionStatus::Unavailable
         );
-        assert_eq!(receipt.reason.as_deref(), DOWN);
+        assert_eq!(
+            receipt.reason.as_deref(),
+            DOWN.map(crate::id::error_codes::as_str)
+        );
         assert_eq!((receipt.total_items, receipt.unknown_items), (5, 5));
         let shown = result
             .files
@@ -793,7 +810,7 @@ mod tests {
     fn a_refused_credential_fails_the_row_with_its_typed_error() {
         let root = fixture();
         let error = search(root.path(), json!({}), REFUSED).expect_err("refused credential");
-        assert_eq!(error.code, "classificationProviderError");
+        assert_eq!(error.code, ErrorCode::ClassificationProviderError);
         assert!(
             error
                 .hints
@@ -805,7 +822,10 @@ mod tests {
             receipt.status,
             octocode_contract_types::SelectionStatus::Unavailable
         );
-        assert_eq!(receipt.reason.as_deref(), REFUSED);
+        assert_eq!(
+            receipt.reason.as_deref(),
+            REFUSED.map(crate::id::error_codes::as_str)
+        );
         assert_eq!(receipt.unknown_items, 5);
         let lead = &error.next.as_ref().expect("evidence stays reachable")["unfiltered"];
         assert!(lead["query"]["queries"][0].get("clasifyContext").is_none());

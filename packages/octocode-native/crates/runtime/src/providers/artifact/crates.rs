@@ -311,6 +311,7 @@ mod tests {
     use super::super::test_http::{KnownTags, RouteHttp};
     use super::super::types::{exact_query, test_budget, versioned};
     use super::*;
+    use octocode_contract_types::ErrorCode;
     use octocode_io::budget::RequestBudget;
     use serde_json::json;
 
@@ -474,7 +475,7 @@ mod tests {
         let missing = lookup(versioned(ArtifactType::Crates, "serde", "1.0.101"))
             .await
             .expect_err("missing");
-        assert_eq!(missing.code, "versionNotFound");
+        assert_eq!(missing.code, ErrorCode::VersionNotFound);
         assert!(
             missing.nearest.iter().any(|version| version == "1.0.100"),
             "{missing:?}"

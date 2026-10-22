@@ -6,7 +6,8 @@
 
 use napi::{Env, bindgen_prelude::PromiseRaw};
 use napi_derive::napi;
-use octocode_native::id::{error_class, error_codes::ErrorClass};
+use octocode_contract_types::ErrorCode;
+use octocode_native::id::error_codes::{self, ErrorClass};
 use octocode_native::runtime::error::mcp_result;
 use octocode_native::runtime::{Channel, HostOptions, RuntimeError, ToolRuntime};
 use octocode_native::security::{scrub_error_payload, scrub_error_text};
@@ -21,14 +22,14 @@ pub struct NativeRuntime {
 /// A rejection JS receives: the contract's class of the code decides the
 /// status (a caller error, a cancellation, or a failure).
 fn boundary_error(error: RuntimeError) -> napi::Error {
-    let status = match (error.code.as_str(), error_class(&error.code)) {
-        ("cancelled", _) => napi::Status::Cancelled,
+    let status = match (error.code, error_codes::class(error.code)) {
+        (ErrorCode::Cancelled, _) => napi::Status::Cancelled,
         (_, ErrorClass::InvalidInput) => napi::Status::InvalidArg,
         _ => napi::Status::GenericFailure,
     };
     envelope(
         status,
-        &error.code,
+        error_codes::as_str(error.code),
         &error.message,
         error.payload.map(|payload| *payload),
     )
@@ -160,7 +161,7 @@ mod tests {
     fn boundary_errors_redact_secrets_in_message_and_payload() {
         let token = format!("ghp_{}", "a".repeat(37));
         let error = boundary_error(RuntimeError {
-            code: "providerError".into(),
+            code: ErrorCode::ProviderError,
             message: format!("upstream rejected token {token}"),
             payload: Some(Box::new(
                 json!({"detail": format!("token={token}"), "nested": [{"note": token}]}),
@@ -175,15 +176,17 @@ mod tests {
     #[test]
     fn rejection_status_follows_the_declared_error_class() {
         for (code, status) in [
-            ("invalidInput", napi::Status::InvalidArg),
-            ("pathPolicyDenied", napi::Status::InvalidArg),
-            ("cancelled", napi::Status::Cancelled),
-            ("securityValidationFailed", napi::Status::GenericFailure),
-            ("closed", napi::Status::GenericFailure),
-            ("notDeclared", napi::Status::GenericFailure),
+            (ErrorCode::InvalidInput, napi::Status::InvalidArg),
+            (ErrorCode::PathPolicyDenied, napi::Status::InvalidArg),
+            (ErrorCode::Cancelled, napi::Status::Cancelled),
+            (
+                ErrorCode::SecurityValidationFailed,
+                napi::Status::GenericFailure,
+            ),
+            (ErrorCode::Closed, napi::Status::GenericFailure),
         ] {
             let error = boundary_error(RuntimeError {
-                code: code.into(),
+                code,
                 message: "m".into(),
                 payload: None,
                 validation_issues: None,

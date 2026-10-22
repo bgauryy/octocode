@@ -2,6 +2,7 @@ use super::CloneError;
 use crate::execution::cancel::CancellationCheck;
 use crate::tools::bounded_process::{BoundedError, run_bounded, run_bounded_records};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_contract_types::ErrorCode;
 use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -86,9 +87,11 @@ pub trait GitRunner: Send + Sync {
             control,
         ) {
             Ok(_) => Ok(()),
-            Err(error) if matches!(error.code.as_str(), "cancelled" | "timeout") => Err(error),
+            Err(error) if matches!(error.code, ErrorCode::Cancelled | ErrorCode::Timeout) => {
+                Err(error)
+            }
             Err(_) => Err(CloneError::new(
-                "gitUnavailable",
+                ErrorCode::GitUnavailable,
                 "git is not installed or not on PATH. The ghCloneRepo tool requires git to be available.",
             )),
         }
@@ -235,7 +238,7 @@ impl AskPass {
     fn create(parent: &Path, token: &str, url: &str) -> Result<Self, CloneError> {
         let failed = |reason: String| {
             CloneError::new(
-                "gitFailed",
+                ErrorCode::GitFailed,
                 format!("Failed to create the Git credential helper: {reason}"),
             )
         };
@@ -313,10 +316,10 @@ impl SystemGit {
         control
             .cancellation
             .check()
-            .map_err(|message| CloneError::new("cancelled", message))?;
+            .map_err(|message| CloneError::new(ErrorCode::Cancelled, message))?;
         if Instant::now() >= control.deadline {
             return Err(CloneError::new(
-                "timeout",
+                ErrorCode::Timeout,
                 "Clone request deadline elapsed before Git execution.",
             ));
         }
@@ -324,7 +327,7 @@ impl SystemGit {
         let git_home = git_tmp.join("git-home");
         std::fs::create_dir_all(&git_home).map_err(|error| {
             CloneError::new(
-                "gitFailed",
+                ErrorCode::GitFailed,
                 format!("Failed to create isolated Git home: {error}"),
             )
         })?;
@@ -355,9 +358,9 @@ impl SystemGit {
             ),
         }
         .map_err(|error| match error {
-            BoundedError::Cancelled(message) => CloneError::new("cancelled", message),
+            BoundedError::Cancelled(message) => CloneError::new(ErrorCode::Cancelled, message),
             BoundedError::TimedOut(_) => CloneError::new(
-                "timeout",
+                ErrorCode::Timeout,
                 format!("git {} exceeded its execution deadline", request.label),
             ),
             BoundedError::Failed(message) => process_failure(message),
@@ -406,7 +409,7 @@ impl GitRunner for SystemGit {
 fn process_failure(message: String) -> CloneError {
     CloneError {
         hints: vec!["Resolve the reported Git process or resource failure before retrying.".into()],
-        ..CloneError::new("gitFailed", message)
+        ..CloneError::new(ErrorCode::GitFailed, message)
     }
 }
 
@@ -560,7 +563,7 @@ mod env_and_scrub_tests {
                 },
             );
             match ran {
-                Err(error) if error.code == "timeout" => None,
+                Err(error) if error.code == ErrorCode::Timeout => None,
                 ran => Some(ran.expect("fixture runs")),
             }
         });
@@ -627,7 +630,7 @@ mod env_and_scrub_tests {
                 },
             )
             .expect_err("collected process output remains bounded");
-        assert_eq!(error.code, "gitFailed");
+        assert_eq!(error.code, ErrorCode::GitFailed);
         assert!(error.message.contains("git test"), "{}", error.message);
         assert!(error.message.contains("output limit"), "{}", error.message);
         assert!(

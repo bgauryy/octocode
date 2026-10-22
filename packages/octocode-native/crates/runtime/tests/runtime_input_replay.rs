@@ -6,6 +6,7 @@
 //! as the agents sent it: native runs a bare row as a one-row `queries`.
 
 use crate::support::{self, Run as _};
+use octocode_contract_types::ErrorCode;
 
 use serde_json::{Value, json};
 use support::Workspace;
@@ -49,7 +50,7 @@ async fn benchmark_range_spellings_are_rejected_with_the_canonical_repair() {
             )
             .await
             .expect_err("the CLI path rejects the same row");
-        assert_eq!(cli.code, "invalidInput", "row {index}");
+        assert_eq!(cli.code, ErrorCode::InvalidInput, "row {index}");
     }
     runtime.close().await;
 }

@@ -26,3 +26,15 @@ pub(crate) mod selection_errors;
 pub(crate) mod stage;
 pub(crate) mod stream_page;
 pub(crate) mod symbol_outline;
+
+/// A tool response as the YAML text channel renders it: for an interface
+/// that prints a structured result it changed first (the CLI drops the calls
+/// it prints as commands, so each follow-up shows once).
+#[must_use]
+pub fn render_text(
+    tool: crate::id::ToolId,
+    response: &serde_json::Value,
+    query: &serde_json::Value,
+) -> String {
+    render::render_tool(tool, response, query, render::TextFormat::Yaml)
+}

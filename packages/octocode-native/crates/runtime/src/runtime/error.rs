@@ -6,6 +6,7 @@
 use super::RuntimeError;
 use crate::id::ToolId;
 use crate::response::outcome::ToolOutcome;
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
 /// A rejected call as every surface prints it.
@@ -31,16 +32,18 @@ pub fn tool_error_result(tool: &str, error: &RuntimeError) -> ToolError {
     if envelope.get("errorCode").is_none() {
         envelope["errorCode"] = json!(error.code);
     }
-    if error.code == "timeout" && envelope.get("details").is_none() {
+    if error.code == ErrorCode::Timeout && envelope.get("details").is_none() {
         envelope["details"] = json!([timeout_hint(tool)]);
     }
     crate::security::scrub_error_payload(&mut envelope);
-    let code = envelope["errorCode"].as_str().unwrap_or(&error.code);
+    let code = envelope["errorCode"]
+        .as_str()
+        .unwrap_or(crate::id::error_codes::as_str(error.code));
     let detail =
         error_line(&envelope).unwrap_or_else(|| crate::security::scrub_error_text(&error.message));
     // The MCP SDK's own wording for a rejected input, so a client keyed on it
     // sees native validation the same way.
-    let text = if error.code == "invalidInput" {
+    let text = if error.code == ErrorCode::InvalidInput {
         format!(
             "Input validation error: Invalid arguments for tool {tool}: {detail} (errorCode: {code})"
         )
@@ -60,7 +63,9 @@ pub fn mcp_result(
 ) -> Result<Value, RuntimeError> {
     let outcome = match result {
         Ok(outcome) => outcome,
-        Err(error) if matches!(error.code.as_str(), "cancelled" | "closed") => return Err(error),
+        Err(error) if matches!(error.code, ErrorCode::Cancelled | ErrorCode::Closed) => {
+            return Err(error);
+        }
         Err(error) => {
             let ToolError { envelope, text } = tool_error_result(tool, &error);
             return Ok(json!({
@@ -71,7 +76,7 @@ pub fn mcp_result(
         }
     };
     let content = serde_json::to_value(outcome.content)
-        .map_err(|_| RuntimeError::new("response", "Cannot serialize response"))?;
+        .map_err(|_| RuntimeError::new(ErrorCode::Response, "Cannot serialize response"))?;
     let mut response = serde_json::Map::with_capacity(3);
     response.insert("content".into(), content);
     response.insert("structuredContent".into(), outcome.structured_content);
@@ -83,7 +88,7 @@ pub fn mcp_result(
 /// names the language server's cold start), else the generic narrowing advice.
 fn timeout_hint(tool: &str) -> &'static str {
     ToolId::from_name(tool)
-        .and_then(|id| id.output().error_hint("timeout"))
+        .and_then(|id| id.output().error_hint(ErrorCode::Timeout))
         .unwrap_or(
             "Retry, or narrow the call: fewer queries, a smaller path or repository scope, or a tighter filter.",
         )
@@ -126,7 +131,7 @@ mod tests {
     fn invalid(tool: &str, input: Value) -> RuntimeError {
         let error = contracts::prepare_many_and_validate(tool, input).expect_err("invalid input");
         RuntimeError {
-            code: "invalidInput".into(),
+            code: ErrorCode::InvalidInput,
             message: error.to_string(),
             payload: Some(Box::new({
                 let mut payload = contracts::format_input_error(tool, &error);
@@ -173,7 +178,7 @@ mod tests {
     fn bare_invalid_input_errors_are_typed() {
         let result = mcp(
             "clasify",
-            RuntimeError::new("invalidInput", "clasify pages by itself"),
+            RuntimeError::new(ErrorCode::InvalidInput, "clasify pages by itself"),
         );
         assert_eq!(
             result["structuredContent"],
@@ -246,7 +251,7 @@ mod tests {
     #[test]
     fn output_contract_violations_surface_their_cause() {
         let error = RuntimeError::new(
-            "outputContractViolation",
+            ErrorCode::OutputContractViolation,
             "ghGetHistoryItem produced a response that violates its canonical output contract: results.0.data.pullRequests.0.files: Value length 0 is below the minimum of 1",
         );
         let result = mcp("ghGetHistoryItem", error);
@@ -270,15 +275,24 @@ mod tests {
     /// CLI; only a cancelled request or a closing runtime stays an error.
     #[test]
     fn every_failure_but_cancellation_is_a_tool_error() {
-        for code in ["toolUnavailable", "missingConfiguration", "busy", "timeout"] {
+        for code in [
+            ErrorCode::ToolUnavailable,
+            ErrorCode::MissingConfiguration,
+            ErrorCode::Busy,
+            ErrorCode::Timeout,
+        ] {
             let result = mcp("localFetch", RuntimeError::new(code, "m"));
             assert_eq!(result["isError"], true, "{code}");
-            assert_eq!(result["structuredContent"]["errorCode"], code, "{code}");
+            assert_eq!(
+                result["structuredContent"]["errorCode"],
+                json!(code),
+                "{code}"
+            );
             let text = result["content"][0]["text"].as_str().expect("text");
             assert!(text.starts_with("m"), "{code}: {text}");
             assert!(text.ends_with(&format!("(errorCode: {code})")), "{text}");
         }
-        for code in ["cancelled", "closed"] {
+        for code in [ErrorCode::Cancelled, ErrorCode::Closed] {
             let error = mcp_result("localFetch", Err(RuntimeError::new(code, "m")))
                 .expect_err("no client waits for it");
             assert_eq!(error.code, code);
@@ -289,7 +303,7 @@ mod tests {
     /// the language server's cold start.
     #[test]
     fn every_timeout_names_its_next_step() {
-        let timeout = || RuntimeError::new("timeout", "Tool call timed out.");
+        let timeout = || RuntimeError::new(ErrorCode::Timeout, "Tool call timed out.");
         let lsp = tool_error_result("lspSearch", &timeout());
         assert!(lsp.text.starts_with("Tool call timed out."), "{}", lsp.text);
         assert!(
@@ -317,7 +331,7 @@ mod tests {
             Some(json!({"error": format!("x {token}"), "detail": [token.clone()]})),
         ] {
             let error = RuntimeError {
-                code: "providerError".into(),
+                code: ErrorCode::ProviderError,
                 message: format!("upstream rejected {token}"),
                 payload: payload.map(Box::new),
                 validation_issues: None,

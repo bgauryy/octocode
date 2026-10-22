@@ -2,6 +2,7 @@
 use crate::runtime_clasify::clasify;
 use crate::support::{Run as _, Workspace, capture_allowed, clasify_runtime};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_contract_types::ErrorCode;
 use octocode_native::runtime::ToolRuntime;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path, query_param};
@@ -392,7 +393,7 @@ async fn image_asset_admission_respects_disabled_reader_and_path_policy() {
         )
         .await
         .expect_err("disabled source reader must be rejected at admission");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     assert!(
         error
             .validation_issues

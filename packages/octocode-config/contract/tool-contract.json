@@ -2,7 +2,6 @@
   "classificationNotices": {
     "failed": "Classification failed. Use your tools to inspect the underlying evidence if still needed; failure is not absence.",
     "failedWithRead": "Classification failed. Use the read lead to inspect the source if still needed; failure is not irrelevance.",
-    "filtered": "Filtered evidence is not proof of absence. Unknown includes failures and unexamined candidates. Inspect next.unfiltered* before an absence claim; next.nextCandidatePage judges remaining candidates when present.",
     "imageInspection": "If still needed, inspect the original image references from this query with an image-capable tool."
   },
   "classifierTemplate": {
@@ -262,7 +261,7 @@
     "versionNotFound": "notFound",
     "workspaceRootInvalid": "execution"
   },
-  "fingerprint": "2a1fcf5a647bf3157d11c41302761371bfcc270b061e94be011924d4530ea9e7",
+  "fingerprint": "08233ec5189cebc6a0bbf8097e3167cfb479ac4d91d73db7d6d0586700fcbc39",
   "limits": {
     "defaultReadContextLines": 3,
     "maxInputArrayItems": 100
@@ -108426,7 +108425,7 @@
                     },
                     "clasifyContext": {
                       "additionalProperties": false,
-                      "description": "Keep only evidence that passes yes/no questions; omit for ordinary reads. Judges hit snippets before paging; resultView paginated or matchOnly.",
+                      "description": "Keep only evidence that passes yes/no questions; omit for ordinary reads. Judges hits ±8 lines (or contextLines); paginated or matchOnly view.",
                       "properties": {
                         "classifiers": {
                           "description": "One fact per question, e.g. \"Sets the timeout default?\"",
@@ -119632,7 +119631,7 @@
           },
           "clasifyContext": {
             "additionalProperties": false,
-            "description": "Keep only evidence that passes yes/no questions; omit for ordinary reads. Judges hit snippets before paging; resultView paginated or matchOnly.",
+            "description": "Keep only evidence that passes yes/no questions; omit for ordinary reads. Judges hits ±8 lines (or contextLines); paginated or matchOnly view.",
             "properties": {
               "classifiers": {
                 "description": "One fact per question, e.g. \"Sets the timeout default?\"",
@@ -155303,7 +155302,7 @@
         }
       ],
       "semanticPolicy": {
-        "headLines": 50,
+        "headLines": 200,
         "streamedHeadLines": 100
       },
       "shortDescription": "Read local source regions or file outlines.",

@@ -77,7 +77,7 @@ pub(super) fn stop_all() {}
 #[cfg(not(unix))]
 pub(super) async fn run(_socket: &std::path::Path) -> u8 {
     super::emit_error(
-        "toolUnavailable",
+        octocode_contract_types::ErrorCode::ToolUnavailable,
         "octocode serve needs Unix sockets.",
         false,
     );

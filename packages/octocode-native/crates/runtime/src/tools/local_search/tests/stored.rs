@@ -2,6 +2,7 @@
 //! scan its first page stored, equals the page a rescan cuts, and restarts
 //! when the walk, a shown file or the snapshot no longer holds.
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 /// Swap `path` for a symlink to a copy outside the allowed root with the
 /// same bytes and modification time: size, time and digest all match the
@@ -313,7 +314,7 @@ fn a_swapped_matched_file_drops_the_stored_scan_and_restarts_its_page() {
         None,
     )
     .expect_err("page 3 would show the swapped file");
-    assert_eq!(failed.code, "staleSnapshot", "{}", failed.message);
+    assert_eq!(failed.code, ErrorCode::StaleSnapshot, "{}", failed.message);
 }
 
 /// A stored page checks the read policy of every file it shows, even for a
@@ -392,7 +393,7 @@ fn a_stored_page_checks_the_read_policy_of_the_files_it_shows() {
     for (root, file, shown) in [(&roots[1], later, 3), (&roots[2], &on_two[0], 2)] {
         let denied =
             swapped_page(root.path(), file, shown).expect_err("the page shows the swapped file");
-        assert_eq!(denied.code, "symlinkEscape", "{}", denied.message);
+        assert_eq!(denied.code, ErrorCode::SymlinkEscape, "{}", denied.message);
         assert!(
             denied.message.contains("denied by the active path policy"),
             "{}",
@@ -445,7 +446,10 @@ fn a_key_file_rewritten_under_its_stamp_restarts_a_replayed_page() {
     let page = stored_page_after(&page_two, &policy, &security, Some(6_000), || {
         rewrite_keeping_stamp(&key, &text.replace("export const pem", "export const pex"));
     });
-    assert_eq!(page.expect_err("changed key file").code, "staleSnapshot");
+    assert_eq!(
+        page.expect_err("changed key file").code,
+        ErrorCode::StaleSnapshot
+    );
 }
 
 /// The same rewrite made before a continuation takes the stored scan
@@ -489,7 +493,7 @@ fn a_key_file_rewritten_before_a_continuation_restarts_it() {
     }
     assert_eq!(
         run(&page_two).expect_err("changed key file").code,
-        "staleSnapshot"
+        ErrorCode::StaleSnapshot
     );
 }
 
@@ -576,7 +580,7 @@ fn selection_recovery_keeps_search_snapshot_and_rejects_source_or_window_drift()
             )
             .expect_err("real response-window change must restart")
             .code,
-            "staleSnapshot"
+            ErrorCode::StaleSnapshot
         );
     }
     rewrite_keeping_stamp(&path, "needle after!\n");
@@ -592,7 +596,7 @@ fn selection_recovery_keeps_search_snapshot_and_rejects_source_or_window_drift()
         )
         .expect_err("changed source must restart")
         .code,
-        "staleSnapshot"
+        ErrorCode::StaleSnapshot
     );
 }
 
@@ -637,7 +641,7 @@ fn rejects_changed_and_forged_snapshots_even_on_empty_or_final_pages() {
         None,
     )
     .expect_err("changed results must reject snapshot");
-    assert_eq!(stale.code, "staleSnapshot");
+    assert_eq!(stale.code, ErrorCode::StaleSnapshot);
     assert_eq!(stale.message, crate::response::pages::STALE_SNAPSHOT_ERROR);
     let restart = stale.next.expect("restart");
     assert_eq!(restart["restart"]["tool"], "localSearch");
@@ -655,7 +659,7 @@ fn rejects_changed_and_forged_snapshots_even_on_empty_or_final_pages() {
         execute_local_search(&empty, &policy, &security, &NeverCancel, None, None, None)
             .expect_err("query-scope/empty mismatch")
             .code,
-        "staleSnapshot"
+        ErrorCode::StaleSnapshot
     );
     // A snapshot no search ever issued is malformed input, not a dead
     // snapshot; a well-formed one from another version or query is stale.
@@ -671,7 +675,7 @@ fn rejects_changed_and_forged_snapshots_even_on_empty_or_final_pages() {
             None,
         )
         .expect_err("malformed snapshot");
-        assert_eq!(error.code, "invalidInput", "{malformed}");
+        assert_eq!(error.code, ErrorCode::InvalidInput, "{malformed}");
         assert!(error.message.contains("snapshot"), "{}", error.message);
         assert!(error.next.is_none(), "an input error has no restart");
     }
@@ -698,7 +702,7 @@ fn rejects_changed_and_forged_snapshots_even_on_empty_or_final_pages() {
             )
             .expect_err("foreign snapshot")
             .code,
-            "staleSnapshot",
+            ErrorCode::StaleSnapshot,
             "{foreign}"
         );
     }
@@ -959,7 +963,11 @@ fn frozen_snapshot_rejects_changed_search_semantics_on_cache_hit_and_miss() {
                     result.files.iter().map(|f| &f.path).collect::<Vec<_>>()
                 ),
                 Err(error) => {
-                    assert_eq!(error.code, "staleSnapshot", "{field} cached={cached}");
+                    assert_eq!(
+                        error.code,
+                        ErrorCode::StaleSnapshot,
+                        "{field} cached={cached}"
+                    );
                     let restart = error.next.expect("restart");
                     assert!(
                         restart["restart"]["query"]["queries"][0]
@@ -1027,7 +1035,7 @@ fn continuations_reuse_their_scan_until_the_walk_changes() {
             None,
         )
         .expect_err(change);
-        assert_eq!(error.code, "staleSnapshot", "{change}");
+        assert_eq!(error.code, ErrorCode::StaleSnapshot, "{change}");
         assert!(
             super::manifest::get(&snapshot, &policy.identity()).is_none(),
             "{change}"
@@ -1075,7 +1083,7 @@ fn a_same_size_same_mtime_edit_restarts_instead_of_serving_old_values() {
                     case: &str| match page {
         Ok(result) => panic!("{case}: stale page served: {}", values(&result)),
         Err(error) => {
-            assert_eq!(error.code, "staleSnapshot", "{case}");
+            assert_eq!(error.code, ErrorCode::StaleSnapshot, "{case}");
             let restart = error.next.expect("restart");
             assert!(
                 restart["restart"]["query"]["queries"][0]
@@ -1118,11 +1126,11 @@ fn a_same_size_same_mtime_edit_restarts_instead_of_serving_old_values() {
         let edit = || rewrite_keeping_stamp(&b, "const nEEdle = \"NEW_B\";\n");
         match stored_page_after(&next, &policy, &security, None, edit) {
             Ok(result) => panic!("{view}: stale page served: {}", values(&result)),
-            Err(error) => assert_eq!(error.code, "staleSnapshot", "{view}"),
+            Err(error) => assert_eq!(error.code, ErrorCode::StaleSnapshot, "{view}"),
         }
         match execute_local_search(&next, &policy, &security, &NeverCancel, None, None, None) {
             Ok(result) => panic!("{view}: stale page served: {}", values(&result)),
-            Err(error) => assert_eq!(error.code, "staleSnapshot", "{view}"),
+            Err(error) => assert_eq!(error.code, ErrorCode::StaleSnapshot, "{view}"),
         }
     }
     fs::write(&b, "const needle = \"NEW_B\";\n").expect("fixture");
@@ -1217,7 +1225,7 @@ fn every_view_reuses_its_scan_until_a_matching_file_is_added() {
             None,
         )
         .expect_err("a new matching file restarts page 2");
-        assert_eq!(error.code, "staleSnapshot", "{view}");
+        assert_eq!(error.code, ErrorCode::StaleSnapshot, "{view}");
     }
 }
 
@@ -1269,7 +1277,7 @@ fn a_stored_key_fragment_never_surfaces_after_a_stamp_preserving_swap() {
     });
     match swapped {
         Ok(result) => panic!("old key body served: {}", values(&result)),
-        Err(error) => assert_eq!(error.code, "staleSnapshot", "{}", error.message),
+        Err(error) => assert_eq!(error.code, ErrorCode::StaleSnapshot, "{}", error.message),
     }
     // Swapped before: the walk's proof drops the stored scan (on Unix its
     // change time moved), and the rescan of the clean text restarts.
@@ -1286,7 +1294,7 @@ fn a_stored_key_fragment_never_surfaces_after_a_stamp_preserving_swap() {
         None,
     ) {
         Ok(result) => panic!("old key body served: {}", values(&result)),
-        Err(error) => assert_eq!(error.code, "staleSnapshot", "{}", error.message),
+        Err(error) => assert_eq!(error.code, ErrorCode::StaleSnapshot, "{}", error.message),
     }
 }
 
@@ -1381,7 +1389,7 @@ fn an_edit_to_an_earlier_pages_file_restarts_the_walk() {
         None,
     ) {
         Ok(result) => panic!("page cut from changed outlines: {}", values(&result)),
-        Err(error) => assert_eq!(error.code, "staleSnapshot"),
+        Err(error) => assert_eq!(error.code, ErrorCode::StaleSnapshot),
     }
 }
 
@@ -1430,7 +1438,7 @@ fn rescanned_pages_reject_changed_enclosing_names() {
         );
         match changed {
             Ok(result) => panic!("accepted changed page cuts: {}", values(&result)),
-            Err(error) => assert_eq!(error.code, "staleSnapshot"),
+            Err(error) => assert_eq!(error.code, ErrorCode::StaleSnapshot),
         }
     }
 }

@@ -3,6 +3,7 @@
 use super::test_rows::*;
 use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, simple_policy};
+use octocode_contract_types::ErrorCode;
 use serde_json::json;
 
 #[test]
@@ -1035,7 +1036,7 @@ fn a_pattern_that_compiles_nowhere_errors_and_one_that_compiles_everywhere_is_si
         json!({"operation":"match","path":root.0,"pattern":"run("}),
     )
     .expect_err("no grammar of the scope compiles it");
-    assert_eq!(error.code, "invalidPattern", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidPattern, "{error:?}");
     let out = run(
         &root.0,
         json!({"operation":"match","path":root.0,"pattern":"$A","resultView":"files"}),

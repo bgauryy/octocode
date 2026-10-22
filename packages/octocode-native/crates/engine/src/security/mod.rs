@@ -1,6 +1,7 @@
 //! Rust-owned secret detection and content sanitization.
 //!
-//! `patterns.rs` is the canonical ordered pattern set.
+//! `patterns.rs` is the canonical ordered pattern set; `build.rs` derives the
+//! detector's prescan gate from it.
 
 pub(crate) mod detector;
 pub(crate) mod patterns;

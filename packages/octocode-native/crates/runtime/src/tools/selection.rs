@@ -3,6 +3,7 @@
 //! unknown. Replays need source identity and cardinality, not provider calls.
 use crate::execution::{ExecutionContext, SelectionLimits};
 use crate::id::ToolId;
+use octocode_contract_types::ErrorCode;
 use octocode_contract_types::{Selection, SelectionFailure, SelectionStatus, SelectionUnit};
 use serde_json::{Value, json};
 
@@ -58,7 +59,7 @@ pub(crate) enum JudgeFailure {
 /// A provider's typed error as a classified row reports it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct ProviderError {
-    pub code: String,
+    pub code: ErrorCode,
     pub message: String,
     pub hints: Vec<String>,
 }
@@ -151,6 +152,7 @@ impl Outcome {
                 .receipt
                 .reason
                 .as_deref()
+                .and_then(crate::id::error_codes::parse)
                 .is_some_and(crate::providers::classification::is_transient)
     }
 
@@ -236,7 +238,7 @@ pub(crate) fn unless_transient(
 ) -> Result<(Outcome, Option<ProviderError>), Failure> {
     match selected {
         Err(Failure::Provider(failure))
-            if crate::providers::classification::is_transient(&failure.error.code) =>
+            if crate::providers::classification::is_transient(failure.error.code) =>
         {
             let ProviderFailure { error, outcome } = *failure;
             Ok((outcome, Some(error)))

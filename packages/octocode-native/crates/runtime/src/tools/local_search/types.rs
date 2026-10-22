@@ -1,4 +1,5 @@
 use crate::num::{u32_of, u32_of_signed};
+use octocode_contract_types::ErrorCode;
 pub(super) use octocode_engine::types::SearchContext;
 use serde::Serialize;
 use std::path::PathBuf;
@@ -12,9 +13,23 @@ pub use octocode_contract_types::{
 /// JSON integer types.
 pub(crate) mod local_search_query {
     use super::*;
+    /// Context lines each side of a hit when `clasifyContext` judges hits
+    /// and no context field is set: a bare hit line (`fn prunes(..) {`)
+    /// reads as related at best, while the hit with its body shows what it
+    /// does, so the judge can select it.
+    pub(crate) const CLASIFY_CONTEXT_LINES: u32 = 8;
+
     /// Resolve the shorthand once; explicit zero overrides either side.
     pub(crate) fn context(query: &LocalSearchQuery) -> SearchContext {
-        let symmetric = query.context_lines.map(u32_of_signed).unwrap_or(0);
+        let unset = query.context_lines.is_none()
+            && query.context_before.is_none()
+            && query.context_after.is_none();
+        let fallback = if unset && query.clasify_context.is_some() {
+            CLASIFY_CONTEXT_LINES
+        } else {
+            0
+        };
+        let symmetric = query.context_lines.map(u32_of_signed).unwrap_or(fallback);
         SearchContext {
             before: query.context_before.map(u32_of_signed).unwrap_or(symmetric),
             after: query.context_after.map(u32_of_signed).unwrap_or(symmetric),
@@ -66,13 +81,27 @@ pub(crate) mod local_search_query {
     /// `regex` names a dialect, each judged by `caseMode` on its own (smart:
     /// an uppercase letter makes that entry sensitive). Everything after
     /// this, leads and cursors included, sees an ordinary regex search that
-    /// runs as written. A single `matchString` is returned as is.
+    /// runs as written. A single `matchString`, or a list of one, is that
+    /// text as written.
     pub(crate) fn normalized(
         query: &LocalSearchQuery,
     ) -> Result<std::borrow::Cow<'_, LocalSearchQuery>, crate::response::result::ToolError> {
         let MatchString::Array(list) = &query.match_string else {
             return Ok(std::borrow::Cow::Borrowed(query));
         };
+        // One entry is that text itself: it keeps its literal or regex
+        // reading (and the leads that read it), as a string would.
+        if let [only] = list.as_slice() {
+            let text: &str = only;
+            let mut query = query.clone();
+            query.match_string = MatchString::String(text.parse().map_err(|_| {
+                crate::response::result::ToolError::new(
+                    ErrorCode::InvalidInput,
+                    "matchString: an entry needs text.",
+                )
+            })?);
+            return Ok(std::borrow::Cow::Owned(query));
+        }
         let sensitive = |entry: &str| match query.case_mode {
             LocalSearchQueryCaseMode::Smart => entry.chars().any(char::is_uppercase),
             LocalSearchQueryCaseMode::Sensitive => true,
@@ -94,7 +123,7 @@ pub(crate) mod local_search_query {
         let mut query = query.clone();
         query.match_string = MatchString::String(alternation.parse().map_err(|_| {
             crate::response::result::ToolError::new(
-                "invalidInput",
+                ErrorCode::InvalidInput,
                 "matchString: a list needs at least one entry.",
             )
         })?);
@@ -358,4 +387,38 @@ pub struct LocalSearchResult {
     pub source_snapshot: Option<String>,
     #[serde(skip)]
     pub source_root: PathBuf,
+}
+
+#[cfg(test)]
+mod context_tests {
+    use super::*;
+
+    /// `clasifyContext` judges each hit with context unless the caller set a
+    /// context field; an explicit 0 keeps bare hit lines.
+    #[test]
+    fn clasify_hits_get_context_unless_a_context_field_is_set() {
+        let query = |extra: serde_json::Value| -> LocalSearchQuery {
+            let mut row = serde_json::json!({"path": ".", "matchString": "x"});
+            row.as_object_mut()
+                .expect("object")
+                .extend(extra.as_object().expect("object").clone());
+            serde_json::from_value(row).expect("query")
+        };
+        let clasify = serde_json::json!({"classifiers": ["Q?"]});
+        let lines = local_search_query::CLASIFY_CONTEXT_LINES;
+        assert_eq!(
+            local_search_query::context(&query(serde_json::json!({"clasifyContext": clasify}))),
+            SearchContext::symmetric(lines)
+        );
+        assert_eq!(
+            local_search_query::context(&query(
+                serde_json::json!({"clasifyContext": clasify, "contextLines": 0})
+            )),
+            SearchContext::symmetric(0)
+        );
+        assert_eq!(
+            local_search_query::context(&query(serde_json::json!({}))),
+            SearchContext::symmetric(0)
+        );
+    }
 }

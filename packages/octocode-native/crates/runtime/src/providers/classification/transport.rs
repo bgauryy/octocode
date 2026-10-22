@@ -4,6 +4,7 @@
 use crate::providers::RuntimeClients;
 use crate::providers::classification::CIRCUIT_OPEN;
 use crate::providers::classification::gate::{GateDenied, GateLease, GatePermit};
+use octocode_contract_types::ErrorCode;
 use octocode_io::budget::{BudgetStop, RequestBudget};
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
@@ -56,9 +57,9 @@ fn shared_client(endpoint: &Url) -> Result<reqwest::Client, ClassificationError>
 /// Error returned by the classification transport layer. `code` is a stable
 /// machine-readable identifier; `message` is human-readable prose; `hints`
 /// are actionable suggestions shown to the caller.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClassificationError {
-    pub code: String,
+    pub code: ErrorCode,
     pub message: String,
     pub hints: Vec<String>,
     /// The failed read's own leads by name (`viewTree`, `broadenSearch`):
@@ -88,19 +89,32 @@ impl ClassificationError {
         self.reported_usage.as_deref().copied().unwrap_or_default()
     }
 
-    pub(crate) fn new(code: &str, message: impl Into<String>, hint: &str) -> Self {
+    pub(crate) fn new(code: ErrorCode, message: impl Into<String>, hint: &str) -> Self {
+        Self::with_hints(code, message, vec![hint.to_owned()])
+    }
+
+    /// An error with its own recovery `hints` and nothing else recorded.
+    pub(crate) fn with_hints(
+        code: ErrorCode,
+        message: impl Into<String>,
+        hints: Vec<String>,
+    ) -> Self {
         Self {
-            code: code.to_owned(),
+            code,
             message: message.into(),
-            hints: vec![hint.to_owned()],
-            ..Self::default()
+            hints,
+            leads: Vec::new(),
+            failure: None,
+            provider_calls: 0,
+            reported_usage: None,
+            paused: false,
         }
     }
 
     /// The provider answered, but not in the shape the contract requires.
     pub(crate) fn invalid_response(message: impl Into<String>) -> Self {
         Self::new(
-            "invalidClassificationResponse",
+            ErrorCode::InvalidClassificationResponse,
             message,
             "Inspect provider compatibility before using the answer.",
         )
@@ -110,7 +124,7 @@ impl ClassificationError {
 pub(crate) fn endpoint(base_url: &str, path: &str) -> Result<Url, ClassificationError> {
     let base = Url::parse(base_url).map_err(|_| {
         ClassificationError::new(
-            "invalidClassificationConfiguration",
+            ErrorCode::InvalidClassificationConfiguration,
             "OCTOCODE_CLASSIFICATION_API_HOST is not a valid URL.",
             "Use an HTTPS API root without a path, query, fragment, or credentials.",
         )
@@ -127,14 +141,14 @@ pub(crate) fn endpoint(base_url: &str, path: &str) -> Result<Url, Classification
         || base.fragment().is_some()
     {
         return Err(ClassificationError::new(
-            "invalidClassificationConfiguration",
+            ErrorCode::InvalidClassificationConfiguration,
             "OCTOCODE_CLASSIFICATION_API_HOST must be an HTTPS API root; HTTP is allowed only on loopback.",
             "Remove paths, credentials, query strings, and fragments from the configured API root.",
         ));
     }
     base.join(path).map_err(|_| {
         ClassificationError::new(
-            "invalidClassificationConfiguration",
+            ErrorCode::InvalidClassificationConfiguration,
             "Cannot construct the classification provider endpoint.",
             "Check OCTOCODE_CLASSIFICATION_API_HOST.",
         )
@@ -145,7 +159,7 @@ pub(crate) fn endpoint(base_url: &str, path: &str) -> Result<Url, Classification
 pub(crate) fn check_key(key: &SecretString) -> Result<(), ClassificationError> {
     if key.expose_secret().chars().any(char::is_control) {
         return Err(ClassificationError::new(
-            "invalidClassificationConfiguration",
+            ErrorCode::InvalidClassificationConfiguration,
             "OCTOCODE_CLASSIFICATION_API contains invalid control characters.",
             "Replace the configured key.",
         ));
@@ -157,12 +171,12 @@ pub(crate) fn check_key(key: &SecretString) -> Result<(), ClassificationError> {
 fn budget_error(stop: BudgetStop) -> ClassificationError {
     match stop {
         BudgetStop::Cancelled => ClassificationError::new(
-            "cancelled",
+            ErrorCode::Cancelled,
             "Classification request was cancelled.",
             crate::response::rows::CANCELLED_HINT,
         ),
         BudgetStop::Deadline => ClassificationError::new(
-            "timeout",
+            ErrorCode::Timeout,
             "Classification request exceeded its total deadline.",
             "Retry unresolved evidence in a smaller request.",
         ),
@@ -252,18 +266,18 @@ fn rate_limited(
         || "Retry later.".to_owned(),
         |seconds| format!("Retry after about {seconds:.0}s."),
     );
-    ClassificationError::new("classificationRateLimited", message, &hint)
+    ClassificationError::new(ErrorCode::ClassificationRateLimited, message, &hint)
 }
 
 fn denied(reason: GateDenied) -> ClassificationError {
     match reason {
         GateDenied::Cancelled => ClassificationError::new(
-            "cancelled",
+            ErrorCode::Cancelled,
             "Classification request was cancelled.",
             crate::response::rows::CANCELLED_HINT,
         ),
         GateDenied::Deadline => ClassificationError::new(
-            "timeout",
+            ErrorCode::Timeout,
             "Classification request exceeded its total deadline while waiting for provider capacity.",
             "Retry later or reduce concurrent clasify calls.",
         ),
@@ -285,7 +299,7 @@ fn denied(reason: GateDenied) -> ClassificationError {
 
 pub(crate) fn quota_exhausted() -> ClassificationError {
     ClassificationError::new(
-        "classificationQuotaExhausted",
+        ErrorCode::ClassificationQuotaExhausted,
         "Classification provider billing or quota is exhausted (HTTP 402); retrying will not help.",
         "Add credit or quota to the OCTOCODE_CLASSIFICATION_API account, then rerun.",
     )
@@ -314,13 +328,13 @@ fn status_error(status: reqwest::StatusCode, provider_body: Option<&Value>) -> C
     }
     if error_type(provider_body) == Some("max_tokens_exceeded") {
         ClassificationError::new(
-            "classificationStateTooLarge",
+            ErrorCode::ClassificationStateTooLarge,
             "The state exceeded the classification provider's context window.",
             "Narrow the state or the source ranges, or shorten the questions.",
         )
     } else {
         ClassificationError::new(
-            "classificationProviderError",
+            ErrorCode::ClassificationProviderError,
             format!("Classification provider returned HTTP {status}; response body omitted."),
             hint,
         )
@@ -506,7 +520,7 @@ async fn read_body(
         Err(octocode_io::retry::BodyError::TooLarge) => {
             drop(permit);
             return Attempt::Done(Err(ClassificationError::new(
-                "invalidClassificationResponse",
+                ErrorCode::InvalidClassificationResponse,
                 "Classification provider response exceeded the 4 MiB limit.",
                 "Reduce the supplied state or question count.",
             )));
@@ -722,7 +736,7 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert_eq!(error.code, "classificationProviderError");
+        assert_eq!(error.code, ErrorCode::ClassificationProviderError);
         assert!(error.message.contains("403"));
         assert!(error.hints[0].contains("OCTOCODE_CLASSIFICATION_API"));
         assert!(!error.message.contains("firewall"));
@@ -737,11 +751,11 @@ mod tests {
         for (response, expected) in [
             (
                 ResponseTemplate::new(302).insert_header("location", "https://example.com"),
-                "classificationProviderError",
+                ErrorCode::ClassificationProviderError,
             ),
             (
                 ResponseTemplate::new(200).set_body_string("x".repeat(65)),
-                "invalidClassificationResponse",
+                ErrorCode::InvalidClassificationResponse,
             ),
         ] {
             let server = MockServer::builder().start().await;
@@ -778,7 +792,7 @@ mod tests {
         let error = send(&server.uri(), Duration::ZERO, 0, &fresh_gate(4))
             .await
             .unwrap_err();
-        assert_eq!(error.code, "timeout");
+        assert_eq!(error.code, ErrorCode::Timeout);
     }
 
     /// One successful provider answer, expected exactly once.
@@ -835,7 +849,8 @@ mod tests {
             .await
             .unwrap_err();
             assert_eq!(
-                error.code, "classificationRateLimited",
+                error.code,
+                ErrorCode::ClassificationRateLimited,
                 "{retries}: {error:?}"
             );
             assert_eq!(error.provider_calls, u64::from(retries) + 1, "{retries}");
@@ -852,7 +867,7 @@ mod tests {
                     &json!({"detail":{"error_type":"api_usage_error","message":"private provider detail"}}),
                 ),
             );
-            assert_eq!(error.code, "classificationProviderError");
+            assert_eq!(error.code, ErrorCode::ClassificationProviderError);
             assert!(error.message.contains(&code.to_string()));
             assert!(!error.message.contains("private provider detail"));
             assert!(error.hints[0].contains(r#"clasify {"operation":"models"}"#));
@@ -877,7 +892,7 @@ mod tests {
         let error = send(&server.uri(), Duration::from_secs(10), 3, &fresh_gate(4))
             .await
             .unwrap_err();
-        assert_eq!(error.code, "classificationStateTooLarge");
+        assert_eq!(error.code, ErrorCode::ClassificationStateTooLarge);
         assert!(error.hints[0].contains("source ranges"), "{error:?}");
     }
 
@@ -893,7 +908,7 @@ mod tests {
         let error = send(&server.uri(), Duration::from_secs(10), 3, &call)
             .await
             .unwrap_err();
-        assert_eq!(error.code, "classificationQuotaExhausted");
+        assert_eq!(error.code, ErrorCode::ClassificationQuotaExhausted);
         assert!(error.message.contains("quota"), "{}", error.message);
         assert_eq!(error.provider_calls, 1);
         // Later requests of the same call fail fast with the same error.
@@ -901,21 +916,14 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(
-            (
-                again.code.as_str(),
-                again.message.as_str(),
-                again.provider_calls
-            ),
-            (error.code.as_str(), error.message.as_str(), 0)
+            (again.code, again.message.as_str(), again.provider_calls),
+            (error.code, error.message.as_str(), 0)
         );
         // Another call within the memo fails fast too: no request is sent.
         let other = send(&server.uri(), Duration::from_secs(10), 3, &call.fork())
             .await
             .unwrap_err();
-        assert_eq!(
-            (other.code.as_str(), other.provider_calls),
-            (error.code.as_str(), 0)
-        );
+        assert_eq!((other.code, other.provider_calls), (error.code, 0));
         assert!(call.quota_exhausted());
         // After the memo, one call probes again: credit may have been added.
         call.gate().expire_quota_memo();
@@ -923,10 +931,7 @@ mod tests {
         let probe = send(&server.uri(), Duration::from_secs(10), 3, &call.fork())
             .await
             .unwrap_err();
-        assert_eq!(
-            (probe.code.as_str(), probe.provider_calls),
-            (error.code.as_str(), 1)
-        );
+        assert_eq!((probe.code, probe.provider_calls), (error.code, 1));
     }
 
     #[tokio::test]
@@ -969,7 +974,7 @@ mod tests {
         let error = send(&server.uri(), Duration::from_secs(10), 0, &fresh_gate(8))
             .await
             .unwrap_err();
-        assert_eq!(error.code, "classificationRateLimited");
+        assert_eq!(error.code, ErrorCode::ClassificationRateLimited);
         assert!(
             error
                 .message
@@ -1007,7 +1012,7 @@ mod tests {
             // Every call reports the provider unavailable: the ones that
             // reached it with its failure, the refused ones as paused.
             assert!(
-                codes.iter().all(|(code, _)| code == CIRCUIT_OPEN),
+                codes.iter().all(|(code, _)| *code == CIRCUIT_OPEN),
                 "{codes:?}"
             );
             assert!(
@@ -1044,7 +1049,7 @@ mod tests {
         let error = send(&server.uri(), Duration::from_secs(5), 3, &lease)
             .await
             .unwrap_err();
-        assert_eq!(error.code, "classificationRateLimited");
+        assert_eq!(error.code, ErrorCode::ClassificationRateLimited);
         assert!(
             error
                 .message
@@ -1058,7 +1063,7 @@ mod tests {
         let error = send(&server.uri(), Duration::from_secs(5), 3, &other)
             .await
             .unwrap_err();
-        assert_eq!(error.code, "classificationRateLimited");
+        assert_eq!(error.code, ErrorCode::ClassificationRateLimited);
         let seconds: u64 = error
             .message
             .split("about ")

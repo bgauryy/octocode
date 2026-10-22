@@ -32,6 +32,7 @@ mod unwalked;
 mod unwalked_tests;
 
 use crate::response::result::Confidence;
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
 use matches::MatchQuery;
@@ -45,7 +46,7 @@ use crate::response::result::ToolError;
 /// A path-policy refusal. Path-shape refusals without a shared code (empty,
 /// looping, over-long, not a regular file, binary, unreadable) are one code.
 pub(super) fn policy_error(error: PolicyError) -> ToolError {
-    ToolError::policy(error, "pathValidationFailed")
+    ToolError::policy(error, ErrorCode::PathValidationFailed)
 }
 
 /// The source astSearch parses, read bounded at [`MAX_PARSE_SOURCE_BYTES`];
@@ -67,7 +68,7 @@ pub(super) fn read_parse_source(path: &std::path::Path) -> Result<Option<Vec<u8>
 /// searched literal (a symbol name, a pattern without metavariables) leads
 /// to a text search of it in the same file.
 pub(super) fn source_limit(path: &str, literal: Option<&str>) -> Value {
-    let mut row = serde_json::json!({"status":"error","path":path,"errorCode":"fileTooLarge","error":"Source exceeds the native parser byte limit."});
+    let mut row = serde_json::json!({"status":"error","path":path,"errorCode":ErrorCode::FileTooLarge,"error":"Source exceeds the native parser byte limit."});
     crate::response::paging::terminal_limit(&mut row, "fileTooLarge", &[]);
     if let Some(lead) = literal.and_then(|literal| text_search(path, literal)) {
         row["next"] = serde_json::json!({ "findText": lead });
@@ -104,17 +105,19 @@ pub(super) fn io_error(path: &str, error: std::io::Error) -> ToolError {
     match error.kind() {
         std::io::ErrorKind::NotFound => path_not_found(path),
         std::io::ErrorKind::PermissionDenied => {
-            ToolError::new("permissionDenied", error.to_string())
+            ToolError::new(ErrorCode::PermissionDenied, error.to_string())
         }
-        std::io::ErrorKind::InvalidInput => ToolError::new("invalidInput", error.to_string()),
-        _ => ToolError::new("fileAccessFailed", error.to_string()),
+        std::io::ErrorKind::InvalidInput => {
+            ToolError::new(ErrorCode::InvalidInput, error.to_string())
+        }
+        _ => ToolError::new(ErrorCode::FileAccessFailed, error.to_string()),
     }
 }
 
 /// `pathNotFound` with the path policy's message.
 fn path_not_found(path: &str) -> ToolError {
     ToolError::new(
-        crate::policy::PATH_NOT_FOUND,
+        ErrorCode::PathNotFound,
         format!("Path does not exist: {path}"),
     )
 }
@@ -127,17 +130,17 @@ pub(super) fn native_error(error: octocode_engine::error::Error) -> ToolError {
     let code = match error.kind() {
         ErrorKind::NotFound => {
             return ToolError::new(
-                crate::policy::PATH_NOT_FOUND,
+                ErrorCode::PathNotFound,
                 format!("Path does not exist ({message})"),
             );
         }
-        ErrorKind::PermissionDenied => "permissionDenied",
-        ErrorKind::InvalidPattern => crate::tools::ast_rule::INVALID_PATTERN,
-        ErrorKind::InvalidGlob => "invalidGlob",
-        ErrorKind::InvalidInput => "invalidInput",
-        ErrorKind::Timeout => "timeout",
-        ErrorKind::Cancelled => "cancelled",
-        _ => "executionFailed",
+        ErrorKind::PermissionDenied => ErrorCode::PermissionDenied,
+        ErrorKind::InvalidPattern => ErrorCode::InvalidPattern,
+        ErrorKind::InvalidGlob => ErrorCode::InvalidGlob,
+        ErrorKind::InvalidInput => ErrorCode::InvalidInput,
+        ErrorKind::Timeout => ErrorCode::Timeout,
+        ErrorKind::Cancelled => ErrorCode::Cancelled,
+        _ => ErrorCode::ExecutionFailed,
     };
     ToolError::new(code, message)
 }
@@ -145,23 +148,20 @@ pub(super) fn native_error(error: octocode_engine::error::Error) -> ToolError {
 /// The declared `errorCode` of an engine diagnostic code (`structural.…` or
 /// an already-declared code): the engine's diagnostic names are its own, the
 /// public set is the contract's.
-pub(super) fn engine_error_code(code: &str) -> &'static str {
+pub(super) fn engine_error_code(code: &str) -> ErrorCode {
     match code {
         octocode_engine::structural::COMPILE_FAILED
         | octocode_engine::structural::QUERY_INVALID
-        | octocode_engine::structural::RULE_INVALID => crate::tools::ast_rule::INVALID_PATTERN,
+        | octocode_engine::structural::RULE_INVALID => ErrorCode::InvalidPattern,
         "structural.language.unsupported" | "syntaxTree.language.unsupported" => {
-            "languageUnsupported"
+            ErrorCode::LanguageUnsupported
         }
-        "structural.content.tooLarge" | "structural.file.tooLarge" => "fileTooLarge",
-        "syntaxTree.options.lineOutOfRange" => "invalidInput",
-        "structural.file.unreadable" => "fileReadFailed",
+        "structural.content.tooLarge" | "structural.file.tooLarge" => ErrorCode::FileTooLarge,
+        "syntaxTree.options.lineOutOfRange" => ErrorCode::InvalidInput,
+        "structural.file.unreadable" => ErrorCode::FileReadFailed,
         octocode_engine::structural::PARSE_INTERRUPTED
-        | octocode_engine::structural::MATCH_DEADLINE => "timeout",
-        declared => crate::id::error_codes::ALL
-            .iter()
-            .find(|(code, _)| *code == declared)
-            .map_or("executionFailed", |(code, _)| code),
+        | octocode_engine::structural::MATCH_DEADLINE => ErrorCode::Timeout,
+        declared => crate::id::error_codes::parse(declared).unwrap_or(ErrorCode::ExecutionFailed),
     }
 }
 
@@ -213,13 +213,13 @@ pub(super) fn validate_file_language(
     if let Some(language) = selector {
         if language.trim().is_empty() || matches!(language, ".") {
             return Err(ToolError::new(
-                "languageUnsupported",
+                ErrorCode::LanguageUnsupported,
                 "language must name a registered grammar.",
             ));
         }
         if crate::tools::ast_rule::language_extensions(language).is_none() {
             return Err(ToolError::new(
-                "languageUnsupported",
+                ErrorCode::LanguageUnsupported,
                 format!("language \"{language}\" is not a supported structural grammar."),
             ));
         }
@@ -230,7 +230,7 @@ pub(super) fn validate_file_language(
             && let Some((grammar, _)) = crate::tools::ast_rule::file_grammar(path)
         {
             return Err(ToolError::new(
-                "languageMismatch",
+                ErrorCode::LanguageMismatch,
                 format!(
                     "{} has the {grammar} extension {}, not {language}; omit language or set it to {grammar}.",
                     display_name(path),
@@ -417,7 +417,7 @@ mod tests {
             &Cancelled,
         )
         .expect_err("cancelled before filesystem access");
-        assert_eq!(cancelled.code, "cancelled");
+        assert_eq!(cancelled.code, ErrorCode::Cancelled);
     }
 
     #[test]
@@ -488,49 +488,49 @@ mod tests {
     fn policy_and_native_failures_keep_specific_codes() {
         // Path failures share the local tools' codes.
         let policy = policy_error(PolicyError::new(PolicyErrorCode::SymlinkEscape, "escape"));
-        assert_eq!(policy.code, "symlinkEscape");
+        assert_eq!(policy.code, ErrorCode::SymlinkEscape);
         let missing = policy_error(PolicyError::new(PolicyErrorCode::NotFound, "missing"));
-        assert_eq!(missing.code, "pathNotFound");
+        assert_eq!(missing.code, ErrorCode::PathNotFound);
         let gone = io_error(
             "src/gone.rs",
             std::io::Error::from(std::io::ErrorKind::NotFound),
         );
-        assert_eq!(gone.code, "pathNotFound");
+        assert_eq!(gone.code, ErrorCode::PathNotFound);
         assert_eq!(gone.message, "Path does not exist: src/gone.rs");
         use octocode_engine::error::{Error, ErrorKind};
         let engine = native_error(Error::with_kind(
             ErrorKind::NotFound,
             "Cannot access structural search path '/w/x'",
         ));
-        assert_eq!(engine.code, "pathNotFound");
+        assert_eq!(engine.code, ErrorCode::PathNotFound);
         assert_eq!(
             engine.message,
             "Path does not exist (Cannot access structural search path '/w/x')"
         );
         let denied = policy_error(PolicyError::new(PolicyErrorCode::PermissionDenied, "no"));
-        assert_eq!(denied.code, "permissionDenied");
+        assert_eq!(denied.code, ErrorCode::PermissionDenied);
         // The kind decides, never the words of the message (a bracketed
         // code in the text included).
         assert_eq!(
             native_error(Error::new("[structural.query.compileFailed] bad pattern")).code,
-            "executionFailed"
+            ErrorCode::ExecutionFailed
         );
         assert_eq!(
             native_error(Error::with_kind(ErrorKind::InvalidPattern, "bad")).code,
-            "invalidPattern"
+            ErrorCode::InvalidPattern
         );
         assert_eq!(
             native_error(Error::with_kind(ErrorKind::PermissionDenied, "no")).code,
-            "permissionDenied"
+            ErrorCode::PermissionDenied
         );
         assert_eq!(
             native_error(Error::with_kind(ErrorKind::InvalidGlob, "bad")).code,
-            "invalidGlob"
+            ErrorCode::InvalidGlob
         );
-        assert_eq!(native_error(Error::cancelled()).code, "cancelled");
+        assert_eq!(native_error(Error::cancelled()).code, ErrorCode::Cancelled);
         assert_eq!(
             native_error(Error::new("invalid regex: unclosed group")).code,
-            "executionFailed"
+            ErrorCode::ExecutionFailed
         );
     }
 }

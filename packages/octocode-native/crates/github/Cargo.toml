@@ -14,6 +14,7 @@ doctest = false
 
 [dependencies]
 octocode-io = { path = "../io" }
+octocode-contract-types = { path = "../contract-types" }
 base64 = { workspace = true }
 bytes = { workspace = true }
 futures-util = { workspace = true }

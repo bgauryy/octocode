@@ -44,35 +44,13 @@ fn platform_entry(host: &str) -> Result<keyring_core::Entry, ProviderError> {
 pub(crate) fn load_stored_credentials(
     host: &str,
 ) -> Result<Option<StoredCredentials>, ProviderError> {
-    let host = normalize_host(host);
-    Ok(load_platform_password(&host)?.and_then(|blob| parse_stored_blob(host, &blob)))
+    Ok(load_platform_password(host)?.and_then(|blob| parse_stored_blob(&blob)))
 }
 
-/// A keychain blob as credentials: the stored JSON record, or a legacy plain
-/// token (an OAuth token with no username). A blank blob is no credential.
-fn parse_stored_blob(host: String, blob: &str) -> Option<StoredCredentials> {
-    if let Ok(stored) = serde_json::from_str::<StoredCredentials>(blob) {
-        return Some(stored);
-    }
-    let token = blob.trim();
-    if token.is_empty() {
-        return None;
-    }
-    Some(StoredCredentials {
-        hostname: host,
-        username: String::new(),
-        token: OAuthToken {
-            token: token.to_owned(),
-            token_type: "oauth".into(),
-            scopes: None,
-            refresh_token: None,
-            expires_at: None,
-            refresh_token_expires_at: None,
-        },
-        git_protocol: "https".into(),
-        created_at: String::new(),
-        updated_at: String::new(),
-    })
+/// A keychain blob as credentials: the stored JSON record. Anything else is no
+/// credential, and the next login overwrites it.
+fn parse_stored_blob(blob: &str) -> Option<StoredCredentials> {
+    serde_json::from_str(blob).ok()
 }
 
 fn load_platform_password(host: &str) -> Result<Option<String>, ProviderError> {
@@ -170,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn legacy_plain_token_blob_parses_as_oauth_credentials() {
+    fn only_a_json_record_parses_as_stored_credentials() {
         let stored = StoredCredentials {
             hostname: "example.test".into(),
             username: "fixture-user".into(),
@@ -187,19 +165,8 @@ mod tests {
             updated_at: "2026-01-02".into(),
         };
         let blob = serde_json::to_string(&stored).unwrap();
-        assert_eq!(
-            parse_stored_blob("other.test".into(), &blob),
-            Some(stored.clone()),
-            "a JSON blob is returned as stored"
-        );
-
-        let legacy = parse_stored_blob("example.test".into(), "  gho_x \n").unwrap();
-        assert_eq!(legacy.hostname, "example.test");
-        assert_eq!(legacy.username, "");
-        assert_eq!(legacy.token.token, "gho_x");
-        assert_eq!(legacy.token.token_type, "oauth");
-        assert_eq!(legacy.git_protocol, "https");
-
-        assert_eq!(parse_stored_blob("example.test".into(), "   "), None);
+        assert_eq!(parse_stored_blob(&blob), Some(stored));
+        assert_eq!(parse_stored_blob("  gho_x \n"), None);
+        assert_eq!(parse_stored_blob("   "), None);
     }
 }

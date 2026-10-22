@@ -781,6 +781,7 @@ mod memo_tests {
 #[cfg(test)]
 mod interrupted_rescan_tests {
     use super::*;
+    use octocode_contract_types::ErrorCode;
 
     /// A rescan cut by the match deadline (zero matches, status truncated)
     /// is a retryable timeout for the same page, not a stale snapshot; a
@@ -817,7 +818,7 @@ mod interrupted_rescan_tests {
             ..Scan::default()
         };
         let error = interrupted_rescan(q, &cut).expect("a deadline cut is a timeout");
-        assert_eq!(error.code, "timeout");
+        assert_eq!(error.code, ErrorCode::Timeout);
         let retry = &error.next.expect("retry")["retry"]["query"]["queries"][0];
         assert_eq!(retry["matchPage"], 9);
         assert_eq!(retry["snapshot"], "earlier");

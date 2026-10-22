@@ -1,6 +1,7 @@
 use super::extraction::line_count;
 use super::types::*;
 use crate::security::scan::ContentScan;
+use octocode_contract_types::ErrorCode;
 use octocode_engine::security::REDACTION_PREFIX;
 pub struct Page {
     pub text: String,
@@ -342,7 +343,7 @@ pub fn sanitize_line_page(
     raw: Page,
     source_path: &std::path::Path,
     security: &impl ContentScan,
-) -> Result<Option<(Page, bool)>, (String, String)> {
+) -> Result<Option<(Page, bool)>, (ErrorCode, String)> {
     let (first, last) = (raw.view_lines.0.saturating_sub(1), raw.view_lines.1);
     if raw.out_of_range || first >= last {
         return Ok(Some((raw, false)));
@@ -408,7 +409,7 @@ pub fn sanitize_byte_page(
     raw: Page,
     source_path: &std::path::Path,
     security: &impl ContentScan,
-) -> Result<Option<(Page, bool)>, (String, String)> {
+) -> Result<Option<(Page, bool)>, (ErrorCode, String)> {
     if raw.out_of_range || raw.text.is_empty() {
         return Ok(Some((raw, false)));
     }
@@ -589,6 +590,7 @@ pub fn result_counts(s: &str) -> (usize, usize, usize) {
 #[cfg(test)]
 mod long_redacted_line_tests {
     use super::clean_offset;
+    use octocode_contract_types::ErrorCode;
 
     #[test]
     fn offsets_track_unchanged_text_and_snap_into_placeholders() {
@@ -621,7 +623,7 @@ mod long_redacted_line_tests {
             &self,
             text: &str,
             _: &std::path::Path,
-        ) -> Result<(String, Vec<String>), (String, String)> {
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
             let pattern = regex::Regex::new(r"SECRET\w*").expect("pattern");
             Ok((
                 pattern.replace_all(text, "[REDACTED-X]").into_owned(),
@@ -792,7 +794,7 @@ mod line_page_scan_tests {
             &self,
             text: &str,
             _: &std::path::Path,
-        ) -> Result<(String, Vec<String>), (String, String)> {
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
             self.0.set(self.0.get() + text.len());
             Ok((text.replace("SECRET", "[R]"), vec![]))
         }

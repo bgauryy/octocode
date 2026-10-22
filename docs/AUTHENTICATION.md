@@ -24,6 +24,8 @@ Each GitHub request uses the first credential found for its host:
 - An env token is sent only to the host of the configured `GITHUB_API_URL` (`api.github.com` maps to `github.com`).
 - A stored token that expires within 5 minutes is [refreshed](#refresh) first; if refresh fails, resolution falls through to `gh`.
 - With no credential, public requests run unauthenticated at GitHub's lower rate limit (`authenticated: false`).
+- The chosen credential is remembered per host for 60 seconds, so a login, logout, `gh auth switch`, or token rotation in another window applies within a minute.
+- When GitHub rejects a stored or `gh` token (HTTP 401), Octocode skips that token in this process and the next request falls through to the next source. A rejected env token is not skipped: fix or unset the variable.
 
 ### Token environment variables
 
@@ -33,6 +35,23 @@ Each GitHub request uses the first credential found for its host:
 | 2 | `GITHUB_TOKEN` | GitHub Actions |
 
 Source wins before name: any nonblank process variable beats every `.env` file, and a workspace `.env` token beats a home `.env` token even under the lower-priority name. Name priority only breaks ties inside one source. `.octocoderc` never supplies GitHub tokens.
+
+### Global vs workspace files
+
+| File | Scope | GitHub credential |
+|---|---|---|
+| Shell or MCP client `env` block | That process | Token variable; always wins |
+| `<cwd>/.octocode/.env` | Workspace: the directory Octocode starts in | Token variable |
+| `<OCTOCODE_HOME>/.env` (default `~/.octocode/.env`) | Global: every project | Token variable |
+| `<OCTOCODE_HOME>/credentials.json` + `.key` | Global only | `auth login` |
+| `.octocoderc` (global or workspace) | — | Never a token |
+
+- **Workspace means the working directory itself.** The CLI uses the directory you run it in; the MCP server uses the directory its client starts it in. A subfolder never reads its parent's `.octocode/.env`. When the working directory is your OS home, `~/.octocode/.env` is read once, as the global file.
+- **A workspace token goes only to your configured host.** `GITHUB_API_URL` and `OCTOCODE_HOME` are home-only: a workspace `.env` or `.octocoderc` cannot set them, so a repository's `.octocode/.env` can supply a token but cannot redirect it to another host. Other keys a workspace cannot set: [CONFIGURATION.md](CONFIGURATION.md#env--environment-fallback).
+- **Logins are never per workspace.** `auth login` always writes to `<OCTOCODE_HOME>/credentials.json`; to use another account in one project, put a token in that project's `.octocode/.env`.
+- **See which file won:** `npx octocode config get GH_TOKEN` (or `GITHUB_TOKEN`) prints the masked value and its file; `auth status --json` shows `tokenSource`.
+- **Reload:** the CLI reads both files on every call. The MCP server reads them at start; restart it after an edit.
+- Keep a workspace `.octocode/.env` out of version control: its token is stored in plain text.
 
 ## OAuth device login
 
@@ -91,7 +110,7 @@ npx octocode auth login --hostname github.mycompany.com
 
 - The MCP server uses the same order. Put a token in the client `env` block, or rely on `auth login` or `gh` on the same machine.
 - The VS Code extension (`octocode-mcp-vscode`) signs in through the editor's GitHub account and writes the token as `GH_TOKEN` into the MCP configs it manages (`0600`).
-- Restart the MCP server after changing a token variable or `.env` file. A new `auth login` applies without a restart.
+- Restart the MCP server after changing a token variable or `.env` file. A new `auth login` applies within a minute, without a restart.
 
 ## Classification key (`clasify`)
 

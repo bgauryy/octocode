@@ -8,6 +8,7 @@ use crate::policy::path::PathPolicy;
 use crate::policy::prune::DefaultsFlag;
 use crate::response::result::ToolError;
 use crate::security::ContentSecurity;
+use octocode_contract_types::ErrorCode;
 use octocode_engine::search::text_search::search_cancellable;
 use octocode_engine::types::{
     CaseRule, PatternSyntax, SearchOutput, SearchSort, SourceValues, SpanValues, TextSearchOptions,
@@ -678,7 +679,12 @@ pub(super) fn search_root(
     paths: &PathPolicy,
 ) -> Result<crate::policy::path::ValidatedPath, ToolError> {
     paths.validate(query.path.as_str()).map_err(|error| {
-        ToolError::root_policy(error, query.path.as_str(), paths, "fileAccessFailed")
+        ToolError::root_policy(
+            error,
+            query.path.as_str(),
+            paths,
+            ErrorCode::FileAccessFailed,
+        )
     })
 }
 
@@ -852,9 +858,9 @@ pub(super) fn scan(
             .map_err(|error| {
                 // A malformed glob or file type is caller input.
                 let code = match error.kind() {
-                    octocode_engine::error::ErrorKind::InvalidInput => "invalidInput",
-                    octocode_engine::error::ErrorKind::InvalidGlob => "invalidGlob",
-                    _ => "executionFailed",
+                    octocode_engine::error::ErrorKind::InvalidInput => ErrorCode::InvalidInput,
+                    octocode_engine::error::ErrorKind::InvalidGlob => ErrorCode::InvalidGlob,
+                    _ => ErrorCode::ExecutionFailed,
                 };
                 ToolError::new(code, error.to_string())
             })?;
@@ -1069,7 +1075,7 @@ pub(super) fn unreadable_scope(stats: &octocode_engine::types::TextSearchStats) 
     // JIT-stack limit): the pattern, not the scope, needs the change.
     if stats.pattern_error_count == Some(count) {
         return ToolError::new(
-            "invalidPattern",
+            ErrorCode::InvalidPattern,
             format!(
                 "The regex hit the engine's matching limit in every file ({count}; first: {first}). Simplify nested repetition, or use regex:\"rust\" (no backtracking)."
             ),
@@ -1077,7 +1083,7 @@ pub(super) fn unreadable_scope(stats: &octocode_engine::types::TextSearchStats) 
     }
     ToolError {
         ..ToolError::new(
-            "fileAccessFailed",
+            ErrorCode::FileAccessFailed,
             format!(
                 "No file under the search path could be read ({count} failure(s); first: {first})."
             ),

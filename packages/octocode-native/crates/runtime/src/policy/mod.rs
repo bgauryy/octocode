@@ -4,6 +4,7 @@ pub mod network;
 pub mod path;
 pub mod prune;
 
+use octocode_contract_types::ErrorCode;
 use std::fmt::{self, Display, Formatter};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -47,33 +48,30 @@ impl PolicyError {
 
     /// Public `errorCode` for a local tool's path-policy failure: the shared
     /// flat code ([`Self::shared_code`]), otherwise the tool's own access code.
-    pub(crate) fn local_error_code(&self, access_code: &'static str) -> &'static str {
+    pub(crate) fn local_error_code(&self, access_code: ErrorCode) -> ErrorCode {
         self.shared_code().unwrap_or(access_code)
     }
 
     /// The flat `errorCode` every local tool shares for this failure.
     /// `None` for a tool-specific failure (the tool's own access code).
-    pub(crate) fn shared_code(&self) -> Option<&'static str> {
+    pub(crate) fn shared_code(&self) -> Option<ErrorCode> {
         Some(match self.code {
-            PolicyErrorCode::OutsideAllowedRoots => "outsideAllowedRoots",
-            PolicyErrorCode::SymlinkEscape => "symlinkEscape",
-            PolicyErrorCode::PermissionDenied => "permissionDenied",
-            PolicyErrorCode::NotFound => PATH_NOT_FOUND,
-            PolicyErrorCode::InvalidInput => "invalidInput",
-            PolicyErrorCode::InputTooLarge => "fileTooLarge",
-            PolicyErrorCode::IgnoredPath => PATH_POLICY_DENIED,
+            PolicyErrorCode::OutsideAllowedRoots => ErrorCode::OutsideAllowedRoots,
+            PolicyErrorCode::SymlinkEscape => ErrorCode::SymlinkEscape,
+            PolicyErrorCode::PermissionDenied => ErrorCode::PermissionDenied,
+            // Every local tool's code for a path that does not exist.
+            PolicyErrorCode::NotFound => ErrorCode::PathNotFound,
+            PolicyErrorCode::InvalidInput => ErrorCode::InvalidInput,
+            PolicyErrorCode::InputTooLarge => ErrorCode::FileTooLarge,
+            // Every local tool's code for a path the security path policy
+            // withholds (credential stores, credential-named files such as
+            // `.env` or `*.pem`): a denial no flag or config setting lifts,
+            // never a missing or misspelled path.
+            PolicyErrorCode::IgnoredPath => ErrorCode::PathPolicyDenied,
             _ => return None,
         })
     }
 }
-
-/// `errorCode` every local tool emits for a path the security path policy
-/// withholds (credential stores, credential-named files such as `.env` or `*.pem`): a denial no
-/// flag or config setting lifts, never a missing or misspelled path.
-pub(crate) const PATH_POLICY_DENIED: &str = "pathPolicyDenied";
-
-/// `errorCode` every local tool emits for a path that does not exist.
-pub(crate) const PATH_NOT_FOUND: &str = "pathNotFound";
 
 impl Display for PolicyError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {

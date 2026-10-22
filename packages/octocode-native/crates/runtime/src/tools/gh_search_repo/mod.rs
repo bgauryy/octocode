@@ -12,6 +12,7 @@ use crate::tools::gh_shared::{
     field_names, pick_rows, rerun_renamed, search_failure, search_may_be_renamed,
     with_search_repair,
 };
+use octocode_contract_types::ErrorCode;
 use octocode_github::{
     GitHubProvider, ProviderError, RepositorySearchPage, RepositorySearchRequest, RequestContext,
 };
@@ -549,9 +550,12 @@ fn repository_output(
     provider_capped: bool,
 ) -> ToolData {
     let mut output = ToolData::from(value);
-    if repositories_empty && !provider_incomplete && !provider_capped {
+    // No rows is empty whether or not GitHub finished the search, as
+    // ghSearchCode reports it: an incomplete page keeps its retry (the CLI
+    // exits 1, nothing printed), and only a complete one is worth broadening.
+    if repositories_empty && !provider_capped {
         output.status = Some("empty");
-        if let Some(broader) = broaden_search(query) {
+        if !provider_incomplete && let Some(broader) = broaden_search(query) {
             output.data["next"]["broadenSearch"] = broader;
         }
     }
@@ -644,8 +648,8 @@ impl crate::response::output::ToolOutput for Output {
     /// A missing owner names the login and has no repair; an exact
     /// repository that did not resolve carries its own `findRepository`
     /// lead. Neither is helped by the search fallback.
-    fn error_hint(&self, code: &str) -> Option<&'static str> {
-        (code == "notFound").then_some(crate::response::output::NO_HINT)
+    fn error_hint(&self, code: ErrorCode) -> Option<&'static str> {
+        (code == ErrorCode::NotFound).then_some(crate::response::output::NO_HINT)
     }
     fn evidence_kind(&self, _query: &serde_json::Value, _data: &serde_json::Value) -> &'static str {
         "provider"
@@ -675,7 +679,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn complete_repository_zero_is_empty_but_partial_zero_is_not() {
+    fn zero_repositories_are_empty_and_only_a_complete_search_broadens() {
         let query: GhSearchRepoQuery =
             serde_json::from_value(json!({"keywords":["x"],"language":"rust"})).expect("query");
         let complete = repository_output(json!({"repositories":[]}), &query, true, false, false);
@@ -686,13 +690,15 @@ mod tests {
             json!([{"keywords":["x"]}, {"language":"rust"}])
         );
 
-        for (incomplete, capped) in [(true, false), (false, true)] {
-            let partial =
-                repository_output(json!({"repositories":[]}), &query, true, incomplete, capped);
-            assert_eq!(partial.status, None);
-            assert!(partial.data.get("hints").is_none());
-            assert!(partial.data.get("next").is_none());
-        }
+        // GitHub's incomplete page: empty (exit 1), no broadening; its retry
+        // is added with the partial marking.
+        let incomplete = repository_output(json!({"repositories":[]}), &query, true, true, false);
+        assert_eq!(incomplete.status, Some("empty"));
+        assert!(incomplete.data.get("next").is_none());
+        // A capped result has rows beyond the cap: not empty.
+        let capped = repository_output(json!({"repositories":[]}), &query, true, false, true);
+        assert_eq!(capped.status, None);
+        assert!(capped.data.get("next").is_none());
     }
 
     /// An empty search inside one repository with a lone keyword broadens

@@ -10,6 +10,7 @@ use crate::tools::ast_search::{AstSearchQuery, execute_ast};
 use crate::tools::local_fetch::LocalFetchQuery;
 use crate::tools::local_search::{LocalSearchQuery, SearchStatus, execute_local_search};
 use crate::tools::structure_search::{StructureSearchQuery, execute_structure};
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
 /// The runtime-owned services a local row runs against.
@@ -141,7 +142,7 @@ pub(super) fn parse_query<'de, T: serde::Deserialize<'de>>(
 
 pub(super) fn invalid_query(error: &serde_json::Error) -> DomainResult {
     DomainResult::failure(
-        "invalidInput",
+        ErrorCode::InvalidInput,
         "Check the query fields.",
         vec![format!("Query does not match the runtime type: {error}.")],
         None,
@@ -165,10 +166,7 @@ pub(crate) fn value_result(data: Value) -> DomainResult {
         Some("empty") => Some("empty"),
         _ => None,
     };
-    let kind = data
-        .get("errorCode")
-        .and_then(Value::as_str)
-        .map(failure_kind);
+    let kind = crate::id::error_code_of(&data).map(failure_kind);
     let mut result = DomainResult::payload(data, status);
     if result.failure.is_some()
         && let Some(kind) = kind
@@ -182,24 +180,24 @@ pub(crate) fn value_result(data: Value) -> DomainResult {
 /// own verdict when it has one, else derived from the code and status.
 pub(super) fn provider_failure(
     message: String,
-    code: String,
+    code: ErrorCode,
     mut hints: Vec<String>,
     http_status: Option<u16>,
     retryable: Option<bool>,
 ) -> DomainResult {
     let retryable = retryable.unwrap_or_else(|| {
-        matches!(code.as_str(), "timeout" | "providerError")
+        matches!(code, ErrorCode::Timeout | ErrorCode::ProviderError)
             || http_status.is_some_and(|status| status == 408 || status == 429 || status >= 500)
     });
     // An invalid input's message names the rejected field or the registry's
     // own reason; a static hint would only restate it.
-    if hints.is_empty() && code != "invalidInput" {
+    if hints.is_empty() && code != ErrorCode::InvalidInput {
         hints.push(
-            match code.as_str() {
-                "authentication" => "Verify registry credentials and access, then retry.",
-                "rateLimited" => "Wait for the provider rate-limit reset before retrying.",
-                "timeout" => "Retry once; if it persists, verify registry availability.",
-                "capabilityUnavailable" => {
+            match code {
+                ErrorCode::Authentication => "Verify registry credentials and access, then retry.",
+                ErrorCode::RateLimited => "Wait for the provider rate-limit reset before retrying.",
+                ErrorCode::Timeout => "Retry once; if it persists, verify registry availability.",
+                ErrorCode::CapabilityUnavailable => {
                     "Use the exact package lookup supported by this ecosystem."
                 }
                 _ if retryable => "Retry once; if it persists, verify registry availability.",
@@ -232,9 +230,9 @@ mod provider_failure_tests {
     #[test]
     fn payload_and_tool_errors_share_failure_classification() {
         for code in [
-            "classificationRateLimited",
-            "classificationProviderError",
-            "notFound",
+            ErrorCode::ClassificationRateLimited,
+            ErrorCode::ClassificationProviderError,
+            ErrorCode::NotFound,
         ] {
             let payload = DomainResult::payload(json!({"errorCode":code}), Some("error"));
             let typed =
@@ -292,7 +290,7 @@ mod provider_failure_tests {
     fn every_error_row_has_one_shape() {
         let next = json!({"retry": {"tool": "localSearch", "query": {"path": "/r"}}});
         let row = DomainResult::failure(
-            "pathNotFound",
+            ErrorCode::PathNotFound,
             "Path does not exist: /r",
             vec!["Verify the path exists.".into()],
             Some(next.clone()),
@@ -309,7 +307,7 @@ mod provider_failure_tests {
         assert_eq!(keys, ["error", "errorCode", "hints", "next"]);
         assert_eq!(row.data["next"], next);
 
-        let bare = DomainResult::failure("executionFailed", "failed", vec![], None);
+        let bare = DomainResult::failure(ErrorCode::ExecutionFailed, "failed", vec![], None);
         assert_eq!(
             bare.data,
             json!({"error": "failed", "errorCode": "executionFailed"})
@@ -421,7 +419,7 @@ mod provider_failure_tests {
     fn provider_rows_have_one_shape() {
         let next = json!({"retry": {"tool": "artifactSearch", "query": {"queries": []}}});
         let row = DomainResult::provider(
-            "rateLimited",
+            ErrorCode::RateLimited,
             "slow down",
             vec!["Wait.".into()],
             Some(next.clone()),
@@ -453,7 +451,7 @@ mod provider_failure_tests {
             ]
         );
         let bare = DomainResult::provider(
-            "transport",
+            ErrorCode::Transport,
             "Network connection failed",
             vec![],
             None,
@@ -468,7 +466,7 @@ mod provider_failure_tests {
         // emitter's own retry verdict wins over the derived one.
         let lsp = provider_failure(
             "crashed".into(),
-            "serverCrashed".into(),
+            ErrorCode::ServerCrashed,
             vec!["h".into()],
             None,
             Some(true),
@@ -483,7 +481,7 @@ mod provider_failure_tests {
     fn http_status_is_carried_when_present_and_absent_when_not() {
         let with = provider_failure(
             "upstream said no".into(),
-            "providerError".into(),
+            ErrorCode::ProviderError,
             vec![],
             Some(429),
             None,
@@ -494,7 +492,7 @@ mod provider_failure_tests {
         assert!(with.data["hints"][0].is_string());
         let without = provider_failure(
             "client-side".into(),
-            "invalidInput".into(),
+            ErrorCode::InvalidInput,
             vec![],
             None,
             None,
@@ -506,13 +504,17 @@ mod provider_failure_tests {
         assert!(without.data.get("hints").is_none(), "{}", without.data);
 
         for (code, status, retryable, hint_fragment) in [
-            ("authentication", Some(401), false, "credentials"),
-            ("rateLimited", Some(429), true, "rate-limit reset"),
-            ("timeout", None, true, "Retry once"),
-            ("capabilityUnavailable", None, false, "exact package lookup"),
+            (ErrorCode::Authentication, Some(401), false, "credentials"),
+            (ErrorCode::RateLimited, Some(429), true, "rate-limit reset"),
+            (ErrorCode::Timeout, None, true, "Retry once"),
+            (
+                ErrorCode::CapabilityUnavailable,
+                None,
+                false,
+                "exact package lookup",
+            ),
         ] {
-            let failure =
-                provider_failure(format!("{code} failure"), code.into(), vec![], status, None);
+            let failure = provider_failure(format!("{code} failure"), code, vec![], status, None);
             assert_eq!(
                 failure.data.get("retryable"),
                 retryable.then_some(&serde_json::json!(true)),

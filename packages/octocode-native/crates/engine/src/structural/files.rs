@@ -744,7 +744,10 @@ fn collect_files(
         !prune.prunes_entry(entry)
             && !(entry.depth() > 0
                 && defaults.as_ref().is_some_and(|defaults| {
-                    defaults.prunes(entry.path(), entry.file_type().is_some_and(|kind| kind.is_dir()))
+                    defaults.prunes(
+                        entry.path(),
+                        entry.file_type().is_some_and(|kind| kind.is_dir()),
+                    )
                 }))
     });
     builder

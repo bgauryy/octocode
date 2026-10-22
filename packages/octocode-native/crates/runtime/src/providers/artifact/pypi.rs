@@ -7,6 +7,7 @@ use super::util::{
 use super::versions::{VersionSpec, pypi_resolve};
 use super::{ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactSearchQuery, ArtifactType};
 use crate::providers::artifact::types::artifact_search_query;
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
 pub(crate) async fn pypi(
@@ -15,7 +16,7 @@ pub(crate) async fn pypi(
 ) -> Result<ArtifactProviderPage, ArtifactError> {
     let Some(package_name) = artifact_search_query::bare_package_name(query) else {
         return Err(ArtifactError::new(
-            "capabilityUnavailable",
+            ErrorCode::CapabilityUnavailable,
             "PyPI has no keyword search; look up an exact packageName.",
         ));
     };
@@ -225,7 +226,7 @@ async fn pypi_release_json(
                 // Only yanked releases match: name the newest (a pin selects it).
                 if let Some(yanked) = pypi_resolve(specifier, all.iter().map(String::as_str)) {
                     let mut error = ArtifactError::new(
-                        "versionNotFound",
+                        ErrorCode::VersionNotFound,
                         format!(
                             "{package_name} has no unyanked version matching \"{specifier}\"; yanked {yanked} matches"
                         ),
@@ -367,7 +368,7 @@ mod tests {
         )
         .await
         .expect_err("missing version");
-        assert_eq!(missing.code, "versionNotFound");
+        assert_eq!(missing.code, ErrorCode::VersionNotFound);
         assert!(
             missing.nearest.iter().any(|version| version == "2.31.0"),
             "{missing:?}"
@@ -419,7 +420,7 @@ mod tests {
         )
         .await
         .expect_err("only a yanked release matches");
-        assert_eq!(only_yanked.code, "versionNotFound");
+        assert_eq!(only_yanked.code, ErrorCode::VersionNotFound);
         assert!(
             only_yanked.message.contains("yanked 2.32.0"),
             "{only_yanked:?}"

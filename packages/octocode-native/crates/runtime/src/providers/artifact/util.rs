@@ -5,6 +5,7 @@ use super::{
 };
 use crate::providers::artifact::types::artifact_search_query;
 use crate::providers::artifact::types::artifact_type;
+use octocode_contract_types::ErrorCode;
 use serde_json::{Map, Value};
 use url::Url;
 
@@ -179,7 +180,7 @@ pub(crate) fn endpoint(
 pub(crate) fn parse_url(value: &str) -> Result<Url, ArtifactError> {
     Url::parse(value).map_err(|_| {
         ArtifactError::new(
-            "providerError",
+            ErrorCode::ProviderError,
             "Artifact registry endpoint could not be constructed.",
         )
     })
@@ -213,7 +214,7 @@ pub(crate) fn coordinate_path(value: &str) -> String {
 
 pub(crate) fn invalid(artifact_type: ArtifactType) -> ArtifactError {
     ArtifactError::new(
-        "providerError",
+        ErrorCode::ProviderError,
         format!(
             "{} returned an invalid registry response.",
             artifact_type::as_str(artifact_type)

@@ -1,4 +1,5 @@
 use crate::support::{self, Run as _};
+use octocode_contract_types::ErrorCode;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -121,13 +122,13 @@ async fn saved_pages_reject_mixed_input_tool_credential_config_and_workspace_cha
             .run("mixed".into(), "localSearch".into(), mixed)
             .await
             .expect_err("mixed input");
-        assert_eq!(error.code, "invalidInput");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
     }
     let error = runtime
         .run("tool".into(), "localFetch".into(), next.clone())
         .await
         .expect_err("wrong tool");
-    assert_eq!(error.code, "responseSnapshotExpired");
+    assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
     let admission = runtime
         .admit_with(
             "credential".into(),
@@ -143,13 +144,13 @@ async fn saved_pages_reject_mixed_input_tool_credential_config_and_workspace_cha
         )
         .await
         .expect_err("credential boundary");
-    assert_eq!(error.code, "responseSnapshotExpired");
+    assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
     let admission = runtime.admit("surface".into()).expect("admit");
     let error = runtime
         .execute(admission, "localSearch".into(), next.clone(), Channel::Mcp)
         .await
         .expect_err("surface boundary");
-    assert_eq!(error.code, "responseSnapshotExpired");
+    assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
     for changed in ["cwd", "config"] {
         let mut input = workspace.config(&env);
         if changed == "cwd" {
@@ -165,7 +166,7 @@ async fn saved_pages_reject_mixed_input_tool_credential_config_and_workspace_cha
             .run(changed.into(), "localSearch".into(), next.clone())
             .await
             .expect_err("partition");
-        assert_eq!(error.code, "responseSnapshotExpired");
+        assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
         other.close().await;
     }
     runtime.close().await;
@@ -199,7 +200,7 @@ async fn expired_disk_snapshot_does_not_reexecute() {
         .run("expired".into(), "localSearch".into(), next)
         .await
         .expect_err("expired snapshot");
-    assert_eq!(error.code, "responseSnapshotExpired");
+    assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
     runtime.close().await;
 }
 
@@ -305,7 +306,7 @@ async fn immutable_response_missing_memory_session_expires_without_dispatch() {
         .run("lost-page".into(), "localSearch".into(), next)
         .await
         .expect_err("a missing saved result never re-executes");
-    assert_eq!(error.code, "responseSnapshotExpired");
+    assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
     runtime.close().await;
 }
 
@@ -437,7 +438,7 @@ async fn a_matching_snapshot_pages_the_stored_envelope_without_re_executing() {
         .run("page-stale".into(), "localSearch".into(), stale)
         .await
         .expect_err("unknown snapshots do not execute");
-    assert_eq!(third.code, "responseSnapshotExpired");
+    assert_eq!(third.code, ErrorCode::ResponseSnapshotExpired);
     runtime.close().await;
 }
 
@@ -521,7 +522,7 @@ async fn pages_at(server: &MockServer, reference: &str) {
         .run("gh-page-stale".into(), "ghGetFileContent".into(), stale)
         .await
         .expect_err("a mismatched snapshot never executes");
-    assert_eq!(error.code, "responseSnapshotExpired");
+    assert_eq!(error.code, ErrorCode::ResponseSnapshotExpired);
     runtime.close().await;
 }
 
@@ -560,7 +561,7 @@ async fn rows_scope_pages_replay_the_stored_envelope() {
         )
         .await
         .expect_err("changed row plan cannot replay the saved page");
-    assert_eq!(restart.code, "responsePageMismatch");
+    assert_eq!(restart.code, ErrorCode::ResponsePageMismatch);
 
     unreadable(&file, true);
     let second = runtime
@@ -859,14 +860,14 @@ async fn saved_github_pages_check_current_home_credentials_without_network_repla
             .run("auth-switched".into(), tool.into(), next.clone())
             .await
             .expect_err("local identity changed");
-        assert_eq!(changed.code, "responseSnapshotExpired");
+        assert_eq!(changed.code, ErrorCode::ResponseSnapshotExpired);
         runtime.close().await;
         let runtime = workspace.runtime(&env);
         let changed = runtime
             .run("auth-switched-process".into(), tool.into(), next)
             .await
             .expect_err("new process identity changed");
-        assert_eq!(changed.code, "responseSnapshotExpired");
+        assert_eq!(changed.code, ErrorCode::ResponseSnapshotExpired);
         runtime.close().await;
         let requests = server
             .received_requests()
@@ -1038,7 +1039,7 @@ async fn a_saved_read_past_the_last_page_ends_the_walk() {
         .run("resized".into(), "localSearch".into(), resized)
         .await
         .expect_err("a changed page size is refused");
-    assert_eq!(error.code, "responsePageMismatch");
+    assert_eq!(error.code, ErrorCode::ResponsePageMismatch);
     assert_eq!(
         error.exit_class(),
         octocode_native::response::exit::ExitClass::InvalidInput

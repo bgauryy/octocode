@@ -27,6 +27,7 @@ use crate::response::exit::ExitClass;
 use crate::{
     execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
+use octocode_contract_types::ErrorCode;
 use octocode_io::atomic::write_atomic;
 use serde_json::{Value, json};
 use std::{
@@ -90,10 +91,10 @@ impl GraphOutput {
         }
     }
     /// A failure with a declared `errorCodes` entry; its class decides the exit.
-    pub fn error(code: &str, message: impl Into<String>) -> Self {
+    pub fn error(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
             value: json!({"error": message.into(), "errorCode": code}),
-            class: ExitClass::of_code(code),
+            class: ExitClass::of(code),
         }
     }
 }
@@ -248,12 +249,15 @@ pub fn ingest(
     let started = Instant::now();
     let home = match graph_home(options.workspace.as_deref()) {
         Ok(home) => home,
-        Err(message) => return GraphOutput::error("workspaceRootInvalid", message),
+        Err(message) => return GraphOutput::error(ErrorCode::WorkspaceRootInvalid, message),
     };
     let home = match paths.validate_output(&home) {
         Ok(valid) => valid.canonical,
         Err(error) => {
-            return GraphOutput::error(error.local_error_code("pathPolicyDenied"), error.message);
+            return GraphOutput::error(
+                error.local_error_code(ErrorCode::PathPolicyDenied),
+                error.message,
+            );
         }
     };
     let workspace = home
@@ -302,7 +306,7 @@ pub fn ingest(
     let (bytes, digest) = format::encode(&projection.tables);
     if bytes.len() > MAX_GRAPH_BYTES {
         return GraphOutput::error(
-            "scopeTooBroad",
+            ErrorCode::ScopeTooBroad,
             format!(
                 "encoded graph exceeds the {MAX_GRAPH_BYTES}-byte snapshot limit; ingest a narrower scope"
             ),
@@ -339,7 +343,7 @@ pub fn ingest(
         Ok(dir) => dir,
         Err(error) => {
             return GraphOutput::error(
-                "fileAccessFailed",
+                ErrorCode::FileAccessFailed,
                 format!("cannot publish graph: {error}"),
             );
         }
@@ -399,11 +403,11 @@ fn build_for_ingest(
     })) {
         Ok(Ok(built)) => Ok(built),
         Ok(Err(error)) => Err(GraphOutput {
-            class: ExitClass::of_code(&error.code),
+            class: ExitClass::of(error.code),
             value: json!({"error": error.message, "errorCode": error.code, "hints": error.hints}),
         }),
         Err(_) => Err(GraphOutput::error(
-            "executionFailed",
+            ErrorCode::ExecutionFailed,
             "graph build panicked",
         )),
     }

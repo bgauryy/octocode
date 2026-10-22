@@ -17,6 +17,7 @@ use crate::{
         gh_structure,
     },
 };
+use octocode_contract_types::ErrorCode;
 use octocode_github::*;
 use octocode_io::budget::RequestBudget;
 use serde_json::{Value, json};
@@ -41,10 +42,7 @@ fn provider_row(
     hints: Vec<String>,
     next: Option<Value>,
 ) -> DomainResult {
-    let code = serde_json::to_value(error.kind)
-        .ok()
-        .and_then(|code| code.as_str().map(str::to_owned))
-        .unwrap_or_else(|| "executionFailed".into());
+    let code = error.kind.code();
     let upstream = Upstream {
         retryable: error.retryable,
         http_status: error.status,
@@ -103,7 +101,7 @@ fn offer_retry(tool: ToolId, query: &Value, data: &mut Value) {
 /// to log in; a secondary limit or circuit cooldown keeps its wait hint.
 fn advise_login_for_anonymous_quota(data: &mut Value, anonymous: bool) {
     if anonymous
-        && data["errorCode"] == "rateLimited"
+        && crate::id::error_code_of(data) == Some(ErrorCode::RateLimited)
         && data.pointer("/rateLimit/remaining") == Some(&json!(0))
     {
         data["hints"] = json!([ANONYMOUS_RATE_LIMIT_HINT]);
@@ -487,7 +485,7 @@ impl GitHubServices {
             Err(CloneFailure::Clone(error)) => {
                 // Only a timed-out git transfer can succeed unchanged.
                 let upstream = Upstream {
-                    retryable: error.code == "timeout",
+                    retryable: error.code == ErrorCode::Timeout,
                     ..Upstream::default()
                 };
                 DomainResult::provider(

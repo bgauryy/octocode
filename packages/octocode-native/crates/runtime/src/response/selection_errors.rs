@@ -6,6 +6,7 @@
 //! unfiltered retry is added here.
 
 use crate::id::ToolId;
+use octocode_contract_types::ErrorCode;
 use octocode_contract_types::{Selection, SelectionScope, SelectionStatus, SelectionUnit};
 use serde_json::Value;
 
@@ -34,7 +35,7 @@ pub(crate) fn decorate(tool: ToolId, structured: &mut Value, response_query: &Va
         };
         // A refused request ran no selection: its repair, not unresolved
         // evidence, is the way on.
-        if row.pointer("/data/errorCode").and_then(Value::as_str) == Some("invalidInput") {
+        if crate::id::error_code_of(&row["data"]) == Some(ErrorCode::InvalidInput) {
             continue;
         }
         if query.get("clasifyContext").is_some()
@@ -46,25 +47,7 @@ pub(crate) fn decorate(tool: ToolId, structured: &mut Value, response_query: &Va
                     .unwrap_or(Value::Null)
             });
         }
-        if !crate::response::paging::continues_a_page(query) {
-            inspection_hint(row);
-        }
     }
-}
-
-/// The one static reminder that a classified view is not proof of absence,
-/// on a row whose view left evidence out (it carries `next.unfiltered`). A
-/// failed row judged nothing (its error and the unfiltered lead are the way
-/// on). Said once per response, on the first page
-/// ([`crate::response::paging::push_notice`]).
-fn inspection_hint(row: &mut Value) {
-    if row["status"] == "error" || !row["data"]["next"]["unfiltered"].is_object() {
-        return;
-    }
-    crate::response::paging::push_notice(
-        &mut row["data"],
-        crate::contracts::classification_notice("filtered"),
-    );
 }
 
 /// Isolated contract failures are not admitted and therefore have no entry in
@@ -72,7 +55,7 @@ fn inspection_hint(row: &mut Value) {
 /// and remain paired with their admitted query.
 fn contract_rejection(row: &Value) -> bool {
     row.get("status") == Some(&Value::String("error".into()))
-        && row.pointer("/data/errorCode").and_then(Value::as_str) == Some("invalidInput")
+        && crate::id::error_code_of(&row["data"]) == Some(ErrorCode::InvalidInput)
         && row.pointer("/data/next").is_none()
 }
 
@@ -114,8 +97,11 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// A filtered view carries its per-call facts (`selection`, the
+    /// `next.unfiltered` lead) and no static reminder: that a filtered view
+    /// is not proof of absence is said once, in the instructions.
     #[test]
-    fn a_filtered_view_gets_one_inspection_notice_on_its_first_page() {
+    fn a_filtered_view_adds_no_static_reminder() {
         for tool in [
             ToolId::LocalSearch,
             ToolId::LocalFetch,
@@ -126,32 +112,11 @@ mod tests {
                 "selection":{"status":"partial","selectedItems":1,"unknownItems":1},
                 "next":{"unfiltered":{"tool":tool.as_str(),"query":{"queries":[{"path":"a.rs"}]}}}
             }}]});
+            let before = structured.clone();
             let query =
                 json!({"path":"a.rs","clasifyContext":{"classifiers":["States the rule?"]}});
-            let original_lead = structured["results"][0]["data"]["next"]["unfiltered"].clone();
             settle(tool, &mut structured, &query);
-            let data = &structured["results"][0]["data"];
-            assert_eq!(
-                data["warnings"],
-                json!([crate::contracts::classification_notice("filtered")]),
-                "one notice on a successful row: {data}"
-            );
-            assert_eq!(data["next"]["unfiltered"], original_lead);
-            let once = structured.clone();
-            settle(tool, &mut structured, &query);
-            assert_eq!(structured, once, "no duplicate recovery tips");
-            // A continuation page repeats no static reminder.
-            let mut later = json!({"results":[{"index":0,"data":{
-                "selection":{"status":"partial","selectedItems":1,"unknownItems":1},
-                "next":{"unfiltered":{"tool":tool.as_str(),"query":{"queries":[{"path":"a.rs"}]}}}
-            }}]});
-            let mut page = query.clone();
-            page["snapshot"] = json!("s");
-            settle(tool, &mut later, &page);
-            assert!(
-                later["results"][0]["data"].get("warnings").is_none(),
-                "{later}"
-            );
+            assert_eq!(structured, before, "{structured}");
         }
     }
 
@@ -173,54 +138,6 @@ mod tests {
     fn settle(tool: ToolId, structured: &mut Value, query: &Value) {
         decorate(tool, structured, query);
         crate::response::notices::place(structured, "results");
-    }
-
-    /// An empty row gets the reminder after its own tips; a failed row
-    /// judged nothing, so it gets none. Two rows say it once.
-    #[test]
-    fn empty_rows_get_the_reminder_once_and_failed_rows_none() {
-        for hints in [
-            json!(["Existing tip."]),
-            json!({"text":["Existing tip."],"read":{"tool":"localFetch","query":{"queries":[{"path":"a.rs"}]}}}),
-        ] {
-            let row = |index: usize, status: &str| {
-                json!({"index":index,"status":status,"data":{
-                    "selection":{"status":"partial","selectedItems":0,"unknownItems":1},
-                    "hints":hints.clone(),
-                    "next":{"unfiltered":{"tool":"localFetch","query":{"queries":[{"path":"a.rs"}]}}}
-                }})
-            };
-            let mut structured =
-                json!({"results":[row(0, "error"), row(1, "empty"), row(2, "empty")]});
-            let query = json!({"path":"a.rs"});
-            settle(
-                ToolId::LocalFetch,
-                &mut structured,
-                &json!({"queries":[query.clone(), query.clone(), query]}),
-            );
-            let text = |index: usize| structured["results"][index]["data"]["hints"]["text"].clone();
-            assert_eq!(
-                structured["results"][0]["data"]["hints"], hints,
-                "failed: no reminder"
-            );
-            assert_eq!(text(1)[0], "Existing tip.", "{structured}");
-            assert_eq!(
-                text(1)[1],
-                crate::contracts::classification_notice("filtered"),
-                "{structured}"
-            );
-            assert_eq!(
-                structured["results"][2]["data"]["hints"], hints,
-                "said once: {structured}"
-            );
-            for index in 0..3 {
-                let data = &structured["results"][index]["data"];
-                assert!(data.get("warnings").is_none() && data.get("notices").is_none());
-                if hints.is_object() {
-                    assert_eq!(data["hints"]["read"], hints["read"]);
-                }
-            }
-        }
     }
 
     #[test]

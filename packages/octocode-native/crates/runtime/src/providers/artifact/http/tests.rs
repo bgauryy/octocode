@@ -1,4 +1,5 @@
 use super::*;
+use octocode_contract_types::ErrorCode;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -26,7 +27,7 @@ fn deterministic_4xx_is_invalid_query_with_status() {
     // coordinates) with 405, not 404; it must not read as retryable.
     for status in [400u16, 405, 422] {
         let error = classify(status).expect_err("4xx is an error");
-        assert_eq!(error.code, "invalidInput");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
         assert_eq!(error.status, Some(status));
         assert!(
             error.message.contains(&format!("HTTP {status}")),
@@ -54,7 +55,7 @@ fn a_rejected_request_states_the_registrys_reason() {
             true,
         )
         .expect_err("400");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     assert!(error.message.contains(detail), "{}", error.message);
     let bare = classify(400).expect_err("400");
     crate::tools::test_support::checks::assert_absent(
@@ -67,7 +68,7 @@ fn a_rejected_request_states_the_registrys_reason() {
 fn server_errors_and_408_stay_retryable_provider_error() {
     for status in [408u16, 500, 502, 503] {
         let error = classify(status).expect_err("5xx is an error");
-        assert_eq!(error.code, "providerError");
+        assert_eq!(error.code, ErrorCode::ProviderError);
         assert_eq!(error.status, Some(status));
         assert!(
             error.message.contains(&format!("HTTP {status}"))
@@ -81,10 +82,16 @@ fn server_errors_and_408_stay_retryable_provider_error() {
 #[test]
 fn auth_rate_limit_and_not_found_keep_dedicated_mappings() {
     assert_eq!(classify(404).expect("404 maps to empty"), None);
-    assert_eq!(classify(401).expect_err("401").code, "authentication");
-    assert_eq!(classify(403).expect_err("403").code, "authentication");
+    assert_eq!(
+        classify(401).expect_err("401").code,
+        ErrorCode::Authentication
+    );
+    assert_eq!(
+        classify(403).expect_err("403").code,
+        ErrorCode::Authentication
+    );
     let limited = classify(429).expect_err("429");
-    assert_eq!(limited.code, "rateLimited");
+    assert_eq!(limited.code, ErrorCode::RateLimited);
     assert_eq!(limited.status, Some(429));
 }
 
@@ -160,7 +167,10 @@ async fn a_malformed_body_is_not_cached_and_the_retry_reads_again() {
     };
     let url = Url::parse("https://malformed-cache-test.invalid/pkg").expect("test URL");
     let read = || client.json(ArtifactType::Npm, url.clone(), false, None, None, JSON);
-    assert_eq!(read().await.expect_err("malformed").code, "providerError");
+    assert_eq!(
+        read().await.expect_err("malformed").code,
+        ErrorCode::ProviderError
+    );
     assert_eq!(read().await.expect("retry").expect("body")["name"], "ok");
     assert_eq!(read().await.expect("cached").expect("body")["name"], "ok");
     assert_eq!(http.calls(), 2, "malformed, retry, then cache");

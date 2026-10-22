@@ -518,13 +518,17 @@ fn echoes_go_only_when_they_equal_the_request_and_echo_extras_keep_them() {
 }
 
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 /// A cancelled call has one recovery on every tool: retry only when the
 /// result is still needed and what cancelled it changed, else report it.
 #[test]
 fn a_cancellation_bounds_its_retry_and_otherwise_reports() {
     for tool in [ToolId::LocalSearch, ToolId::Clasify, ToolId::GhSearchCode] {
-        assert_eq!(error_code_hint(tool, "cancelled"), Some(CANCELLED_HINT));
+        assert_eq!(
+            error_code_hint(tool, ErrorCode::Cancelled),
+            Some(CANCELLED_HINT)
+        );
     }
     for slot in ["still needed", "changed", "otherwise report"] {
         assert!(CANCELLED_HINT.contains(slot), "{slot}: {CANCELLED_HINT}");
@@ -1528,11 +1532,11 @@ fn error_fallbacks_are_failure_class_aware_and_preserve_domain_recovery() {
 fn path_errors_have_one_hint_on_every_tool() {
     for (code, expected) in [
         (
-            crate::policy::PATH_NOT_FOUND,
+            ErrorCode::PathNotFound,
             crate::response::output::VERIFY_PATH_HINT,
         ),
         (
-            crate::policy::PATH_POLICY_DENIED,
+            ErrorCode::PathPolicyDenied,
             crate::policy::discovery::WITHHELD_HINT,
         ),
     ] {

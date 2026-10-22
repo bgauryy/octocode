@@ -14,6 +14,7 @@ use crate::{
 };
 use ignore::gitignore::Gitignore;
 pub use octocode_contract_types::AstSearchQuerySymbols;
+use octocode_contract_types::ErrorCode;
 use octocode_engine::graph::{GraphFactCode, GraphFactDiagnostic};
 use octocode_engine::types::GraphFactsScanOptions;
 use serde_json::{Value, json};
@@ -99,6 +100,17 @@ impl NameEntry {
             name == self.text
         }
     }
+    /// Whether `name` only contains this exact entry: a declaration the
+    /// exact match left out.
+    fn hides(&self, name: &str) -> bool {
+        self.exact
+            && !self.equals(name)
+            && if self.fold {
+                name.to_lowercase().contains(&self.text)
+            } else {
+                name.contains(&self.text)
+            }
+    }
     fn matches(&self, name: &str) -> bool {
         if self.exact {
             self.equals(name)
@@ -123,6 +135,9 @@ impl NameFilter {
     }
     fn matches(&self, name: &str) -> bool {
         self.entries.iter().any(|entry| entry.matches(name))
+    }
+    fn hides(&self, name: &str) -> bool {
+        self.entries.iter().any(|entry| entry.hides(name))
     }
     /// Whether `source` spells some entry's text: a declaration whose name
     /// matches an entry spells it in the source.
@@ -154,7 +169,7 @@ pub fn execute_symbols(
         .find(|kind| !octocode_engine::signatures::DECLARATION_KINDS.contains(&kind.as_str()))
     {
         return Err(ToolError::new(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             format!(
                 "Unknown declaration kind \"{unknown}\". Use one of: {}.",
                 octocode_engine::signatures::DECLARATION_KINDS.join(", ")
@@ -334,7 +349,7 @@ fn check_language_scope(
 ) -> Result<(), ToolError> {
     if is_file && ast_search_query_symbols::language_globs(q).is_some() {
         return Err(ToolError::new(
-            "languageDirectoryRequired",
+            ErrorCode::LanguageDirectoryRequired,
             "languageGlobs is for directory symbols. Use language for a single file.",
         ));
     }
@@ -348,7 +363,7 @@ fn check_language_scope(
         return Ok(());
     }
     let mut error = ToolError::new(
-        "languageFileRequired",
+        ErrorCode::LanguageFileRequired,
         "language on symbols requires a single source file.",
     );
     // Directory symbols pick each file's grammar from its extension, so
@@ -502,7 +517,7 @@ fn outline_file(
     let source_path = canonical.to_string_lossy();
     let parser =
         super::parser_override(canonical, ast_search_query_symbols::language(q).as_deref());
-    let unsupported = || json!({"status":"error","errorCode":"symbolsUnsupported","path":canonical.to_string_lossy(),"error":"No native declaration extractor supports this source. Inspect its syntax tree or exact content."});
+    let unsupported = || json!({"status":"error","errorCode":ErrorCode::SymbolsUnsupported,"path":canonical.to_string_lossy(),"error":"No native declaration extractor supports this source. Inspect its syntax tree or exact content."});
     let document = match parser.as_deref() {
         // An extension that selects no grammar outlines nothing: an empty
         // outline would read as a file without declarations.
@@ -898,6 +913,17 @@ fn select(
                 .is_none_or(|filter| names_match(filter, row))
         })
         .collect();
+    let hidden = filter.as_ref().and_then(|filter| {
+        hidden_notice(
+            filter,
+            candidates
+                .rows
+                .iter()
+                .zip(&kept_rows)
+                .filter(|(row, kept)| !**kept && filter.hides(row["name"].as_str().unwrap_or("")))
+                .map(|(row, _)| row),
+        )
+    });
     place_notes(per_row_path, &candidates.notes, &mut diagnostics);
     let recovered = candidates.recovered;
     let mut declarations = candidates
@@ -966,6 +992,7 @@ fn select(
         scan_resume,
         recovered,
         withheld: withheld.notice(),
+        hidden,
         pruned,
         directory: per_row_path,
         unwalked,
@@ -1013,6 +1040,53 @@ fn settled_filter(q: &AstSearchQuerySymbols, rows: &[Value]) -> Option<NameFilte
         .collect::<Vec<_>>();
     filter.settle(names.iter().copied());
     Some(filter)
+}
+
+/// Declarations shown in a hidden-match notice; the count covers the rest.
+const HIDDEN_SHOWN: usize = 8;
+
+/// The declarations an exact `symbolName` entry left out because they only
+/// contain it (`prune` equals `Prune`, so `prunes` is not listed): their
+/// count and the first few, so a prefix or substring search is not
+/// answered by the one exact name alone.
+fn hidden_notice<'a>(filter: &NameFilter, rows: impl Iterator<Item = &'a Value>) -> Option<String> {
+    let rows: Vec<&Value> = rows.collect();
+    if rows.is_empty() {
+        return None;
+    }
+    let exact: Vec<&str> = filter
+        .entries
+        .iter()
+        .filter(|entry| entry.exact)
+        .map(|entry| entry.text.as_str())
+        .collect();
+    let shown: Vec<String> = rows
+        .iter()
+        .take(HIDDEN_SHOWN)
+        .map(|row| {
+            let name = row["name"].as_str().unwrap_or_default();
+            match (row["path"].as_str(), row["line"].as_u64()) {
+                (Some(path), Some(line)) => format!("{name} ({path}:{line})"),
+                (None, Some(line)) => format!("{name} (line {line})"),
+                _ => name.to_owned(),
+            }
+        })
+        .collect();
+    let more = rows.len().saturating_sub(HIDDEN_SHOWN);
+    Some(format!(
+        "symbolName {} equals a declaration, so {} declaration{} that only contain{} it {} not listed: {}{}. Pass their names to list them.",
+        exact.join(", "),
+        rows.len(),
+        if rows.len() == 1 { "" } else { "s" },
+        if rows.len() == 1 { "s" } else { "" },
+        if rows.len() == 1 { "is" } else { "are" },
+        shown.join(", "),
+        if more > 0 {
+            format!(", and {more} more")
+        } else {
+            String::new()
+        },
+    ))
 }
 
 /// A trait impl is shown as `Trait for Type`; its type name (`typeName`)
@@ -1141,6 +1215,9 @@ pub(super) struct SymbolSet {
     /// The disclosure of entries the security path policy withheld.
     #[serde(default)]
     withheld: Option<String>,
+    /// What an exact `symbolName` match left out ([`hidden_notice`]).
+    #[serde(default)]
+    hidden: Option<String>,
     /// Root-relative directories the default excludes pruned unseen.
     #[serde(default)]
     pruned: Vec<String>,
@@ -1206,6 +1283,7 @@ pub(super) fn render_page(
         &mut out,
         set.withheld
             .iter()
+            .chain(&set.hidden)
             .cloned()
             .chain((!set.pruned.is_empty()).then(|| pruned_notice(&set.pruned))),
     );

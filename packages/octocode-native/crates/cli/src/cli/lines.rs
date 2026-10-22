@@ -1,7 +1,8 @@
 //! Text output for a terminal or a pipe. A single-row `localSearch`,
 //! `astSearch` or `structureSearch files` result prints its standard line
-//! format on stdout, as rg, ast-grep and fd do: `path:line:text` hits with
-//! `path-line-text` context and `--` between groups, `path:line: kind name`
+//! format on stdout, as rg, ast-grep and fd do: `path:line:text` hits, or
+//! with context `rg --heading` blocks (the path, then `line:text` hits and
+//! `line-text` context, `--` between groups), `path:line: kind name`
 //! declarations, one path per line, or `path:count`. Every other field of
 //! the result goes to stderr as `# key: value` notes, so stdout pipes cleanly
 //! and no field is dropped. Other results keep the runtime's rendered text.
@@ -18,23 +19,26 @@ pub(super) struct Lines {
     pub notes: String,
 }
 
-/// Whether the query asked for context lines, so a hit's value is numbered
-/// source (`N\ttext`). A batch never reaches the line format.
+/// Whether hits carry context lines, so a hit's value is numbered source
+/// (`N\ttext`): the query asked for context, or `clasifyContext` judges hits
+/// with its default context. A batch never reaches the line format.
 fn context_requested(query: &Value) -> bool {
     let row = query["queries"].get(0).unwrap_or(query);
-    ["contextLines", "contextBefore", "contextAfter"]
-        .into_iter()
+    let keys = ["contextLines", "contextBefore", "contextAfter"];
+    // `clasifyContext` judges hits with context unless a context field is set.
+    keys.into_iter()
         .any(|key| row[key].as_u64().is_some_and(|n| n > 0))
+        || (row.get("clasifyContext").is_some() && keys.iter().all(|key| row.get(*key).is_none()))
 }
 
-/// The line format of a single-row `localSearch`, `astSearch` or
-/// `structureSearch files` result; `None` for any other result, which keeps
-/// the rendered text.
+/// The line format of a single-row `localSearch`, `astSearch`, `lspSearch`
+/// (rows of sites) or `structureSearch files` result; `None` for any other
+/// result, which keeps the rendered text.
 pub(super) fn render(tool: &str, structured: &Value, query: &Value) -> Option<Lines> {
     if tool == "structureSearch" {
         return listing(structured, query);
     }
-    if !matches!(tool, "localSearch" | "astSearch") {
+    if !matches!(tool, "localSearch" | "astSearch" | "lspSearch") {
         return None;
     }
     let row = single_row(structured)?;
@@ -81,20 +85,27 @@ pub(super) fn render(tool: &str, structured: &Value, query: &Value) -> Option<Li
     }
     Some(Lines {
         out: out.join("\n"),
-        notes: notes(structured, row, data.clone(), file_notes),
+        notes: notes(structured, query, row, data.clone(), file_notes),
     })
 }
 
 /// The stderr notes of a single-row result: its status, the fields of
-/// `data` beside the printed ones, `file_notes`, the row and envelope
-/// fields, the root, and the follow-up calls.
+/// `data` beside the printed ones (less the searched path it echoes),
+/// `file_notes`, the row and envelope fields, the root, and the follow-up
+/// calls.
 fn notes(
     structured: &Value,
+    query: &Value,
     row: &Map<String, Value>,
     mut data: Map<String, Value>,
     file_notes: Vec<String>,
 ) -> String {
     let mut notes = Vec::new();
+    // The searched path echoed back: every printed line already starts with it.
+    let asked = query["queries"].get(0).unwrap_or(query);
+    if data.get("path").is_some_and(|path| *path == asked["path"]) {
+        data.shift_remove("path");
+    }
     if let Some(status) = row.get("status").and_then(Value::as_str) {
         notes.push(format!("status: {status}"));
     }
@@ -117,7 +128,10 @@ fn notes(
             .collect();
         notes.extend(field_notes("", &rest));
     }
-    if let Some(root) = structured.get("root").and_then(Value::as_str) {
+    // Paths relative to the working directory need no root note.
+    if let Some(root) = structured.get("root").and_then(Value::as_str)
+        && !is_working_directory(root)
+    {
         notes.push(format!("root: {root} (paths are relative to it)"));
     }
     notes.extend(follow_ups(structured));
@@ -126,6 +140,15 @@ fn notes(
         .map(|line| format!("# {line}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// Whether `root` is the directory the command runs in.
+fn is_working_directory(root: &str) -> bool {
+    let canonical = |path: &std::path::Path| std::fs::canonicalize(path).ok();
+    std::env::current_dir()
+        .ok()
+        .and_then(|cwd| canonical(&cwd))
+        .is_some_and(|cwd| canonical(std::path::Path::new(root)) == Some(cwd))
 }
 
 /// The only row of a single-query result, unless it failed.
@@ -151,7 +174,11 @@ fn listing(structured: &Value, query: &Value) -> Option<Lines> {
     let row = single_row(structured)?;
     let data = row.get("data")?.as_object()?;
     let mut out = Vec::new();
-    for group in data.get("files").and_then(Value::as_array).map_or(&[][..], Vec::as_slice) {
+    for group in data
+        .get("files")
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice)
+    {
         let dir = group.get("dir")?.as_str()?;
         for entry in group.get("files")?.as_array()? {
             let (name, fields) = entry_fields(entry.as_str()?);
@@ -160,13 +187,20 @@ fn listing(structured: &Value, query: &Value) -> Option<Lines> {
             } else {
                 format!("{dir}/{name}")
             };
-            let shown: Vec<&str> = fields
+            let shown: Vec<String> = fields
                 .iter()
                 .enumerate()
                 .filter(|(index, field)| {
                     sized || *index > 0 || !field.bytes().all(|byte| byte.is_ascii_digit())
                 })
-                .map(|(_, field)| *field)
+                // The bare number is the size in bytes: say so.
+                .map(|(_, field)| {
+                    if field.bytes().all(|byte| byte.is_ascii_digit()) {
+                        format!("{field} B")
+                    } else {
+                        (*field).to_owned()
+                    }
+                })
                 .collect();
             out.push(if shown.is_empty() {
                 path
@@ -177,7 +211,7 @@ fn listing(structured: &Value, query: &Value) -> Option<Lines> {
     }
     Some(Lines {
         out: out.join("\n"),
-        notes: notes(structured, row, data.clone(), Vec::new()),
+        notes: notes(structured, query, row, data.clone(), Vec::new()),
     })
 }
 
@@ -218,13 +252,18 @@ fn declarations(
         if let Some(end) = symbol.shift_remove("endLine").and_then(|end| end.as_u64()) {
             note.push(format!("{line}-{end}"));
         }
-        if let Some(doc) = symbol.shift_remove("docStartLine").and_then(|doc| doc.as_u64()) {
+        if let Some(doc) = symbol
+            .shift_remove("docStartLine")
+            .and_then(|doc| doc.as_u64())
+        {
             note.push(format!("doc {doc}"));
         }
         if !symbol.is_empty() {
             note.push(words(&symbol));
         }
-        let name = name.as_str().map_or_else(|| name.to_string(), str::to_owned);
+        let name = name
+            .as_str()
+            .map_or_else(|| name.to_string(), str::to_owned);
         let mut entry = format!("{path}:{line}: {indent}{kind} {name}");
         if !note.is_empty() {
             entry.push_str(&format!("  [{}]", note.join(" ")));
@@ -246,10 +285,17 @@ fn words(fields: &Map<String, Value>) -> String {
         .map(|(key, value)| match value {
             Value::Bool(true) => key.clone(),
             Value::String(text) => format!("{key} {text}"),
-            Value::Array(items) if items.iter().all(|item| !item.is_object() && !item.is_array()) => {
+            Value::Array(items)
+                if items
+                    .iter()
+                    .all(|item| !item.is_object() && !item.is_array()) =>
+            {
                 let items: Vec<String> = items
                     .iter()
-                    .map(|item| item.as_str().map_or_else(|| item.to_string(), str::to_owned))
+                    .map(|item| {
+                        item.as_str()
+                            .map_or_else(|| item.to_string(), str::to_owned)
+                    })
                     .collect();
                 format!("{key} {}", items.join(","))
             }
@@ -283,6 +329,15 @@ fn value_lines(value: &str, line: u64, numbered: bool) -> Option<Vec<(u64, &str)
 /// else `line..=endLine`; the rest are context. Fields the line does not
 /// show follow the first hit line in `[ … ]`.
 fn hits(path: &str, matches: &[Value], numbered: bool, out: &mut Vec<String>) -> Option<()> {
+    // With context, as `rg --heading`: the path once, then `N:text` hits and
+    // `N-text` context, a blank line between files; the path is not repeated
+    // on every line of a window.
+    if numbered {
+        if !out.is_empty() {
+            out.push(String::new());
+        }
+        out.push(path.to_owned());
+    }
     let mut last_line: Option<u64> = None;
     for item in matches {
         let item = item.as_object()?;
@@ -318,7 +373,11 @@ fn hits(path: &str, matches: &[Value], numbered: bool, out: &mut Vec<String>) ->
         for (n, text) in &lines {
             let hit = !numbered || is_hit(*n);
             let sep = if hit { ':' } else { '-' };
-            let mut entry = format!("{path}{sep}{n}{sep}{text}");
+            let mut entry = if numbered {
+                format!("{n}{sep}{text}")
+            } else {
+                format!("{path}{sep}{n}{sep}{text}")
+            };
             if hit && !annotated {
                 annotated = true;
                 if let Some(note) = match_note(&mut extra) {
@@ -415,6 +474,10 @@ fn field_notes(prefix: &str, fields: &Map<String, Value>) -> Vec<String> {
                 }
             }
             Value::String(text) => lines.push(format!("{prefix}{key}: {text}")),
+            // A flat object reads as words: `summary: files 4 dirs 0`.
+            Value::Object(fields) if fields.values().all(|value| !value.is_object()) => {
+                lines.push(format!("{prefix}{key}: {}", words(&fields)));
+            }
             other => lines.push(format!("{prefix}{key}: {other}")),
         }
     }
@@ -476,6 +539,46 @@ pub(super) fn follow_ups(structured: &Value) -> Vec<String> {
             _ => line,
         })
         .collect()
+}
+
+/// `structured` without the calls [`follow_ups`] prints as commands (the
+/// same walk: content keys are never touched), and without a `next` or
+/// `hints` left empty by that, so a rendering of it shows each follow-up
+/// once, on stderr.
+pub(super) fn without_follow_ups(structured: &Value) -> Value {
+    fn strip(value: &mut Value, hints: bool) {
+        match value {
+            Value::Object(map) => {
+                map.retain(|key, child| {
+                    if CONTENT_KEYS.contains(&key.as_str()) {
+                        return true;
+                    }
+                    if is_call(child) {
+                        return false;
+                    }
+                    strip(child, key == "hints");
+                    let emptied = match child {
+                        Value::Object(inner) => inner.is_empty(),
+                        Value::Array(items) => items.is_empty(),
+                        _ => false,
+                    };
+                    !(emptied && matches!(key.as_str(), "next" | "hints"))
+                });
+            }
+            Value::Array(items) => {
+                items.retain(|item| {
+                    !(hints && item.as_str().and_then(call_string).is_some()) && !is_call(item)
+                });
+                for item in items {
+                    strip(item, false);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut value = structured.clone();
+    strip(&mut value, false);
+    value
 }
 
 /// `octocode <tool> '<json>'`, single-quoted for the shell that runs it:
@@ -542,7 +645,7 @@ mod tests {
         let lines = render("localSearch", &sample(), &context()).expect("lines");
         assert_eq!(
             lines.out,
-            "a.rs-25-use a;\na.rs:26:use SearcherBuilder;\na.rs-27-use b;\n--\na.rs-996-) {\na.rs:997:  let sb = SearcherBuilder::new();  [function build 992-1016]"
+            "a.rs\n25-use a;\n26:use SearcherBuilder;\n27-use b;\n--\n996-) {\n997:  let sb = SearcherBuilder::new();  [function build 992-1016]"
         );
         assert!(lines.notes.contains("# next.nextPage: octocode localSearch '{\"queries\":[{\"path\":\"s\",\"matchString\":\"it'\\''s\",\"page\":2}]}'"), "{}", lines.notes);
         assert!(
@@ -553,8 +656,7 @@ mod tests {
             lines.notes
         );
         assert!(
-            lines.notes.contains("# rowPart: {\"of\":2,\"part\":1}")
-                || lines.notes.contains("# rowPart: {\"part\":1,\"of\":2}"),
+            lines.notes.contains("# rowPart: part 1 of 2"),
             "{}",
             lines.notes
         );
@@ -567,7 +669,8 @@ mod tests {
         let both = format!("{}\n{}", lines.out, lines.notes).replace(r"'\''", "'");
         let mut all = Vec::new();
         leaves(&sample(), &mut all);
-        for leaf in all {
+        // A true flag prints as its key alone (`hasMore`), as words do.
+        for leaf in all.into_iter().filter(|leaf| leaf != "true") {
             assert!(both.contains(leaf.trim_matches('"')), "missing {leaf}");
         }
     }
@@ -587,7 +690,7 @@ mod tests {
             render("localSearch", &merged, &context())
                 .expect("lines")
                 .out,
-            "a-1-x\na:2:foo\na:3:foo"
+            "a\n1-x\n2:foo\n3:foo"
         );
         // A clipped snippet that is not numbered keeps the rendered text.
         let clipped = json!({"results":[{"index":0,"data":{"files":[{"path":"a","matches":[
@@ -608,7 +711,7 @@ mod tests {
             {"line":1,"endLine":3,"column":1,"value":"function foo(a) …","clipped":true}]}]}}]});
         assert_eq!(
             render("astSearch", &ast, &json!({})).expect("lines").out,
-            "m.ts:1:function foo(a) …  [{\"endLine\":3,\"column\":1,\"clipped\":true}]"
+            "m.ts:1:function foo(a) …  [endLine 3 column 1 clipped]"
         );
     }
 
@@ -642,6 +745,66 @@ mod tests {
             "{}",
             lines.notes
         );
+    }
+
+    #[test]
+    fn declarations_and_listings_print_one_line_each() {
+        let symbols = json!({"results":[{"index":0,"data":{"filesScanned":2,"files":[
+            {"path":"a.rs","symbols":[
+                {"symbolName":"render","kind":"function","line":31,"endLine":113,"docStartLine":29},
+                {"symbolName":"Visit","kind":"impl","line":34,"endLine":43,"shared":{"kind":"method"},
+                 "members":[{"symbolName":"fresh","line":37,"exported":true}]}]}]}}]});
+        let lines = render("astSearch", &symbols, &json!({})).expect("lines");
+        assert_eq!(
+            lines.out,
+            "a.rs:31: function render  [31-113 doc 29]\na.rs:34: impl Visit  [34-43]\na.rs:37:   method fresh  [exported]"
+        );
+        assert!(!lines.notes.contains('{'), "{}", lines.notes);
+        let listed = json!({"results":[{"index":0,"data":{"path":"src","files":[
+            {"dir":"src","files":["a (1).rs (12)","b.rs (34, symlink)","sub/"]}],
+            "summary":{"files":2,"dirs":1,"bytes":46}}}]});
+        let files = json!({"operation":"files","path":"src"});
+        let lines = render("structureSearch", &listed, &files).expect("lines");
+        assert_eq!(lines.out, "src/a (1).rs\nsrc/b.rs  [symlink]\nsrc/sub/");
+        let sized = json!({"operation":"files","path":"src","sort":"size"});
+        let lines = render("structureSearch", &listed, &sized).expect("lines");
+        assert_eq!(
+            lines.out,
+            "src/a (1).rs  [12 B]\nsrc/b.rs  [34 B, symlink]\nsrc/sub/"
+        );
+        assert!(render("structureSearch", &listed, &json!({"path":"src"})).is_none());
+    }
+
+    #[test]
+    fn follow_ups_leave_the_rendering_and_content_stays() {
+        let call = json!({"tool":"ghSearchCode","query":{"page":2}});
+        let result = json!({"results":[{"index":0,"data":{
+            "next":{"nextPage":call},
+            "hints":["No more.","broaden: ghSearchCode {\"queries\":[{}]}"],
+            "files":[{"path":"a.md","value":"ghSearchCode {\"page\":2}","next":{"nextPage":call}}]}}]});
+        let stripped = without_follow_ups(&result);
+        let data = &stripped["results"][0]["data"];
+        assert!(data.get("next").is_none(), "{stripped}");
+        assert_eq!(data["hints"], json!(["No more."]));
+        // Content is never touched, even text that reads like a call.
+        assert_eq!(data["files"], result["results"][0]["data"]["files"]);
+        let sites = json!({"results":[{"index":0,"data":{"kind":"references","files":[
+            {"path":"a.rs","matches":[{"line":7,"column":3,"value":"run();"}]}]}}]});
+        let lines = render("lspSearch", &sites, &json!({})).expect("lines");
+        assert_eq!(lines.out, "a.rs:7:run();  [column 3]");
+        assert!(
+            lines.notes.contains("# kind: references"),
+            "{}",
+            lines.notes
+        );
+    }
+
+    #[test]
+    fn match_notes_are_words() {
+        let hit = json!({"results":[{"index":0,"data":{"files":[{"path":"a.rs","matches":[
+            {"line":3,"value":"fn a()","declaration":true,"enclosingLine":1}]}]}}]});
+        let lines = render("localSearch", &hit, &json!({})).expect("lines");
+        assert_eq!(lines.out, "a.rs:3:fn a()  [declaration enclosingLine 1]");
     }
 
     #[test]

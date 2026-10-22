@@ -6,6 +6,7 @@ use super::{
 };
 use crate::num::usize_of;
 use crate::providers::artifact::types::artifact_search_query;
+use octocode_contract_types::ErrorCode;
 /// Compile-once XML/coordinate patterns. `maven-metadata.xml` and POM parsing
 /// run per lookup; compiling these constant patterns on every call (and once
 /// per extracted tag in the old `field` closure) was pure waste.
@@ -178,7 +179,7 @@ async fn exact(
             // A bare artifact name (`guava`) is what a keyword search finds.
             searchable_name: parts.len() == 1 && valid.is_match(package_name),
             ..ArtifactError::new(
-                "invalidInput",
+                ErrorCode::InvalidInput,
                 format!("packageName \"{package_name}\" is not a Maven groupId:artifactId."),
             )
         });
@@ -861,7 +862,7 @@ mod tests {
         )
         .await
         .expect_err("unlisted version");
-        assert_eq!(error.code, "versionNotFound");
+        assert_eq!(error.code, ErrorCode::VersionNotFound);
         assert!(
             error.nearest.iter().any(|version| version == "33.0.0-jre"),
             "{error:?}"
@@ -886,7 +887,7 @@ mod tests {
             let err = maven(&q, &ArtifactProviderState::default(), &client)
                 .await
                 .expect_err("invalid maven coordinate");
-            assert_eq!(err.code, "invalidInput");
+            assert_eq!(err.code, ErrorCode::InvalidInput);
             assert!(err.message.starts_with("packageName "), "{err:?}");
             assert_eq!(err.searchable_name, searchable, "{name}");
         }

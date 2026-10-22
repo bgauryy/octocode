@@ -1,4 +1,5 @@
 use super::*;
+use octocode_contract_types::ErrorCode;
 use serde_json::json;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use wiremock::{
@@ -331,7 +332,7 @@ async fn invalid_box_is_not_cached_and_retries_preserve_media_payload() {
             .evaluate_prepared(input, None, &budget, &gate)
             .await
             .unwrap_err();
-        assert_eq!(error.code, "invalidClassificationResponse");
+        assert_eq!(error.code, ErrorCode::InvalidClassificationResponse);
         assert_eq!(error.provider_calls, calls);
         assert_eq!(
             (error.usage().input_tokens, error.usage().output_tokens),
@@ -490,7 +491,11 @@ fn per_call_usage_excludes_replayed_tokens_and_retains_unknown_attempts() {
     usage.add(&Ok(judged));
     let error = ClassificationError {
         provider_calls: 1,
-        ..ClassificationError::new("classificationProviderError", "401", "Check credentials.")
+        ..ClassificationError::new(
+            ErrorCode::ClassificationProviderError,
+            "401",
+            "Check credentials.",
+        )
     };
     usage.add(&Err(error));
     assert_eq!(
@@ -545,7 +550,7 @@ async fn noncanonical_provider_answers_are_not_cached() {
                 .evaluate_prepared(input, None, &budget, &gate)
                 .await
                 .unwrap_err();
-            assert_eq!(error.code, "invalidClassificationResponse");
+            assert_eq!(error.code, ErrorCode::InvalidClassificationResponse);
             assert_eq!(error.provider_calls, 1);
             assert_eq!(error.usage().known_usage_calls, 1);
         }

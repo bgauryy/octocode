@@ -18,6 +18,7 @@ pub(crate) mod stats;
 #[cfg(test)]
 mod tests;
 
+use octocode_contract_types::ErrorCode;
 pub(crate) use transport::ClassificationError;
 
 use crate::providers::classification::{ClassificationProvider, gate::GateLease, transport};
@@ -172,7 +173,7 @@ impl Evaluator {
     fn credential(&self) -> Result<&SecretString, ClassificationError> {
         self.key.as_ref().ok_or_else(|| {
             ClassificationError::new(
-                "missingConfiguration",
+                ErrorCode::MissingConfiguration,
                 "No classification API credential is configured.",
                 "Set OCTOCODE_CLASSIFICATION_API.",
             )
@@ -265,7 +266,7 @@ impl Evaluator {
             Ok(judged) => self.judgments.put(entry, judged),
             Err(error) => {
                 // Deadline/cancellation belongs to this caller, not its waiters.
-                if !matches!(error.code.as_str(), "cancelled" | "timeout") {
+                if !matches!(error.code, ErrorCode::Cancelled | ErrorCode::Timeout) {
                     *turn = Some(outcomes.clone());
                 }
             }

@@ -8,6 +8,7 @@ use crate::response::result::ToolError;
 use crate::{
     execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
+use octocode_contract_types::ErrorCode;
 use octocode_engine::graph::{GraphFactCode, GraphFactDiagnostic};
 use octocode_engine::types::GraphFactsScanOptions;
 use std::{
@@ -42,7 +43,7 @@ pub(crate) fn build_graph(
     cancel.check().map_err(ToolError::cancelled)?;
     let validated = paths
         .validate(&scan.root)
-        .map_err(|error| ToolError::policy(error, "pathValidationFailed"))?;
+        .map_err(|error| ToolError::policy(error, ErrorCode::PathValidationFailed))?;
     let cancelled = ToolError::cancelled;
     let mut exclude = crate::policy::prune::directories(true);
     exclude.extend(scan.exclude_dir.iter().cloned());

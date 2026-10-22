@@ -1,4 +1,5 @@
 use crate::support::{self, Run as _};
+use octocode_contract_types::ErrorCode;
 
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -256,7 +257,7 @@ async fn local_fetch_rejects_unknown_fields_at_the_contract() {
     )
     .await
     .expect_err("unknown field");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     runtime.close().await;
 }
 
@@ -401,7 +402,7 @@ async fn structure_search_dispatches_on_both_surfaces_and_owns_file_discovery() 
     )
     .await
     .expect_err("astSearch no longer discovers files");
-    assert_eq!(retired.code, "invalidInput");
+    assert_eq!(retired.code, ErrorCode::InvalidInput);
     runtime.close().await;
 }
 
@@ -416,7 +417,7 @@ async fn disabled_local_family_is_unavailable() {
     )
     .await
     .expect_err("disabled");
-    assert_eq!(error.code, "toolUnavailable");
+    assert_eq!(error.code, ErrorCode::ToolUnavailable);
     runtime.close().await;
 }
 

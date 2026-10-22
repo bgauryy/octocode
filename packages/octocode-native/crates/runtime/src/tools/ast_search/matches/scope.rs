@@ -2,6 +2,7 @@
 //! query compiles in, why a pattern cannot apply, and the exact-miss rule.
 use super::*;
 use crate::response::result::Confidence;
+use octocode_contract_types::ErrorCode;
 
 /// A declaration pattern that matched nothing in a scope that holds
 /// declarations of its kind (named as the pattern names it): a pattern
@@ -250,7 +251,7 @@ pub(super) fn infer_grammar(
             if q.scan_offset() == 0 && scan.unparsed.count > 0 && scan.withheld.total() == 0 =>
         {
             Err(ToolError::new(
-                "languageRequired",
+                ErrorCode::LanguageRequired,
                 "No source file of a supported structural grammar was found under path; set language.",
             ))
         }
@@ -271,7 +272,7 @@ pub(super) fn resolve_scope(
         .map(|language| {
             language_extensions(language).ok_or_else(|| {
                 ToolError::new(
-                    "languageUnsupported",
+                    ErrorCode::LanguageUnsupported,
                     crate::tools::ast_rule::unsupported_language_message(language),
                 )
             })
@@ -284,13 +285,13 @@ pub(super) fn resolve_scope(
         .map_err(|error| super::super::io_error(&q.path(), error))?;
     if q.scope().is_some() && !meta.is_file() {
         return Err(ToolError::new(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             "scope requires a single source file; use one query per file.",
         ));
     }
     if meta.is_file() && q.language_globs().is_some() {
         return Err(ToolError::new(
-            "languageDirectoryRequired",
+            ErrorCode::LanguageDirectoryRequired,
             "languageGlobs is for directory matches. Use language for a single file.",
         ));
     }

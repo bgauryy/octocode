@@ -3,8 +3,9 @@
 use serde::Serialize;
 use serde_json::{Map, Value};
 
-use crate::id::error_codes::ErrorClass;
-use crate::id::{ToolId, error_class};
+use crate::id::ToolId;
+use crate::id::error_codes::{self, ErrorClass};
+use octocode_contract_types::ErrorCode;
 
 /// How sure a continuation is to help: `exact` is a replay, `high`,
 /// `medium` and `low` a judgment.
@@ -226,8 +227,8 @@ pub enum FailureKind {
 /// The failure an error row with `code` reports. A rejected request is an
 /// execution failure here; [`crate::response::exit::ExitClass::InvalidInput`] is
 /// decided from the rows.
-pub(crate) fn failure_kind(code: &str) -> FailureKind {
-    match error_class(code) {
+pub(crate) fn failure_kind(code: ErrorCode) -> FailureKind {
+    match error_codes::class(code) {
         ErrorClass::NotFound => FailureKind::NotFound,
         ErrorClass::Authentication => FailureKind::Authentication,
         ErrorClass::Permission => FailureKind::Permission,
@@ -240,7 +241,7 @@ pub(crate) fn failure_kind(code: &str) -> FailureKind {
 /// the one error row: `errorCode`, `error`, then `hints` and `next` when set.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolError {
-    pub code: String,
+    pub code: ErrorCode,
     pub message: String,
     pub hints: Vec<String>,
     /// Leads out of the error, e.g. a missing path's nearest existing parent.
@@ -251,9 +252,9 @@ pub struct ToolError {
 }
 
 impl ToolError {
-    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
-            code: code.into(),
+            code,
             message: message.into(),
             hints: Vec::new(),
             next: None,
@@ -269,10 +270,10 @@ impl ToolError {
     ) -> Self {
         use octocode_engine::fact_scan::GraphScanError;
         let code = match error {
-            GraphScanError::UnsupportedLanguage(_) => "languageUnsupported",
-            GraphScanError::InvalidGlob(_) => "invalidGlob",
-            GraphScanError::Failed(_) if cancel.check().is_err() => "cancelled",
-            GraphScanError::Failed(_) => "scanFailed",
+            GraphScanError::UnsupportedLanguage(_) => ErrorCode::LanguageUnsupported,
+            GraphScanError::InvalidGlob(_) => ErrorCode::InvalidGlob,
+            GraphScanError::Failed(_) if cancel.check().is_err() => ErrorCode::Cancelled,
+            GraphScanError::Failed(_) => ErrorCode::ScanFailed,
         };
         Self::new(code, error.to_string())
     }
@@ -285,7 +286,7 @@ impl ToolError {
         Self {
             next: Some(Box::new(serde_json::json!({ "restart": restart }))),
             ..Self::new(
-                "staleSnapshot",
+                ErrorCode::StaleSnapshot,
                 crate::response::pages::STALE_SNAPSHOT_ERROR,
             )
         }
@@ -293,13 +294,13 @@ impl ToolError {
 
     /// The call was cancelled or ran past its deadline.
     pub fn cancelled(message: impl Into<String>) -> Self {
-        Self::new("cancelled", message)
+        Self::new(ErrorCode::Cancelled, message)
     }
 
     /// A path-policy refusal under the flat code every local tool shares,
     /// else under the tool's own `access_code`
     /// ([`crate::policy::PolicyError::local_error_code`]).
-    pub fn policy(error: crate::policy::PolicyError, access_code: &'static str) -> Self {
+    pub fn policy(error: crate::policy::PolicyError, access_code: ErrorCode) -> Self {
         Self::new(error.local_error_code(access_code), error.message)
     }
 
@@ -310,7 +311,7 @@ impl ToolError {
         error: crate::policy::PolicyError,
         requested: &str,
         paths: &crate::policy::path::PathPolicy,
-        access_code: &'static str,
+        access_code: ErrorCode,
     ) -> Self {
         let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
         let mut out = Self::policy(error, access_code);
@@ -485,6 +486,7 @@ mod tests {
         with_changes,
     };
     use crate::id::ToolId;
+    use octocode_contract_types::ErrorCode;
     use serde_json::{Value, json};
 
     /// Every query field of every tool that names where a walk stands (a
@@ -559,7 +561,7 @@ mod tests {
         assert_eq!(row["errorCode"], "staleSnapshot");
         assert_eq!(row["next"]["restart"], restart);
         let error = ToolError::stale_snapshot(restart.clone());
-        assert_eq!(error.code, "staleSnapshot");
+        assert_eq!(error.code, ErrorCode::StaleSnapshot);
         assert_eq!(error.next.as_deref(), Some(&json!({"restart": restart})));
     }
 

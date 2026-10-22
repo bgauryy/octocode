@@ -1,5 +1,6 @@
 use super::{LocalFetchQuery, LocalFetchResult, MAX_SOURCE_BYTES, PathAccess, acquire, executor};
 use crate::execution::cancel::CancellationCheck;
+use octocode_contract_types::ErrorCode;
 use std::path::PathBuf;
 
 #[derive(Debug)]
@@ -14,19 +15,23 @@ pub(crate) fn capture_text(
     paths: &impl PathAccess,
     cancel: &impl CancellationCheck,
 ) -> Result<CapturedText, Box<LocalFetchResult>> {
-    let failure = |code: &str, message: String| {
+    let failure = |code: ErrorCode, message: String| {
         Box::new(LocalFetchResult::error(
             query.path.to_string(),
             code,
             message,
         ))
     };
-    let check = || cancel.check().map_err(|error| failure("cancelled", error));
+    let check = || {
+        cancel
+            .check()
+            .map_err(|error| failure(ErrorCode::Cancelled, error))
+    };
     check()?;
     let (validated, file, metadata) = acquire::resolve_file(query, paths)?;
     let too_large = || {
         failure(
-            "classificationContextTooLarge",
+            ErrorCode::ClassificationContextTooLarge,
             format!(
                 "Complete source capture exceeds the {MAX_SOURCE_BYTES}-byte limit; no sections were assessed. Use a smaller text resource."
             ),
@@ -42,7 +47,7 @@ pub(crate) fn capture_text(
             return Err(Box::new(acquire::read_failure(&query.path, error)));
         }
         Err(error @ octocode_engine::text::ReadError::NotRegular) => {
-            return Err(failure("fileReadFailed", error.to_string()));
+            return Err(failure(ErrorCode::FileReadFailed, error.to_string()));
         }
     };
     check()?;
@@ -58,7 +63,7 @@ pub(crate) fn capture_text(
     }
     let text = octocode_engine::text::decode_unicode(&bytes).ok_or_else(|| {
         failure(
-            "classificationContextUnavailable",
+            ErrorCode::ClassificationContextUnavailable,
             "The source is not valid UTF-8 or BOM-marked UTF-16 text; no sections were assessed. Use a text representation with known encoding.".into(),
         )
     })?;
@@ -114,9 +119,8 @@ mod tests {
             assert_eq!(
                 capture_text(&query, &paths, &NeverCancel)
                     .unwrap_err()
-                    .error_code
-                    .as_deref(),
-                Some("binaryFileUnsupported")
+                    .error_code,
+                Some(ErrorCode::BinaryFileUnsupported)
             );
         }
     }
@@ -143,9 +147,8 @@ mod tests {
         assert_eq!(
             capture_text(&query, &paths, &NeverCancel)
                 .unwrap_err()
-                .error_code
-                .as_deref(),
-            Some("staleSnapshot")
+                .error_code,
+            Some(ErrorCode::StaleSnapshot)
         );
     }
 
@@ -158,15 +161,17 @@ mod tests {
         let mut binary = vec![b'a'; 9000];
         binary.push(0);
         for (bytes, code) in [
-            (binary, "binaryFileUnsupported"),
-            (vec![b'a', 0xff], "classificationContextUnavailable"),
+            (binary, ErrorCode::BinaryFileUnsupported),
+            (
+                vec![b'a', 0xff],
+                ErrorCode::ClassificationContextUnavailable,
+            ),
         ] {
             std::fs::write(&file, bytes).expect("write");
             assert_eq!(
                 capture_text(&query, &paths, &NeverCancel)
                     .unwrap_err()
-                    .error_code
-                    .as_deref(),
+                    .error_code,
                 Some(code)
             );
         }
@@ -177,18 +182,16 @@ mod tests {
         assert_eq!(
             capture_text(&query, &paths, &NeverCancel)
                 .unwrap_err()
-                .error_code
-                .as_deref(),
-            Some("classificationContextTooLarge")
+                .error_code,
+            Some(ErrorCode::ClassificationContextTooLarge)
         );
         std::fs::write(&file, "text").expect("write");
         let cancel = CancelAfterFirst(std::sync::atomic::AtomicUsize::new(0));
         assert_eq!(
             capture_text(&query, &paths, &cancel)
                 .unwrap_err()
-                .error_code
-                .as_deref(),
-            Some("cancelled")
+                .error_code,
+            Some(ErrorCode::Cancelled)
         );
     }
 

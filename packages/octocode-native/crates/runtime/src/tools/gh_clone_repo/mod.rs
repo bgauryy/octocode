@@ -7,6 +7,7 @@ mod recovery;
 use crate::execution::cancel::CancellationCheck;
 use crate::policy::{PolicyError, PolicyErrorCode, path::PathPolicy};
 use crate::response::result::Confidence;
+use octocode_contract_types::ErrorCode;
 use octocode_github::{
     GitHubEndpoint, GitHubProvider, ProviderError, ProviderErrorKind, ProviderErrorReason,
     RequestContext, ResolvedCredential,
@@ -162,7 +163,7 @@ pub struct CloneResult {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CloneError {
-    pub code: String,
+    pub code: ErrorCode,
     pub message: String,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub hints: Vec<String>,
@@ -172,9 +173,9 @@ pub struct CloneError {
 }
 
 impl CloneError {
-    fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+    fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         Self {
-            code: code.into(),
+            code,
             message: message.into(),
             hints: Vec::new(),
             next: None,
@@ -194,7 +195,10 @@ pub fn repository_not_found(query: &GhCloneRepoQuery) -> CloneError {
         next: Some(Box::new(serde_json::json!({
             "findRepository": crate::tools::gh_shared::repository_search(repo.as_str())
         }))),
-        ..CloneError::new("notFound", format!("Repository not found: {owner}/{repo}"))
+        ..CloneError::new(
+            ErrorCode::NotFound,
+            format!("Repository not found: {owner}/{repo}"),
+        )
     }
 }
 
@@ -222,7 +226,7 @@ pub async fn run(
     validate_query(query).map_err(CloneFailure::Clone)?;
     let pin = pin(provider, query, request).await?;
     let decode = |error: octocode_contract_types::error::ConversionError| {
-        CloneFailure::Clone(CloneError::new("invalidInput", error.to_string()))
+        CloneFailure::Clone(CloneError::new(ErrorCode::InvalidInput, error.to_string()))
     };
     let pinned = GhCloneRepoQuery {
         owner: pin.owner.parse().map_err(decode)?,
@@ -362,7 +366,7 @@ fn api_refusal(
                     "viewRefs": crate::tools::gh_shared::ref_recovery(&query.owner, &query.repo)
                 }))),
                 ..CloneError::new(
-                    "notFound",
+                    ErrorCode::NotFound,
                     format!(
                         "Branch, tag, or SHA not found for {}/{}: \"{reference}\"",
                         query.owner, query.repo
@@ -382,7 +386,7 @@ fn api_refusal(
 /// ([`PolicyError::local_error_code`]), so it gets their recovery hints.
 fn policy_denied(error: PolicyError) -> CloneError {
     CloneError::new(
-        error.local_error_code("pathValidationFailed"),
+        error.local_error_code(ErrorCode::PathValidationFailed),
         error.message,
     )
 }
@@ -472,7 +476,7 @@ fn execute_clone(
     check_control(context)?;
     if !context.config.persistent {
         return Err(CloneError::new(
-            "persistentStorageDisabled",
+            ErrorCode::PersistentStorageDisabled,
             "Clone requires persistent local storage. Set storage.mode=\"persistent\" or OCTOCODE_STORAGE_MODE=persistent to use ghCloneRepo.",
         ));
     }
@@ -496,7 +500,7 @@ fn execute_clone(
         .filter(|reference| octocode_github::is_full_sha(reference))
     else {
         return Err(CloneError::new(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             "ref must name the full commit SHA to check out",
         ));
     };
@@ -536,7 +540,7 @@ fn authorize_home(context: &CloneContext<'_>) -> Result<(), CloneError> {
     // roots to canonicalize.
     std::fs::create_dir_all(&clones_root).map_err(|error| {
         CloneError::new(
-            "cacheUnavailable",
+            ErrorCode::CacheUnavailable,
             format!("Could not initialize the configured clone cache home: {error}"),
         )
     })?;
@@ -670,7 +674,7 @@ fn checkout_stage(plan: &Plan<'_>, reference: &str, stage: &Path) -> Result<Stri
     let commit_sha = git::read_head(context, stage)?;
     if commit_sha != reference.to_ascii_lowercase() {
         return Err(CloneError::new(
-            "commitMismatch",
+            ErrorCode::CommitMismatch,
             format!("Checkout HEAD {commit_sha} does not match requested commit {reference}."),
         ));
     }
@@ -699,7 +703,7 @@ fn write_stage_meta(
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
             return Err(CloneError::new(
-                "cacheUnavailable",
+                ErrorCode::CacheUnavailable,
                 format!("Could not inspect clone metadata destination: {error}"),
             ));
         }
@@ -727,7 +731,7 @@ fn dirty_checkout(path: &Path) -> CloneError {
             "Move your edits out of this managed checkout, restore it to clean, then retry; forceRefresh never discards local files.".into(),
         ],
         ..CloneError::new(
-            "checkoutDirty",
+            ErrorCode::CheckoutDirty,
             format!("Clone checkout '{}' contains local files or changes; it was preserved without replacement.", path.display()),
         )
     }
@@ -769,7 +773,7 @@ fn sparse_not_found(
         hints,
         next: next.map(Box::new),
         ..CloneError::new(
-            "pathNotFound",
+            ErrorCode::PathNotFound,
             format!(
                 "Path does not exist: {paths} in {}/{}@{reference}; nothing was checked out for it.",
                 query.owner, query.repo
@@ -818,7 +822,7 @@ fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError> {
             || value == ".."
         {
             return Err(CloneError::new(
-                "invalidInput",
+                ErrorCode::InvalidInput,
                 format!("{name} must be a non-empty GitHub path segment"),
             ));
         }
@@ -828,7 +832,10 @@ fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError> {
         .as_deref()
         .is_some_and(|branch| branch.trim().is_empty())
     {
-        return Err(CloneError::new("invalidInput", "ref must not be empty"));
+        return Err(CloneError::new(
+            ErrorCode::InvalidInput,
+            "ref must not be empty",
+        ));
     }
     let sparse = Sparse::of(query);
     if sparse
@@ -836,14 +843,14 @@ fn validate_query(query: &GhCloneRepoQuery) -> Result<(), CloneError> {
         .is_some_and(|sparse| sparse.paths.is_empty())
     {
         return Err(CloneError::new(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             "path must name at least one path",
         ));
     }
     for path in sparse.as_ref().map_or(&[][..], Sparse::paths) {
         if !is_sparse_path(path) {
             return Err(CloneError::new(
-                "invalidInput",
+                ErrorCode::InvalidInput,
                 "path must be a non-empty repo-relative path without traversal",
             ));
         }
@@ -875,7 +882,7 @@ fn is_sparse_path(path: &str) -> bool {
 fn web_root(endpoint: &GitHubEndpoint) -> Result<url::Url, CloneError> {
     let base = endpoint
         .rest(&[])
-        .map_err(|error| CloneError::new("configuration", error.message))?;
+        .map_err(|error| CloneError::new(ErrorCode::Configuration, error.message))?;
     let secure = base.scheme() == "https"
         || (base.scheme() == "http" && octocode_github::is_loopback(&base));
     if !secure
@@ -911,7 +918,7 @@ fn repository_url(root: &url::Url, owner: &str, repo: &str) -> Result<String, Cl
 
 fn unsupported_endpoint() -> CloneError {
     CloneError::new(
-        "configuration",
+        ErrorCode::Configuration,
         "ghCloneRepo requires an HTTPS GitHub API endpoint (plain http only on loopback): https://api.github.com or a GitHub Enterprise endpoint ending in /api/v3, without credentials or query parameters. Use ghGetFileContent for other API proxies.",
     )
 }
@@ -927,14 +934,14 @@ fn control<'a>(context: &'a CloneContext<'a>) -> GitRunControl<'a> {
 fn check_control(context: &CloneContext<'_>) -> Result<(), CloneError> {
     if Instant::now() >= context.deadline {
         return Err(CloneError::new(
-            "timeout",
+            ErrorCode::Timeout,
             "Clone execution exceeded its deadline",
         ));
     }
     context
         .cancellation
         .check()
-        .map_err(|_| CloneError::new("cancelled", "Clone execution was cancelled"))
+        .map_err(|_| CloneError::new(ErrorCode::Cancelled, "Clone execution was cancelled"))
 }
 
 fn hash(value: &str, characters: usize) -> String {

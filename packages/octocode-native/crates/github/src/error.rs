@@ -1,15 +1,17 @@
+use octocode_contract_types::ErrorCode;
 use octocode_io::budget::BudgetStop;
 use serde::{Deserialize, Serialize};
 
+/// Why a provider call failed. It reports, and serializes as, its contract
+/// `errorCode` ([`Self::code`]).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(into = "ErrorCode", try_from = "ErrorCode")]
 pub enum ProviderErrorKind {
     Authentication,
     Permission,
     NotFound,
     /// The request was rejected as malformed (`invalidInput`, the code every
     /// tool uses for rejected input).
-    #[serde(rename = "invalidInput")]
     Validation,
     RateLimited,
     Transport,
@@ -25,6 +27,68 @@ pub enum ProviderErrorKind {
     Unavailable,
     /// Any other unmapped non-2xx status; the status code is in the message.
     HttpStatus,
+}
+
+impl ProviderErrorKind {
+    /// Every kind.
+    pub const ALL: [Self; 16] = [
+        Self::Authentication,
+        Self::Permission,
+        Self::NotFound,
+        Self::Validation,
+        Self::RateLimited,
+        Self::Transport,
+        Self::Timeout,
+        Self::Cancelled,
+        Self::ResponseTooLarge,
+        Self::RedirectDenied,
+        Self::Decode,
+        Self::Configuration,
+        Self::CredentialStoreUnavailable,
+        Self::Server,
+        Self::Unavailable,
+        Self::HttpStatus,
+    ];
+
+    /// The declared `errorCode` this failure reports.
+    #[must_use]
+    pub const fn code(self) -> ErrorCode {
+        match self {
+            Self::Authentication => ErrorCode::Authentication,
+            Self::Permission => ErrorCode::Permission,
+            Self::NotFound => ErrorCode::NotFound,
+            Self::Validation => ErrorCode::InvalidInput,
+            Self::RateLimited => ErrorCode::RateLimited,
+            Self::Transport => ErrorCode::Transport,
+            Self::Timeout => ErrorCode::Timeout,
+            Self::Cancelled => ErrorCode::Cancelled,
+            Self::ResponseTooLarge => ErrorCode::ResponseTooLarge,
+            Self::RedirectDenied => ErrorCode::RedirectDenied,
+            Self::Decode => ErrorCode::Decode,
+            Self::Configuration => ErrorCode::Configuration,
+            Self::CredentialStoreUnavailable => ErrorCode::CredentialStoreUnavailable,
+            Self::Server => ErrorCode::Server,
+            Self::Unavailable => ErrorCode::Unavailable,
+            Self::HttpStatus => ErrorCode::HttpStatus,
+        }
+    }
+}
+
+impl From<ProviderErrorKind> for ErrorCode {
+    fn from(kind: ProviderErrorKind) -> Self {
+        kind.code()
+    }
+}
+
+impl TryFrom<ErrorCode> for ProviderErrorKind {
+    type Error = String;
+
+    fn try_from(code: ErrorCode) -> Result<Self, Self::Error> {
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.code() == code)
+            .ok_or_else(|| format!("{code} is not a provider error code"))
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -139,5 +203,44 @@ impl From<BudgetStop> for ProviderError {
                 "GitHub request deadline exceeded",
             ),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each kind's wire spelling is its contract `errorCode`, and it reads
+    /// back as the same kind.
+    #[test]
+    fn every_kind_serializes_as_its_error_code() {
+        let expected = [
+            "authentication",
+            "permission",
+            "notFound",
+            "invalidInput",
+            "rateLimited",
+            "transport",
+            "timeout",
+            "cancelled",
+            "responseTooLarge",
+            "redirectDenied",
+            "decode",
+            "configuration",
+            "credentialStoreUnavailable",
+            "server",
+            "unavailable",
+            "httpStatus",
+        ];
+        for (kind, spelling) in ProviderErrorKind::ALL.into_iter().zip(expected) {
+            let wire = serde_json::to_value(kind).expect("serialize");
+            assert_eq!(wire, spelling, "{kind:?}");
+            assert_eq!(wire, serde_json::to_value(kind.code()).expect("code"));
+            assert_eq!(
+                serde_json::from_value::<ProviderErrorKind>(wire).expect("deserialize"),
+                kind
+            );
+        }
+        assert!(serde_json::from_value::<ProviderErrorKind>("pathNotFound".into()).is_err());
     }
 }

@@ -5,6 +5,13 @@
 // grep, fd, ast-grep, gh) already uses for the same meaning, which fields
 // read as positional arguments, and flag-form examples per tool.
 // Generation fails when any of it names a field or value the schema lacks.
+// Help text the schema leaves out comes from core (`cliHelp`).
+
+import {
+  CLI_FIELD_FALLBACKS,
+  CLI_FIELD_NOTES,
+  CLI_TOOL_OUTPUT,
+} from '@octocodeai/octocode-core/schema';
 
 type Json = Record<string, unknown>;
 
@@ -28,6 +35,8 @@ export interface CliFlag {
   primary: boolean;
   description: string;
   short?: string;
+  /** A list whose items never hold a comma also takes `a,b`, as gh does. */
+  commas?: true;
 }
 
 /** A short letter that sets one field to one value (`-i` → `caseMode: insensitive`). */
@@ -120,6 +129,7 @@ const AUTHORED: Record<string, Authored> = {
     positionals: [PATH('.')],
     // fd letters.
     shorts: {
+      g: 'include',
       e: 'extensions',
       t: 'entryType',
       d: 'maxDepth',
@@ -151,7 +161,11 @@ const AUTHORED: Record<string, Authored> = {
       { name: 'PATH[:LINE]', field: 'path', lines: { field: 'line', kind: 'line' } },
       { name: 'SYMBOL', field: 'symbolName' },
     ],
-    examples: ['octocode lspSearch references src/index.ts:10 run'],
+    // Call chains: callers walks up from a function, callees down.
+    examples: [
+      'octocode lspSearch references src/index.ts:10 run',
+      'octocode lspSearch callers src/index.ts:10 run',
+    ],
   },
   ghSearchRepo: {
     positionals: [{ name: 'KEYWORD', field: 'keywords', variadic: true }],
@@ -174,6 +188,8 @@ const AUTHORED: Record<string, Authored> = {
     positionals: [
       { name: 'PATH[:LINES]', field: 'path', lines: { field: 'ranges', kind: 'ranges' } },
     ],
+    // grep letters, as localFetch.
+    shorts: { e: 'matchString', C: 'contextLines' },
     ownerRepo: true,
     examples: ['octocode ghGetFileContent crates/searcher/src/lib.rs:1-40 -R BurntSushi/ripgrep'],
   },
@@ -201,6 +217,7 @@ const AUTHORED: Record<string, Authored> = {
   },
   artifactSearch: {
     positionals: [{ name: 'PACKAGE', field: 'packageName' }],
+    shorts: GH_LIMIT,
     examples: ['octocode artifactSearch zod --ecosystem npm'],
   },
   ghCloneRepo: {
@@ -272,6 +289,19 @@ interface SchemaField {
   /** The field's schema in each form that has it. */
   raws: unknown[];
   description: string;
+  /** The operations of the forms that accept it (empty: a form has none). */
+  operations: Set<string>;
+}
+
+/** The operation names one form accepts: its `operation` const or enum. */
+function formOperations(form: Json, defs: Json): string[] {
+  const raw = (form.properties as Json | undefined)?.operation;
+  if (!raw) return [];
+  const operation = resolve(raw, defs);
+  if (typeof operation.const === 'string') return [operation.const];
+  if (Array.isArray(operation.enum)) return operation.enum.map(String);
+  if (typeof operation.default === 'string') return [operation.default];
+  return [];
 }
 
 /** Every field of a canonical row schema, merged across its forms. */
@@ -280,15 +310,17 @@ function schemaFields(querySchema: Json): Map<string, SchemaField> {
   const forms = ((querySchema.anyOf ?? querySchema.oneOf) as Json[] | undefined) ?? [querySchema];
   const fields = new Map<string, SchemaField>();
   for (const form of forms) {
-    const properties = (resolve(form, defs).properties ?? {}) as Json;
+    const resolved = resolve(form, defs);
+    const properties = (resolved.properties ?? {}) as Json;
+    const operations = formOperations(resolved, defs);
     for (const [name, raw] of Object.entries(properties)) {
       const description = String(resolve(raw, defs).description ?? '');
-      const seen = fields.get(name);
-      if (!seen) fields.set(name, { raws: [raw], description });
-      else {
-        seen.raws.push(raw);
-        if (!seen.description && description) seen.description = description;
-      }
+      const forbidden = resolve(raw, defs).not !== undefined;
+      const seen = fields.get(name) ?? { raws: [], description: '', operations: new Set<string>() };
+      fields.set(name, seen);
+      seen.raws.push(raw);
+      if (!seen.description && description) seen.description = description;
+      if (!forbidden) for (const operation of operations) seen.operations.add(operation);
     }
   }
   return fields;
@@ -313,6 +345,14 @@ export function schemaFieldNames(querySchema: Json): Set<string> {
 }
 
 const RESERVED_SHORTS = new Set(['h', 'V']);
+
+/**
+ * Free-text lists whose items never hold a comma (names, kinds, extensions,
+ * field names, topics, line ranges), so `a,b` is two items. Globs, patterns
+ * and search keywords keep one value per flag.
+ */
+const COMMA_LISTS = new Set(['symbolName', 'kinds', 'extensions', 'fields', 'topics', 'ranges']);
+
 
 /** The CLI flag spec of one tool, checked against its canonical query schema. */
 export function cliSpec(name: string, querySchema: Json, primaryFields: ReadonlySet<string>): CliSpec {
@@ -376,13 +416,26 @@ export function cliSpec(name: string, querySchema: Json, primaryFields: Readonly
   const flags: CliFlag[] = [...fields]
     .filter(([field]) => !JSON_ONLY.has(field))
     .map(([field, entry]) => {
-      const { description } = entry;
+      const base = entry.description || CLI_FIELD_FALLBACKS[field] || '';
+      const noted = CLI_FIELD_NOTES[field] ? `${base} ${CLI_FIELD_NOTES[field]}` : base;
+      // A field some operations reject says which take it, so a call that
+      // would be refused is not suggested by the help.
+      const all = operation?.values ?? [];
+      const only = [...entry.operations].filter(op => all.includes(op));
+      const left = all.filter(op => !only.includes(op));
+      const scope =
+        only.length > left.length ? `not ${left.join(', ')}` : `${only.join(', ')} only`;
+      const description =
+        field !== 'operation' && all.length > 1 && only.length > 0 && left.length > 0
+          ? `${noted} (${scope})`.trim()
+          : noted;
       const kind = fieldKind(entry, defs);
       return {
         field,
         kind: kind.kind,
         ...(kind.values && { values: kind.values }),
         primary: primaryFields.has(field),
+        ...(kind.kind === 'strings' && COMMA_LISTS.has(field) && { commas: true as const }),
         description,
         ...(shortOf.has(field) && { short: shortOf.get(field) }),
       };
@@ -395,6 +448,11 @@ export function cliSpec(name: string, querySchema: Json, primaryFields: Readonly
     splits,
     examples: authored.examples,
   };
+}
+
+/** How to read a tool's text output, when its help says so. */
+export function cliOutput(name: string): string | undefined {
+  return CLI_TOOL_OUTPUT[name];
 }
 
 /** The flag-form examples of a tool's help. */

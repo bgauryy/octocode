@@ -35,7 +35,6 @@ oxc_semantic = "=0.154.0"
 oxc_span = "=0.154.0"
 rayon = "1"
 regex = { workspace = true }
-regex-syntax = "0.8"
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde-saphyr = { workspace = true }
@@ -58,6 +57,10 @@ tree-sitter-typescript = "0.23"
 url = { workspace = true }
 which = "8"
 
+# The secret detector's prescan gate is extracted from the pattern table at build time.
+[build-dependencies]
+regex-syntax = "0.8"
+
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }
 
@@ -67,6 +70,7 @@ windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_
 [dev-dependencies]
 criterion = { version = "0.8" }
 proptest = "1"
+regex-syntax = "0.8"
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }
 

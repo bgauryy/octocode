@@ -2,6 +2,7 @@
 //! failures and cancellation.
 
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 #[test]
 fn failed_hierarchy_expansion_is_an_error_or_a_marked_partial_row() {
@@ -438,7 +439,7 @@ async fn hierarchy_walk_checks_cancellation_between_requests() {
     let error = walk_from(&graph, node("root"), 2, &paths, &Cancelled)
         .await
         .expect_err("cancelled");
-    assert_eq!(error.code, "cancelled");
+    assert_eq!(error.code, ErrorCode::Cancelled);
     assert_eq!(graph.requests.get(), 0);
 }
 
@@ -457,7 +458,7 @@ async fn long_awaits_observe_cancellation() {
     let cancel = CancelAfter(std::sync::atomic::AtomicUsize::new(0));
     let started = std::time::Instant::now();
     let result = cancellable(&cancel, std::future::pending::<()>()).await;
-    assert_eq!(result.expect_err("cancelled").code, "cancelled");
+    assert_eq!(result.expect_err("cancelled").code, ErrorCode::Cancelled);
     assert!(started.elapsed() < std::time::Duration::from_secs(5));
 }
 
@@ -477,7 +478,7 @@ async fn ready_awaits_observe_cancellation_at_completion() {
     let error = cancellable(&cancel, std::future::ready(7))
         .await
         .expect_err("a ready result cannot bypass cancellation");
-    assert_eq!(error.code, "cancelled");
+    assert_eq!(error.code, ErrorCode::Cancelled);
     assert_eq!(error.message, "cancelled after launch");
     assert_eq!(
         cancellable(

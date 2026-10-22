@@ -7,7 +7,7 @@
 // other accepted fields it hides (per operation, or the whole row's) with
 // the `--select` or `--view full` call that shows their schemas.
 import { buildCliInstructions } from '@octocodeai/octocode-core/mcp';
-import { cliExamples, cliSpec, schemaFieldNames } from './cli-flags.ts';
+import { cliExamples, cliOutput, cliSpec, schemaFieldNames } from './cli-flags.ts';
 import {
   CLASIFY_SOURCE_TOOL_NAMES,
   DIRECT_TOOL_DEFINITIONS,
@@ -64,6 +64,8 @@ export function toolHelpSection(
   // One JSON example beside the flags; a JSON-only tool shows every form's.
   for (const example of flagExamples.length > 0 ? jsonExamples.slice(0, 1) : jsonExamples)
     lines.push(`  octocode ${name} ${shellQuote(exampleJson(example))}`);
+  const output = cliOutput(name);
+  if (output) lines.push('', `Output: ${output}`);
   lines.push(
     '',
     flagExamples.length > 0

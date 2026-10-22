@@ -5,6 +5,7 @@ use crate::response::result::ToolError;
 use crate::{
     execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
+use octocode_contract_types::ErrorCode;
 use octocode_engine::structural::SyntaxTreeInspectOptions;
 use serde_json::json;
 const MAX_SOURCE: usize = super::MAX_PARSE_SOURCE_BYTES;
@@ -113,7 +114,7 @@ fn check_line(q: &AstSearchQuerySyntaxTree, line: u32, content: &str) -> Result<
         return Ok(());
     }
     let mut error = ToolError::new(
-        "invalidInput",
+        ErrorCode::InvalidInput,
         format!("line {line} is past the end of the file ({total} lines)."),
     );
     let repaired = crate::response::result::query_row(q, &["line", "page", "snapshot"]);
@@ -349,7 +350,7 @@ fn render_tree_page(
         let first = diagnostics.first();
         let code = first
             .and_then(|diagnostic| diagnostic["code"].as_str())
-            .map_or("executionFailed", super::engine_error_code);
+            .map_or(ErrorCode::ExecutionFailed, super::engine_error_code);
         let message = first
             .and_then(|diagnostic| diagnostic["message"].as_str())
             .unwrap_or("The syntax tree could not be built.");

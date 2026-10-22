@@ -13,21 +13,22 @@ pub mod jev;
 pub(crate) mod gate;
 pub(crate) mod transport;
 
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
 /// The code of a provider that could not answer: unreachable, timed out,
 /// failing (5xx), overloaded without a retry delay, or paused by the open
 /// circuit those failures led to. Unlike a refused credential or request,
 /// it says nothing about the caller's input: retrying later can succeed.
-pub(crate) const CIRCUIT_OPEN: &str = "classificationProviderUnavailable";
+pub(crate) const CIRCUIT_OPEN: ErrorCode = ErrorCode::ClassificationProviderUnavailable;
 
 /// Whether a classification error `code` says the provider could not answer
 /// now (rate limited, overloaded, unreachable, failing, paused by its
 /// circuit) rather than refusing this caller or request (a credential,
 /// quota, content or size error the caller must fix). Evidence a reader
 /// already has is never withheld for the former.
-pub(crate) fn is_transient(code: &str) -> bool {
-    matches!(code, CIRCUIT_OPEN | "classificationRateLimited")
+pub(crate) fn is_transient(code: ErrorCode) -> bool {
+    matches!(code, CIRCUIT_OPEN | ErrorCode::ClassificationRateLimited)
 }
 
 /// Vendor-neutral response-contract violation reported by
@@ -44,11 +45,11 @@ pub struct ProviderContractError {
 impl ProviderContractError {
     /// Stable public error code for this violation.
     #[must_use]
-    pub fn code(&self) -> &'static str {
+    pub fn code(&self) -> ErrorCode {
         if self.request {
-            "invalidClassificationRequest"
+            ErrorCode::InvalidClassificationRequest
         } else {
-            "invalidClassificationResponse"
+            ErrorCode::InvalidClassificationResponse
         }
     }
 }

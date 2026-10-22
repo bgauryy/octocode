@@ -1,5 +1,6 @@
 use crate::contracts::query_limits::local_fetch::RANGES_MAX_ITEMS;
 use crate::num::{usize_of, usize_of_signed};
+use octocode_contract_types::ErrorCode;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -514,7 +515,7 @@ pub struct LocalFetchResult {
     pub selection: Option<octocode_contract_types::Selection>,
     pub content_view: Option<MinifyMode>,
     pub minify_fallback: Option<MinifyFallback>,
-    pub error_code: Option<String>,
+    pub error_code: Option<ErrorCode>,
     pub error: Option<String>,
     pub warnings: Vec<String>,
     pub hints: Vec<String>,
@@ -585,10 +586,10 @@ impl LocalFetchResult {
     }
 
     /// An error row for the read of `path`: every row names its file.
-    pub fn error(path: String, code: &str, message: String) -> Self {
+    pub fn error(path: String, code: ErrorCode, message: String) -> Self {
         Self {
             path,
-            error_code: Some(code.into()),
+            error_code: Some(code),
             error: Some(message),
             ..Self::blank(ReadStatus::Error)
         }
@@ -868,7 +869,7 @@ pub struct ValidatedRead {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PathFailure {
     /// The row's `errorCode`: the policy's shared code, else the access code.
-    pub code: String,
+    pub code: ErrorCode,
     pub message: String,
     pub safe_path: Option<String>,
     pub resource_missing: bool,
@@ -913,53 +914,33 @@ pub struct RegexSpans {
     pub truncated: bool,
 }
 
-/// Why a view selection failed; it picks the row's `errorCode`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ExtractionErrorKind {
-    /// A `matchString` pattern does not compile.
-    InvalidPattern,
-    /// The regex engine the pattern needs cannot run it.
-    ExecutionFailed,
-    /// The request selects nothing the file has (ranges past its end).
-    InvalidInput,
-}
-
-impl ExtractionErrorKind {
-    pub fn error_code(self) -> &'static str {
-        match self {
-            Self::InvalidPattern => "invalidPattern",
-            Self::ExecutionFailed => "executionFailed",
-            Self::InvalidInput => "invalidInput",
-        }
-    }
-}
-
-/// A failed view selection: its kind and the reason the message carries
-/// after the kind's lead (`Invalid regex pattern: <detail>`).
+/// A failed view selection: the row's `errorCode` and the reason the
+/// message carries after the code's lead (`Invalid regex pattern: <detail>`).
+/// The codes are `invalidPattern` (a `matchString` pattern does not
+/// compile), `executionFailed` (the regex engine the pattern needs cannot
+/// run it) and `invalidInput` (the request selects nothing the file has).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExtractionError {
-    pub kind: ExtractionErrorKind,
+    pub code: ErrorCode,
     pub detail: String,
 }
 
 impl ExtractionError {
-    pub fn new(kind: ExtractionErrorKind, detail: impl Into<String>) -> Self {
+    pub fn new(code: ErrorCode, detail: impl Into<String>) -> Self {
         Self {
-            kind,
+            code,
             detail: detail.into(),
         }
     }
 
     /// The row's error message.
     pub fn message(&self) -> String {
-        match self.kind {
-            ExtractionErrorKind::InvalidPattern => {
-                format!("Invalid regex pattern: {}", self.detail)
-            }
-            ExtractionErrorKind::ExecutionFailed => {
+        match self.code {
+            ErrorCode::InvalidPattern => format!("Invalid regex pattern: {}", self.detail),
+            ErrorCode::ExecutionFailed => {
                 format!("Regex execution unavailable: {}", self.detail)
             }
-            ExtractionErrorKind::InvalidInput => self.detail.clone(),
+            _ => self.detail.clone(),
         }
     }
 }
@@ -1005,7 +986,7 @@ impl PathAccess for crate::policy::path::PathPolicy {
                 let missing = error.code == crate::policy::PolicyErrorCode::NotFound;
                 let resolved = self.expand_and_resolve(path);
                 Box::new(PathFailure {
-                    code: error.local_error_code("fileAccessFailed").into(),
+                    code: error.local_error_code(ErrorCode::FileAccessFailed),
                     message: error.message,
                     safe_path: error.safe_path,
                     resource_missing: missing,

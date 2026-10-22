@@ -1,4 +1,5 @@
-//! Tool flags, built from the embedded CLI presentation's `cli` spec: every
+//! Tool flags, built from the embedded CLI presentation's `cli` spec
+//! (`contracts::cli_tool_flags`, that part of it alone): every
 //! query field is one long flag named as the field, a few short letters
 //! follow rg, grep, fd, ast-grep and gh, and required fields read as
 //! positional arguments. Flags only build the query object the JSON form
@@ -13,8 +14,8 @@ const QUERY_OPTIONS: &str = "Query options";
 const MORE_OPTIONS: &str = "More query options (also in `schema <tool> --view full`)";
 
 fn presentation_tool(tool: &str) -> Option<&'static Value> {
-    let presentation = octocode_native::contracts::cli_presentation().ok()?;
-    presentation["tools"]
+    octocode_native::contracts::cli_tool_flags()
+        .ok()?
         .as_array()?
         .iter()
         .find(|candidate| candidate["name"] == tool)
@@ -135,25 +136,84 @@ pub(super) fn augment(mut command: Command, tool: &str) -> Command {
         .unwrap_or_default();
     let (primary_flags, more_flags): (Vec<&Value>, Vec<&Value>) =
         flags.iter().partition(|flag| flag["primary"] == true);
-    command = add_flags(command, &primary_flags);
+    let letters = preset_letters(spec);
+    command = add_flags(command, &primary_flags, &letters);
     command = add_shorts(command, spec);
-    command = add_flags(command, &more_flags);
+    command = add_flags(command, &more_flags, &letters);
     for field in selection_only(tool) {
         command = command.mut_arg(field_id(field), |arg| arg.hide(true));
+    }
+    // `rg -n` / `grep -n` habit: line numbers always print, so `-n` is
+    // accepted and changes nothing.
+    if tool == "localSearch" {
+        command = command.arg(
+            Arg::new(LINE_NUMBER)
+                .short('n')
+                .long("line-number")
+                .action(ArgAction::SetTrue)
+                .hide(true),
+        );
     }
     command
 }
 
-/// One long flag per field, typed by the field's kind.
-fn add_flags(mut command: Command, flags: &[&Value]) -> Command {
+/// The accepted no-op `-n` (line numbers always print).
+const LINE_NUMBER: &str = "habit:line-number";
+
+/// Fields an agent never types: a follow-up call carries them. Help hides
+/// them; the flags still parse.
+const COPIED_FIELDS: [&str; 5] = ["page", "matchPage", "snapshot", "selection", "importerPage"];
+
+/// A field only a follow-up call sets (`page`, `snapshot`, `selection`).
+pub(super) fn is_copied(field: &str) -> bool {
+    COPIED_FIELDS.contains(&field)
+}
+
+/// Each field's preset letters as help text: `-F literal, -E rust`.
+fn preset_letters(spec: &Value) -> std::collections::HashMap<String, String> {
+    let mut letters = std::collections::HashMap::<String, Vec<String>>::new();
+    for preset in spec["presets"].as_array().into_iter().flatten() {
+        if let (Some(short), Some(field)) = (preset["short"].as_str(), preset["field"].as_str()) {
+            let value = preset["value"]
+                .as_str()
+                .map_or_else(|| preset["value"].to_string(), str::to_owned);
+            letters
+                .entry(field.to_owned())
+                .or_default()
+                .push(format!("-{short} {value}"));
+        }
+    }
+    letters
+        .into_iter()
+        .map(|(field, list)| (field, list.join(", ")))
+        .collect()
+}
+
+/// One long flag per field, typed by the field's kind; a field set by preset
+/// letters names them (the letters' own rows are hidden).
+fn add_flags(
+    mut command: Command,
+    flags: &[&Value],
+    letters: &std::collections::HashMap<String, String>,
+) -> Command {
     for flag in flags {
         let Some(field) = flag["field"].as_str() else {
             continue;
         };
         let primary = flag["primary"] == true;
+        let description = short_help(flag["description"].as_str().unwrap_or_default());
+        let help = match letters.get(field) {
+            Some(letters) => format!("{description} ({letters})"),
+            None => description,
+        };
+        let copied = COPIED_FIELDS.contains(&field)
+            || flag["description"]
+                .as_str()
+                .is_some_and(|text| text.starts_with("Copy "));
         let mut arg = Arg::new(field_id(field))
             .long(field.to_owned())
-            .help(short_help(flag["description"].as_str().unwrap_or_default()))
+            .help(help)
+            .hide(copied)
             .help_heading(if primary { QUERY_OPTIONS } else { MORE_OPTIONS });
         if let Some(short) = flag["short"].as_str().and_then(first_char) {
             arg = arg.short(short);
@@ -172,6 +232,13 @@ fn add_flags(mut command: Command, flags: &[&Value]) -> Command {
                 .value_name("VALUE")
                 .value_parser(PossibleValuesParser::new(values)),
             // A pattern may start with `-`, as `rg -e -x` allows.
+            // Names, kinds and ranges never hold a comma, so `a,b` is two
+            // items (the spec marks them `commas`).
+            "strings" if values.is_empty() && flag["commas"] == true => arg
+                .value_name("TEXT")
+                .action(ArgAction::Append)
+                .value_delimiter(',')
+                .allow_hyphen_values(true),
             "strings" if values.is_empty() => arg
                 .value_name("TEXT")
                 .action(ArgAction::Append)
@@ -225,6 +292,8 @@ fn add_shorts(mut command: Command, spec: &Value) -> Command {
                 .short(letter)
                 .action(ArgAction::SetTrue)
                 .overrides_with_all(rivals)
+                // Its field's help names it (`--regex … (-F literal, …)`).
+                .hide(true)
                 .help(format!("{field}: {}", preset["value"]))
                 .help_heading(QUERY_OPTIONS),
         );
@@ -297,17 +366,26 @@ fn digits(text: &str) -> Option<u64> {
 
 /// `PATH:N` or `PATH:N-M`. A local path that exists under the whole text
 /// keeps it; a remote (GitHub) path is never checked on this disk.
-fn line_suffix(text: &str, local: bool) -> Option<(&str, u64, Option<u64>)> {
+/// A line span: its first line and, for a range, its last.
+type Span = (u64, Option<u64>);
+
+fn line_suffix(text: &str, local: bool) -> Option<(&str, Vec<Span>)> {
     if local && std::path::Path::new(text).exists() {
         return None;
     }
     let (path, lines) = text.rsplit_once(':')?;
-    let (start, end) = match lines.split_once('-') {
-        Some((start, end)) => (start, Some(digits(end)?)),
-        None => (lines, None),
-    };
-    let start = digits(start)?;
-    (!path.is_empty()).then_some((path, start, end))
+    // `N`, `N-M`, or several joined by commas (`10-20,40-50`).
+    let spans = lines
+        .split(',')
+        .map(|span| {
+            let (start, end) = match span.split_once('-') {
+                Some((start, end)) => (start, Some(digits(end)?)),
+                None => (span, None),
+            };
+            Some((digits(start)?, end))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    (!path.is_empty()).then_some((path, spans))
 }
 
 /// Whether the caller set `field` by flag (or short letter).
@@ -454,21 +532,29 @@ pub(super) fn query(
                     lines["field"].as_str(),
                     line_suffix(text, !tool.starts_with("gh")),
                 ) {
-                    (Some(lines_field), Some((path, start, end))) => {
+                    (Some(lines_field), Some((path, spans))) => {
                         if query.contains_key(lines_field) {
                             return Err(format!(
                                 "{text} names lines and --{lines_field} is set too; use one"
                             ));
                         }
                         let value = if lines["kind"] == "line" {
-                            if end.is_some() {
+                            let [(start, None)] = spans.as_slice() else {
                                 return Err(format!(
                                     "{name} takes one line (PATH:N), got '{text}'"
                                 ));
-                            }
+                            };
                             json!(start)
                         } else {
-                            json!([format!("{start}-{}", end.unwrap_or(start))])
+                            json!(
+                                spans
+                                    .iter()
+                                    .map(|(start, end)| format!(
+                                        "{start}-{}",
+                                        end.unwrap_or(*start)
+                                    ))
+                                    .collect::<Vec<_>>()
+                            )
                         };
                         query.insert(field.clone(), json!(path));
                         query.insert(lines_field.into(), value);
@@ -513,10 +599,17 @@ pub(super) fn query(
             .flatten()
             .find(|flag| flag["field"] == "language")
             .and_then(|flag| flag["short"].as_str());
+        // `rg x a.rs b.rs` habit: one PATH per query.
+        let second_path = std::path::Path::new(extra).exists();
         let tip = match language {
-            Some(short) if matches.try_get_one::<bool>(&preset_id("l")).ok().flatten() == Some(&true) => {
-                format!("; -l lists matching files, as rg -l does; for a language use -{short} {extra}")
+            Some(short)
+                if matches.try_get_one::<bool>(&preset_id("l")).ok().flatten() == Some(&true) =>
+            {
+                format!(
+                    "; -l lists matching files, as rg -l does; for a language use -{short} {extra}"
+                )
             }
+            _ if second_path => "; one PATH per call: search a directory that holds both (narrow with -g), or batch {\"queries\":[…]} with one row per path".to_owned(),
             _ => String::new(),
         };
         return Err(format!(
@@ -644,6 +737,12 @@ mod tests {
             parse("localFetch", &["no/such/file.rs:10-40"]).unwrap(),
             Some(json!({"path": "no/such/file.rs", "ranges": ["10-40"]}))
         );
+        // Several ranges, comma-joined.
+        assert_eq!(
+            parse("localFetch", &["no/such/file.rs:10-20,40,50-60"]).unwrap(),
+            Some(json!({"path": "no/such/file.rs", "ranges": ["10-20", "40-40", "50-60"]}))
+        );
+        assert!(parse("lspSearch", &["references", "no/such/a.ts:10,20", "run"]).is_err());
         assert_eq!(
             parse("lspSearch", &["references", "no/such/a.ts:10", "run"]).unwrap(),
             Some(
@@ -690,6 +789,58 @@ mod tests {
         assert_eq!(
             parse("ghGetFileContent", &["src/a.rs:1-5", "-R", "o/r"]).unwrap(),
             Some(json!({"owner": "o", "repo": "r", "path": "src/a.rs", "ranges": ["1-5"]}))
+        );
+    }
+
+    #[test]
+    fn enum_lists_take_commas_and_l_points_to_t() {
+        assert_eq!(
+            parse(
+                "ghGetHistoryItem",
+                &["pullRequest", "1", "-R", "o/r", "--sections", "body,files"]
+            )
+            .unwrap()
+            .map(|query| query["sections"].clone()),
+            Some(json!(["body", "files"]))
+        );
+        // Identifier lists split on commas.
+        assert_eq!(
+            parse(
+                "astSearch",
+                &["symbols", "src", "--symbolName", "prunes,pruned"]
+            )
+            .unwrap()
+            .map(|q| q["symbolName"].clone()),
+            Some(json!(["prunes", "pruned"]))
+        );
+        // `fd -g` habit: a name glob.
+        assert_eq!(
+            parse("structureSearch", &["files", "src", "-g", "fs_*"])
+                .unwrap()
+                .map(|q| q["include"].clone()),
+            Some(json!(["fs_*"]))
+        );
+        // Free text keeps its commas: a glob brace is one value.
+        assert_eq!(
+            parse("localSearch", &["x", "-g", "*.{ts,tsx}"])
+                .unwrap()
+                .map(|q| q["include"].clone()),
+            Some(json!(["*.{ts,tsx}"]))
+        );
+        assert!(
+            parse("localSearch", &["x", "src", "-l", "rust"])
+                .is_err_and(|e| e.contains("for a language use -t rust"))
+        );
+        // Help names a switch once, with no `...`.
+        let mut command = augment(clap::Command::new("localSearch"), "localSearch");
+        let help = command.render_help().to_string();
+        assert!(
+            help.contains("-F literal, -E rust, -P pcre2") && !help.contains("-F..."),
+            "{help}"
+        );
+        assert!(
+            !help.contains("--snapshot") && !help.contains("--page "),
+            "{help}"
         );
     }
 

@@ -1,4 +1,5 @@
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 fn checked_streamed_page(query: &LocalFetchQuery, paths: &Paths) -> LocalFetchResult {
     let mut rows = crate::contracts::prepare_many_and_validate(
@@ -176,12 +177,9 @@ fn streamed_byte_pages_reject_source_changes_and_whole_source_byte_reads() {
     assert_eq!(second.content.as_deref(), Some(&line[16_384..]));
     fixture.write("large.log", source.replacen('x', "y", 1));
     let stale = checked_streamed_page(&next.query, &paths);
-    assert_eq!(stale.error_code.as_deref(), Some("staleSnapshot"));
+    assert_eq!(stale.error_code, Some(ErrorCode::StaleSnapshot));
     let unbounded = checked_streamed_page(&qj(&path, serde_json::json!({"unit":"bytes"})), &paths);
-    assert_eq!(
-        unbounded.error_code.as_deref(),
-        Some("largeSourceWindowOnly")
-    );
+    assert_eq!(unbounded.error_code, Some(ErrorCode::LargeSourceWindowOnly));
 }
 
 #[test]
@@ -344,8 +342,8 @@ fn rust_regex_refuses_backreferences_and_lookaround_and_repairs_to_pcre2() {
             &paths,
         );
         assert_eq!(
-            result.error_code.as_deref(),
-            Some("invalidPattern"),
+            result.error_code,
+            Some(ErrorCode::InvalidPattern),
             "{pattern}: {result:?}"
         );
         let error = result.error.clone().unwrap_or_default();
@@ -407,7 +405,7 @@ fn rust_regex_verdict_does_not_depend_on_file_size() {
     }
     let on_small = run(&small, r"(\w)\1");
     let on_big = run(&big, r"(\w)\1");
-    assert_eq!(on_small.error_code.as_deref(), Some("invalidPattern"));
+    assert_eq!(on_small.error_code, Some(ErrorCode::InvalidPattern));
     assert_eq!(on_big.error, on_small.error);
 }
 
@@ -497,7 +495,7 @@ fn directory_path_is_not_a_file_with_tree_lead() {
         fetch(&req, &workspace_policy(&t.0)),
         fetch(&q(&t.0.join("src")), &Paths(t.0.clone())),
     ] {
-        assert_eq!(result.error_code.as_deref(), Some("notAFile"), "{result:?}");
+        assert_eq!(result.error_code, Some(ErrorCode::NotAFile), "{result:?}");
         let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
         assert_eq!(next["viewTree"]["tool"], "structureSearch", "{next}");
         assert_eq!(
@@ -516,14 +514,14 @@ fn a_policy_refusal_keeps_the_shared_code() {
     fs::write(t.0.join("kv.json"), "{}\n").expect("file");
     fs::write(t.0.join(".env"), "A=1\n").expect("env");
     for (path, code) in [
-        ("kv\u{0}.json", "invalidInput"),
-        ("kv.json\u{0}", "invalidInput"),
-        (".env", crate::policy::PATH_POLICY_DENIED),
+        ("kv\u{0}.json", ErrorCode::InvalidInput),
+        ("kv.json\u{0}", ErrorCode::InvalidInput),
+        (".env", ErrorCode::PathPolicyDenied),
     ] {
         let mut req = test_local_fetch_query();
         req.path = path.parse().expect("path");
         let result = fetch(&req, &workspace_policy(&t.0));
-        assert_eq!(result.error_code.as_deref(), Some(code), "{result:?}");
+        assert_eq!(result.error_code, Some(code), "{result:?}");
     }
 }
 
@@ -540,8 +538,8 @@ fn missing_file_leads_to_files_by_stem() {
     req.path = "src/a/blok.rs".parse().expect("path");
     let result = fetch(&req, &workspace_policy(&t.0));
     assert_eq!(
-        result.error_code.as_deref(),
-        Some("pathNotFound"),
+        result.error_code,
+        Some(ErrorCode::PathNotFound),
         "{result:?}"
     );
     let next = serde_json::to_value(result.next.as_ref().expect("next")).expect("json");
@@ -1171,11 +1169,7 @@ fn invalid_regex_items_are_named_by_index() {
             ),
             &paths,
         );
-        assert_eq!(
-            list.error_code.as_deref(),
-            Some("invalidPattern"),
-            "{list:?}"
-        );
+        assert_eq!(list.error_code, Some(ErrorCode::InvalidPattern), "{list:?}");
         // The repair keeps the item that compiles and escapes the one that
         // does not, in the same engine.
         let repair = &list.next.as_ref().expect("repair lead").repair;
@@ -1208,7 +1202,7 @@ fn invalid_regex_items_are_named_by_index() {
     assert_eq!(
         crate::id::ToolId::LocalFetch
             .output()
-            .error_hint("invalidPattern"),
+            .error_hint(ErrorCode::InvalidPattern),
         Some(crate::response::output::NO_HINT)
     );
 }
@@ -1670,7 +1664,7 @@ fn a_missing_file_leads_to_its_parents_tree() {
         &qj(&t.0.join("src/exector.rs"), serde_json::json!({})),
         &policy,
     );
-    assert_eq!(r.error_code.as_deref(), Some("pathNotFound"), "{r:?}");
+    assert_eq!(r.error_code, Some(ErrorCode::PathNotFound), "{r:?}");
     let next = serde_json::to_value(r.next.as_ref().expect("next")).expect("json");
     let tree = &next["viewTree"]["query"]["queries"][0];
     assert_eq!(tree["operation"], "tree", "{next}");

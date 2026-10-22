@@ -2,6 +2,7 @@ pub(crate) mod errors;
 mod leads;
 
 use crate::tools::local_fetch::types::local_fetch_query;
+use octocode_contract_types::ErrorCode;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -386,7 +387,7 @@ fn settle_status(
     query: &GhGetFileContentQuery,
     bytes: &[u8],
 ) -> Result<bool, ProviderError> {
-    if content.error_code.as_deref() == Some("invalidPagination") {
+    if content.error_code == Some(ErrorCode::InvalidPagination) {
         return Err(ProviderError::new(
             octocode_github::ProviderErrorKind::Decode,
             "offset must be on a UTF-8 code point boundary",
@@ -655,9 +656,9 @@ impl crate::response::output::ToolOutput for Output {
             "Verify owner/repo/ref/path."
         }
     }
-    fn error_hint(&self, code: &str) -> Option<&'static str> {
+    fn error_hint(&self, code: ErrorCode) -> Option<&'static str> {
         // The message names the item; `repair` is the corrected read.
-        (code == "invalidPattern").then_some(crate::response::output::NO_HINT)
+        (code == ErrorCode::InvalidPattern).then_some(crate::response::output::NO_HINT)
     }
     fn evidence_kind(&self, _query: &serde_json::Value, _data: &serde_json::Value) -> &'static str {
         "provider"

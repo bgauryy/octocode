@@ -1092,7 +1092,9 @@ async fn empty_index_pages_keep_the_collection_when_partial_normalization_answer
                 out.data,
                 out.status,
             );
-            assert_eq!(shaped["status"] == "empty", !incomplete, "{shaped}");
+            // An empty page stays empty when GitHub's results were
+            // incomplete: its only call is a retry of the same page.
+            assert_eq!(shaped["status"], "empty", "{shaped}");
             crate::contracts::validate_output("ghSearchCode", &json!({"results": [shaped]}))
                 .expect("the actual normalized row satisfies the canonical output contract");
         }

@@ -11,6 +11,7 @@ use crate::{
     tools::lsp_search::{LspExecutionConfig, prewarm},
     tools::source_capture::SourceReader,
 };
+use octocode_contract_types::ErrorCode;
 use octocode_github::ProviderError;
 use serde_json::Value;
 use std::{
@@ -43,7 +44,7 @@ pub(crate) struct DomainDispatcher {
 
 fn retained_access_error() -> crate::tools::judgment::ClassificationError {
     crate::tools::judgment::ClassificationError::new(
-        "classificationContextUnavailable",
+        ErrorCode::ClassificationContextUnavailable,
         "The saved source access identity changed or could not be verified. No saved evidence was returned.",
         "Check source access, then start a fresh request explicitly.",
     )
@@ -141,7 +142,7 @@ impl SourceReader for DomainDispatcher {
     ) -> Result<(String, PathBuf, String), crate::tools::judgment::ClassificationError> {
         let parsed = serde_json::from_value(query.clone()).map_err(|_| {
             crate::tools::judgment::ClassificationError::new(
-                "invalidClassificationContext",
+                ErrorCode::InvalidClassificationContext,
                 "The local resource query could not be decoded.",
                 "Inspect the localFetch schema.",
             )
@@ -155,15 +156,16 @@ impl SourceReader for DomainDispatcher {
                 "Retry the request explicitly.",
             )
         })?;
-        let captured = captured.map_err(|result| crate::tools::judgment::ClassificationError {
-            code: result
-                .error_code
-                .unwrap_or_else(|| "classificationContextUnavailable".into()),
-            message: result
-                .error
-                .unwrap_or_else(|| "The local source could not be captured.".into()),
-            hints: result.hints,
-            ..Default::default()
+        let captured = captured.map_err(|result| {
+            crate::tools::judgment::ClassificationError::with_hints(
+                result
+                    .error_code
+                    .unwrap_or(ErrorCode::ClassificationContextUnavailable),
+                result
+                    .error
+                    .unwrap_or_else(|| "The local source could not be captured.".into()),
+                result.hints,
+            )
         })?;
         Ok((captured.text, captured.canonical, captured.snapshot))
     }
@@ -191,23 +193,23 @@ impl SourceReader for DomainDispatcher {
         acquired.map_err(|error| {
             let row = github::provider_error(error);
             crate::tools::judgment::ClassificationError {
-                code: row.data["errorCode"]
-                    .as_str()
-                    .unwrap_or("classificationContextFailed")
-                    .into(),
-                message: row.data["error"]
-                    .as_str()
-                    .unwrap_or("The GitHub source could not be acquired.")
-                    .into(),
                 failure: row.failure,
-                hints: row.data["hints"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect(),
-                ..Default::default()
+                ..crate::tools::judgment::ClassificationError::with_hints(
+                    row.data["errorCode"]
+                        .as_str()
+                        .and_then(crate::id::error_codes::parse)
+                        .unwrap_or(ErrorCode::ClassificationContextFailed),
+                    row.data["error"]
+                        .as_str()
+                        .unwrap_or("The GitHub source could not be acquired."),
+                    row.data["hints"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(Value::as_str)
+                        .map(str::to_owned)
+                        .collect(),
+                )
             }
         })
     }
@@ -379,10 +381,10 @@ impl DomainDispatcher {
                     // A cancelled/expired request is a runtime outcome,
                     // not a provider failure.
                     context.check()?;
-                    let missing = failure.code == crate::policy::PATH_NOT_FOUND;
+                    let missing = failure.code == ErrorCode::PathNotFound;
                     let mut row = dispatch::provider_failure(
                         failure.message,
-                        failure.code.into(),
+                        failure.code,
                         vec![failure.hint.into()],
                         None,
                         Some(failure.retryable),
@@ -567,7 +569,7 @@ fn execute_row(
 ) -> Result<DomainResult, ExecutionError> {
     std::panic::catch_unwind(std::panic::AssertUnwindSafe(work)).unwrap_or_else(|_| {
         Ok(DomainResult::failure(
-            "executionFailed",
+            ErrorCode::ExecutionFailed,
             "The tool row failed on pathological input.",
             Vec::new(),
             None,

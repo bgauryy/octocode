@@ -159,6 +159,10 @@ mod tests {
         let executable = dir.path().join("gh");
         std::fs::write(&executable, "#!/bin/sh\n[ -z \"$GH_TOKEN$GITHUB_TOKEN$GH_ENTERPRISE_TOKEN\" ] || exit 2\n[ \"$4\" = 'enterprise.example' ] || exit 3\nprintf discovered\n").unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o700)).unwrap();
+        // The first exec of a new executable can wait on the system's scan of
+        // it (seconds under load), which would spend discovery's own 5 s cap:
+        // run it once first so the call below times only discovery.
+        let _ = std::process::Command::new(&executable).output();
         let path = dir.path().to_str().unwrap();
         let env = [
             ("PATH", path),

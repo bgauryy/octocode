@@ -12,6 +12,7 @@ use install::{
     BundledSkill, InstallBundledSkillsOptions, SkillInstallMode, SkillInstallTarget, SkillPlatform,
     SkillScope,
 };
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 use std::{collections::BTreeSet, fs, path::Path};
 
@@ -39,7 +40,7 @@ pub(super) async fn run(runtime: &ToolRuntime, command: SkillCommand, json_outpu
             if written == 0 { exit } else { written }
         }
         Err(error) => {
-            super::emit_error("invalidInput", &error, json_output);
+            super::emit_error(ErrorCode::InvalidInput, &error, json_output);
             2
         }
     }

@@ -8,6 +8,7 @@ use super::{
     ArtifactType, TerminalLimit,
 };
 use crate::providers::artifact::types::artifact_search_query;
+use octocode_contract_types::ErrorCode;
 use serde_json::{Map, Value};
 use std::cmp::Ordering;
 use url::Url;
@@ -101,7 +102,7 @@ fn requested_version(version: Option<&str>) -> Result<Option<&str>, ArtifactErro
     let version = version.trim_start_matches(['v', 'V']);
     if compare_versions(version, version).is_err() {
         return Err(ArtifactError::new(
-            "capabilityUnavailable",
+            ErrorCode::CapabilityUnavailable,
             format!("NuGet lookups take an exact version or latest, not \"{version}\"."),
         ));
     }
@@ -399,13 +400,13 @@ fn service_type_starts(service_type: &str, kind: &str) -> bool {
 fn official_url(value: Option<&Value>) -> Result<Url, ArtifactError> {
     let value = value.and_then(Value::as_str).ok_or_else(|| {
         ArtifactError::new(
-            "providerError",
+            ErrorCode::ProviderError,
             "NuGet did not advertise a supported official metadata endpoint.",
         )
     })?;
     let url = Url::parse(value).map_err(|_| {
         ArtifactError::new(
-            "providerError",
+            ErrorCode::ProviderError,
             "NuGet did not advertise a supported official metadata endpoint.",
         )
     })?;
@@ -417,7 +418,7 @@ fn official_url(value: Option<&Value>) -> Result<Url, ArtifactError> {
         Ok(url)
     } else {
         Err(ArtifactError::new(
-            "providerError",
+            ErrorCode::ProviderError,
             "NuGet did not advertise a supported official metadata endpoint.",
         ))
     }
@@ -714,7 +715,7 @@ mod tests {
         let missing = nuget(&lookup("13.0.2"), &state, &client)
             .await
             .expect_err("missing version");
-        assert_eq!(missing.code, "versionNotFound", "{missing:?}");
+        assert_eq!(missing.code, ErrorCode::VersionNotFound, "{missing:?}");
         assert!(
             missing.nearest.iter().any(|version| version == "13.0.3"),
             "{missing:?}"
@@ -722,7 +723,7 @@ mod tests {
         let range = nuget(&lookup("[13.0,14.0)"), &state, &client)
             .await
             .expect_err("range");
-        assert_eq!(range.code, "capabilityUnavailable", "{range:?}");
+        assert_eq!(range.code, ErrorCode::CapabilityUnavailable, "{range:?}");
     }
 
     /// An exact row states its publish day and its dependency groups'
@@ -884,7 +885,7 @@ mod tests {
             )
             .expect_err("past the reach")
             .code,
-            "invalidInput"
+            ErrorCode::InvalidInput
         );
         assert!(
             http.0

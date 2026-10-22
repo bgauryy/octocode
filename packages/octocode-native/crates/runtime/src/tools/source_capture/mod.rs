@@ -22,6 +22,7 @@ use crate::response::rows;
 use crate::security::ContentSecurity;
 use crate::tools::judgment::ClassificationError;
 use crate::tools::judgment::Evaluator;
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -87,13 +88,13 @@ pub(crate) struct Captured {
     pub source: Option<Value>,
 }
 
-fn failure(code: &str, message: impl Into<String>, hint: &str) -> ClassificationError {
+fn failure(code: ErrorCode, message: impl Into<String>, hint: &str) -> ClassificationError {
     ClassificationError::new(code, message, hint)
 }
 
 fn too_large(max_chars: usize) -> ClassificationError {
     failure(
-        "classificationContextTooLarge",
+        ErrorCode::ClassificationContextTooLarge,
         format!(
             "The selected source exceeds the {max_chars}-character state limit; nothing was judged."
         ),
@@ -117,14 +118,14 @@ pub(crate) fn capture(
         .filter(|id| matches!(id, ToolId::LocalFetch | ToolId::GhGetFileContent))
         .ok_or_else(|| {
             failure(
-                "invalidClassificationContext",
+                ErrorCode::InvalidClassificationContext,
                 "A clasify source reads through localFetch or ghGetFileContent.",
                 "Name localFetch or ghGetFileContent, or supply the data as state.",
             )
         })?;
     if !dispatcher.availability().is_available(tool) {
         return Err(failure(
-            "classificationContextUnavailable",
+            ErrorCode::ClassificationContextUnavailable,
             format!("{tool} is not available in this runtime, so its source cannot be read."),
             "Enable the reader, or supply the data as state.",
         ));
@@ -182,7 +183,7 @@ pub(super) fn prepare_source(
     let mut prepared = crate::contracts::prepare_many_and_validate(tool, json!({"queries":[row]}))
         .map_err(|error| {
             failure(
-                "invalidClassificationContext",
+                ErrorCode::InvalidClassificationContext,
                 format!(
                     "The {tool} source does not satisfy its input contract: {}.",
                     error
@@ -198,7 +199,7 @@ pub(super) fn prepare_source(
     let checked = dispatcher.security().validate_input_parameters(&prepared);
     if !checked.is_valid {
         return Err(failure(
-            "securityValidationFailed",
+            ErrorCode::SecurityValidationFailed,
             "The source query is blocked by input security policy.",
             "Read an allowed path.",
         ));
@@ -217,10 +218,10 @@ fn read_page(
     context.check().map_err(|stop| {
         let (code, hint) = match stop {
             crate::execution::ExecutionError::Timeout => (
-                "timeout",
+                ErrorCode::Timeout,
                 "Retry with more time, or supply the source text as state.",
             ),
-            _ => ("cancelled", crate::response::rows::CANCELLED_HINT),
+            _ => (ErrorCode::Cancelled, crate::response::rows::CANCELLED_HINT),
         };
         failure(
             code,
@@ -231,9 +232,9 @@ fn read_page(
     let result = dispatcher.execute(id, &prepared, context).map_err(|stop| {
         failure(
             match stop {
-                crate::execution::ExecutionError::Timeout => "timeout",
-                crate::execution::ExecutionError::Cancelled => "cancelled",
-                _ => "classificationContextFailed",
+                crate::execution::ExecutionError::Timeout => ErrorCode::Timeout,
+                crate::execution::ExecutionError::Cancelled => ErrorCode::Cancelled,
+                _ => ErrorCode::ClassificationContextFailed,
             },
             format!("The {tool} source read could not complete."),
             RERUN_HINT,
@@ -251,7 +252,7 @@ fn read_page(
     )
     .map_err(|_| {
         failure(
-            "classificationContextFailed",
+            ErrorCode::ClassificationContextFailed,
             "The source read's output could not be sanitized.",
             RERUN_HINT,
         )
@@ -263,7 +264,7 @@ fn read_page(
     let content = data["content"].as_str().unwrap_or_default();
     if content.is_empty() {
         return Err(failure(
-            "classificationContextEmpty",
+            ErrorCode::ClassificationContextEmpty,
             format!("The {tool} source selected no text; nothing was judged."),
             "Check the ranges and the path.",
         ));
@@ -297,9 +298,7 @@ const RERUN_HINT: &str = "Run the same read directly to inspect it.";
 /// also offers the re-run.
 fn reader_failure(tool: ToolId, data: &Value) -> ClassificationError {
     use crate::id::error_codes::{ErrorClass, class};
-    let declared = data["errorCode"]
-        .as_str()
-        .and_then(|code| Some((code, class(code)?)));
+    let declared = crate::id::error_code_of(data).map(|code| (code, class(code)));
     let leads: Vec<(String, Value)> = ["next", "hints"]
         .iter()
         .filter_map(|channel| data[*channel].as_object())
@@ -332,16 +331,12 @@ fn reader_failure(tool: ToolId, data: &Value) -> ClassificationError {
         hints.push(hint.into());
     }
     ClassificationError {
-        code: declared
-            .map_or("classificationContextFailed", |(code, _)| code)
-            .to_owned(),
-        message: data["error"]
-            .as_str()
-            .unwrap_or("The source read failed.")
-            .to_owned(),
-        hints,
         leads,
-        ..ClassificationError::default()
+        ..ClassificationError::with_hints(
+            declared.map_or(ErrorCode::ClassificationContextFailed, |(code, _)| code),
+            data["error"].as_str().unwrap_or("The source read failed."),
+            hints,
+        )
     }
 }
 
@@ -407,7 +402,7 @@ mod tests {
             "next": {"viewTree": lead("structureSearch"), "findFile": lead("structureSearch")},
         });
         let failure = reader_failure(ToolId::LocalFetch, &data);
-        assert_eq!(failure.code, "pathNotFound");
+        assert_eq!(failure.code, ErrorCode::PathNotFound);
         assert_eq!(failure.hints, vec!["Check the spelling.".to_owned()]);
         let mut names: Vec<&str> = failure
             .leads
@@ -439,6 +434,6 @@ mod tests {
             ToolId::LocalFetch,
             &json!({"errorCode": "madeUp", "error": "x"}),
         );
-        assert_eq!(undeclared.code, "classificationContextFailed");
+        assert_eq!(undeclared.code, ErrorCode::ClassificationContextFailed);
     }
 }

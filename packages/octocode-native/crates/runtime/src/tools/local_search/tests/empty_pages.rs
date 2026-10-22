@@ -1,6 +1,7 @@
 //! Empty and partial results: the probes, spelling variants and leads a
 //! page offers when its query found nothing or less than it asked.
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 /// Without `regex`, text is literal, so `.unwrap()`, an empty group `()`,
 /// `x[0]`, `.get(0)?` and `a|b` find only that text, and an explicit `regex`
@@ -617,7 +618,7 @@ fn missing_path_leads_to_nearest_parent_tree() {
     );
     let error = execute_local_search(&request, &policy, &security, &NeverCancel, None, None, None)
         .expect_err("missing path");
-    assert_eq!(error.code, "pathNotFound");
+    assert_eq!(error.code, ErrorCode::PathNotFound);
     let next = error.next.expect("viewTree lead");
     assert_eq!(next["viewTree"]["tool"], "structureSearch", "{next}");
     assert_eq!(

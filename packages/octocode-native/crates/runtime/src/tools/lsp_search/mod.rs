@@ -20,6 +20,7 @@
 use crate::execution::cancel::CancellationCheck;
 use crate::num::{u32_of, u32_of_signed};
 use crate::policy::path::PathPolicy;
+use octocode_contract_types::ErrorCode;
 use octocode_engine::lsp::config::{
     LspDiscoveryOptions, default_server_for_file, default_server_for_workspace_root,
     representative_source_for, typescript_server_fallback,
@@ -681,7 +682,13 @@ struct Target {
 }
 
 impl Target {
-    fn fail(&self, query: &LspSearchQuery, code: &str, message: &str, available: bool) -> Exit {
+    fn fail(
+        &self,
+        query: &LspSearchQuery,
+        code: ErrorCode,
+        message: &str,
+        available: bool,
+    ) -> Exit {
         Exit::Row(failure(query, &self.uri, code, message, available))
     }
 
@@ -750,7 +757,7 @@ async fn execute_page(
 fn unpinned_page_row(query: &LspSearchQuery) -> Value {
     json!({
         "status": "error",
-        "errorCode": "invalidInput",
+        "errorCode": ErrorCode::InvalidInput,
         "error": "page > 1 needs the snapshot its next page carries, or an explicit pageSize: without either, pages are cut from this call's response window, which depends on the other rows of the batch.",
         "next": {
             "restart": crate::response::result::restart_query(
@@ -822,7 +829,7 @@ async fn run_target(
             let mut row = failure(
                 query,
                 &target.uri,
-                "anchorUnresolved",
+                ErrorCode::AnchorUnresolved,
                 &error,
                 target.server_resolves(),
             );
@@ -907,7 +914,8 @@ fn discover_server(
 ) -> Result<Target, Exit> {
     let uri =
         engine_path_to_uri(&path).map_err(|error| LspFailure::invalid_query(error.to_string()))?;
-    let fail = |code: &str, message: &str| Exit::Row(failure(query, &uri, code, message, false));
+    let fail =
+        |code: ErrorCode, message: &str| Exit::Row(failure(query, &uri, code, message, false));
     let root_only = Path::new(&path).is_dir();
     let workspace_candidate = lsp_search_query::workspace_root(query)
         .map(str::to_owned)
@@ -925,7 +933,7 @@ fn discover_server(
         }
         _ if lsp_search_query::workspace_root(query).is_some() => {
             return Err(fail(
-                "workspaceRootInvalid",
+                ErrorCode::WorkspaceRootInvalid,
                 "workspaceRoot is not an authorized directory.",
             ));
         }
@@ -941,7 +949,7 @@ fn discover_server(
             };
             let Some(allowed) = scope::widest_authorized_dir(start, paths) else {
                 return Err(fail(
-                    "workspaceRootInvalid",
+                    ErrorCode::WorkspaceRootInvalid,
                     &format!(
                         "The project root inferred for this file ({inferred}) is not an authorized directory, and no directory on the file's path is."
                     ),
@@ -981,7 +989,7 @@ fn discover_server(
         } else {
             "No language server is configured for this file.".to_owned()
         };
-        return Err(fail("serverUnavailable", &message));
+        return Err(fail(ErrorCode::ServerUnavailable, &message));
     };
     receipt::apply_rust_context(&mut config, query).map_err(LspFailure::invalid_query)?;
     let fallback = if root_only {
@@ -1013,7 +1021,7 @@ async fn read_anchor_document(
         Ok(content) => Ok(Some(sources.insert(&target.path, content))),
         Err(SourceReadError::TooLarge(len)) => Err(target.fail(
             query,
-            "fileTooLarge",
+            ErrorCode::FileTooLarge,
             &format!(
                 "The source document is too large to synchronize with the language server ({len} bytes > {} bytes).",
                 source::MAX_LSP_DIDOPEN_BYTES
@@ -1022,7 +1030,7 @@ async fn read_anchor_document(
         )),
         Err(SourceReadError::Unreadable(error)) => Err(target.fail(
             query,
-            "fileReadFailed",
+            ErrorCode::FileReadFailed,
             &format!("The source document could not be read: {error}"),
             false,
         )),
@@ -1081,7 +1089,7 @@ async fn open_session(
     {
         return Err(target.fail(
             query,
-            "capabilityUnavailable",
+            ErrorCode::CapabilityUnavailable,
             &format!("The language server does not advertise {capability}."),
             true,
         ));
@@ -1156,18 +1164,18 @@ fn start_failure(
         octocode_engine::lsp::client::NativeLspClient,
         octocode_engine::lsp::client::LspLease,
     ),
-    (&'static str, String),
+    (ErrorCode, String),
 > {
     match acquired {
         Ok(Some(leased)) => Ok(leased),
         Ok(None) => Err((
-            "serverUnavailable",
+            ErrorCode::ServerUnavailable,
             "Language server failed to start.".to_owned(),
         )),
         Err(error) => {
             let code = match LspFailure::from_engine(&error).code {
-                "timeout" => "timeout",
-                _ => "serverUnavailable",
+                ErrorCode::Timeout => ErrorCode::Timeout,
+                _ => ErrorCode::ServerUnavailable,
             };
             Err((code, error.to_string()))
         }
@@ -1194,7 +1202,7 @@ async fn sync_document(
             Ok(readiness) => Ok(readiness),
             Err(error) => Err(target.fail(
                 query,
-                "documentSyncFailed",
+                ErrorCode::DocumentSyncFailed,
                 &format!("The source document could not be synchronized: {error}"),
                 true,
             )),

@@ -1,4 +1,5 @@
 use crate::response::result::ToolError;
+use octocode_contract_types::ErrorCode;
 use octocode_contract_types::{AstMatchScope, AstMatchScopeMode, AstScopePoint};
 use octocode_engine::{structural::StructuralDetailedMatch, text::LineIndex};
 
@@ -11,7 +12,7 @@ pub(super) fn select(
     let point = |point: &AstScopePoint| {
         let invalid = || {
             ToolError::new(
-                "invalidInput",
+                ErrorCode::InvalidInput,
                 "scope positions must be source boundaries within the file (1-based UTF-16 columns).",
             )
         };
@@ -34,7 +35,7 @@ pub(super) fn select(
     let end = point(&scope.end)?;
     if start >= end {
         return Err(ToolError::new(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             "scope start must precede its end",
         ));
     }

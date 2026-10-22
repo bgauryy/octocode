@@ -7,6 +7,7 @@
 - Replacements: `deadCode` → `issues --detector unreachable-file,unused-export`; `reachability` → `issues --detector unreachable-file,test-only`; `cycles` → `cycles` (witness and cuts: `issues --detector cycle`); `dependencies`/`dependents` → `deps`/`dependents <file> [--depth n]`; `path` → `path <from> <to>`; `drift` → `drift --graph <head> --baseline <baseline>`.
 - **New in `graph`:** `query drift --baseline` (rows `{category: file|cycle|transition|relation, change}`), `issues --entry <ref,...>` for explicit entrypoints, `dependents` rows through re-exporting modules (`edge: uses, via: reexport`), `graph.partialReasons` with a `graph.reingest` command on answers over a cut scan, and `ingest --language-glob <lang>=<glob>` (repeatable) for root-relative parser choice.
 - Old installs keep an unused `<octocode home>/tmp/topology/` directory; delete it by hand.
+- **The keychain no longer reads a bare token.** The `octocode` keychain entry holds only the JSON credential record. No released build ever wrote a bare token there: releases up to 19.1.0 kept credentials in the encrypted `credentials.json`, which is still read.
 
 ### Fixed — native audit (2026-10-21/22)
 - **`graph ingest` redacts secrets before writing a snapshot.** A credential the graph keeps (an import specifier stored as a package name, a diagnostic quoting source) is stored as its redaction placeholder, e.g. `pkg:[REDACTED-GITHUBTOKENS]`.
@@ -39,6 +40,13 @@
 - **`octocode --help` and `auth --help` start about 40% faster**: help without a tool section no longer parses the tool presentation.
 - Outlines and graph facts find doc comments by the grammar's comment style: `.pyi` stubs read `#` comments, assembly reads `;`.
 - Development: the generated wire types moved to their own crate (`crates/contract-types`); a runtime edit re-checks in 2.1 s instead of 3.6 s and rebuilds in 4.3 s instead of 6.2 s.
+- **Every CLI command starts faster**: start-up no longer parses the 340 KB CLI presentation or compiles the secret scrubber's patterns at run time (`--version` 9.0 → 6.9 ms, an unknown command's JSON error 22.6 → 12.1 ms).
+- **Secret redaction catches Unicode case variants** of case-insensitive keys (`elevenlabſ_api_key`, the Kelvin sign), which the scrubber's prefilter skipped before.
+- `graph query issues` scans mentions without a lock per file: up to 2× faster under load, same output.
+- lspSearch: CUDA rows get the `noCompileDatabase` warning like C and C++; a `file://` URI with percent-escapes is decoded before prewarming.
+- astSearch only sends declared error codes (an unreadable file is `fileReadFailed`, not `structural.file.unreadable`).
+- A localSearch query rebuilt by regex repair no longer carries the old saved selection plan.
+- A command's output that was already written when it exited is read, not lost, even when its grace period is zero.
 
 ### Changed — CLI install, cache command, error wording (2026-10-21)
 - **`install` manages every scope a client reads.** `--scope home|workspace|local` writes the user config, the project file under the current directory (Cursor, Claude Code, Continue, Kiro, Codex) or Claude Code's per-directory section, resolved like the config view. `--remove` deletes the entry with a rolling backup (no entry is a no-op; an entry install did not write needs `--force`). `--list` and the terminal picker show each client's status (`installed`, `disabled`, `custom`, `absent`, `invalid`, `unsupported`) and config path; `--list --json` rows are objects. `--pass-env` says it stores the token in the client config in plain text.

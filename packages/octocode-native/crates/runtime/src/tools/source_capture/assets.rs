@@ -6,6 +6,7 @@ use crate::id::clasify_policy as policy;
 use crate::tools::judgment::ClassificationError;
 use crate::tools::source_capture::SourceReader;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Map, Value, json};
 use std::io::Read;
 use std::path::Path;
@@ -91,7 +92,7 @@ fn acquire(
     let tool = source["tool"].as_str().unwrap_or_default();
     if !dispatcher.availability().is_available(tool) {
         return Err(failure(
-            "classificationContextUnavailable",
+            ErrorCode::ClassificationContextUnavailable,
             format!("The image reader {tool} is unavailable."),
             "Enable the referenced reader before classifying its images.",
         ));
@@ -104,7 +105,7 @@ fn acquire(
                 .validate_read(Path::new(query["path"].as_str().unwrap_or_default()))
                 .map_err(|error| {
                     failure(
-                        "securityValidationFailed",
+                        ErrorCode::SecurityValidationFailed,
                         error.to_string(),
                         "Read an allowed regular image file.",
                     )
@@ -132,7 +133,7 @@ fn acquire(
             let after = file.metadata().map_err(|_| read_failed())?;
             if before.len() != after.len() || before.modified().ok() != after.modified().ok() {
                 return Err(failure(
-                    "staleSnapshot",
+                    ErrorCode::StaleSnapshot,
                     "The image changed while being captured; nothing was judged.",
                     "Retry once the image is stable.",
                 ));
@@ -146,7 +147,7 @@ fn acquire(
                 .is_some_and(|expected| expected != snapshot)
             {
                 return Err(failure(
-                    "staleSnapshot",
+                    ErrorCode::StaleSnapshot,
                     "The image no longer matches the requested snapshot; nothing was judged.",
                     "Use the saved inspection path from the earlier result, or start a fresh capture.",
                 ));
@@ -228,9 +229,9 @@ fn validate_dimensions(width: usize, height: usize) -> Result<(), Classification
 fn check(context: &ExecutionContext) -> Result<(), ClassificationError> {
     context.check().map_err(|stop| {
         let (code, hint) = if matches!(stop, crate::execution::ExecutionError::Cancelled) {
-            ("cancelled", crate::response::rows::CANCELLED_HINT)
+            (ErrorCode::Cancelled, crate::response::rows::CANCELLED_HINT)
         } else {
-            ("timeout", "Retry with more time.")
+            (ErrorCode::Timeout, "Retry with more time.")
         };
         failure(
             code,
@@ -242,21 +243,21 @@ fn check(context: &ExecutionContext) -> Result<(), ClassificationError> {
 
 fn invalid(message: &str) -> ClassificationError {
     failure(
-        "invalidClassificationContext",
+        ErrorCode::InvalidClassificationContext,
         message,
         "Reference an explicit PNG or JPEG image by its asset key.",
     )
 }
 fn too_large(message: &str) -> ClassificationError {
     failure(
-        "classificationContextTooLarge",
+        ErrorCode::ClassificationContextTooLarge,
         message,
         "Use a smaller image or fewer assets; images are never resized or truncated silently.",
     )
 }
 fn read_failed() -> ClassificationError {
     failure(
-        "classificationContextFailed",
+        ErrorCode::ClassificationContextFailed,
         "The image could not be read completely.",
         "Check the file path and permissions.",
     )
@@ -285,13 +286,13 @@ mod tests {
         ] {
             assert_eq!(
                 dimensions(&bytes).unwrap_err().code,
-                "invalidClassificationContext"
+                ErrorCode::InvalidClassificationContext
             );
         }
         for bytes in [header(8193, 1), header(1, 8193), header(4097, 4097)] {
             assert_eq!(
                 dimensions(&bytes).unwrap_err().code,
-                "classificationContextTooLarge"
+                ErrorCode::ClassificationContextTooLarge
             );
         }
         assert_eq!(
@@ -305,7 +306,8 @@ mod tests {
         for (width, height) in [(256, 400), (400, 256), (279, 400), (400, 279)] {
             let error = dimensions(&header(width, height)).unwrap_err();
             assert_eq!(
-                error.code, "invalidClassificationContext",
+                error.code,
+                ErrorCode::InvalidClassificationContext,
                 "{width}x{height}"
             );
             assert!(error.message.contains("280..=1568"));
@@ -318,7 +320,7 @@ mod tests {
         for (width, height) in [(256, 256), (256, 306), (279, 281)] {
             assert_eq!(
                 dimensions(&header(width, height)).unwrap_err().code,
-                "invalidClassificationContext",
+                ErrorCode::InvalidClassificationContext,
                 "{width}x{height}"
             );
         }
@@ -339,7 +341,7 @@ mod tests {
         for (width, height) in [(1569, 280), (280, 1569), (1569, 1568)] {
             assert_eq!(
                 dimensions(&header(width, height)).unwrap_err().code,
-                "classificationContextTooLarge",
+                ErrorCode::ClassificationContextTooLarge,
                 "{width}x{height}"
             );
         }
@@ -350,7 +352,7 @@ mod tests {
         for (width, height) in [(usize::MAX, 2), (2, usize::MAX)] {
             assert_eq!(
                 validate_dimensions(width, height).unwrap_err().code,
-                "classificationContextTooLarge"
+                ErrorCode::ClassificationContextTooLarge
             );
         }
     }

@@ -16,6 +16,7 @@ use crate::tools::judgment::{
 };
 use crate::tools::source_capture::SourceReader;
 use crate::tools::source_capture::{self, Captured};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Map, Value, json};
 
 mod recovery;
@@ -286,7 +287,7 @@ fn evaluate_row(
             if crate::tools::selection::serialized_chars(&captured.state) > max_chars {
                 return rejected(
                     ClassificationError::new(
-                        "classificationContextTooLarge",
+                        ErrorCode::ClassificationContextTooLarge,
                         format!(
                             "The serialized state exceeds the {max_chars}-character limit; nothing was judged."
                         ),
@@ -381,7 +382,7 @@ fn failed(row: &Row, error: &ClassificationError, captured: Option<&Captured>) -
 fn error_kind(error: &ClassificationError) -> FailureKind {
     error
         .failure
-        .unwrap_or_else(|| crate::response::result::failure_kind(&error.code))
+        .unwrap_or_else(|| crate::response::result::failure_kind(error.code))
 }
 
 /// The batch rule the row schema cannot express: query ids stay unique so

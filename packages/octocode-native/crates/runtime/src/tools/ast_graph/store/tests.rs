@@ -1565,32 +1565,6 @@ fn rust_include_links_the_included_file() {
     );
 }
 
-/// Every error the graph store reports carries a declared camelCase code,
-/// so the CLI exits by the same `errorCodes` class as every tool.
-#[test]
-fn every_store_error_code_is_declared() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/tools/ast_graph/store");
-    let mut codes = Vec::new();
-    for file in ["mod.rs", "query.rs"] {
-        let text = std::fs::read_to_string(dir.join(file)).expect("source");
-        for opener in ["GraphOutput::error(", "fail("] {
-            for (start, _) in text.match_indices(opener) {
-                let rest = text[start + opener.len()..].trim_start();
-                if let Some(literal) = rest.strip_prefix('"') {
-                    codes.push(literal.split('"').next().unwrap_or_default().to_owned());
-                }
-            }
-        }
-    }
-    assert!(codes.len() > 10, "{codes:?}");
-    for code in codes {
-        assert!(
-            crate::id::error_codes::class(&code).is_some(),
-            "graph store code {code:?} is not declared in errorCodes"
-        );
-    }
-}
-
 /// A stored file's language is the engine registry's selector for its
 /// grammar (the TSX grammar keeps `tsx`); an extension no grammar claims
 /// keeps the parser's own label.

@@ -199,11 +199,40 @@ pub(super) fn tool_view(
         value = configured["sourceViews"][available.join(",")]["views"][view].clone();
         remove_unavailable_examples(&mut value, &available);
     }
+    if name == "lspSearch"
+        && let (Some(description), Some(servers)) = (
+            value["description"].as_str(),
+            machine["lspServers"].as_array(),
+        )
+    {
+        let servers: Vec<&str> = servers.iter().filter_map(Value::as_str).collect();
+        value["description"] = Value::String(with_lsp_servers(description, &servers));
+    }
     value["availability"] = machine_entry(machine, name)
         .map(|entry| entry["availability"].clone())
         .unwrap_or_else(|| json!({ "enabled": false }));
     value["run"] = Value::String(format!("octocode {name} '<json>'"));
     Ok(value)
+}
+
+/// The lspSearch description with the language servers this runtime
+/// resolves, before its tags, as MCP shows it (core
+/// `getDirectToolDefinitionsWithAddons`): `Servers: rust, ts/js.`
+fn with_lsp_servers(description: &str, servers: &[&str]) -> String {
+    let note = if servers.is_empty() {
+        "No language server found.".to_owned()
+    } else {
+        format!("Servers: {}.", servers.join(", "))
+    };
+    let tags = ["<empty>", "<workflow>"]
+        .iter()
+        .filter_map(|tag| description.find(tag))
+        .min()
+        .unwrap_or(description.len());
+    let (prose, tail) = description.split_at(tags);
+    format!("{} {note} {}", prose.trim_end(), tail.trim_start())
+        .trim_end()
+        .to_owned()
 }
 
 /// The `--select operation=X` view: that operation's row. A JSON-quoted
@@ -232,15 +261,6 @@ fn selected<'a>(tool: &'a Value, selection: &str) -> Result<&'a Value, SchemaErr
                 format!("Unknown operation: {operation}. Operations: {known}")
             })
         })
-}
-
-/// The input section printed after clap's help for `<tool> --help`.
-pub(super) fn tool_help(name: &str) -> Option<&'static str> {
-    let presentation = octocode_native::contracts::cli_presentation().ok()?;
-    tools(presentation)
-        .find(|tool| tool["name"] == name)?
-        .get("help")?
-        .as_str()
 }
 
 /// The runtime grammar inventory line, stating the common feature set once.
@@ -515,5 +535,20 @@ mod tests {
             "Runtime grammar inventory (structural+outline+graph unless noted): TypeScript (typescript: .ts); Go (go: .go); Asm (asm,s: .asm .s; structural). Parser availability does not imply an installed language server or complete cross-file linking."
         );
         assert!(grammar_instruction(&json!([])).is_none());
+    }
+
+    #[test]
+    fn lsp_search_names_its_servers_before_the_tags() {
+        assert_eq!(
+            super::with_lsp_servers(
+                "Resolve symbols. <workflow>x</workflow>",
+                &["rust", "ts/js"]
+            ),
+            "Resolve symbols. Servers: rust, ts/js. <workflow>x</workflow>"
+        );
+        assert_eq!(
+            super::with_lsp_servers("Resolve symbols.", &[]),
+            "Resolve symbols. No language server found."
+        );
     }
 }

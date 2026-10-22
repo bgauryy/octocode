@@ -1,4 +1,5 @@
 use crate::support::{self, Run as _};
+use octocode_contract_types::ErrorCode;
 
 use serde_json::{Value, json};
 use support::Workspace;
@@ -34,7 +35,7 @@ async fn credential_shaped_search_text_is_rejected_not_rewritten() {
         )
         .await
         .expect_err("a credential-shaped query must not execute");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     let payload = error.payload.as_deref().unwrap();
     assert_no_rewrite(payload);
     let message = payload["error"].as_str().unwrap_or_default();
@@ -142,7 +143,7 @@ async fn an_oversized_row_fails_in_band_while_other_rows_run() {
         )
         .await
         .expect_err("no valid row to run");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     let mcp = runtime
         .run_mcp(
             "oversized-single-mcp".into(),
@@ -183,7 +184,7 @@ async fn numeric_and_boolean_strings_are_rejected_with_the_value_to_send() {
             )
             .await
             .expect_err("a string is not a number or boolean");
-        assert_eq!(error.code, "invalidInput", "{field}");
+        assert_eq!(error.code, ErrorCode::InvalidInput, "{field}");
         let payload = error.payload.as_deref().unwrap().to_string();
         assert!(payload.contains(hint), "{field}: {payload}");
     }
@@ -212,7 +213,7 @@ async fn clasify_rejects_a_credential_in_a_source_read() {
         .run("clasify-secret".into(), "clasify".into(), input)
         .await
         .expect_err("a source read must not run a rewritten query");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     let payload = error.payload.as_deref().unwrap();
     let message = payload["error"].as_str().unwrap_or_default();
     assert!(
@@ -237,7 +238,7 @@ async fn an_unknown_tool_name_suggests_the_nearest_tool() {
         )
         .await
         .expect_err("an unknown tool never runs");
-    assert_eq!(error.code, "invalidInput");
+    assert_eq!(error.code, ErrorCode::InvalidInput);
     assert!(
         error.message.contains("Did you mean localSearch?"),
         "{}",

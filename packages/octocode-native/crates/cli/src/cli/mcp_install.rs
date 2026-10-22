@@ -7,6 +7,7 @@
 //! `--remove` deletes it.
 use super::mcp_clients::{self, CLIENTS, ClientSpec, EntryShape};
 use super::mcp_manage::{self, Method, ServerSpec, Target};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 use std::io::{self, BufRead, IsTerminal, Write};
 use std::path::{Path, PathBuf};
@@ -154,7 +155,7 @@ pub fn run(mut args: InstallArgs) -> u8 {
         Ok(cwd) => cwd,
         Err(error) => {
             super::emit_error(
-                "executionFailed",
+                ErrorCode::ExecutionFailed,
                 &format!("Cannot read the current directory: {error}"),
                 args.json,
             );
@@ -180,7 +181,7 @@ pub fn run(mut args: InstallArgs) -> u8 {
             Ok(None) => return 0,
             Err(error) => {
                 super::emit_error(
-                    "executionFailed",
+                    ErrorCode::ExecutionFailed,
                     &format!("Cannot select a client: {error}"),
                     false,
                 );
@@ -190,7 +191,7 @@ pub fn run(mut args: InstallArgs) -> u8 {
     }
     let Some(requested_ide) = args.ide.as_deref().filter(|value| !value.is_empty()) else {
         super::emit_error(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             "Usage: octocode install --ide <id> [--scope home|workspace|local] [--check|--remove] [--force] [--dry-run] [--json]; clients: octocode install --list",
             args.json,
         );
@@ -198,7 +199,7 @@ pub fn run(mut args: InstallArgs) -> u8 {
     };
     let Some(client) = mcp_clients::client(requested_ide) else {
         super::emit_error(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             &unknown_client_message(requested_ide),
             args.json,
         );
@@ -206,7 +207,7 @@ pub fn run(mut args: InstallArgs) -> u8 {
     };
     if !client.scopes().any(|scope| scope == args.scope.name()) {
         super::emit_error(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             &format!(
                 "{} has no {} scope; it supports --scope {}",
                 client.id,

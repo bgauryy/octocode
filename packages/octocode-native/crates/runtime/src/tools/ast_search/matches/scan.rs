@@ -2,6 +2,7 @@
 //! that names it.
 use super::*;
 use crate::response::result::Confidence;
+use octocode_contract_types::ErrorCode;
 
 pub(super) fn scan_file(
     q: MatchQuery<'_>,
@@ -12,7 +13,7 @@ pub(super) fn scan_file(
     super::super::validate_file_language(canonical, scope.language.as_deref())?;
     let Some(bytes) = super::super::read_parse_source(canonical)? else {
         let mut error = ToolError::new(
-            "fileTooLarge",
+            ErrorCode::FileTooLarge,
             "Source exceeds the native parser byte limit.",
         );
         if let Some(lead) = q
@@ -82,7 +83,7 @@ pub(super) fn scan_file(
 /// A query that does not compile against one file leads to that file's
 /// syntax tree, where the node shapes a pattern or rule names are read.
 pub(super) fn tree_repair(mut error: ToolError, q: MatchQuery<'_>, scope: &Scope) -> ToolError {
-    if error.code == crate::tools::ast_rule::INVALID_PATTERN && error.next.is_none() {
+    if error.code == ErrorCode::InvalidPattern && error.next.is_none() {
         error.next = Some(Box::new(
             json!({ "viewTree": tree_lead(q, scope, &scope.canonical) }),
         ));
@@ -443,7 +444,7 @@ pub(super) fn interrupted_rescan(q: MatchQuery<'_>, scan: &Scan) -> Option<ToolE
         return None;
     }
     let mut error = ToolError::new(
-        "timeout",
+        ErrorCode::Timeout,
         "The rescan for this page stopped at the structural match deadline, so it cannot be checked against the earlier pages; the source is unchanged.",
     );
     error.next = Some(Box::new(json!({

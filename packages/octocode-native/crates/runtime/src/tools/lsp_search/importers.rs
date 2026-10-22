@@ -1016,6 +1016,7 @@ async fn identities(
 mod tests {
     use super::super::blocking_cancellable;
     use super::*;
+    use octocode_contract_types::ErrorCode;
 
     #[test]
     fn occurrences_are_word_bounded_and_utf16() {
@@ -1408,7 +1409,7 @@ mod tests {
         let failure = blocking_cancellable(&cancel, observed_worker(started_tx, finished_tx))
             .await
             .expect_err("cancelled after launch");
-        assert_eq!(failure.code, "cancelled");
+        assert_eq!(failure.code, ErrorCode::Cancelled);
         assert_eq!(failure.message, "Cancelled");
         canceller.join().expect("canceller");
         assert!(
@@ -1431,7 +1432,7 @@ mod tests {
             .await
             .expect_err("deadline expired");
         started_rx.try_recv().expect("worker had started");
-        assert_eq!(failure.code, "cancelled");
+        assert_eq!(failure.code, ErrorCode::Cancelled);
         assert_eq!(failure.message, "Timeout");
         assert_worker_stopped(&finished_rx);
     }
@@ -1486,7 +1487,7 @@ mod tests {
         )
         .await
         .expect_err("cancellation is not an empty or complete scan");
-        assert_eq!(failure.code, "cancelled");
+        assert_eq!(failure.code, ErrorCode::Cancelled);
         let scope = Scope::new(root_str, vec!["*.ts".into()]);
         let complete = candidate_files(
             &scope,

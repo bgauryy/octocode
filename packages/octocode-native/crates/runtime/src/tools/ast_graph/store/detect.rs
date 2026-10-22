@@ -1881,12 +1881,32 @@ fn scan_mentions(
     stems: &BTreeSet<String>,
     names: &BTreeSet<String>,
 ) -> (MentionHits, bool) {
+    use std::collections::HashSet;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-    // Per key, per file, the first line: a map keeps the result
-    // deterministic whatever order the parallel walk visits files in.
-    type Hits = BTreeMap<String, BTreeMap<String, usize>>;
-    let found = Mutex::new((Hits::new(), Hits::new(), Hits::new()));
+    // Hashed views of the key sets: a token lookup is the inner loop. Keys
+    // borrow from the sets, so a hit allocates nothing.
+    let stem_set: HashSet<&str> = stems.iter().map(String::as_str).collect();
+    let name_set: HashSet<&str> = names.iter().map(String::as_str).collect();
+    // One file's hits: per kind (stems, references, words), per key, its
+    // first line in the file.
+    type FileHits<'k> = (String, [BTreeMap<&'k str, usize>; 3]);
+    /// Each walker thread keeps its files' hits and hands them over once,
+    /// when the walk drops it: no lock per file.
+    struct Sink<'s, 'k> {
+        files: Vec<FileHits<'k>>,
+        shared: &'s Mutex<Vec<FileHits<'k>>>,
+    }
+    impl Drop for Sink<'_, '_> {
+        fn drop(&mut self) {
+            let mut shared = self
+                .shared
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            shared.append(&mut self.files);
+        }
+    }
+    let found = Mutex::new(Vec::<FileHits<'_>>::new());
     // Bytes read so far; a file that would pass the total ends the scan.
     let spent = AtomicU64::new(0);
     let truncated = AtomicBool::new(false);
@@ -1900,9 +1920,13 @@ fn scan_mentions(
     )
     .build_parallel();
     walker.run(|| {
-        let found = &found;
+        let (stem_set, name_set) = (&stem_set, &name_set);
         let spent = &spent;
         let truncated = &truncated;
+        let mut sink = Sink {
+            files: Vec::new(),
+            shared: &found,
+        };
         Box::new(move |entry| {
             let Ok(entry) = entry else {
                 return ignore::WalkState::Continue;
@@ -1941,12 +1965,7 @@ fn scan_mentions(
             let code = SCRIPT_BEARING_MARKUP.contains(&extension.as_str())
                 || octocode_engine::signatures::languages::find_entry(&extension).is_some();
             let text = String::from_utf8_lossy(&bytes);
-            // Per key, its first line in this file.
-            let mut local = (
-                BTreeMap::<&str, usize>::new(),
-                BTreeMap::<&str, usize>::new(),
-                BTreeMap::<&str, usize>::new(),
-            );
+            let mut local: [BTreeMap<&str, usize>; 3] = Default::default();
             for (index, line) in text.lines().enumerate() {
                 for token in line.split(|c: char| !(c.is_alphanumeric() || "_$./@-".contains(c))) {
                     if token.is_empty() {
@@ -1955,66 +1974,57 @@ fn scan_mentions(
                     if token.contains(['/', '.']) {
                         let last = token.rsplit('/').next().unwrap_or(token);
                         let stem = last.split('.').next().unwrap_or(last);
-                        if stems.contains(stem) {
-                            local.0.entry(stem).or_insert(index + 1);
+                        if let Some(&stem) = stem_set.get(stem) {
+                            local[0].entry(stem).or_insert(index + 1);
                         }
                     }
                     let mut at = 0;
                     for part in token.split(['.', '/', '-', '@']) {
                         let start = at;
                         at += part.len() + 1;
-                        if !names.contains(part) {
+                        let Some(&name) = name_set.get(part) else {
                             continue;
-                        }
+                        };
                         let qualified =
                             token[..start].strip_suffix(['.', '/']).is_some_and(|head| {
                                 head.ends_with(|c: char| c.is_alphanumeric() || "_$".contains(c))
                             });
-                        let kind = if code || qualified {
-                            &mut local.1
-                        } else {
-                            &mut local.2
-                        };
-                        kind.entry(part).or_insert(index + 1);
+                        let kind = if code || qualified { 1 } else { 2 };
+                        local[kind].entry(name).or_insert(index + 1);
                     }
                 }
             }
-            if !(local.0.is_empty() && local.1.is_empty() && local.2.is_empty())
-                && let Ok(mut guard) = found.lock()
-            {
-                let (stem_hits, references, words) = &mut *guard;
-                for (hits, mine) in [
-                    (stem_hits, local.0),
-                    (references, local.1),
-                    (words, local.2),
-                ] {
-                    for (key, line) in mine {
-                        hits.entry(key.to_owned())
-                            .or_default()
-                            .insert(rel.clone(), line);
-                    }
-                }
+            if local.iter().any(|hits| !hits.is_empty()) {
+                sink.files.push((rel, local));
             }
             ignore::WalkState::Continue
         })
     });
-    let (stems, references, words) = found.into_inner().unwrap_or_default();
-    let flatten = |hits: Hits| -> Mentions {
-        hits.into_iter()
-            .map(|(key, files)| {
-                let files = files
-                    .into_iter()
-                    .map(|(file, line)| format!("{file}:{line}"))
-                    .collect();
-                (key, files)
-            })
-            .collect()
-    };
+    let mut files = found
+        .into_inner()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Files in path order, so each key lists its files in path order
+    // whatever order the parallel walk visited them in.
+    files.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let mut hits: [Mentions; 3] = Default::default();
+    for (rel, local) in &files {
+        for (mentions, mine) in hits.iter_mut().zip(local) {
+            for (key, line) in mine {
+                match mentions.get_mut(*key) {
+                    Some(list) => list.push(format!("{rel}:{line}")),
+                    None => {
+                        mentions.insert((*key).to_owned(), vec![format!("{rel}:{line}")]);
+                    }
+                }
+            }
+        }
+    }
+    let [stems, references, words] = hits;
     (
         MentionHits {
-            stems: flatten(stems),
-            references: flatten(references),
-            words: flatten(words),
+            stems,
+            references,
+            words,
         },
         truncated.load(Ordering::Relaxed),
     )

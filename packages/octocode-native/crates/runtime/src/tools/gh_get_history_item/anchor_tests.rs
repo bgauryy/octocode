@@ -6,6 +6,7 @@ use crate::id::ToolId;
 use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::test_support::{fixture_context, mock_provider};
 use crate::tools::test_support::{checks, published};
+use octocode_contract_types::ErrorCode;
 use octocode_github::RetryPolicy;
 use octocode_github::mock_http::mount_json;
 use serde_json::{Value, json};
@@ -24,7 +25,7 @@ impl ContentScan for Passthrough {
         &self,
         text: &str,
         _path: &Path,
-    ) -> Result<(String, Vec<String>), (String, String)> {
+    ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
         Ok((text.to_owned(), Vec::new()))
     }
 }

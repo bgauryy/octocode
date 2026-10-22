@@ -5,6 +5,7 @@ use super::identity::{call_identity, exe_identity, served_env, server_key, works
 use super::sockets::socket_in;
 use super::{read_line_bounded, same_dir_form};
 use crate::cli::Printed;
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -88,7 +89,7 @@ pub(in crate::cli) async fn call(
             Printed::finish(
                 tool,
                 Err(octocode_native::runtime::RuntimeError {
-                    code: "timeout".into(),
+                    code: ErrorCode::Timeout,
                     message: format!(
                         "The warm server sent no {tool} reply within {} s; the call was not run again in process.",
                         REPLY_DEADLINE.as_secs()

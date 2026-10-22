@@ -1154,5 +1154,13 @@ fn a_glob_extension_is_refused() {
         .err()
         .expect("refused");
     assert!(error.to_string().contains("pass it as include"), "{error}");
-    assert!(NameFilter::new(Path::new("."), &[], &["rs".to_owned(), ".ts".to_owned()], None).is_ok());
+    assert!(
+        NameFilter::new(
+            Path::new("."),
+            &[],
+            &["rs".to_owned(), ".ts".to_owned()],
+            None
+        )
+        .is_ok()
+    );
 }

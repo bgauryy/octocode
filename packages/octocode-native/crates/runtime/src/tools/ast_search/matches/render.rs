@@ -1,6 +1,7 @@
 //! Pages: files grouped into match pages, the page a query renders, why a
 //! page is empty, and its continuations.
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 pub(super) fn group_files(
     q: MatchQuery<'_>,
@@ -42,10 +43,7 @@ pub(super) fn group_files(
                 if let Some(diagnostic) = diagnostics.iter().find(|d| is_compile_failure(d)) {
                     grouped.compile_failed_files += 1;
                     grouped.compile_error.get_or_insert_with(|| {
-                        ToolError::new(
-                            crate::tools::ast_rule::INVALID_PATTERN,
-                            diagnostic.message.clone(),
-                        )
+                        ToolError::new(ErrorCode::InvalidPattern, diagnostic.message.clone())
                     });
                 } else if diagnostics
                     .iter()

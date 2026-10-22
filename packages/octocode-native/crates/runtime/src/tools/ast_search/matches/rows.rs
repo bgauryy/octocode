@@ -391,7 +391,11 @@ mod tests {
             (octocode_engine::structural::MATCH_DEADLINE, "timeout"),
             ("structural.unknown.failure", "executionFailed"),
         ] {
-            assert_eq!(diagnostic_error(&diagnostic(engine)).code, wire, "{engine}");
+            assert_eq!(
+                crate::id::error_codes::as_str(diagnostic_error(&diagnostic(engine)).code),
+                wire,
+                "{engine}"
+            );
         }
     }
 }

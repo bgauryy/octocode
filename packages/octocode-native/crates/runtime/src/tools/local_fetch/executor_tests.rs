@@ -18,6 +18,7 @@ mod timestamp_tests {
 mod source_size_tests {
     use super::super::*;
     use crate::execution::cancel::NeverCancel;
+    use octocode_contract_types::ErrorCode;
     use std::fs;
 
     use super::super::super::tests::{Paths, fetch_with, q};
@@ -66,8 +67,8 @@ mod source_size_tests {
             bytes.extend([0, 0]);
             fs::write(&file, &bytes).expect("binary");
             assert_eq!(
-                fetch(&query, &paths).error_code.as_deref(),
-                Some("binaryFileUnsupported")
+                fetch(&query, &paths).error_code,
+                Some(ErrorCode::BinaryFileUnsupported)
             );
         }
     }
@@ -88,7 +89,7 @@ mod source_size_tests {
             .set_len(MAX_SOURCE_BYTES + 2)
             .expect("length");
         let result = fetch(&q(&path), &Paths(root.path().into()));
-        assert_eq!(result.error_code.as_deref(), Some("fileTooLarge"));
+        assert_eq!(result.error_code, Some(ErrorCode::FileTooLarge));
         assert_eq!(result.terminal_limit, Some(true));
         assert!(
             result
@@ -142,7 +143,7 @@ mod source_size_tests {
         let result = fetch(&req, &Paths(dir.clone()));
 
         assert_eq!(result.status, ReadStatus::Error);
-        assert_eq!(result.error_code.as_deref(), Some("fileTooLarge"));
+        assert_eq!(result.error_code, Some(ErrorCode::FileTooLarge));
         assert_eq!(result.source_bytes, Some(len as usize));
         assert_eq!(result.terminal_limit, Some(true));
         assert!(
@@ -171,7 +172,7 @@ mod source_size_tests {
         };
         assert_eq!(len, MAX_SOURCE_BYTES + 1);
         let result = source_too_large("growing.txt", len, SourceSizeLimit::InMemoryGrowth);
-        assert_eq!(result.error_code.as_deref(), Some("fileTooLarge"));
+        assert_eq!(result.error_code, Some(ErrorCode::FileTooLarge));
         assert!(
             result
                 .error
@@ -294,7 +295,7 @@ mod source_size_tests {
             match_string: Some(MatchString::String("line 7 ".parse().expect("match"))),
             ..test_local_fetch_query()
         });
-        assert_eq!(matched.error_code.as_deref(), Some("largeSourceWindowOnly"));
+        assert_eq!(matched.error_code, Some(ErrorCode::LargeSourceWindowOnly));
         // The localSearch is an executable lead, and the tip stays short.
         let search = matched
             .next
@@ -616,6 +617,7 @@ mod line_page_scan_tests {
     use super::super::*;
     use crate::execution::cancel::NeverCancel;
     use crate::security::ContentSecurity;
+    use octocode_contract_types::ErrorCode;
     use std::path::Path;
 
     fn security() -> ContentSecurity {
@@ -1095,7 +1097,7 @@ mod line_page_scan_tests {
                 &self,
                 text: &str,
                 path: &Path,
-            ) -> Result<(String, Vec<String>), (String, String)> {
+            ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
                 self.1.set(self.1.get() + text.len());
                 self.0.sanitize(text, path)
             }
@@ -1163,6 +1165,7 @@ mod line_page_scan_tests {
 #[cfg(all(test, unix))]
 mod open_tests {
     use super::super::*;
+    use octocode_contract_types::ErrorCode;
 
     /// A FIFO is opened without blocking and refused by the handle's own
     /// stat, so a path swapped for one after the policy check cannot hang
@@ -1179,7 +1182,7 @@ mod open_tests {
             ..test_local_fetch_query()
         };
         let refused = resolve_file(&query(&fifo), &paths).expect_err("a FIFO is no file");
-        assert_eq!(refused.error_code.as_deref(), Some("notAFile"));
+        assert_eq!(refused.error_code, Some(ErrorCode::NotAFile));
         let (_, _, meta) =
             resolve_file(&query(&root.path().join("a.txt")), &paths).expect("regular file");
         assert_eq!(meta.len(), 2);
@@ -1209,7 +1212,7 @@ mod open_tests {
             None,
             None,
         );
-        assert_eq!(result.error_code.as_deref(), Some("notAFile"), "{result:?}");
+        assert_eq!(result.error_code, Some(ErrorCode::NotAFile), "{result:?}");
         let message = result.error.as_deref().unwrap_or_default();
         assert!(message.starts_with(&requested), "{message}");
         assert!(
@@ -1218,7 +1221,7 @@ mod open_tests {
         );
         use crate::response::output::ToolOutput;
         assert_eq!(
-            super::super::super::output::Output.error_hint("notAFile"),
+            super::super::super::output::Output.error_hint(ErrorCode::NotAFile),
             Some(crate::response::output::NO_HINT)
         );
     }

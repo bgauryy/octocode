@@ -11,6 +11,7 @@ use super::{
     ArtifactType,
 };
 use crate::providers::artifact::types::artifact_search_query;
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
 /// An exact Go module or package lookup on pkg.go.dev, pinned to
@@ -236,7 +237,7 @@ pub(crate) async fn go(
         // A token the registry no longer honors (`invalidInput`, a 4xx)
         // falls back to the walk, which reaches the same rows.
         Some(token) => match go_search(query, Some(token.to_owned()), client).await {
-            Err(error) if error.code == "invalidInput" => None,
+            Err(error) if error.code == ErrorCode::InvalidInput => None,
             other => Some(other?),
         },
         None => None,
@@ -401,7 +402,7 @@ fn go_version(requested: Option<&str>) -> Result<Option<String>, ArtifactError> 
         Some(VersionSpec::Tag(tag)) if tag == "latest" => Ok(None),
         Some(VersionSpec::Exact(version)) => Ok(Some(format!("v{version}"))),
         Some(VersionSpec::Tag(spec) | VersionSpec::Range(spec)) => Err(ArtifactError::new(
-            "capabilityUnavailable",
+            ErrorCode::CapabilityUnavailable,
             format!("Go lookups take an exact version or latest, not \"{spec}\"."),
         )),
     }
@@ -663,7 +664,7 @@ mod tests {
         let missing = go(&lookup(Some("v0.69.9")), &state, &client)
             .await
             .expect_err("unpublished");
-        assert_eq!(missing.code, "versionNotFound");
+        assert_eq!(missing.code, ErrorCode::VersionNotFound);
         assert!(
             missing.nearest.iter().any(|version| version == "0.70.0"),
             "{missing:?}"
@@ -671,7 +672,7 @@ mod tests {
         let range = go(&lookup(Some("^0.71")), &state, &client)
             .await
             .expect_err("range");
-        assert_eq!(range.code, "capabilityUnavailable");
+        assert_eq!(range.code, ErrorCode::CapabilityUnavailable);
     }
 
     /// A vanity module path names neither its repository directory nor its

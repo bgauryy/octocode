@@ -6,6 +6,7 @@ use super::pagination::{SourceLines, page_within, sanitize_byte_page, sanitize_l
 use super::prepare::*;
 use super::types::*;
 use crate::security::scan::ContentScan;
+use octocode_contract_types::ErrorCode;
 
 /// One returned page after the secret scan.
 pub(super) struct ScannedPage {
@@ -78,13 +79,13 @@ pub(super) fn scan_page(
     }
     let (safe, warnings) = match security.sanitize(selected, source_path) {
         Ok(scanned) => scanned,
-        Err((code, _)) if code == "contentSecurityLimit" => {
-            return Err(Box::new(security_limit(q, &code, source, first_line)));
+        Err((code, _)) if code == ErrorCode::ContentSecurityLimit => {
+            return Err(Box::new(security_limit(q, code, source, first_line)));
         }
         Err((code, message)) => {
             return Err(Box::new(LocalFetchResult::error(
                 q.path.to_string(),
-                &code,
+                code,
                 message,
             )));
         }
@@ -117,7 +118,7 @@ pub(super) fn scan_page(
 /// source line instead.
 fn security_limit(
     q: &LocalFetchQuery,
-    code: &str,
+    code: ErrorCode,
     source: &Source,
     first_line: Option<usize>,
 ) -> LocalFetchResult {

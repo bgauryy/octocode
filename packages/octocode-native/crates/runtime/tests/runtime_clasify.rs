@@ -2,6 +2,7 @@
 //! captured through the authorized readers, answered by a mock provider.
 
 use crate::support::{Run as _, Workspace, clasify_runtime, github_api, provider_env};
+use octocode_contract_types::ErrorCode;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -160,7 +161,7 @@ async fn public_clasify_requires_beta_and_a_nonblank_key_independently() {
             )
             .await
             .expect_err("an unmet prerequisite blocks public clasify");
-        assert_eq!(error.code, "missingConfiguration");
+        assert_eq!(error.code, ErrorCode::MissingConfiguration);
         assert!(error.message.contains(missing), "{}", error.message);
         runtime.close().await;
     }
@@ -594,7 +595,7 @@ async fn a_disabled_reader_is_rejected_at_validation_before_any_work() {
         )
         .await
         .expect_err("rejected at validation");
-    assert_eq!(error.code, "invalidInput", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidInput, "{error:?}");
     let issues = error.validation_issues.expect("field issues");
     assert_eq!(issues[0].rule_id, "clasify.source-reader-available");
     assert_eq!(issues[0].path, ["queries", "0", "source"]);
@@ -624,7 +625,7 @@ async fn removed_matrix_input_is_rejected_not_converted() {
             )
             .await
             .expect_err("legacy shape");
-        assert_eq!(error.code, "invalidInput", "{legacy}");
+        assert_eq!(error.code, ErrorCode::InvalidInput, "{legacy}");
     }
     runtime.close().await;
 }
@@ -848,14 +849,10 @@ async fn a_selection_past_its_deadline_withholds_bodies_and_recovers() {
     assert_eq!(selection["status"], "partial", "{late}");
     assert_eq!(selection["unknownItems"], 1, "{late}");
     assert_eq!(selection["selectedItems"], 0, "{late}");
-    let warnings = late["warnings"].as_array().expect("warnings");
-    assert_eq!(warnings.len(), 1, "one notice: {late}");
-    assert!(
-        warnings[0]
-            .as_str()
-            .is_some_and(|notice| notice.contains("next.unfiltered")),
-        "{late}"
-    );
+    // No static reminder: the receipt and `next.unfiltered` are the
+    // per-call facts; "not proof of absence" is said once, in the
+    // instructions.
+    assert!(late.get("warnings").is_none(), "{late}");
     assert!(
         !late.to_string().contains("UNKNOWN_SELECTION_SENTINEL"),
         "{late}"

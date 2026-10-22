@@ -159,13 +159,9 @@ impl Layout {
         };
         // Content views emit a resolved context window per match row; windows of
         // nearby rows overlap, so merge them into one block per run of lines.
-        // matchOnly carries exact spans and multiline rows span several
-        // lines, so neither has per-row windows to merge.
-        let merge_context = (!list
-            && !match_only
-            && query.multiline == LocalSearchQueryMultiline::Off
-            && !context.is_empty())
-        .then_some(context);
+        // matchOnly carries exact spans, so it has no windows. A multiline
+        // row spanning several lines is numbered as its own block.
+        let merge_context = (!list && !match_only && !context.is_empty()).then_some(context);
         Ok(Self {
             list,
             out_of_range: total_files > 0 && local_search_query::page(query).max(1) > total_pages,

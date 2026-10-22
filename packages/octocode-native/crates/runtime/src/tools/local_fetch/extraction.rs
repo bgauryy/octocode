@@ -1,8 +1,8 @@
 use super::types::{
-    ExtractionError, ExtractionErrorKind, LineRange, LocalFetchQuery, NextCalls, RegexSpans,
-    line_read, uncovered,
+    ExtractionError, LineRange, LocalFetchQuery, NextCalls, RegexSpans, line_read, uncovered,
 };
 use crate::tools::local_fetch::types::local_fetch_query;
+use octocode_contract_types::ErrorCode;
 use octocode_engine::text::case_fold::Folded;
 
 pub struct Extraction {
@@ -129,7 +129,7 @@ fn ranges_extract(
     }
     if kept.is_empty() {
         return Err(ExtractionError::new(
-            ExtractionErrorKind::InvalidInput,
+            ErrorCode::InvalidInput,
             format!("Requested lines start past the file end ({total} lines)"),
         ));
     }
@@ -270,7 +270,7 @@ fn failing_item(
     pattern: &str,
     count: usize,
 ) -> ExtractionError {
-    if error.kind != ExtractionErrorKind::InvalidPattern {
+    if error.code != ErrorCode::InvalidPattern {
         return error;
     }
     let item = if count > 1 {
@@ -305,7 +305,7 @@ fn rust_ranges(
     let probe = MAX_REGEX_MATCHES + 1;
     let mut spans = rust_find_ranges(pattern, !case_sensitive, content, probe).map_err(
         |RustRangesError::InvalidPattern(reason)| {
-            ExtractionError::new(ExtractionErrorKind::InvalidPattern, reason)
+            ExtractionError::new(ErrorCode::InvalidPattern, reason)
         },
     )?;
     let truncated = spans.len() > MAX_REGEX_MATCHES;
@@ -334,10 +334,10 @@ fn pcre2_ranges(
     let mut spans = pcre2_find_ranges(pattern, !case_sensitive, content, probe).map_err(
         |error| match error {
             Pcre2RangesError::InvalidPattern(message) => {
-                ExtractionError::new(ExtractionErrorKind::InvalidPattern, message)
+                ExtractionError::new(ErrorCode::InvalidPattern, message)
             }
             Pcre2RangesError::Unavailable(message) => {
-                ExtractionError::new(ExtractionErrorKind::ExecutionFailed, message)
+                ExtractionError::new(ErrorCode::ExecutionFailed, message)
             }
         },
     )?;
@@ -510,7 +510,7 @@ fn ranged_spans(
     if local_fetch_query::has_ranges(q) {
         if regions.is_empty() {
             return Err(ExtractionError::new(
-                ExtractionErrorKind::InvalidInput,
+                ErrorCode::InvalidInput,
                 format!(
                     "Requested lines start past the file end ({} lines)",
                     lines.len()
@@ -622,8 +622,10 @@ fn match_extract(
         continue_block: line_read(q, &first_unseen(oversized, &ranges)).and_then(follow_up),
         ..NextCalls::default()
     };
+    // Only the default window may grow to a small declaration: an explicit
+    // `contextLines` is that many lines, as `rg -C N` is.
     if !local_fetch_query::block(q)
-        && local_fetch_query::context_lines(q) != Some(0)
+        && local_fetch_query::context_lines(q).is_none()
         && content.len() <= INLINE_PARSE_MAX_BYTES
         && !hits
             .iter()

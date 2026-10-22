@@ -24,6 +24,7 @@ use crate::security::ContentSecurity;
 use crate::tools::judgment::ClassificationError;
 use crate::tools::source_capture::SourceReader;
 use fetch::Fetch;
+use octocode_contract_types::ErrorCode;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -102,7 +103,7 @@ fn select_image(
     let whole_image = |url: &Url| {
         if url.fragment().is_some() {
             Err(failure(
-                "invalidClassificationContext",
+                ErrorCode::InvalidClassificationContext,
                 "An image URL cannot select a fragment; the complete image is judged.",
                 "Pass a direct image URL without a fragment.",
             ))
@@ -124,7 +125,7 @@ fn select_image(
         .to_ascii_lowercase();
     if !matches!(media.as_str(), "image/png" | "image/jpeg") {
         return Err(failure(
-            "classificationContextUnavailable",
+            ErrorCode::ClassificationContextUnavailable,
             "The URL did not return PNG or JPEG image content; nothing was judged.",
             "Pass a direct PNG or JPEG URL, not a page embedding the image.",
         ));
@@ -136,7 +137,7 @@ fn select_image(
 fn parse(address: &str) -> Result<Url, ClassificationError> {
     let url = Url::parse(address).map_err(|_| {
         failure(
-            "invalidClassificationContext",
+            ErrorCode::InvalidClassificationContext,
             "The source URL does not parse.",
             "Pass an absolute https:// URL.",
         )
@@ -188,12 +189,12 @@ struct Selection {
 fn stopped(stop: crate::execution::ExecutionError) -> ClassificationError {
     match stop {
         crate::execution::ExecutionError::Cancelled => failure(
-            "cancelled",
+            ErrorCode::Cancelled,
             "The call stopped before its page was captured.",
             crate::response::rows::CANCELLED_HINT,
         ),
         _ => failure(
-            "timeout",
+            ErrorCode::Timeout,
             "The page was not captured before the call's deadline.",
             "Retry with more time, or supply the page text as state.",
         ),
@@ -225,7 +226,7 @@ fn select(
     let text = redaction.apply(&text);
     if text.chars().count() > max_chars {
         return Err(failure(
-            "classificationContextTooLarge",
+            ErrorCode::ClassificationContextTooLarge,
             format!(
                 "The page text exceeds the {max_chars}-character state limit; nothing was judged."
             ),
@@ -246,7 +247,7 @@ fn follow(fetcher: &impl Fetch, mut url: Url) -> Result<(Url, Reply), Classifica
         }
         if !(300..400).contains(&reply.status) {
             return Err(failure(
-                "classificationContextFailed",
+                ErrorCode::ClassificationContextFailed,
                 format!(
                     "The page answered HTTP {}; nothing was judged.",
                     reply.status
@@ -259,7 +260,7 @@ fn follow(fetcher: &impl Fetch, mut url: Url) -> Result<(Url, Reply), Classifica
         }
         let location = reply.location.as_deref().ok_or_else(|| {
             failure(
-                "classificationContextFailed",
+                ErrorCode::ClassificationContextFailed,
                 format!(
                     "The page answered HTTP {} without a Location.",
                     reply.status
@@ -269,7 +270,7 @@ fn follow(fetcher: &impl Fetch, mut url: Url) -> Result<(Url, Reply), Classifica
         })?;
         let mut next = url.join(location).map_err(|_| {
             failure(
-                "classificationContextFailed",
+                ErrorCode::ClassificationContextFailed,
                 "The page redirected to a URL that does not parse.",
                 "Check the URL.",
             )
@@ -281,7 +282,7 @@ fn follow(fetcher: &impl Fetch, mut url: Url) -> Result<(Url, Reply), Classifica
         url = next;
     }
     Err(failure(
-        "classificationContextFailed",
+        ErrorCode::ClassificationContextFailed,
         format!("The page redirected more than {MAX_REDIRECTS} times; nothing was judged."),
         "Pass the final URL directly.",
     ))
@@ -333,7 +334,7 @@ fn decode(reply: &Reply) -> Result<(String, String), ClassificationError> {
 
 fn unsupported(message: &str) -> ClassificationError {
     failure(
-        "classificationContextUnavailable",
+        ErrorCode::ClassificationContextUnavailable,
         message,
         "Capture an HTML or text page, or supply the content as state.",
     )
@@ -351,27 +352,27 @@ fn extraction_failure(
             .err()
             .unwrap_or_else(|| stopped(crate::execution::ExecutionError::Timeout)),
         extract::Failure::Empty { scripted: true } => failure(
-            "classificationContextUnavailable",
+            ErrorCode::ClassificationContextUnavailable,
             "The page has no static text: it builds its content with scripts.",
             "Read the rendered page in a browser and supply its text as state.",
         ),
         extract::Failure::Empty { scripted: false } => failure(
-            "classificationContextEmpty",
+            ErrorCode::ClassificationContextEmpty,
             "The page has no text; nothing was judged.",
             "Check the URL.",
         ),
         extract::Failure::MissingAnchor => failure(
-            "classificationContextEmpty",
+            ErrorCode::ClassificationContextEmpty,
             format!("No element on the page is anchored #{fragment}; nothing was judged."),
             "Use an anchor the page defines, or drop the fragment to capture the whole page.",
         ),
         extract::Failure::AmbiguousAnchor(count) => failure(
-            "classificationContextEmpty",
+            ErrorCode::ClassificationContextEmpty,
             format!("{count} elements on the page are anchored #{fragment}; nothing was judged."),
             "Use an anchor the page defines once, or drop the fragment.",
         ),
         extract::Failure::EmptySection => failure(
-            "classificationContextEmpty",
+            ErrorCode::ClassificationContextEmpty,
             format!("The section anchored #{fragment} has no text; nothing was judged."),
             "Use another anchor, or drop the fragment to capture the whole page.",
         ),
@@ -414,7 +415,7 @@ impl<'a> Store<'a> {
     pub(super) fn open(dispatcher: &'a dyn SourceReader) -> Result<Self, ClassificationError> {
         if !crate::config::is_persistent_storage_enabled(&dispatcher.config().resolved) {
             return Err(failure(
-                "classificationContextUnavailable",
+                ErrorCode::ClassificationContextUnavailable,
                 "Source captures need persistent storage to save the exact evidence; storage.mode is memory.",
                 "Use persistent storage for unread source captures.",
             ));
@@ -422,7 +423,7 @@ impl<'a> Store<'a> {
         let reader = ToolId::LocalFetch.as_str();
         if !dispatcher.availability().is_available(reader) {
             return Err(failure(
-                "classificationContextUnavailable",
+                ErrorCode::ClassificationContextUnavailable,
                 format!(
                     "Source capture storage requires {reader}, which is not available in this runtime."
                 ),
@@ -447,14 +448,14 @@ impl<'a> Store<'a> {
         // allowed root's missing parents are not inside that root.
         let outside = |_| {
             failure(
-                "classificationContextUnavailable",
+                ErrorCode::ClassificationContextUnavailable,
                 "The capture directory is outside the local path policy.",
                 "Supply the page text as state.",
             )
         };
         octocode_io::atomic::create_private_dir_all(&root).map_err(|_| {
             failure(
-                "classificationContextUnavailable",
+                ErrorCode::ClassificationContextUnavailable,
                 "The capture directory could not be created.",
                 "Check that the Octocode home is writable, or supply the text as state.",
             )
@@ -505,7 +506,7 @@ impl<'a> Store<'a> {
         let file = directory.join(name);
         let unsaved = |_| {
             failure(
-                "classificationContextUnavailable",
+                ErrorCode::ClassificationContextUnavailable,
                 "The captured source could not be saved; nothing was judged.",
                 "Check that the Octocode home is writable.",
             )
@@ -514,7 +515,7 @@ impl<'a> Store<'a> {
         octocode_io::atomic::write_atomic(&file, bytes, false).map_err(unsaved)?;
         let readable = self.paths.validate_read(&file).map_err(|_| {
             failure(
-                "classificationContextUnavailable",
+                ErrorCode::ClassificationContextUnavailable,
                 "The saved capture is not readable under the local path policy.",
                 "Supply the page text as state.",
             )

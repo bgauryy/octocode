@@ -6,6 +6,7 @@ use super::{
 };
 use crate::id::ToolId;
 use crate::response::selection_errors::{receipt_kind, unavailable};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
 /// Select the sanitized evidence of one provider page. Never hydrate hidden
@@ -64,9 +65,12 @@ pub(crate) fn apply_sanitized_rows(
         let Some(Value::Array(values)) = data.get_mut("files").map(Value::take) else {
             row["status"] = json!("error");
             row["data"] = json!({
-                "errorCode":"invalidClassificationView",
+                "errorCode":ErrorCode::InvalidClassificationView,
                 "error":"Classification requires an array of source evidence candidates.",
-                "selection": unavailable_receipt(0, "invalidClassificationView"),
+                "selection": unavailable_receipt(
+                    0,
+                    crate::id::error_codes::as_str(ErrorCode::InvalidClassificationView),
+                ),
                 "next":{"unfiltered":provider_page_unfiltered(tool, query)}
             });
             continue;

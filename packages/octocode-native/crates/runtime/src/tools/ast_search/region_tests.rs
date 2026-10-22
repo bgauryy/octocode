@@ -1,5 +1,6 @@
 use super::test_rows::run;
 use crate::tools::test_support::Fixture;
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
 #[test]
@@ -84,7 +85,7 @@ fn scope_rejects_directories_out_of_bounds_and_mid_surrogate_positions() {
         ),
     ] {
         let error = run(&root.0, json!({"path":path,"operation":"match","pattern":"foo($X)","scope":{"start":start,"end":end}})).expect_err("invalid scope");
-        assert_eq!(error.code, "invalidInput");
+        assert_eq!(error.code, ErrorCode::InvalidInput);
     }
     let found = run(&root.0, json!({"path":file,"operation":"match","pattern":"foo($X)","scope":{"start":{"line":1,"column":7},"end":{"line":1,"column":13}}})).expect("UTF-16 region");
     assert_eq!(found["matchCount"], 1);

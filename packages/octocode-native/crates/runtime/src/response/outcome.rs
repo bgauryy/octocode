@@ -2,6 +2,7 @@
 //! ([`DomainResult`]) and one finished call ([`ToolOutcome`]).
 use crate::response::pager::TextContent;
 use crate::response::result::{FailureKind, failure_kind};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
 #[derive(Debug)]
@@ -31,6 +32,7 @@ impl DomainResult {
         let failure = (status == Some("error")).then(|| {
             data.get("errorCode")
                 .and_then(Value::as_str)
+                .and_then(crate::id::error_codes::parse)
                 .map_or(FailureKind::Execution, failure_kind)
         });
         Self {
@@ -47,14 +49,13 @@ impl DomainResult {
     /// The one error row: `error`, `errorCode`, then `hints` (when any) and
     /// `next` (when any). Arms add context fields to `data` afterwards.
     pub(crate) fn failure(
-        code: impl Into<String>,
+        code: ErrorCode,
         message: impl Into<String>,
         hints: Vec<String>,
         next: Option<Value>,
     ) -> Self {
-        let code = code.into();
         // One exit class per code: the contract's table decides it.
-        let kind = failure_kind(&code);
+        let kind = failure_kind(code);
         let mut data = json!({"error": message.into(), "errorCode": code});
         if !hints.is_empty() {
             data["hints"] = json!(hints);
@@ -91,7 +92,7 @@ impl DomainResult {
     /// (`requestId`, `documentationUrl`) afterwards. Other error emitters
     /// (clasify's resource errors) mirror these field names.
     pub(crate) fn provider(
-        code: impl Into<String>,
+        code: ErrorCode,
         message: impl Into<String>,
         hints: Vec<String>,
         next: Option<Value>,

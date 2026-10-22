@@ -5,6 +5,7 @@
 
 use crate::runtime_clasify::{clasify, sent};
 use crate::support::{Run as _, Workspace, capture_allowed, clasify_runtime};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 use wiremock::MockServer;
 
@@ -63,7 +64,7 @@ async fn a_non_https_url_is_rejected_at_validation() {
         )
         .await
         .expect_err("the contract admits only https URLs");
-    assert_eq!(error.code, "invalidInput", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidInput, "{error:?}");
     assert_eq!(sent(&server).await.len(), 0);
     runtime.close().await;
 }
@@ -88,7 +89,7 @@ async fn a_url_source_needs_local_fetch_to_read_its_capture_back() {
         )
         .await
         .expect_err("rejected at validation");
-    assert_eq!(error.code, "invalidInput", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidInput, "{error:?}");
     let issues = error.validation_issues.expect("field issues");
     assert_eq!(issues[0].rule_id, "clasify.source-reader-available");
     assert_eq!(issues[0].path, ["queries", "0", "source"]);
@@ -116,7 +117,7 @@ async fn a_url_with_credentials_is_refused_before_any_work() {
         )
         .await
         .expect_err("a credential in the URL is refused");
-    assert_eq!(error.code, "invalidInput", "{error:?}");
+    assert_eq!(error.code, ErrorCode::InvalidInput, "{error:?}");
     assert!(!format!("{error:?}").contains("hunter2"), "{error:?}");
     assert_eq!(sent(&server).await.len(), 0);
     runtime.close().await;

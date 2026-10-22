@@ -1,4 +1,5 @@
 use super::*;
+use octocode_contract_types::ErrorCode;
 
 fn selection_runtime(handle: tokio::runtime::Handle) -> crate::tools::selection::Runtime {
     use crate::tools::test_support::selection_fake;
@@ -60,7 +61,7 @@ fn context_read_replays_selected_plan_and_rejects_source_drift() {
     switched_to_full.offset = None;
     switched_to_full.length = None;
     assert_eq!(
-        read(&switched_to_full).error_code.as_deref(),
+        read(&switched_to_full).error_code,
         None,
         "fullContent changes output paging, not the bound extraction"
     );
@@ -69,12 +70,9 @@ fn context_read_replays_selected_plan_and_rejects_source_drift() {
         serde_json::from_value(serde_json::json!({"classifiers":["a different goal"]}))
             .expect("context"),
     );
-    assert_eq!(read(&changed).error_code.as_deref(), Some("staleSnapshot"));
+    assert_eq!(read(&changed).error_code, Some(ErrorCode::StaleSnapshot));
     fs::write(&path, "changed evidence\n").expect("change source");
-    assert_eq!(
-        read(&continued).error_code.as_deref(),
-        Some("staleSnapshot")
-    );
+    assert_eq!(read(&continued).error_code, Some(ErrorCode::StaleSnapshot));
 }
 
 #[test]
@@ -132,8 +130,8 @@ fn a_refused_classified_read_keeps_its_window_in_the_unfiltered_lead() {
         );
         let row = execute_local_fetch(&query, &paths, &Safe, &NeverCancel, None, None);
         assert_eq!(
-            row.error_code.as_deref(),
-            Some("invalidInput"),
+            row.error_code,
+            Some(ErrorCode::InvalidInput),
             "{read}: {row:?}"
         );
         let lead = row
@@ -180,7 +178,7 @@ fn selection_recovery_keeps_fetch_snapshot_and_rejects_changed_source() {
     assert_eq!(recovered.content.as_deref(), Some("original evidence\n"));
     fs::write(&path, "changed evidence\n").expect("change source");
     let changed = execute_local_fetch(&recovery, &paths, &Safe, &NeverCancel, None, None);
-    assert_eq!(changed.error_code.as_deref(), Some("staleSnapshot"));
+    assert_eq!(changed.error_code, Some(ErrorCode::StaleSnapshot));
     assert_eq!(
         recovery.snapshot.as_ref().map(|value| value.as_str()),
         Some(captured.as_str())
@@ -235,7 +233,7 @@ fn unknown_and_whole_selection_recovery_reject_source_drift() {
     fs::write(&path, changed_source).expect("change source");
     for (recovery, _) in &recoveries {
         let changed = fetch(recovery, &paths);
-        assert_eq!(changed.error_code.as_deref(), Some("staleSnapshot"));
+        assert_eq!(changed.error_code, Some(ErrorCode::StaleSnapshot));
         assert!(changed.content.as_deref().unwrap_or_default().is_empty());
     }
 }
@@ -296,7 +294,7 @@ fn unread_block_and_whole_line_recovery_reject_source_drift() {
         );
         fs::write(&path, changed).expect("change source");
         let stale = fetch(&recovery, &paths);
-        assert_eq!(stale.error_code.as_deref(), Some("staleSnapshot"), "{kind}");
+        assert_eq!(stale.error_code, Some(ErrorCode::StaleSnapshot), "{kind}");
         assert!(
             stale.content.as_deref().unwrap_or_default().is_empty(),
             "{kind}"
@@ -666,7 +664,7 @@ fn missing_files_in_a_sparse_checkout_say_so() {
     assert!(error.contains("clone/docs/guide.md"), "{error}");
     assert!(error.contains("sparse checkout"), "{error}");
 
-    assert_eq!(r.error_code.as_deref(), Some("pathNotFound"), "{r:?}");
+    assert_eq!(r.error_code, Some(ErrorCode::PathNotFound), "{r:?}");
 
     // An ordinary repository keeps the plain not-found message, under
     // the not-found code the other local tools use; the recovery advice
@@ -678,7 +676,7 @@ fn missing_files_in_a_sparse_checkout_say_so() {
         Some("Path does not exist: clone/docs/guide.md"),
         "{r:?}"
     );
-    assert_eq!(r.error_code.as_deref(), Some("pathNotFound"), "{r:?}");
+    assert_eq!(r.error_code, Some(ErrorCode::PathNotFound), "{r:?}");
     assert!(r.resource_missing, "{r:?}");
 }
 #[test]
@@ -996,8 +994,8 @@ fn ranges_matches_redaction_and_binary() {
     let bin = t.0.join("b.bin");
     fs::write(&bin, [0, 1, 2]).expect("test fixture operation should succeed");
     assert_eq!(
-        fetch(&q(&bin), &paths).error_code.as_deref(),
-        Some("binaryFileUnsupported")
+        fetch(&q(&bin), &paths).error_code,
+        Some(ErrorCode::BinaryFileUnsupported)
     )
 }
 #[test]
@@ -1013,7 +1011,7 @@ fn cancellation_is_checked_around_io() {
         None,
         None,
     );
-    assert_eq!(r.error_code.as_deref(), Some("cancelled"))
+    assert_eq!(r.error_code, Some(ErrorCode::Cancelled))
 }
 #[test]
 fn schema_rejects_unknown_fields_and_invalid_combinations() {
@@ -1236,8 +1234,12 @@ fn full_content_limits_return_executable_continuations() {
 fn security_limit_is_terminal_but_offers_a_bounded_line_read() {
     struct Limited;
     impl ContentScan for Limited {
-        fn sanitize(&self, _: &str, _: &Path) -> Result<(String, Vec<String>), (String, String)> {
-            Err(("contentSecurityLimit".into(), "limited".into()))
+        fn sanitize(
+            &self,
+            _: &str,
+            _: &Path,
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
+            Err((ErrorCode::ContentSecurityLimit, "limited".into()))
         }
     }
     let t = Fixture::new();
@@ -1251,7 +1253,7 @@ fn security_limit_is_terminal_but_offers_a_bounded_line_read() {
         None,
         None,
     );
-    assert_eq!(result.error_code.as_deref(), Some("contentSecurityLimit"));
+    assert_eq!(result.error_code, Some(ErrorCode::ContentSecurityLimit));
     assert_eq!(result.terminal_limit, Some(true));
     assert!(
         result
@@ -1638,8 +1640,9 @@ fn block_reads_through_the_enclosing_declaration() {
     assert_eq!(r.matched_lines, vec![5, 10]);
 }
 
-/// A match window that stops inside its declaration shows a short rest
-/// inline and leaves a long one unshown with no automatic reread lead:
+/// A default match window that stops inside its declaration shows a short
+/// rest inline; an explicit `contextLines` is exactly that many lines (as
+/// `rg -C N`). A long rest stays unshown with no automatic reread lead:
 /// `block` or `ranges` reads it when the caller needs it.
 #[test]
 fn a_cut_declaration_inlines_a_short_rest_and_offers_no_reread_of_a_long_one() {
@@ -1658,10 +1661,7 @@ fn a_cut_declaration_inlines_a_short_rest_and_offers_no_reread_of_a_long_one() {
     )
     .expect("fixture");
     let paths = Paths(t.0.clone());
-    let short = qj(
-        &p,
-        serde_json::json!({"matchString": "needle_small", "contextLines": 2}),
-    );
+    let short = qj(&p, serde_json::json!({"matchString": "needle_small"}));
     let r = fetch(&short, &paths);
     assert_eq!(
         r.source_line_ranges,
@@ -1670,6 +1670,17 @@ fn a_cut_declaration_inlines_a_short_rest_and_offers_no_reread_of_a_long_one() {
     );
     assert_eq!(r.matched_lines, vec![3]);
     assert!(r.next.is_none(), "{r:?}");
+    // The caller's own window is kept exactly.
+    let exact_two = qj(
+        &p,
+        serde_json::json!({"matchString": "needle_small", "contextLines": 2}),
+    );
+    let r = fetch(&exact_two, &paths);
+    assert_eq!(
+        r.source_line_ranges,
+        vec![LineRange { start: 1, end: 5 }],
+        "{r:?}"
+    );
     let long = qj(
         &p,
         serde_json::json!({"matchString": "needle_big", "contextLines": 2}),
@@ -1978,7 +1989,7 @@ fn a_large_source_is_prepared_once_per_version() {
             &self,
             text: &str,
             _: &Path,
-        ) -> Result<(String, Vec<String>), (String, String)> {
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
             Ok((text.to_owned(), vec![]))
         }
         fn redact_key_blocks(&self, content: &str) -> (String, bool) {
@@ -2027,7 +2038,7 @@ fn concurrent_rows_share_one_preparation() {
             &self,
             text: &str,
             _: &Path,
-        ) -> Result<(String, Vec<String>), (String, String)> {
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
             Ok((text.to_owned(), vec![]))
         }
         fn redact_key_blocks(&self, content: &str) -> (String, bool) {
@@ -2151,7 +2162,7 @@ fn a_kept_symbols_view_is_served_without_a_rescan() {
             &self,
             text: &str,
             _: &Path,
-        ) -> Result<(String, Vec<String>), (String, String)> {
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok((text.to_owned(), vec![]))
         }
@@ -2208,7 +2219,7 @@ fn a_classified_read_with_an_unsupported_view_is_refused_before_any_scan() {
             &self,
             text: &str,
             _: &Path,
-        ) -> Result<(String, Vec<String>), (String, String)> {
+        ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok((text.to_owned(), vec![]))
         }
@@ -2237,8 +2248,8 @@ fn a_classified_read_with_an_unsupported_view_is_refused_before_any_scan() {
             None,
         );
         assert_eq!(
-            r.error_code.as_deref(),
-            Some("invalidInput"),
+            r.error_code,
+            Some(ErrorCode::InvalidInput),
             "{fields}: {r:?}"
         );
         assert!(r.source_sha256.is_some());
@@ -2291,8 +2302,8 @@ fn a_late_nul_byte_makes_an_in_memory_source_binary() {
     fs::write(&p, bytes).expect("fixture");
     let r = fetch(&q(&p), &Paths(t.0.clone()));
     assert_eq!(
-        r.error_code.as_deref(),
-        Some("binaryFileUnsupported"),
+        r.error_code,
+        Some(ErrorCode::BinaryFileUnsupported),
         "{r:?}"
     );
 }

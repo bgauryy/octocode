@@ -7,6 +7,7 @@ use crate::config::{self, ConfigOutput};
 use crate::contracts;
 use crate::response::pager::{ResponsePageOptions, SavedPages};
 use crate::response::result::FailureKind;
+use octocode_contract_types::ErrorCode;
 
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
@@ -128,7 +129,7 @@ fn decode_saved_snapshot(snapshot: &str) -> Option<([u8; 32], String)> {
 
 pub(super) fn snapshot_expired() -> RuntimeError {
     RuntimeError::new(
-        "responseSnapshotExpired",
+        ErrorCode::ResponseSnapshotExpired,
         "The saved response is missing, expired or belongs to another tool, session or configuration. No source or provider was called. Pages expire after 120 seconds or earlier eviction; memory storage lasts only in the current runtime. Use persistent storage across CLI calls, or explicitly rerun without responseSnapshot and responseOffset.",
     )
 }
@@ -177,7 +178,7 @@ impl ToolRuntime {
     ) -> Result<([u8; 32], Arc<PageReplay>), RuntimeError> {
         if input.get("queries").is_some() {
             return Err(RuntimeError::new(
-                "invalidInput",
+                ErrorCode::InvalidInput,
                 "Saved response reads accept only responseSnapshot, responseOffset, responseLength and responseScope; remove queries or start a new call without responseSnapshot.",
             ));
         }
@@ -202,7 +203,7 @@ impl ToolRuntime {
                 .is_some_and(|scope| scope != replay.page_scope)
         {
             return Err(RuntimeError::new(
-                "responsePageMismatch",
+                ErrorCode::ResponsePageMismatch,
                 "Keep responseLength and responseScope unchanged when reading a saved response. Copy responsePagination.next; no source or provider was called.",
             ));
         }

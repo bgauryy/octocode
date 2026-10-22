@@ -2,6 +2,7 @@
 //! holds, the compile probe, grammar inference, one invalid-pattern error,
 //! and the language globs a graph-facts scan takes.
 
+use octocode_contract_types::ErrorCode;
 use std::collections::{BTreeMap, BTreeSet};
 
 use octocode_engine::signatures::languages;
@@ -61,9 +62,6 @@ impl GlobParsers {
     }
 }
 
-/// Error code for a pattern or rule that compiles for no grammar.
-pub(crate) const INVALID_PATTERN: &str = "invalidPattern";
-
 /// A diagnostic that says the query does not compile in the file's grammar.
 pub(crate) fn is_compile_failure(
     diagnostic: &octocode_engine::structural::StructuralDiagnostic,
@@ -74,7 +72,7 @@ pub(crate) fn is_compile_failure(
     )
 }
 
-/// Recovery for [`INVALID_PATTERN`], in both tools: the code covers a
+/// Recovery for `invalidPattern`, in both tools: the code covers a
 /// pattern that parses as no node and a rule whose YAML does not parse.
 pub(crate) const INVALID_PATTERN_HINT: &str = "Make each pattern one complete, parseable node and a rule valid YAML; astSearch operation:\"syntaxTree\" shows the shape.";
 
@@ -177,7 +175,7 @@ pub(crate) fn group_diagnostics(rows: Vec<serde_json::Value>) -> Vec<serde_json:
 /// A rule that does not compile, as both tools report it.
 #[derive(Clone, Debug)]
 pub(crate) struct RuleError {
-    pub code: &'static str,
+    pub code: ErrorCode,
     pub message: String,
 }
 
@@ -205,7 +203,7 @@ pub(crate) fn compile_check(
         {
             Some(diagnostic) => {
                 first_error.get_or_insert_with(|| RuleError {
-                    code: INVALID_PATTERN,
+                    code: ErrorCode::InvalidPattern,
                     message: diagnostic.message.clone(),
                 });
             }

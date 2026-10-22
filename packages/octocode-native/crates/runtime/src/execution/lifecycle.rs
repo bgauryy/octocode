@@ -1,3 +1,4 @@
+use octocode_contract_types::ErrorCode;
 use octocode_github::{CredentialSource, ResolvedCredential};
 use secrecy::SecretString;
 use serde::Serialize;
@@ -71,15 +72,15 @@ pub enum ExecutionError {
 impl ExecutionError {
     /// The declared `errorCodes` entry this failure reports.
     #[must_use]
-    pub const fn code(self) -> &'static str {
+    pub const fn code(self) -> ErrorCode {
         match self {
-            Self::Closed => "closed",
-            Self::Busy => "busy",
-            Self::DuplicateRequest => "duplicateRequest",
-            Self::Cancelled => "cancelled",
-            Self::Timeout => "timeout",
-            Self::UnroutedTool => "unroutedTool",
-            Self::InvalidLimits | Self::WorkerFailed => "executionFailed",
+            Self::Closed => ErrorCode::Closed,
+            Self::Busy => ErrorCode::Busy,
+            Self::DuplicateRequest => ErrorCode::DuplicateRequest,
+            Self::Cancelled => ErrorCode::Cancelled,
+            Self::Timeout => ErrorCode::Timeout,
+            Self::UnroutedTool => ErrorCode::UnroutedTool,
+            Self::InvalidLimits | Self::WorkerFailed => ErrorCode::ExecutionFailed,
         }
     }
 }

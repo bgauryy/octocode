@@ -8,6 +8,7 @@ use crate::id::ToolId;
 use crate::response::result::Confidence;
 use crate::response::{extras, rows};
 use crate::security::ValidationResult;
+use octocode_contract_types::ErrorCode;
 
 use serde_json::{Value, json};
 
@@ -23,7 +24,7 @@ fn rejected_row(
     let formatted = contracts::format_input_error(tool.as_str(), error);
     let mut data = json!({
         "error": formatted["error"],
-        "errorCode": "invalidInput",
+        "errorCode": ErrorCode::InvalidInput,
     });
     let one_row = json!({ "queries": [raw] });
     let issues = error
@@ -152,7 +153,7 @@ pub(super) fn invalid_input_error(
     error: contracts::ContractValidationError,
 ) -> RuntimeError {
     let mut payload = contracts::format_input_error(tool, &error);
-    payload["errorCode"] = json!("invalidInput");
+    payload["errorCode"] = json!(ErrorCode::InvalidInput);
     if let Some(repair) =
         ToolId::from_name(tool).and_then(|id| repair_lead(id, input, &error.issues))
     {
@@ -165,7 +166,7 @@ pub(super) fn invalid_input_error(
         crate::response::channels::publish_hints(&mut payload, id);
     }
     RuntimeError {
-        code: "invalidInput".into(),
+        code: ErrorCode::InvalidInput,
         message: error.to_string(),
         payload: Some(Box::new(payload)),
         validation_issues: Some(error.issues),
@@ -245,7 +246,7 @@ pub(super) fn output_contract_error(
         .collect::<Vec<_>>()
         .join("; ");
     RuntimeError {
-        code: "outputContractViolation".into(),
+        code: ErrorCode::OutputContractViolation,
         message: format!(
             "{tool} produced a response that violates its canonical output contract: {details}"
         ),
@@ -264,7 +265,7 @@ impl ToolRuntime {
         let requested = ToolId::from_name(tool);
         if mcp && requested.is_some_and(|id| id.is_cli_only() && !id.is_disabled()) {
             return Err(RuntimeError::new(
-                "toolUnavailable",
+                ErrorCode::ToolUnavailable,
                 format!("Tool {tool} is not available through MCP; run `octocode {tool}`."),
             ));
         }
@@ -274,7 +275,7 @@ impl ToolRuntime {
                 .map(|name| format!(" Did you mean {name}?"))
                 .unwrap_or_default();
             return Err(RuntimeError::new(
-                "invalidInput",
+                ErrorCode::InvalidInput,
                 format!(
                     "No tool is named {tool}.{nearest} Use one of {}.",
                     self.availability.available().join(", ")
@@ -295,10 +296,10 @@ impl ToolRuntime {
                     self.classification.defaults().docs_url
                 ));
             }
-            return Err(RuntimeError::new("missingConfiguration", message));
+            return Err(RuntimeError::new(ErrorCode::MissingConfiguration, message));
         }
         Err(RuntimeError::new(
-            "toolUnavailable",
+            ErrorCode::ToolUnavailable,
             format!("Tool {tool} is not available in this native runtime: {reason}"),
         ))
     }

@@ -5,6 +5,7 @@ use super::extraction::line_count;
 use super::types::*;
 use crate::execution::cancel::CancellationCheck;
 use crate::security::scan::ContentScan;
+use octocode_contract_types::ErrorCode;
 
 /// A returned window shows a private-key block redacted over the whole
 /// source before the window was cut.
@@ -203,7 +204,13 @@ pub(super) fn prepare_source(
     {
         return Err(Box::new(stale_snapshot(q)));
     }
-    let cancelled = |e| Box::new(LocalFetchResult::error(q.path.to_string(), "cancelled", e));
+    let cancelled = |e| {
+        Box::new(LocalFetchResult::error(
+            q.path.to_string(),
+            ErrorCode::Cancelled,
+            e,
+        ))
+    };
     cancel.check().map_err(cancelled)?;
     let prepared = prepared(
         bytes,
@@ -222,7 +229,7 @@ pub(super) fn prepare_source(
         let (text, redacted) = security
             .redact_source_lines(&prepared.keyed, source_path, &sha256)
             .map_err(|(code, message)| {
-                Box::new(LocalFetchResult::error(q.path.to_string(), &code, message))
+                Box::new(LocalFetchResult::error(q.path.to_string(), code, message))
             })?;
         (std::sync::Arc::new(text), redacted)
     } else {
@@ -254,17 +261,17 @@ pub(super) fn extraction_error(
     error: ExtractionError,
     total_lines: usize,
 ) -> LocalFetchResult {
-    let mut result =
-        LocalFetchResult::error(q.path.to_string(), error.kind.error_code(), error.message());
-    let repair = match error.kind {
-        ExtractionErrorKind::InvalidPattern => super::pattern_repair::repair(q),
-        ExtractionErrorKind::InvalidInput => local_fetch_query::last_window_span(q, total_lines)
-            .map(|(start, end)| {
+    let mut result = LocalFetchResult::error(q.path.to_string(), error.code, error.message());
+    let repair = match error.code {
+        ErrorCode::InvalidPattern => super::pattern_repair::repair(q),
+        ErrorCode::InvalidInput => {
+            local_fetch_query::last_window_span(q, total_lines).map(|(start, end)| {
                 let mut query = q.clone();
                 local_fetch_query::set_line_span(&mut query, start, end);
                 FetchCall { query }
-            }),
-        ExtractionErrorKind::ExecutionFailed => None,
+            })
+        }
+        _ => None,
     };
     result.next = repair.map(|repair| NextCalls {
         repair: Some(repair),

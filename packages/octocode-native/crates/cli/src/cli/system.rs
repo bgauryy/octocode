@@ -4,27 +4,19 @@
 //! the environment-management side of the CLI, distinct from tool dispatch in
 //! the parent module.
 use super::write_json;
+use octocode_contract_types::ErrorCode;
 use octocode_native::response::exit::ExitClass;
 use octocode_native::runtime::{FailureKind, ToolRuntime};
 use serde_json::json;
 
 /// A failed auth command: the one `{error, errorCode}` envelope (JSON) or
 /// the message and its next step (text), exiting by the code's class.
-fn auth_failure(code: &str, message: &str, next_step: Option<&str>, json_out: bool) -> u8 {
+fn auth_failure(code: ErrorCode, message: &str, next_step: Option<&str>, json_out: bool) -> u8 {
     super::emit_error(code, message, json_out);
     if let Some(next_step) = next_step.filter(|_| !json_out) {
         eprintln!("{next_step}");
     }
-    super::exit_code(ExitClass::of_code(code))
-}
-
-/// The declared code of a provider failure (`ProviderErrorKind` serializes
-/// to its `errorCodes` name).
-fn provider_code(error: &octocode_github::ProviderError) -> String {
-    serde_json::to_value(error.kind)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_else(|| "providerError".into())
+    super::exit_code(ExitClass::of(code))
 }
 
 const LOGIN_NEXT_STEP: &str = "Run `octocode auth login`, or set GITHUB_TOKEN / GH_TOKEN.";
@@ -155,7 +147,7 @@ pub async fn login(
     if client_id.is_empty() {
         let message =
             format!("{client_id_env} is required for GitHub Enterprise device login and refresh.");
-        return auth_failure("missingConfiguration", &message, None, json_out);
+        return auth_failure(ErrorCode::MissingConfiguration, &message, None, json_out);
     }
 
     let credential_store =
@@ -199,7 +191,7 @@ pub async fn login(
     use std::io::IsTerminal;
     if !std::io::stdin().is_terminal() {
         let message = "login requires an interactive terminal, or set GITHUB_TOKEN / GH_TOKEN.";
-        return auth_failure("invalidInput", message, None, json_out);
+        return auth_failure(ErrorCode::InvalidInput, message, None, json_out);
     }
 
     device_login(&host, client_id, &credential_store, json_out).await
@@ -233,7 +225,12 @@ async fn refresh_login(
         .error
         .as_deref()
         .unwrap_or("The stored credential could not be refreshed.");
-    auth_failure("authentication", error, Some(LOGIN_NEXT_STEP), json_out)
+    auth_failure(
+        ErrorCode::Authentication,
+        error,
+        Some(LOGIN_NEXT_STEP),
+        json_out,
+    )
 }
 
 /// A live stored OAuth credential for `host`: left in place.
@@ -293,7 +290,7 @@ async fn device_login(
             0
         }
         Err(error) => auth_failure(
-            &provider_code(&error),
+            error.kind.code(),
             &error.message,
             Some(LOGIN_NEXT_STEP),
             json_out,
@@ -326,7 +323,7 @@ fn logout_with(
             );
             0
         }
-        Err(error) => auth_failure(&provider_code(&error), &error.message, None, json_out),
+        Err(error) => auth_failure(error.kind.code(), &error.message, None, json_out),
     }
 }
 
@@ -357,31 +354,22 @@ mod auth_tests {
     }
 
     #[test]
-    fn provider_failures_report_their_declared_error_code() {
-        for (kind, code) in [
-            (ProviderErrorKind::Authentication, "authentication"),
-            (ProviderErrorKind::Validation, "invalidInput"),
-            (ProviderErrorKind::Configuration, "configuration"),
-            (
-                ProviderErrorKind::CredentialStoreUnavailable,
-                "credentialStoreUnavailable",
-            ),
-        ] {
-            assert_eq!(provider_code(&ProviderError::new(kind, "fixture")), code);
-        }
-    }
-
-    #[test]
     fn an_auth_failure_exits_by_its_code_class_in_either_output_mode() {
         for json_out in [false, true] {
             assert_eq!(
-                auth_failure("authentication", "m", Some("next"), json_out),
+                auth_failure(ErrorCode::Authentication, "m", Some("next"), json_out),
                 4
             );
-            assert_eq!(auth_failure("invalidInput", "m", None, json_out), 2);
-            assert_eq!(auth_failure("missingConfiguration", "m", None, json_out), 5);
             assert_eq!(
-                auth_failure("credentialStoreUnavailable", "m", None, json_out),
+                auth_failure(ErrorCode::InvalidInput, "m", None, json_out),
+                2
+            );
+            assert_eq!(
+                auth_failure(ErrorCode::MissingConfiguration, "m", None, json_out),
+                5
+            );
+            assert_eq!(
+                auth_failure(ErrorCode::CredentialStoreUnavailable, "m", None, json_out),
                 5
             );
         }

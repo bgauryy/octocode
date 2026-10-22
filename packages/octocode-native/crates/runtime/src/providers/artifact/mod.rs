@@ -20,6 +20,7 @@ use crate::providers::artifact::types::artifact_type;
 pub use http::{ArtifactCache, ArtifactHttp, SystemArtifactHttp};
 pub(crate) use npm::invalid_registry_url;
 pub(crate) use npmrc::npm_authorization;
+use octocode_contract_types::ErrorCode;
 pub use release_ref::{ReleaseTags, TagFuture};
 pub use types::{
     ArtifactError, ArtifactItem, ArtifactProviderPage, ArtifactProviderState, ArtifactSearchQuery,
@@ -65,7 +66,7 @@ pub async fn execute_artifact(
         ))) == "none"
     {
         return Err(ArtifactError::new(
-            "capabilityUnavailable",
+            ErrorCode::CapabilityUnavailable,
             format!(
                 "{}; {} lookups return the latest release.",
                 version_support_summary(),
@@ -228,7 +229,7 @@ fn validate_cursor_state(
         || state.page == Some(0);
     if out_of_range {
         return Err(ArtifactError::new(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             "page is outside the supported paging range; narrow the keywords.",
         ));
     }
@@ -313,7 +314,7 @@ mod cursor_state_tests {
         ] {
             let error =
                 validate_cursor_state(ArtifactType::Nuget, &state, 50).expect_err("out of range");
-            assert_eq!(error.code, "invalidInput");
+            assert_eq!(error.code, ErrorCode::InvalidInput);
         }
         for state in [
             ArtifactProviderState::default(),

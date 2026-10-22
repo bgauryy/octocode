@@ -4,6 +4,7 @@ use crate::tools::test_support::{AfterRoot, Fixture, sensitive_fixture, simple_p
 use crate::{
     execution::cancel::CancellationCheck, policy::path::PathPolicy, security::ContentSecurity,
 };
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 
 mod budget;
@@ -193,7 +194,7 @@ fn an_overflowing_time_filter_is_invalid_input_not_an_unfiltered_listing() {
             json!({"operation":"files","path":root.0,"time":{field:"99999999999999999999d"}}),
         )
         .expect_err("an overflowing duration must not broaden the result");
-        assert_eq!(error.code, "invalidInput", "{field}: {error:?}");
+        assert_eq!(error.code, ErrorCode::InvalidInput, "{field}: {error:?}");
         assert!(
             error.message.contains(&format!("time.{field}=")),
             "{error:?}"
@@ -241,7 +242,7 @@ fn missing_path_is_not_found() {
         json!({"operation":"tree","mainGoal": "test", "reasoning":"test","path":root.0.join("nope")}),
     )
     .expect_err("missing path");
-    assert_eq!(error.code, "pathNotFound", "{error:?}");
+    assert_eq!(error.code, ErrorCode::PathNotFound, "{error:?}");
 }
 
 /// A file passed as a tree root is named for what it is, workspace-relative
@@ -257,7 +258,7 @@ fn a_file_tree_root_leads_to_reading_the_file() {
             json!({"operation":"tree","path":root.0.join("src/lib.rs")}),
         )
         .expect_err("a file is not a directory");
-        assert_eq!(error.code, "notADirectory", "{error:?}");
+        assert_eq!(error.code, ErrorCode::NotADirectory, "{error:?}");
         assert!(
             !error.message.contains(&*root.0.to_string_lossy()),
             "absolute path leaked: {error:?}"
@@ -280,7 +281,7 @@ fn a_symlink_loop_root_is_a_path_validation_failure() {
     std::os::unix::fs::symlink(root.0.join("a"), root.0.join("b")).expect("b");
     let error = run(&root.0, json!({"operation":"tree","path":root.0.join("a")}))
         .expect_err("a looping root");
-    assert_eq!(error.code, "pathValidationFailed", "{error:?}");
+    assert_eq!(error.code, ErrorCode::PathValidationFailed, "{error:?}");
 }
 
 /// A missing path leads to a tree of its nearest existing parent, so the
@@ -294,7 +295,7 @@ fn a_missing_path_leads_to_its_nearest_existing_parent() {
         json!({"operation":"files","path":root.0.join("src/gone/deeper")}),
     )
     .expect_err("missing path");
-    assert_eq!(error.code, "pathNotFound", "{error:?}");
+    assert_eq!(error.code, ErrorCode::PathNotFound, "{error:?}");
     let lead = &error.next.as_ref().expect("lead")["viewTree"];
     assert_eq!(lead["tool"], "structureSearch", "{lead}");
     let query = lead["query"]["queries"][0].clone();
@@ -469,7 +470,7 @@ fn cancellation_interrupts_descendant_traversal() {
             &AfterRoot(std::sync::atomic::AtomicUsize::new(0)),
         )
         .expect_err("cancel during walk");
-        assert_eq!(error.code, "cancelled", "{operation}");
+        assert_eq!(error.code, ErrorCode::Cancelled, "{operation}");
     }
 }
 

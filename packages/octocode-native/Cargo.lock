@@ -2086,6 +2086,7 @@ dependencies = [
  "hyper-util",
  "junction",
  "libc",
+ "octocode-contract-types",
  "octocode-engine",
  "octocode-github",
  "octocode-io",
@@ -2171,6 +2172,7 @@ dependencies = [
  "bytes",
  "futures-util",
  "hex",
+ "octocode-contract-types",
  "octocode-io",
  "reqwest",
  "secrecy",
@@ -2253,6 +2255,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "octocode-contract-types",
  "octocode-native",
  "serde_json",
 ]

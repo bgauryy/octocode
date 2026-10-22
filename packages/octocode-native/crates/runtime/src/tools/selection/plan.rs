@@ -627,7 +627,7 @@ pub(super) fn select_scoped(
         Err(JudgeFailure::Provider(error)) => {
             plan.status = SelectionStatus::Unavailable;
             plan.unjudged.clear();
-            plan.reason = Some(error.code.clone());
+            plan.reason = Some(error.code.to_string());
             return Err(Failure::Provider(Box::new(ProviderFailure {
                 error,
                 outcome: finish(plan, &usage),

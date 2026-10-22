@@ -2,6 +2,7 @@ use super::{ArtifactError, ArtifactType};
 use crate::cache::{CacheClass, CacheConfig, CacheKey, Store};
 use crate::providers::RuntimeClients;
 use crate::providers::artifact::types::artifact_type;
+use octocode_contract_types::ErrorCode;
 use octocode_io::budget::{BudgetStop, RequestBudget};
 use octocode_io::retry::{Backoff, BodyError, StatusClass};
 use reqwest::header::{ACCEPT, AUTHORIZATION, HeaderValue, USER_AGENT};
@@ -202,7 +203,7 @@ fn build_client(dns_pin: Option<&DnsPin>) -> Result<reqwest::Client, ArtifactErr
     };
     octocode_io::http::client(&policy).map_err(|_| {
         ArtifactError::new(
-            "providerError",
+            ErrorCode::ProviderError,
             "Failed to initialize artifact registry HTTP client.",
         )
     })
@@ -239,7 +240,7 @@ impl SystemArtifactHttp {
                 let header =
                     HeaderValue::from_str(authorization.expose_secret()).map_err(|_| {
                         ArtifactError::new(
-                            "authentication",
+                            ErrorCode::Authentication,
                             "Resolved registry authorization is invalid.",
                         )
                     })?;
@@ -270,7 +271,7 @@ impl SystemArtifactHttp {
             }
             if class == StatusClass::Redirect {
                 return Err(ArtifactError::new(
-                    "providerError",
+                    ErrorCode::ProviderError,
                     "Artifact registry redirects are not followed.",
                 )
                 .with_status(status.as_u16()));
@@ -278,7 +279,7 @@ impl SystemArtifactHttp {
             return Ok((response, attempt));
         }
         Err(ArtifactError::new(
-            "providerError",
+            ErrorCode::ProviderError,
             "Artifact registry request failed. Retry later.",
         ))
     }
@@ -363,7 +364,7 @@ impl ArtifactHttp for SystemArtifactHttp {
 
 fn body_too_large() -> ArtifactError {
     ArtifactError::new(
-        "providerError",
+        ErrorCode::ProviderError,
         "Artifact registry response exceeded the configured body limit.",
     )
 }
@@ -419,11 +420,12 @@ fn retry_delay(
 
 fn budget_error(stop: BudgetStop) -> ArtifactError {
     match stop {
-        BudgetStop::Cancelled => {
-            ArtifactError::new("cancelled", "Artifact registry request was cancelled.")
-        }
+        BudgetStop::Cancelled => ArtifactError::new(
+            ErrorCode::Cancelled,
+            "Artifact registry request was cancelled.",
+        ),
         BudgetStop::Deadline => ArtifactError::new(
-            "timeout",
+            ErrorCode::Timeout,
             "Artifact registry request exceeded its deadline.",
         ),
     }
@@ -431,7 +433,7 @@ fn budget_error(stop: BudgetStop) -> ArtifactError {
 
 fn transport_error(_error: impl fmt::Display) -> ArtifactError {
     ArtifactError::new(
-        "providerError",
+        ErrorCode::ProviderError,
         "Artifact registry request failed. Retry later.",
     )
 }
@@ -660,7 +662,7 @@ impl RegistryClient<'_> {
             200..=299 => Ok(Some(response.body)),
             404 if not_found_is_empty => Ok(None),
             401 | 403 => Err(ArtifactError::new(
-                "authentication",
+                ErrorCode::Authentication,
                 format!(
                     "{} denied registry access.",
                     artifact_type::as_str(artifact_type)
@@ -668,7 +670,7 @@ impl RegistryClient<'_> {
             )
             .with_status(response.status)),
             429 => Err(ArtifactError::new(
-                "rateLimited",
+                ErrorCode::RateLimited,
                 format!(
                     "{} rate limit reached. Retry later.",
                     artifact_type::as_str(artifact_type)
@@ -679,7 +681,7 @@ impl RegistryClient<'_> {
             // retrying cannot help, so name the status and the registry's
             // own reason when it gives one.
             status @ 400..=499 if status != 408 => Err(ArtifactError::new(
-                "invalidInput",
+                ErrorCode::InvalidInput,
                 match rejection_detail(&response.body) {
                     Some(detail) => format!(
                         "{} registry rejected the request (HTTP {status}): {detail}",
@@ -693,7 +695,7 @@ impl RegistryClient<'_> {
             )
             .with_status(status)),
             status => Err(ArtifactError::new(
-                "providerError",
+                ErrorCode::ProviderError,
                 format!(
                     "{} registry request failed (HTTP {status}). Retry later.",
                     artifact_type::as_str(artifact_type)

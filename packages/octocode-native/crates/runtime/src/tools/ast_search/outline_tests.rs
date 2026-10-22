@@ -3,6 +3,7 @@
 use super::test_rows::*;
 use crate::execution::cancel::NeverCancel;
 use crate::tools::test_support::{Fixture, checks, simple_policy};
+use octocode_contract_types::ErrorCode;
 use serde_json::json;
 
 #[test]
@@ -17,8 +18,11 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
     .expect_err("unknown kind");
     // An `.input.invalid` code is an input rejection: CLI exit 2 and a
     // "correct the field" hint, never "broaden the query".
-    assert_eq!(error.code, "invalidInput");
-    assert!(crate::response::rows::is_invalid_input_code(&error.code));
+    assert_eq!(error.code, ErrorCode::InvalidInput);
+    assert_eq!(
+        crate::id::error_codes::class(error.code),
+        crate::id::error_codes::ErrorClass::InvalidInput
+    );
     assert!(
         error.message.contains("function, impl"),
         "{}",
@@ -76,12 +80,12 @@ fn unknown_symbol_kinds_are_rejected_and_source_limits_are_errors() {
         json!({"operation":"match","path":large,"pattern":"console.log"}),
     );
     let error = pattern.expect_err("pattern over the parse limit");
-    assert_eq!(error.code, "fileTooLarge");
+    assert_eq!(error.code, ErrorCode::FileTooLarge);
     let next = error.next.expect("findText lead");
     assert_eq!(next["findText"]["query"]["queries"][0]["regex"], "literal");
     use crate::response::output::ToolOutput;
     assert_eq!(
-        super::output::Output.error_hint("fileTooLarge"),
+        super::output::Output.error_hint(ErrorCode::FileTooLarge),
         Some(crate::response::output::NO_HINT)
     );
 }
@@ -514,6 +518,38 @@ fn symbols_list_entries_prefer_exact_names_and_lowercase_ignores_case() {
     // All-lowercase text ignores case; any capital makes it exact-case.
     assert_eq!(names(json!("native")), ["Native"]);
     assert!(names(json!("NATIVE")).is_empty());
+}
+
+/// An exact `symbolName` match says what it left out: the declarations that
+/// only contain the name, counted and named with their lines.
+#[test]
+fn an_exact_name_reports_the_declarations_it_hides() {
+    let root = Fixture::new();
+    let source = root.0.join("hide.rs");
+    std::fs::write(
+        &source,
+        "fn get() {}
+fn aget() {}
+fn get_or_create() {}
+",
+    )
+    .expect("source");
+    let run_name = |name: serde_json::Value| {
+        run(
+            &root.0,
+            json!({"operation":"symbols","mainGoal":"test","reasoning":"test","path":source,"symbolName":name}),
+        )
+        .expect("symbols")
+    };
+    let exact = run_name(json!("get"));
+    let warning = exact["warnings"][0].as_str().unwrap_or_default();
+    assert!(warning.contains("2 declarations"), "{exact}");
+    assert!(
+        warning.contains("aget (") && warning.contains("get_or_create ("),
+        "{exact}"
+    );
+    // A substring search hides nothing, so it says nothing.
+    assert!(run_name(json!("ge")).get("warnings").is_none());
 }
 
 #[test]

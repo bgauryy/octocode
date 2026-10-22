@@ -7,6 +7,7 @@
 use super::{Reply, failure};
 use crate::policy::network::is_public;
 use crate::tools::judgment::ClassificationError;
+use octocode_contract_types::ErrorCode;
 use octocode_io::budget::{BudgetStop, RequestBudget};
 use octocode_io::http::{ClientPolicy, Proxy};
 use octocode_io::retry::{BodyError, read_bounded};
@@ -77,7 +78,7 @@ impl Network<'_> {
         };
         let client = octocode_io::http::client(&policy).map_err(|_| {
             failure(
-                "classificationContextFailed",
+                ErrorCode::ClassificationContextFailed,
                 "The page request could not be prepared.",
                 "Retry; supply the page text as state if it keeps failing.",
             )
@@ -106,7 +107,7 @@ impl Network<'_> {
                 .map_err(|error| match error {
                     BodyError::Stopped(stop) => stopped(stop),
                     BodyError::TooLarge => failure(
-                        "classificationContextTooLarge",
+                        ErrorCode::ClassificationContextTooLarge,
                         format!(
                             "The page body exceeds the {} MiB capture limit; nothing was judged.",
                             self.budget.max_body_bytes / (1024 * 1024)
@@ -147,7 +148,7 @@ pub(super) fn public_addresses(
 
 pub(super) fn denied(message: &str) -> ClassificationError {
     failure(
-        "securityValidationFailed",
+        ErrorCode::SecurityValidationFailed,
         message,
         "Capture only public HTTPS pages; read internal pages with a local reader.",
     )
@@ -155,7 +156,7 @@ pub(super) fn denied(message: &str) -> ClassificationError {
 
 fn unreachable(host: &Host<String>, why: &str) -> ClassificationError {
     failure(
-        "classificationContextFailed",
+        ErrorCode::ClassificationContextFailed,
         format!("The page at {host} could not be fetched: {why}."),
         "Check the URL, or supply the page text as state.",
     )
@@ -164,12 +165,12 @@ fn unreachable(host: &Host<String>, why: &str) -> ClassificationError {
 fn stopped(stop: BudgetStop) -> ClassificationError {
     match stop {
         BudgetStop::Deadline => failure(
-            "timeout",
+            ErrorCode::Timeout,
             "The page was not fetched before the call's deadline.",
             "Retry with more time, or supply the page text as state.",
         ),
         BudgetStop::Cancelled => failure(
-            "cancelled",
+            ErrorCode::Cancelled,
             "The call stopped before its page was fetched.",
             crate::response::rows::CANCELLED_HINT,
         ),
@@ -188,10 +189,10 @@ mod tests {
             "10.0.0.5:443".parse().unwrap(),
         ];
         let error = public_addresses(&host, mixed).unwrap_err();
-        assert_eq!(error.code, "securityValidationFailed");
+        assert_eq!(error.code, ErrorCode::SecurityValidationFailed);
         assert!(error.message.contains("10.0.0.5"), "{}", error.message);
         let error = public_addresses(&host, Vec::new()).unwrap_err();
-        assert_eq!(error.code, "classificationContextFailed");
+        assert_eq!(error.code, ErrorCode::ClassificationContextFailed);
         let one = vec!["93.184.216.34:443".parse().unwrap()];
         assert_eq!(public_addresses(&host, one.clone()).unwrap(), one);
     }
@@ -336,9 +337,9 @@ mod tests {
             .await
             .err()
             .expect("one byte over the limit");
-        assert_eq!(error.code, "classificationContextTooLarge");
+        assert_eq!(error.code, ErrorCode::ClassificationContextTooLarge);
         let error = fetch_error(&server, "/over", budget(MAX_BODY_BYTES)).await;
-        assert_eq!(error.code, "classificationContextTooLarge");
+        assert_eq!(error.code, ErrorCode::ClassificationContextTooLarge);
         assert!(
             error.message.contains("exceeds the 2 MiB capture limit"),
             "{}",
@@ -359,7 +360,7 @@ mod tests {
             .await
             .err()
             .expect("nothing listens");
-        assert_eq!(error.code, "classificationContextFailed");
+        assert_eq!(error.code, ErrorCode::ClassificationContextFailed);
         assert!(
             error.message.contains(
                 "The page at docs.example.org could not be fetched: the connection failed."
@@ -378,12 +379,12 @@ mod tests {
             .await;
         let short = RequestBudget::with_timeout(Duration::from_millis(200), MAX_BODY_BYTES);
         let error = fetch_error(&server, "/slow", short).await;
-        assert_eq!(error.code, "timeout");
+        assert_eq!(error.code, ErrorCode::Timeout);
 
         let cancelled = budget(MAX_BODY_BYTES);
         cancelled.cancellation.cancel();
         let error = fetch_error(&server, "/slow", cancelled).await;
-        assert_eq!(error.code, "cancelled");
+        assert_eq!(error.code, ErrorCode::Cancelled);
     }
 
     #[tokio::test]
@@ -394,7 +395,7 @@ mod tests {
             .await
             .err()
             .expect("no host");
-        assert_eq!(error.code, "securityValidationFailed");
+        assert_eq!(error.code, ErrorCode::SecurityValidationFailed);
         assert_eq!(error.message, "The URL names no host.");
     }
 
@@ -426,7 +427,8 @@ mod tests {
                 .err()
                 .unwrap();
             assert_eq!(
-                error.code, "securityValidationFailed",
+                error.code,
+                ErrorCode::SecurityValidationFailed,
                 "{address}: {error:?}"
             );
         }

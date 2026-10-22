@@ -74,7 +74,8 @@ fn tools_print_rg_style_lines_on_a_pipe() {
     assert_eq!(flags.status.code(), Some(0), "{}", stderr(&flags));
     assert_eq!(
         stdout(&flags),
-        "notes.txt-1-alpha\nnotes.txt:2:needle here\nnotes.txt-3-omega\n"
+        // With context, as `rg --heading`: the path once, then the lines.
+        "notes.txt\n1-alpha\n2:needle here\n3-omega\n"
     );
     assert!(
         stderr(&flags).contains("# matchCount: 1"),

@@ -1,6 +1,7 @@
 //! `artifactSearch.version`: classify a requested version and resolve ranges
 //! against a registry's published versions.
 use super::ArtifactError;
+use octocode_contract_types::ErrorCode;
 use semver::{Version, VersionReq};
 
 /// What a `version` string asks for.
@@ -226,7 +227,7 @@ pub(crate) fn pypi_resolve<'a>(
 pub(crate) fn version_not_found(name: &str, requested: &str, versions: &[String]) -> ArtifactError {
     let close = nearest(requested, versions.iter().map(String::as_str));
     let error = ArtifactError::new(
-        "versionNotFound",
+        ErrorCode::VersionNotFound,
         format!("{name} has no published version matching \"{requested}\""),
     )
     .with_status(404);

@@ -1,10 +1,15 @@
 //! The scanning seam every read passes through: [`ContentScan`] (implemented by
 //! [`super::ContentSecurity`] and test doubles) and the memo that lets paged
 //! reads of one large view reuse a single scan.
+use octocode_contract_types::ErrorCode;
 use std::path::Path;
 
 pub(crate) trait ContentScan {
-    fn sanitize(&self, text: &str, path: &Path) -> Result<(String, Vec<String>), (String, String)>;
+    fn sanitize(
+        &self,
+        text: &str,
+        path: &Path,
+    ) -> Result<(String, Vec<String>), (ErrorCode, String)>;
     /// Redact whole PEM/OpenSSH/PGP private-key blocks across the FULL file
     /// before any read/search window is cut, closing the interior-window leak the
     /// anchored full-block patterns cannot catch. The default applies to every
@@ -24,7 +29,7 @@ pub(crate) trait ContentScan {
         source: &str,
         path: &Path,
         _digest: &str,
-    ) -> Result<(String, bool), (String, String)> {
+    ) -> Result<(String, bool), (ErrorCode, String)> {
         redact_lines(self, source, path)
     }
 }
@@ -36,7 +41,7 @@ pub(crate) fn redact_lines(
     scan: &(impl ContentScan + ?Sized),
     source: &str,
     path: &Path,
-) -> Result<(String, bool), (String, String)> {
+) -> Result<(String, bool), (ErrorCode, String)> {
     let lines = |text: &str| text.split_inclusive('\n').count();
     if let Ok((whole, _)) = scan.sanitize(source, path) {
         if whole == source {
@@ -69,7 +74,7 @@ pub(crate) fn sanitize_provider_text(
     security
         .sanitize(text, path)
         .map(|(text, _)| text)
-        .map_err(|(message, _)| {
+        .map_err(|(_, message)| {
             octocode_github::ProviderError::new(
                 octocode_github::ProviderErrorKind::Validation,
                 message,
@@ -83,13 +88,17 @@ pub(crate) struct Passthrough;
 
 #[cfg(test)]
 impl ContentScan for Passthrough {
-    fn sanitize(&self, text: &str, _: &Path) -> Result<(String, Vec<String>), (String, String)> {
+    fn sanitize(&self, text: &str, _: &Path) -> Result<(String, Vec<String>), (ErrorCode, String)> {
         Ok((text.to_owned(), vec![]))
     }
 }
 
 impl ContentScan for super::ContentSecurity {
-    fn sanitize(&self, text: &str, path: &Path) -> Result<(String, Vec<String>), (String, String)> {
+    fn sanitize(
+        &self,
+        text: &str,
+        path: &Path,
+    ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
         let result = self.sanitize_text(text, Some(path));
         if result
             .secrets_detected
@@ -97,7 +106,7 @@ impl ContentScan for super::ContentSecurity {
             .any(|name| name == "content-size-exceeded")
         {
             return Err((
-                "contentSecurityLimit".into(),
+                ErrorCode::ContentSecurityLimit,
                 "The selected content view exceeds the secret scanner size limit.".into(),
             ));
         }
@@ -122,7 +131,7 @@ pub(crate) struct SanitizedViewMemo {
     redacting: octocode_io::flight::KeyedFlight<[u8; 32], Option<ScanOutcome>>,
 }
 
-type ScanOutcome = Result<(String, Vec<String>), (String, String)>;
+type ScanOutcome = Result<(String, Vec<String>), (ErrorCode, String)>;
 
 impl SanitizedViewMemo {
     /// Small views are cheap to rescan; memoizing them only churns entries.
@@ -162,7 +171,7 @@ impl SanitizedViewMemo {
         path: &Path,
         digest: &str,
         inner: &impl ContentScan,
-    ) -> Result<(String, bool), (String, String)> {
+    ) -> Result<(String, bool), (ErrorCode, String)> {
         if source.len() < Self::MIN_TEXT_BYTES {
             return redact_lines(inner, source, path);
         }
@@ -189,7 +198,7 @@ impl SanitizedViewMemo {
     fn store(&self, key: [u8; 32], scanned: usize, outcome: ScanOutcome) -> ScanOutcome {
         let bytes = scanned.saturating_add(match &outcome {
             Ok((safe, warnings)) => safe.len() + warnings.iter().map(String::len).sum::<usize>(),
-            Err((code, message)) => code.len() + message.len(),
+            Err((code, message)) => crate::id::error_codes::as_str(*code).len() + message.len(),
         });
         let stored = self.entries.insert(key, outcome, bytes, None);
         std::sync::Arc::try_unwrap(stored).unwrap_or_else(|shared| shared.as_ref().clone())
@@ -242,7 +251,7 @@ impl<S: ContentScan> ContentScan for MemoizedScan<'_, S> {
         source: &str,
         path: &Path,
         digest: &str,
-    ) -> Result<(String, bool), (String, String)> {
+    ) -> Result<(String, bool), (ErrorCode, String)> {
         self.memo
             .redact_source_lines(source, path, digest, self.inner)
     }
@@ -252,6 +261,28 @@ impl<S: ContentScan> ContentScan for MemoizedScan<'_, S> {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A scanner refusal reaches the provider error as the scanner's own
+    /// message (the reason the text was withheld), not its code.
+    #[test]
+    fn provider_text_refusals_carry_the_scanner_message() {
+        struct Refusing;
+        impl ContentScan for Refusing {
+            fn sanitize(&self, _: &str, _: &Path) -> ScanOutcome {
+                Err((
+                    ErrorCode::ContentSecurityLimit,
+                    "The selected content view exceeds the secret scanner size limit.".into(),
+                ))
+            }
+        }
+        let error = sanitize_provider_text(&Refusing, "text", Path::new("github-history"))
+            .expect_err("refused");
+        assert_eq!(error.kind, octocode_github::ProviderErrorKind::Validation);
+        assert_eq!(
+            &*error.message,
+            "The selected content view exceeds the secret scanner size limit."
+        );
+    }
 
     /// Redacts `SECRET` (a multi-line hit when it spans lines) and counts
     /// its scans.

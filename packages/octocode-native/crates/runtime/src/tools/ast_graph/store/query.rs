@@ -13,6 +13,7 @@ use super::{
 use crate::policy::path::PathPolicy;
 use crate::response::exit::ExitClass;
 use crate::tools::ast_graph::types::DiagnosticCode;
+use octocode_contract_types::ErrorCode;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -105,7 +106,7 @@ enum Direction {
 
 type Failure = Box<GraphOutput>;
 
-fn fail(code: &str, message: impl Into<String>) -> Failure {
+fn fail(code: ErrorCode, message: impl Into<String>) -> Failure {
     Box::new(GraphOutput::error(code, message))
 }
 
@@ -120,7 +121,7 @@ fn locate(options: &QueryOptions) -> Result<PathBuf, Failure> {
         }
     }
     let home = graph_home(options.workspace.as_deref())
-        .map_err(|message| fail("workspaceRootInvalid", message))?;
+        .map_err(|message| fail(ErrorCode::WorkspaceRootInvalid, message))?;
     let ids = list_snapshots(&home);
     let chosen = match options.graph.as_deref() {
         Some(spec) => choose_snapshot(&home, &ids, spec)?,
@@ -146,7 +147,7 @@ fn locate(options: &QueryOptions) -> Result<PathBuf, Failure> {
                 home.display()
             ),
         };
-        fail("notFound", message)
+        fail(ErrorCode::NotFound, message)
     })
 }
 
@@ -193,7 +194,7 @@ fn choose_snapshot(home: &Path, ids: &[String], spec: &str) -> Result<Option<Str
 
 fn ambiguous_graph(spec: &str, candidates: &[String]) -> Failure {
     let mut out = GraphOutput::error(
-        "invalidInput",
+        ErrorCode::InvalidInput,
         format!(
             "{} graphs match {spec:?}; pass one exact id with --graph",
             candidates.len()
@@ -207,23 +208,32 @@ fn load(options: &QueryOptions, paths: &PathPolicy) -> Result<Graph, Failure> {
     let dir = locate(options)?;
     let dir = paths
         .validate(&dir)
-        .map_err(|error| fail(error.local_error_code("pathPolicyDenied"), error.message))?
+        .map_err(|error| {
+            fail(
+                error.local_error_code(ErrorCode::PathPolicyDenied),
+                error.message,
+            )
+        })?
         .canonical;
     let manifest = std::fs::read(dir.join(MANIFEST_FILE))
         .ok()
         .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
         .ok_or_else(|| {
             fail(
-                "decode",
+                ErrorCode::Decode,
                 format!("{} has no readable manifest", dir.display()),
             )
         })?;
-    let bytes = read_graph_file(&dir.join(GRAPH_FILE))
-        .map_err(|error| fail("decode", format!("cannot read {GRAPH_FILE}: {error}")))?;
-    let (t, digest) = decode(&bytes).map_err(|message| fail("decode", message))?;
+    let bytes = read_graph_file(&dir.join(GRAPH_FILE)).map_err(|error| {
+        fail(
+            ErrorCode::Decode,
+            format!("cannot read {GRAPH_FILE}: {error}"),
+        )
+    })?;
+    let (t, digest) = decode(&bytes).map_err(|message| fail(ErrorCode::Decode, message))?;
     if manifest["graph"]["sha256"].as_str() != Some(digest.as_str()) {
         return Err(fail(
-            "decode",
+            ErrorCode::Decode,
             "graph.bin does not match its manifest digest; re-run `octocode graph ingest`",
         ));
     }
@@ -231,12 +241,15 @@ fn load(options: &QueryOptions, paths: &PathPolicy) -> Result<Graph, Failure> {
     // manifest's root, which its digest does not cover: it must be the
     // canonical spelling of a directory inside the allowed roots.
     let root = manifest["root"].as_str().unwrap_or_default();
-    let allowed = paths
-        .validate_output(root)
-        .map_err(|error| fail(error.local_error_code("pathPolicyDenied"), error.message))?;
+    let allowed = paths.validate_output(root).map_err(|error| {
+        fail(
+            error.local_error_code(ErrorCode::PathPolicyDenied),
+            error.message,
+        )
+    })?;
     if allowed.canonical != Path::new(root) {
         return Err(fail(
-            "decode",
+            ErrorCode::Decode,
             format!(
                 "{MANIFEST_FILE} root {root:?} is not a canonical path; re-run `octocode graph ingest`"
             ),
@@ -406,7 +419,7 @@ impl Graph {
                     .map(|id| self.key(id).to_owned())
                     .collect::<Vec<_>>();
                 let mut out = GraphOutput::error(
-                    "notFound",
+                    ErrorCode::NotFound,
                     format!(
                         "no node matches {reference:?}; try `octocode graph query find <text>`"
                     ),
@@ -418,7 +431,7 @@ impl Graph {
             }
             many => {
                 let mut out = GraphOutput::error(
-                    "invalidInput",
+                    ErrorCode::InvalidInput,
                     format!(
                         "{} nodes match {reference:?}; pass one of the candidate ids (or --kind)",
                         many.len()
@@ -523,13 +536,13 @@ fn select_list(
     };
     let Some((section, field)) = list.split_once('.') else {
         return Err(GraphOutput::error(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             "--list needs summary.<field> or baseline.<field>",
         ));
     };
     if !matches!(section, "summary" | "baseline") {
         return Err(GraphOutput::error(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             "--list names a summary or baseline array",
         ));
     }
@@ -539,7 +552,7 @@ fn select_list(
         .and_then(|object| object.remove(field))
     else {
         return Err(GraphOutput::error(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             format!("unknown evidence list {list:?}"),
         ));
     };
@@ -733,7 +746,7 @@ pub fn query(options: &QueryOptions, paths: &PathPolicy) -> GraphOutput {
 fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphOutput> {
     if !OPS.contains(&options.op.as_str()) {
         return Err(GraphOutput::error(
-            "invalidInput",
+            ErrorCode::InvalidInput,
             format!(
                 "unknown op {:?}; expected one of: {}",
                 options.op,
@@ -752,10 +765,9 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
     match options.op.as_str() {
         "stats" => Ok(stats(g)),
         "find" => {
-            let text = options
-                .target
-                .as_deref()
-                .ok_or_else(|| GraphOutput::error("invalidInput", "`find` needs search text"))?;
+            let text = options.target.as_deref().ok_or_else(|| {
+                GraphOutput::error(ErrorCode::InvalidInput, "`find` needs search text")
+            })?;
             Ok(run_page(
                 options,
                 g,
@@ -799,7 +811,7 @@ fn run(options: &QueryOptions, paths: &PathPolicy) -> Result<GraphOutput, GraphO
             }
             Ok(out)
         }
-        _ => Err(GraphOutput::error("invalidInput", "unknown op")),
+        _ => Err(GraphOutput::error(ErrorCode::InvalidInput, "unknown op")),
     }
 }
 
@@ -814,7 +826,7 @@ struct Flags {
 
 impl Flags {
     fn parse(options: &QueryOptions) -> Result<Self, GraphOutput> {
-        let invalid = |message: String| GraphOutput::error("invalidInput", message);
+        let invalid = |message: String| GraphOutput::error(ErrorCode::InvalidInput, message);
         let kind = match options.kind.as_deref() {
             None => None,
             Some(value) => Some(NodeKind::parse(value).ok_or_else(|| {
@@ -889,7 +901,7 @@ impl Query<'_> {
     fn target(&self, required: &str) -> Result<u32, GraphOutput> {
         let reference = self.options.target.as_deref().ok_or_else(|| {
             GraphOutput::error(
-                "invalidInput",
+                ErrorCode::InvalidInput,
                 format!("`{}` needs {required}", self.options.op),
             )
         })?;
@@ -968,7 +980,10 @@ impl Query<'_> {
         let g = self.g;
         let from = self.target("a source reference")?;
         let reference = self.options.to.as_deref().ok_or_else(|| {
-            GraphOutput::error("invalidInput", "`path` needs a target: path <from> <to>")
+            GraphOutput::error(
+                ErrorCode::InvalidInput,
+                "`path` needs a target: path <from> <to>",
+            )
         })?;
         let to = g
             .resolve(reference, self.flags.kind)
@@ -1022,7 +1037,7 @@ impl Query<'_> {
         let mut unmapped = Vec::new();
         if let Some(rev) = &options.since {
             let changed = git_changed(&root, rev)
-                .map_err(|message| GraphOutput::error("gitFailed", message))?;
+                .map_err(|message| GraphOutput::error(ErrorCode::GitFailed, message))?;
             for path in changed {
                 if super::super::freshness::is_global_config(&path) {
                     global.push((parent_of(&path).to_owned(), path));
@@ -1036,7 +1051,7 @@ impl Query<'_> {
         if refs.is_empty() && global.is_empty() {
             let Some(rev) = &options.since else {
                 return Err(GraphOutput::error(
-                    "invalidInput",
+                    ErrorCode::InvalidInput,
                     "`impact` needs a reference, --changed, or --since <rev>",
                 ));
             };
@@ -1107,7 +1122,7 @@ impl Query<'_> {
             .filter(|d| !d.is_empty())
             .map(str::to_owned)
             .collect::<Vec<_>>();
-        let invalid = |message: String| GraphOutput::error("invalidInput", message);
+        let invalid = |message: String| GraphOutput::error(ErrorCode::InvalidInput, message);
         let root = PathBuf::from(g.manifest["root"].as_str().unwrap_or_default());
         let scan_root = root.is_dir().then_some(root.as_path());
         let mut entries = Vec::new();
@@ -1171,7 +1186,10 @@ impl Query<'_> {
     /// The structural drift from the `--baseline` snapshot to this one.
     fn drift(&self, paths: &PathPolicy) -> Result<GraphOutput, GraphOutput> {
         let base = self.options.baseline.as_deref().ok_or_else(|| {
-            GraphOutput::error("invalidInput", "`drift` needs --baseline <snapshot>")
+            GraphOutput::error(
+                ErrorCode::InvalidInput,
+                "`drift` needs --baseline <snapshot>",
+            )
         })?;
         let base_options = QueryOptions {
             graph: Some(base.to_owned()),
@@ -1219,7 +1237,7 @@ impl Query<'_> {
             base_root.is_dir().then_some(base_root.as_path()),
             entries,
         )
-        .map_err(|message| GraphOutput::error("invalidInput", message))?;
+        .map_err(|message| GraphOutput::error(ErrorCode::InvalidInput, message))?;
         let old = before
             .findings
             .iter()
@@ -1595,7 +1613,7 @@ fn cycles(g: &Graph, filter: &EdgeFilter, options: &QueryOptions) -> Result<Page
     if options.list.as_deref() == Some("cycleNodes") {
         let Some(target) = options.target.as_deref() else {
             return Err(GraphOutput::error(
-                "invalidInput",
+                ErrorCode::InvalidInput,
                 "cycleNodes needs a cycle member",
             ));
         };
@@ -1604,7 +1622,7 @@ fn cycles(g: &Graph, filter: &EdgeFilter, options: &QueryOptions) -> Result<Page
             .find(|(component, _)| component.iter().any(|key| key == target))
         else {
             return Err(GraphOutput::error(
-                "invalidInput",
+                ErrorCode::InvalidInput,
                 format!("no cycle contains {target:?}"),
             ));
         };

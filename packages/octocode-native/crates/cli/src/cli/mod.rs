@@ -14,6 +14,7 @@ mod skill;
 mod system;
 use clap::{CommandFactory, FromArgMatches, Parser};
 use commands::{AuthCommand, Command, ConfigCommand, ToolArgs};
+use octocode_contract_types::ErrorCode;
 use octocode_native::config::RuntimeSurface;
 use octocode_native::execution::availability::{Availability, ToolAvailability};
 use octocode_native::id::ToolId;
@@ -45,10 +46,12 @@ const ROOT_HELP: &str = r#"Native Octocode research tools.
 Tools: flags like rg/gh (octocode localSearch PATTERN [PATH] -w -g '*.rs'), or
 one JSON query ({…} or {"queries":[…]}); --input FILE|- reads a JSON query.
 Discovery: schema lists tools; schema <tool> lists query fields.
-Reference: schema [<tool>] --view full. Examples: <tool> --help.
+Reference: schema [<tool>] --view full. Flags: <tool> --help.
 Graph: graph ingest <path>, then graph query <op> [ref]; see graph --help.
 
 Output: text, on a terminal or a pipe; --json prints JSON (schema always does).
+Text: result lines on stdout ([ … ] after a line lists its other fields); # notes
+and follow-up commands on stderr.
 Errors: the JSON envelope on stdout with --json, text on stderr otherwise.
 Exits: 0 success, 1 empty, 2 invalid input (including batch rows), 3 not found,
 4 auth required, 5 execution error, 7 rate limited, 130 interrupted.
@@ -98,7 +101,7 @@ fn stdout_is_terminal() -> bool {
 /// A command's own failure (not a tool call's): the `{error, errorCode}`
 /// envelope tool errors use, on stdout in JSON mode, else the message on
 /// stderr. Every code is a declared `errorCodes` entry.
-fn emit_error(code: &str, message: &str, mode: impl Into<OutputMode>) {
+fn emit_error(code: ErrorCode, message: &str, mode: impl Into<OutputMode>) {
     let mode = mode.into();
     let envelope = error_envelope(code, message, &[]);
     if mode.json {
@@ -111,7 +114,7 @@ fn emit_error(code: &str, message: &str, mode: impl Into<OutputMode>) {
 
 /// The `{error, errorCode[, details]}` envelope of a command's own failure,
 /// with secrets scrubbed from every line.
-fn error_envelope(code: &str, message: &str, details: &[&str]) -> Value {
+fn error_envelope(code: ErrorCode, message: &str, details: &[&str]) -> Value {
     use octocode_native::security::scrub_error_text;
     let details = details.iter().map(|line| scrub_error_text(line)).collect();
     let mut envelope = octocode_native::contracts::tool_error(&scrub_error_text(message), details);
@@ -137,12 +140,22 @@ fn parse_error_mode(argv: &[std::ffi::OsString]) -> OutputMode {
     OutputMode::new(json_flag, command.is_some_and(answers_pipe_in_json))
 }
 
+/// Clap's diagnostic without its "to pass '-L' as a value, use '-- -L'" tip:
+/// an unknown flag is a flag the tool lacks (its help lists the ones it has),
+/// never a positional value that starts with `-`.
+fn without_dash_dash_tip(rendered: &str) -> String {
+    rendered
+        .split_inclusive('\n')
+        .filter(|line| !(line.contains("to pass '") && line.contains("as a value, use '-- ")))
+        .collect()
+}
+
 /// Clap's diagnostic as text on stderr, colored when stderr is a terminal,
 /// with secrets scrubbed.
 fn print_clap_error(error: &clap::Error) {
-    let rendered = error.render().to_string();
-    let sanitized = octocode_native::security::scrub_error_text(&rendered);
-    if sanitized == rendered {
+    let original = error.render().to_string();
+    let sanitized = octocode_native::security::scrub_error_text(&without_dash_dash_tip(&original));
+    if sanitized == original {
         let _ = error.print();
     } else {
         let _ = io::stderr().lock().write_all(sanitized.as_bytes());
@@ -153,7 +166,7 @@ fn print_clap_error(error: &clap::Error) {
 /// and `tip:` lines (the did-you-mean names), and every other line (possible
 /// values, usage) is a `details` entry.
 fn clap_error_envelope(error: &clap::Error) -> Value {
-    let rendered = error.render().to_string();
+    let rendered = without_dash_dash_tip(&error.render().to_string());
     let (message, details): (Vec<&str>, Vec<&str>) = rendered
         .lines()
         .map(str::trim)
@@ -165,7 +178,7 @@ fn clap_error_envelope(error: &clap::Error) -> Value {
         .collect::<Vec<_>>()
         .join("; ");
     // A rejected command line is the caller's input, like a bad query.
-    error_envelope("invalidInput", &message, &details)
+    error_envelope(ErrorCode::InvalidInput, &message, &details)
 }
 
 pub fn parse_args() -> Result<Args, u8> {
@@ -192,7 +205,7 @@ where
         Ok(args) => Ok(args),
         Err(error) => {
             let error = if is_help(&error) {
-                help_command(&argv)
+                help_command()
                     .try_get_matches_from(&argv)
                     .err()
                     .unwrap_or(error)
@@ -247,7 +260,10 @@ fn hide_unavailable_tools(mut command: clap::Command) -> clap::Command {
         }
         // A classification key enables the selection flags (clasifyContext).
         if selection {
-            for field in flags::selection_only(tool.as_str()) {
+            for field in flags::selection_only(tool.as_str())
+                .into_iter()
+                .filter(|field| !flags::is_copied(field))
+            {
                 command = command.mut_subcommand(tool.as_str(), |sub| {
                     sub.mut_arg(flags::field_id(field), |arg| arg.hide(false))
                 });
@@ -257,21 +273,21 @@ fn hide_unavailable_tools(mut command: clap::Command) -> clap::Command {
     command
 }
 
-/// The help command for `argv`: unavailable tools hidden, and the help
-/// section of the one tool `argv` names, or the root help's examples of
-/// every available tool.
-fn help_command(argv: &[std::ffi::OsString]) -> clap::Command {
-    let command = hide_unavailable_tools(Args::command());
-    let tool = argv
-        .iter()
-        .skip(1)
-        .filter_map(|arg| arg.to_str())
-        .find(|arg| !arg.starts_with('-') && *arg != "help")
-        .and_then(ToolId::from_name);
-    match tool {
-        Some(tool) => with_tool_help(command, tool),
-        None => with_examples(command),
-    }
+/// The help command: unavailable tools hidden, each tool's help ending with
+/// what the query needs (required fields and one runnable example), and the
+/// root help with every available tool's flag examples, all from the
+/// embedded CLI presentation.
+fn help_command() -> clap::Command {
+    let command =
+        ToolId::ALL
+            .into_iter()
+            .fold(hide_unavailable_tools(Args::command()), |command, tool| {
+                match octocode_native::contracts::cli_tool_help(tool.as_str()) {
+                    Some(help) => command.mut_subcommand(tool.as_str(), |sub| sub.after_help(help)),
+                    None => command,
+                }
+            });
+    with_examples(command)
 }
 
 /// The root help ends with each available tool's flag examples from the
@@ -293,15 +309,6 @@ fn with_examples(command: clap::Command) -> clap::Command {
         .map(ToString::to_string)
         .unwrap_or_default();
     command.after_help(format!("Examples:\n{}\n\n{after}", examples.join("\n")))
-}
-
-/// `<tool> --help` ends with what the query needs: required fields and one
-/// runnable example, from the embedded CLI presentation.
-fn with_tool_help(command: clap::Command, tool: ToolId) -> clap::Command {
-    match schema::tool_help(tool.as_str()) {
-        Some(help) => command.mut_subcommand(tool.as_str(), |sub| sub.after_help(help)),
-        None => command,
-    }
 }
 
 /// Text for a disabled tool whose gating env key was present in a `.env`
@@ -377,6 +384,9 @@ fn machine_catalog(runtime: &ToolRuntime) -> Result<Value, String> {
     Ok(json!({
         "fingerprint": catalog["fingerprint"],
         "grammarCapabilities": catalog["grammarCapabilities"],
+        // The language servers this runtime resolves: `schema lspSearch`
+        // names them as MCP's description does.
+        "lspServers": catalog["lspServers"],
         "presentation": catalog["presentation"],
         "tools": tools
     }))
@@ -429,7 +439,7 @@ fn credential_changed(code: u8) -> u8 {
 
 /// A runtime that could not start: its error in the command's output mode.
 fn start_failed(error: &RuntimeError, mode: OutputMode) -> u8 {
-    emit_error(&error.code, &error.message, mode);
+    emit_error(error.code, &error.message, mode);
     exit_code(error.exit_class())
 }
 
@@ -457,9 +467,9 @@ async fn dispatch(command: Command, runtime: &ToolRuntime, mode: OutputMode) -> 
                 Ok(value) => write_json(&value),
                 Err(error) => {
                     let code = if error.exit == 2 {
-                        "invalidInput"
+                        ErrorCode::InvalidInput
                     } else {
-                        "contract"
+                        ErrorCode::Contract
                     };
                     emit_error(code, &error.message, mode);
                     error.exit
@@ -582,7 +592,7 @@ async fn run_tool(tool: commands::ToolCommand, mode: OutputMode) -> u8 {
     let input = match tool_input(tool.name, &tool.args, tool.flags) {
         Ok(input) => input,
         Err(message) => {
-            emit_error("invalidInput", &message, mode);
+            emit_error(ErrorCode::InvalidInput, &message, mode);
             return 2;
         }
     };
@@ -743,18 +753,37 @@ impl Printed {
                 } else if let Some(text) = lines::render(tool, &outcome.structured_content, query) {
                     (text.out, Some(text.notes).filter(|notes| !notes.is_empty()))
                 } else {
-                    // The rendered text stays as the runtime wrote it; its
-                    // follow-up calls repeat on stderr as commands.
+                    // Follow-up calls print once, on stderr as commands: a
+                    // whole YAML result renders again without them. A page
+                    // of whole rows renders too (the runtime skips text for
+                    // it and hands its JSON on); a text window, or a JSON
+                    // text channel the configuration chose, stays as written.
                     let follow_ups = lines::follow_ups(&outcome.structured_content);
                     let notes = follow_ups
                         .iter()
                         .map(|line| format!("# {line}"))
                         .collect::<Vec<_>>()
                         .join("\n");
-                    (
-                        outcome_text(&outcome.content),
-                        Some(notes).filter(|notes| !notes.is_empty()),
-                    )
+                    let text = outcome_text(&outcome.content);
+                    let row_page = row_page(&outcome.structured_content);
+                    let whole = outcome
+                        .structured_content
+                        .get("responsePagination")
+                        .is_none();
+                    let body = match ToolId::from_name(tool) {
+                        Some(id)
+                            if row_page
+                                || (!follow_ups.is_empty() && !text.starts_with('{') && whole) =>
+                        {
+                            octocode_native::response::render_text(
+                                id,
+                                &lines::without_follow_ups(&outcome.structured_content),
+                                query,
+                            )
+                        }
+                        _ => text,
+                    };
+                    (body, Some(notes).filter(|notes| !notes.is_empty()))
                 };
                 // A call whose every row failed prints its text on stderr,
                 // so a pipe never reads an error as data.
@@ -874,6 +903,19 @@ impl Printed {
     }
 }
 
+/// A response page of whole rows (`responseScope` rows): its structured
+/// content holds complete rows, so it renders as text like a whole result.
+fn row_page(structured: &Value) -> bool {
+    let paging = &structured["responsePagination"];
+    paging.is_object()
+        && paging["next"]["query"]["responseScope"]
+            .as_str()
+            .is_none_or(|scope| scope == "rows")
+        && structured["results"]
+            .as_array()
+            .is_some_and(|rows| !rows.is_empty())
+}
+
 /// The text channel of a tool result: its content blocks, in order.
 fn outcome_text(content: &[octocode_native::response::pager::TextContent]) -> String {
     content
@@ -937,6 +979,7 @@ fn json_text(value: &Value, terminal: bool) -> serde_json::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::{Printed, Stream, parse_args_from};
+    use octocode_contract_types::ErrorCode;
     use octocode_native::runtime::RuntimeError;
     use serde_json::json;
 
@@ -985,7 +1028,7 @@ mod tests {
     #[test]
     fn printed_calls_round_trip_through_the_reply_line() {
         let error = || RuntimeError {
-            code: "timeout".into(),
+            code: ErrorCode::Timeout,
             message: "Tool call timed out.".into(),
             payload: None,
             validation_issues: None,
@@ -1033,7 +1076,7 @@ mod tests {
         )
         .expect_err("invalid input");
         let invalid = || RuntimeError {
-            code: "invalidInput".into(),
+            code: ErrorCode::InvalidInput,
             message: error.to_string(),
             payload: Some(Box::new(contracts::format_input_error(tool, &error))),
             validation_issues: None,
@@ -1062,7 +1105,7 @@ mod tests {
         );
 
         let timeout = RuntimeError {
-            code: "timeout".into(),
+            code: ErrorCode::Timeout,
             message: "Tool call timed out.".into(),
             payload: None,
             validation_issues: None,

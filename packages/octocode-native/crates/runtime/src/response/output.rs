@@ -6,6 +6,7 @@
 //! A tool module implements [`ToolOutput`] on a unit struct and the
 //! dispatch points its `ToolId` at it.
 
+use octocode_contract_types::ErrorCode;
 use serde_json::Value;
 
 /// Whether the row query sets `key` to something: not absent, null, blank or
@@ -54,11 +55,17 @@ pub(crate) trait ToolOutput: Sync {
     /// carries only its own facts).
     fn fallback_hint(&self, query: &Value) -> &'static str;
 
-    /// Recovery for an `errorCode` (or an empty row's `category`) only this
-    /// tool emits; [`NO_HINT`] when the row's own facts are the whole answer.
-    /// Codes every tool shares (sandbox, auth, rate limit, timeout, not
-    /// found, invalid input) are answered by the response stage.
-    fn error_hint(&self, _code: &str) -> Option<&'static str> {
+    /// Recovery for an `errorCode` only this tool emits; [`NO_HINT`] when
+    /// the row's own facts are the whole answer. Codes every tool shares
+    /// (sandbox, auth, rate limit, timeout, not found, invalid input) are
+    /// answered by the response stage.
+    fn error_hint(&self, _code: ErrorCode) -> Option<&'static str> {
+        None
+    }
+
+    /// Recovery for an empty row's `category` only this tool emits;
+    /// [`NO_HINT`] when the row's own facts are the whole answer.
+    fn category_hint(&self, _category: &str) -> Option<&'static str> {
         None
     }
 

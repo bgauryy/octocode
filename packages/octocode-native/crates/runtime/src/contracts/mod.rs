@@ -9,6 +9,7 @@ pub(crate) mod shared_fields;
 #[cfg(test)]
 mod undeclared;
 mod validate;
+use octocode_contract_types::ErrorCode;
 pub(crate) use validate::{levenshtein, qualifier_terms};
 
 use crate::id::ToolId;
@@ -114,7 +115,7 @@ pub(crate) fn isolate_row_violations(
                 "Row output violated the {tool_name} contract and was withheld: {}",
                 issues.join("; ")
             ),
-            "errorCode": "outputContractViolation",
+            "errorCode": ErrorCode::OutputContractViolation,
         });
     }
     validate_output(tool_name, &patched).ok()?;
@@ -261,6 +262,29 @@ pub fn cli_presentation() -> Result<&'static serde_json::Value, &'static str> {
         .map_err(String::as_str)
 }
 
+/// Each tool's `name`, `cli` and `selection.cli` from the CLI presentation
+/// (an array in presentation order), parsed on first use: what building the
+/// CLI's tool flags reads, without the presentation's `schema` views.
+pub fn cli_tool_flags() -> Result<&'static serde_json::Value, &'static str> {
+    static FLAGS: std::sync::OnceLock<Result<serde_json::Value, String>> =
+        std::sync::OnceLock::new();
+    FLAGS
+        .get_or_init(|| {
+            serde_json::from_str(generated::CLI_TOOL_FLAGS_JSON).map_err(|error| error.to_string())
+        })
+        .as_ref()
+        .map_err(String::as_str)
+}
+
+/// The `<tool> --help` section of the CLI presentation tool `name`.
+#[must_use]
+pub fn cli_tool_help(name: &str) -> Option<&'static str> {
+    generated::CLI_TOOL_HELP
+        .iter()
+        .find(|(tool, _)| *tool == name)
+        .map(|(_, help)| *help)
+}
+
 /// Provenance written by `@octocodeai/config`: core package version, contract
 /// fingerprint, and the digest of the embedded contract bytes.
 #[cfg(test)]
@@ -276,11 +300,36 @@ mod contract_owner_tests {
     };
     use serde_json::json;
 
+    /// The flags and help parts the build cuts from the CLI presentation
+    /// are exactly its tools' `cli`, `selection.cli` and `help`.
+    #[test]
+    fn cli_tool_parts_match_the_presentation() {
+        let presentation = super::cli_presentation().expect("presentation");
+        let tools = presentation["tools"].as_array().expect("tools");
+        let flags = super::cli_tool_flags().expect("flags");
+        assert_eq!(flags.as_array().map(Vec::len), Some(tools.len()));
+        for (tool, entry) in tools.iter().zip(flags.as_array().into_iter().flatten()) {
+            let name = tool["name"].as_str().expect("name");
+            assert_eq!(entry["name"], name);
+            assert_eq!(entry["cli"], tool["cli"], "{name} cli");
+            assert_eq!(
+                entry["selection"]["cli"], tool["selection"]["cli"],
+                "{name} selection.cli"
+            );
+            assert_eq!(
+                super::cli_tool_help(name),
+                tool["help"].as_str(),
+                "{name} help"
+            );
+        }
+        assert_eq!(super::cli_tool_help("nope"), None);
+    }
+
     /// Every classification notice native renders is authored in the
     /// embedded contract.
     #[test]
     fn every_classification_notice_comes_from_the_contract() {
-        for key in ["filtered", "failedWithRead", "failed", "imageInspection"] {
+        for key in ["failedWithRead", "failed", "imageInspection"] {
             assert!(
                 !super::classification_notice(key).is_empty(),
                 "classificationNotices.{key}"

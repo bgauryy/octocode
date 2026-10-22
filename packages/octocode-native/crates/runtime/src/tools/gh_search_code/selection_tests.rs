@@ -7,6 +7,7 @@ use crate::security::scan::ContentScan;
 use crate::tools::gh_shared::test_support::{default_context, one_shot_provider};
 use crate::tools::selection::{Decision, JudgeCall, Runtime, SelectionJudge, apply_sanitized_rows};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
+use octocode_contract_types::ErrorCode;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -60,7 +61,7 @@ impl ContentScan for TestRedaction {
         &self,
         text: &str,
         _: &std::path::Path,
-    ) -> Result<(String, Vec<String>), (String, String)> {
+    ) -> Result<(String, Vec<String>), (ErrorCode, String)> {
         Ok((
             text.replace("PRIVATE_SENTINEL", "[REDACTED_FOR_TEST]"),
             vec![],

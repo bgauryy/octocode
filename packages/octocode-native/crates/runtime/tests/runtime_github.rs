@@ -2,6 +2,7 @@
 //! reads, recoveries, rate limits and bulk dispatch against a mock GitHub.
 
 use crate::support::{self, Run as _};
+use octocode_contract_types::ErrorCode;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
@@ -363,7 +364,7 @@ async fn github_clone_is_cli_only() {
     let error = call(&mcp, "ghCloneRepo", json!({"owner":"a","repo":"b"}))
         .await
         .expect_err("clone disabled for MCP");
-    assert_eq!(error.code, "toolUnavailable");
+    assert_eq!(error.code, ErrorCode::ToolUnavailable);
     mcp.close().await;
 }
 
